@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Игральный кубик — бросание кости с анимацией</title>
+<meta name="description" content="3D-игральный кубик на чистом HTML/CSS/JS: анимация броска, 1–6 кубиков, удержание костей, статистика и история бросков.">
+<style>
+/* ============================================================
+   ИГРАЛЬНЫЙ КУБИК
+   Куб собран из 6 граней на CSS 3D-трансформах.
+   Ориентация кости задаётся тремя переменными: --rx, --ry, --rz.
+   Поворот на нужную грань = просто смена этих переменных с длинным
+   transition → кость крутится «волчком» и замирает ровно нужной
+   стороной к зрителю.
+   ============================================================ */
+:root{
+  --bg-0:#0b1220;
+  --bg-1:#101a2e;
+  --felt-0:#0f5132;
+  --felt-1:#093420;
+  --ink:#eaf0fb;
+  --ink-dim:#9fb0cc;
+  --accent:#ffcc4d;
+  --accent-2:#ff7a59;
+  --card:#16223a;
+  --card-2:#1b2a46;
+  --line:rgba(255,255,255,.09);
+  --die-size:96px;
+  --ease-settle:cubic-bezier(.16,.86,.25,1);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:var(--ink);
+  background:
+    radial-gradient(1200px 700px at 15% -10%, #1d2c4d 0%, transparent 60%),
+    radial-gradient(900px 600px at 110% 20%, #17364a 0%, transparent 55%),
+    linear-gradient(180deg,var(--bg-0),var(--bg-1));
+  min-height:100%;
+  -webkit-font-smoothing:antialiased;
+}
+.app{
+  max-width:1080px;
+  margin:0 auto;
+  padding:28px 20px 44px;
+  display:grid;
+  gap:20px;
+}
+
+/* ---------- шапка ---------- */
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;justify-content:space-between}
+.title{display:flex;align-items:center;gap:14px}
+.title h1{margin:0;font-size:clamp(23px,4.4vw,37px);letter-spacing:.3px;line-height:1.1}
+.title p{margin:5px 0 0;color:var(--ink-dim);font-size:14px}
+.logo{
+  width:46px;height:46px;border-radius:12px;flex:0 0 auto;
+  background:linear-gradient(145deg,#fff,#d9e2f2);
+  display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+  padding:8px;box-shadow:0 8px 22px rgba(0,0,0,.35), inset 0 -2px 0 rgba(0,0,0,.08);
+  transform:rotate(-8deg);
+}
+.logo i{width:7px;height:7px;border-radius:50%;background:#1b2333;justify-self:center;align-self:center}
+.logo i:nth-child(1){grid-area:1/1}
+.logo i:nth-child(2){grid-area:2/2}
+.logo i:nth-child(3){grid-area:3/3}
+.group{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.label{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--ink-dim)}
+
+/* ---------- стол с сукном ---------- */
+.table{
+  position:relative;
+  border-radius:22px;
+  padding:32px 22px 18px;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(255,255,255,.07), transparent 55%),
+    linear-gradient(180deg,var(--felt-0),var(--felt-1));
+  box-shadow:0 26px 60px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.06);
+  overflow:hidden;
+}
+.table::before{
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.035) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.05) 0 2px, transparent 2px 4px);
+}
+.table::after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 90px rgba(0,0,0,.45)}
+.tray{
+  position:relative;
+  min-height:236px;
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
+  gap:clamp(10px,3vw,26px);
+  perspective:1100px;
+  perspective-origin:50% 30%;
+}
+.tray.shake{animation:tray-shake .5s ease-out}
+@keyframes tray-shake{
+  0%,100%{transform:translate3d(0,0,0)}
+  20%{transform:translate3d(-4px,2px,0)}
+  40%{transform:translate3d(5px,-1px,0)}
+  60%{transform:translate3d(-3px,-2px,0)}
+  80%{transform:translate3d(2px,1px,0)}
+}
+
+/* ---------- кубик ---------- */
+.die{
+  position:relative;
+  width:var(--die-size);height:var(--die-size);
+  transform-style:preserve-3d;
+  cursor:pointer;
+  --rx:0deg;--ry:0deg;--rz:0deg;
+  -webkit-tap-highlight-color:transparent;
+}
+.die.in{animation:pop-in .45s var(--ease-settle) backwards}
+@keyframes pop-in{from{opacity:0;transform:translateY(14px) scale(.7)}to{opacity:1;transform:none}}
+.die.out{animation:pop-out .28s ease-in forwards;pointer-events:none}
+@keyframes pop-out{to{opacity:0;transform:translateY(-10px) scale(.6)}}
+/* полёт: кость вылетает «из руки», дважды подпрыгивает, при посадке приседает */
+.die.throw{animation:throw var(--fly-time,1150ms) var(--ease-settle)}
+@keyframes throw{
+  0%  {transform:translate3d(calc(var(--fly-x) * -1), calc(var(--fly-y) * -1), 0) scale(.82)}
+  14% {transform:translate3d(calc(var(--fly-x) * -.25), -54px, 0) scale(1.1)}
+  36% {transform:translate3d(0,0,0) scale(1)}
+  52% {transform:translate3d(0,-28px,0) scale(1.02)}
+  68% {transform:translate3d(0,0,0) scale(1)}
+  80% {transform:translate3d(0,-9px,0) scale(1)}
+  91% {transform:translate3d(0,0,0) scale(1.06,.93)}
+  100%{transform:translate3d(0,0,0) scale(1)}
+}
+.cube{
+  position:absolute;inset:0;
+  transform-style:preserve-3d;
+  transform:rotateZ(var(--rz)) rotateX(var(--rx)) rotateY(var(--ry));
+  transition:transform var(--spin-time,1150ms) var(--ease-settle);
+}
+.face{
+  position:absolute;inset:0;
+  border-radius:18%;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  grid-template-rows:repeat(3,1fr);
+  padding:11%;
+  background:linear-gradient(150deg,var(--die-hi),var(--die-base) 55%,var(--die-lo));
+  box-shadow:
+    inset 0 0 0 1px rgba(0,0,0,.10),
+    inset 0 8px 18px rgba(255,255,255,.42),
+    inset 0 -10px 18px rgba(0,0,0,.16);
+  backface-visibility:hidden;
+}
+/* расположение граней куба: front=1, back=6, right=3, left=4, top=5, bottom=2 */
+.f-front {transform:translateZ(calc(var(--die-size)/2))}
+.f-back  {transform:rotateY(180deg) translateZ(calc(var(--die-size)/2))}
+.f-right {transform:rotateY(90deg)  translateZ(calc(var(--die-size)/2))}
+.f-left  {transform:rotateY(-90deg) translateZ(calc(var(--die-size)/2))}
+.f-top   {transform:rotateX(90deg)  translateZ(calc(var(--die-size)/2))}
+.f-bottom{transform:rotateX(-90deg) translateZ(calc(var(--die-size)/2))}
+/* темы кости */
+.die[data-theme="ivory"]    {--die-base:#f4f7fb;--die-hi:#fff;--die-lo:#c9d3e4;--pip:#222c3e;--pip-ace:#d3413c}
+.die[data-theme="obsidian"] {--die-base:#232b3b;--die-hi:#3f4a61;--die-lo:#0e1420;--pip:#f2f5fb;--pip-ace:#ffcf4d}
+.die[data-theme="ruby"]     {--die-base:#b8243a;--die-hi:#e05a6a;--die-lo:#74101f;--pip:#fff3f1;--pip-ace:#ffe08a}
+.pip{
+  width:calc(var(--die-size)*.175);height:calc(var(--die-size)*.175);
+  justify-self:center;align-self:center;border-radius:50%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255,255,255,.6), transparent 45%),
+    var(--pip);
+  box-shadow:inset 0 -1px 2px rgba(255,255,255,.3), 0 1px 1px rgba(255,255,255,.28);
+}
+.pip.ace{background:radial-gradient(circle at 34% 30%, rgba(255,255,255,.55), transparent 45%), var(--pip-ace)}
+.p1{grid-area:1/1}.p3{grid-area:1/3}.p4{grid-area:2/1}.p5{grid-area:2/2}
+.p6{grid-area:2/3}.p7{grid-area:3/1}.p9{grid-area:3/3}
+.die-shadow{
+  position:absolute;left:50%;top:100%;
+  width:calc(var(--die-size)*.95);height:calc(var(--die-size)*.24);
+  transform:translate(-50%,-14%);
+  background:radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,.6), transparent 72%);
+  filter:blur(3px);pointer-events:none;
+}
+.die.throw .die-shadow{animation:shadow-throw var(--fly-time,1150ms) var(--ease-settle)}
+@keyframes shadow-throw{
+  0%  {opacity:.12;transform:translate(-50%,-14%) scale(.55)}
+  14% {opacity:.16;transform:translate(-50%,-14%) scale(.65)}
+  36% {opacity:.6;transform:translate(-50%,-14%) scale(1)}
+  52% {opacity:.3;transform:translate(-50%,-14%) scale(.78)}
+  100%{opacity:.5;transform:translate(-50%,-14%) scale(1)}
+}
+/* закреплённый кубик — не участвует в следующем броске */
+.die::after{
+  content:"📌";position:absolute;left:50%;top:-24px;
+  transform:translate(-50%,5px) scale(.6);font-size:15px;opacity:0;
+  transition:.2s var(--ease-settle);pointer-events:none;
+}
+.die.held::after{opacity:1;transform:translate(-50%,0) scale(1)}
+.die.held .face{box-shadow:inset 0 0 0 2px var(--pip-ace), inset 0 8px 18px rgba(255,255,255,.35)}
+.die.held{animation:bob 1.8s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+
+/* ---------- вывод результата ---------- */
+.readout{position:relative;display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:16px}
+.sum{
+  font-size:clamp(34px,7vw,62px);font-weight:800;line-height:1;letter-spacing:1px;
+  background:linear-gradient(180deg,#fff,#ffd77a);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  min-width:2ch;text-align:center;font-variant-numeric:tabular-nums;
+  transition:transform .25s var(--ease-settle);
+}
+.sum.hit{transform:scale(1.14)}
+.sum-meta{display:flex;flex-direction:column;gap:4px;color:var(--ink-dim);font-size:13px}
+.sum-meta b{color:var(--ink);font-size:15px;font-variant-numeric:tabular-nums}
+.badge{
+  padding:6px 12px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:.4px;
+  background:linear-gradient(180deg,var(--accent),#f0a92c);color:#2a1b00;
+  box-shadow:0 6px 18px rgba(255,190,60,.28);
+  opacity:0;transform:translateY(6px) scale(.9);transition:.3s var(--ease-settle);
+}
+.badge.show{opacity:1;transform:none}
+.badge.alt{background:linear-gradient(180deg,var(--accent-2),#e4553a);color:#2b0d05;box-shadow:0 6px 18px rgba(255,120,80,.25)}
+.hint{color:var(--ink-dim);font-size:13px;text-align:center;margin:10px 0 0;line-height:1.7}
+kbd{font-family:inherit;font-size:12px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16)}
+
+/* ---------- управление ---------- */
+.controls{
+  display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;
+  background:linear-gradient(180deg,var(--card-2),var(--card));
+  border:1px solid var(--line);border-radius:16px;padding:14px 16px;
+}
+.roll-btn{
+  appearance:none;border:0;cursor:pointer;font-family:inherit;
+  font-size:18px;font-weight:800;letter-spacing:.6px;color:#241700;
+  padding:14px 30px;border-radius:13px;
+  background:linear-gradient(180deg,#ffd869,#f5a623);
+  box-shadow:0 10px 26px rgba(245,166,35,.35), inset 0 -3px 0 rgba(0,0,0,.16);
+  transition:transform .12s ease, filter .2s ease;
+}
+.roll-btn:hover{filter:brightness(1.07)}
+.roll-btn:active{transform:translateY(2px) scale(.99)}
+.roll-btn[disabled]{opacity:.55;cursor:progress;filter:saturate(.6)}
+.stepper{display:flex;align-items:center;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:11px;padding:3px}
+.stepper button{width:34px;height:32px;border-radius:8px;border:0;cursor:pointer;background:transparent;color:var(--ink);font-size:18px;font-weight:700;line-height:1;font-family:inherit}
+.stepper button:hover{background:rgba(255,255,255,.12)}
+.stepper output{min-width:2ch;text-align:center;font-weight:800;font-variant-numeric:tabular-nums;padding:0 6px}
+.swatches{display:flex;gap:8px}
+.swatch{width:30px;height:30px;border-radius:9px;cursor:pointer;border:2px solid transparent;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);transition:transform .15s ease,border-color .15s ease;padding:0}
+.swatch:hover{transform:translateY(-2px)}
+.swatch[aria-pressed="true"]{border-color:var(--accent);transform:translateY(-2px)}
+.swatch[data-theme="ivory"]{background:linear-gradient(150deg,#fff,#c9d3e4)}
+.swatch[data-theme="obsidian"]{background:linear-gradient(150deg,#3f4a61,#0e1420)}
+.swatch[data-theme="ruby"]{background:linear-gradient(150deg,#e05a6a,#74101f)}
+.toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:11px;padding:7px 12px;font-size:14px}
+.toggle input{appearance:none;-webkit-appearance:none;width:34px;height:19px;border-radius:999px;background:rgba(255,255,255,.18);position:relative;cursor:pointer;transition:.2s;margin:0}
+.toggle input::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.2s}
+.toggle input:checked{background:var(--accent)}
+.toggle input:checked::after{transform:translateX(15px)}
+.ghost{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 13px;font-size:14px;cursor:pointer;font-family:inherit}
+.ghost:hover{background:rgba(255,255,255,.12)}
+.ghost[hidden]{display:none}
+
+/* ---------- история и статистика ---------- */
+.panels{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}
+.card{background:linear-gradient(180deg,var(--card-2),var(--card));border:1px solid var(--line);border-radius:16px;padding:16px 18px}
+.card h2{margin:0 0 12px;font-size:13px;letter-spacing:.8px;text-transform:uppercase;color:var(--ink-dim);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card h2 button{padding:3px 9px;font-size:12px}
+.history{display:flex;flex-direction:column;gap:8px;min-height:118px;max-height:250px;overflow:auto;padding-right:4px}
+.history:empty::after{content:"Пока пусто — бросьте кубик.";color:var(--ink-dim);font-size:14px}
+.row{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:11px;background:rgba(255,255,255,.04);animation:slide-in .3s var(--ease-settle)}
+@keyframes slide-in{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.row .num{color:var(--ink-dim);font-size:12px;min-width:3ch;font-variant-numeric:tabular-nums}
+.row .mini{display:flex;gap:5px;flex-wrap:wrap}
+.mini span{width:20px;height:20px;border-radius:5px;background:rgba(255,255,255,.1);display:grid;place-items:center;font-size:11px;font-weight:800;color:var(--ink);border:1px solid rgba(255,255,255,.12)}
+.mini span.hi{color:#ffd77a;border-color:rgba(255,215,122,.5)}
+.mini span.lo{color:#ff9b9b}
+.row .total{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.stat{background:rgba(255,255,255,.04);border-radius:11px;padding:9px 11px;text-align:center}
+.stat b{display:block;font-size:19px;font-variant-numeric:tabular-nums}
+.stat small{color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+.dist{display:flex;flex-direction:column;gap:6px}
+.bar-row{display:grid;grid-template-columns:16px 1fr 50px;align-items:center;gap:9px;font-size:13px}
+.bar-row .fl{font-weight:800;color:var(--ink-dim);text-align:center}
+.bar{height:10px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}
+.bar i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,#4bc0a8,#7ad7ff);transition:width .6s var(--ease-settle)}
+.bar-row .pct{color:var(--ink-dim);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
+.dist-note{margin-top:10px;color:#7488a6;font-size:12px;line-height:1.5}
+footer.note{color:#6f7f9b;font-size:12px;text-align:center;line-height:1.6}
+code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:5px}
+
+/* ---------- адаптив ---------- */
+@media (max-width:820px){
+  .panels{grid-template-columns:1fr}
+  :root{--die-size:78px}
+  .controls{justify-content:center}
+}
+@media (max-width:480px){
+  :root{--die-size:64px}
+  .tray{min-height:196px;gap:8px}
+  .app{padding:18px 12px 32px}
+}
+@media (prefers-reduced-motion:reduce){
+  .die.throw,.die-shadow,.tray.shake,.die.held{animation:none !important}
+  .cube{transition-duration:.2s !important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="title">
+      <div class="logo" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div>
+        <h1>Игральный кубик</h1>
+        <p>Настоящая 3D-кость с анимацией броска · от 1 до 6 кубиков</p>
+      </div>
+    </div>
+    <label class="toggle" title="Звук удара по сукну">
+      <input type="checkbox" id="sound" checked>🔊 Звук
+    </label>
+  </header>
+
+  <section class="table" id="table">
+    <div class="tray" id="tray" title="Клик по столу — бросить"></div>
+    <div class="readout" aria-live="polite">
+      <div class="sum" id="sum">—</div>
+      <div class="sum-meta">
+        <span>Сумма броска</span>
+        <b id="combo">—</b>
+      </div>
+      <div class="badge" id="badge"></div>
+    </div>
+    <p class="hint">
+      Бросок — <kbd>Пробел</kbd> / <kbd>Enter</kbd> или клик по столу ·
+      число кубиков — <kbd>↑</kbd><kbd>↓</kbd> или <kbd>1</kbd>…<kbd>6</kbd> ·
+      клик по кубику закрепляет его, чтобы не перебрасывать
+    </p>
+  </section>
+
+  <div class="controls">
+    <div class="group">
+      <span class="label">Кубиков</span>
+      <div class="stepper">
+        <button type="button" id="minus" aria-label="Меньше кубиков">−</button>
+        <output id="count">1</output>
+        <button type="button" id="plus" aria-label="Больше кубиков">+</button>
+      </div>
+      <span class="label" style="margin-left:6px">Дизайн</span>
+      <div class="swatches" role="group" aria-label="Дизайн кубика">
+        <button type="button" class="swatch" data-theme="ivory" aria-pressed="true" title="Слоновая кость"></button>
+        <button type="button" class="swatch" data-theme="obsidian" aria-pressed="false" title="Обсидиан"></button>
+        <button type="button" class="swatch" data-theme="ruby" aria-pressed="false" title="Рубин"></button>
+      </div>
+    </div>
+    <div class="group">
+      <button type="button" class="ghost" id="release" hidden>Отпустить все</button>
+      <button type="button" class="ghost" id="reset" title="Обнулить историю и статистику">Сброс</button>
+      <button type="button" class="roll-btn" id="roll">Бросить 🎲</button>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="card">
+      <h2>История бросков <button type="button" class="ghost" id="clearHistory">Очистить</button></h2>
+      <div class="history" id="history"></div>
+    </div>
+    <div class="card">
+      <h2>Статистика</h2>
+      <div class="stats">
+        <div class="stat"><b id="sRolls">0</b><small>бросков</small></div>
+        <div class="stat"><b id="sAvg">—</b><small>среднее</small></div>
+        <div class="stat"><b id="sBest">—</b><small>максимум</small></div>
+      </div>
+      <div class="dist" id="dist"></div>
+      <div class="dist-note" id="distNote">Частота выпадения граней за всё время.</div>
+    </div>
+  </div>
+
+  <footer class="note">
+    Случайные числа — <code>crypto.getRandomValues</code> с коррекцией остатка, так что кость не «кривая».
+    История и статистика живут только в вашем браузере (<code>localStorage</code>).
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================================================
+     ГЕОМЕТРИЯ КОСТИ
+     ============================================================ */
+  // какие точки сетки 3×3 заняты у каждого номинала
+  var PIP_MAP = {
+    1: [5],
+    2: [1, 9],
+    3: [1, 5, 9],
+    4: [1, 3, 7, 9],
+    5: [1, 3, 5, 7, 9],
+    6: [1, 3, 4, 6, 7, 9]
+  };
+  // повороты, разворачивающие грань «на зрителя»
+  // front=1, back=6, right=3, left=4, top=5, bottom=2 (противоположные в сумме дают 7)
+  var FACE_ROT = { 1: [0, 0], 2: [90, 0], 3: [0, -90], 4: [0, 90], 5: [-90, 0], 6: [180, 0] };
+  var FACE_CLASS = { 1: "front", 6: "back", 3: "right", 4: "left", 5: "top", 2: "bottom" };
+
+  var SPIN_MS = 1150;    // сколько длится «волчок»
+  var STAGGER = 160;     // с каким шагом бросают кубики друг за другом
+  var MAX_DICE = 6;
+  var HISTORY_MAX = 14;
+  var LS_KEY = "marty.dice.v1";
+
+  /* ================= элементы ================= */
+  var $ = function (s) { return document.querySelector(s); };
+  var tray = $("#tray"), table = $("#table"), rollBtn = $("#roll"), sumEl = $("#sum"),
+      comboEl = $("#combo"), badge = $("#badge"), countEl = $("#count"),
+      historyEl = $("#history"), distEl = $("#dist"), distNote = $("#distNote"),
+      sRolls = $("#sRolls"), sAvg = $("#sAvg"), sBest = $("#sBest"),
+      releaseBtn = $("#release"), soundBox = $("#sound");
+
+  /* ================= состояние ================= */
+  var state = {
+    dice: 1,
+    theme: "ivory",
+    sound: true,
+    rolling: false,
+    faces: null,
+    history: [],
+    stats: { rolls: 0, sum: 0, best: 0, pips: [0, 0, 0, 0, 0, 0] }
+  };
+  var diceEls = [];   // [{die, cube, face, held}]
+
+  /* ================= утилиты ================= */
+  var buf = new Uint32Array(1);
+  function randInt(n) {                       // честный равномерный 0..n-1
+    if (window.crypto && crypto.getRandomValues) {
+      var limit = Math.floor(4294967296 / n) * n, x;
+      do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
+      return x % n;
+    }
+    return Math.floor(Math.random() * n);
+  }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function plural(n, one, few, many) {
+    var a = n % 10, b = n % 100;
+    if (a === 1 && b !== 11) return one;
+    if (a >= 2 && a <= 4 && (b < 10 || b >= 20)) return few;
+    return many;
+  }
+  function setVar(el, name, v) { el.style.setProperty(name, v); }
+  function removeNode(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
+  var nextFrame = window.requestAnimationFrame
+    ? function (fn) { window.requestAnimationFrame(fn); }
+    : function (fn) { setTimeout(fn, 16); };
+
+  /* ================= звук (WebAudio, без файлов) ================= */
+  var actx = null;
+  function audioCtx() {
+    if (!state.sound) return null;
+    if (!actx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { actx = new AC(); } catch (e) { return null; }
+    }
+    if (actx.state === "suspended" && actx.resume) actx.resume();
+    return actx;
+  }
+  function clack(gain) {                        // стук кости о сукно
+    var ctx = audioCtx();
+    if (!ctx) return;
+    var t = ctx.currentTime, g0 = gain || 0.5;
+    var len = Math.floor(ctx.sampleRate * 0.08);
+    var b = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = b.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    var src = ctx.createBufferSource(); src.buffer = b;
+    var bp = ctx.createBiquadFilter(); bp.type = "bandpass";
+    bp.frequency.value = 1300 + randInt(1100); bp.Q.value = 1.1;
+    var gn = ctx.createGain(); gn.gain.value = g0 * 0.5;
+    src.connect(bp); bp.connect(gn); gn.connect(ctx.destination); src.start(t);
+
+    var o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(250 + randInt(90), t);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.12);
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.16 * g0, t + 0.01);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+    o.connect(og); og.connect(ctx.destination); o.start(t); o.stop(t + 0.22);
+  }
+  function fanfare() {                          // фанфарика на отличный бросок
+    var ctx = audioCtx();
+    if (!ctx) return;
+    var t = ctx.currentTime;
+    [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "triangle"; o.frequency.value = f;
+      var at = t + i * 0.075;
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.1, at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.3);
+      o.connect(g); g.connect(ctx.destination); o.start(at); o.stop(at + 0.35);
+    });
+  }
+
+  /* ================= построение кубика ================= */
+  function buildFace(value) {
+    var f = document.createElement("div");
+    f.className = "face f-" + FACE_CLASS[value];
+    PIP_MAP[value].forEach(function (pos) {
+      var p = document.createElement("span");
+      p.className = "pip p" + pos + (value === 1 ? " ace" : "");
+      f.appendChild(p);
+    });
+    return f;
+  }
+  function buildDie() {
+    var die = document.createElement("div");
+    die.className = "die in";
+    die.dataset.theme = state.theme;
+    die.setAttribute("role", "button");
+    die.setAttribute("tabindex", "0");
+    die.setAttribute("aria-label", "Кубик — закрепить или отпустить");
+    var cube = document.createElement("div");
+    cube.className = "cube";
+    for (var v = 1; v <= 6; v++) cube.appendChild(buildFace(v));
+    var shadow = document.createElement("div");
+    shadow.className = "die-shadow";
+    die.appendChild(cube);
+    die.appendChild(shadow);
+    die.addEventListener("animationend", function (e) {
+      if (e.animationName === "pop-in") die.classList.remove("in");
+      else if (e.animationName === "throw") die.classList.remove("throw");
+      else if (e.animationName === "pop-out") removeNode(die);
+    });
+    return { die: die, cube: cube, face: 1, held: false };
+  }
+
+  // приводим число кубиков в DOM в соответствие с настройкой
+  function syncDice() {
+    var want = state.dice;
+    while (diceEls.length > want) {
+      var gone = diceEls.pop();
+      gone.die.classList.remove("throw", "in", "held");
+      gone.die.classList.add("out");
+      gone.die.style.pointerEvents = "none";
+      // страховка: если анимация не состоялась (reduced motion, скрытый таб и т.п.),
+      // узел всё равно должен уйти из DOM
+      setTimeout(removeNode.bind(null, gone.die), 420);
+    }
+    while (diceEls.length < want) {
+      var d = buildDie();
+      tray.appendChild(d.die);
+      applyOrientation(d, 1, true);
+      diceEls.push(d);
+    }
+    updateReleaseBtn();
+  }
+
+  /* ================= ориентация ================= */
+  // Ближайший целевой угол, который (а) совпадает с базовым по модулю 360° —
+  // значит грань смотрит ровно на зрителя, — и (б) отстоит от текущего не менее
+  // чем на |turns| полных оборотов. Иначе кость «не крутилась» бы, если дважды
+  // выпадает одно и то же число.
+  function spinTo(current, base, turns) {
+    if (turns >= 0) return base + 360 * Math.ceil((current - base + 360 * turns) / 360);
+    return base - 360 * Math.ceil((base - current - 360 * turns) / 360);
+  }
+  // Обороты накапливаются, поэтому углы расходятся в десятки тысяч градусов.
+  // Как только |угла| > 72000°, приводим к эквивалентному маленькому: разница —
+  // целое число оборотов, то есть на экране ничего не меняется, зато точность не теряется.
+  function currentAngles(d, instant) {
+    var keys = ["--rx", "--ry", "--rz"];
+    var v = keys.map(function (k) { return parseFloat(d.cube.style.getPropertyValue(k)) || 0; });
+    if (instant || v.every(function (x) { return Math.abs(x) <= 72000; })) return v;
+    setVar(d.cube, "transition", "none");
+    v = v.map(function (x) { return x - 360 * Math.round(x / 360); });
+    keys.forEach(function (k, i) { setVar(d.cube, k, v[i] + "deg"); });
+    void d.cube.offsetWidth;                     // reflow: перескок до любой отрисовки
+    setVar(d.cube, "transition", "");
+    return v;
+  }
+
+  function applyOrientation(d, value, instant, spins) {
+    var rot = FACE_ROT[value];
+    var cur = currentAngles(d, instant);
+    // лёгкая «неровность»: кость ложится на сукно, а не замирает по линейке
+    var tiltX = instant ? 0 : rnd(-5, 5);
+    var tiltY = instant ? 0 : rnd(-5, 5);
+    if (instant) {
+      setVar(d.cube, "--rx", (rot[0] + tiltX) + "deg");
+      setVar(d.cube, "--ry", (rot[1] + tiltY) + "deg");
+      setVar(d.cube, "--rz", "0deg");
+    } else {
+      var turns = Math.max(2, spins || 3);
+      d.dir = -(d.dir || 1);                     // каждый следующий бросок — в обратную сторону
+      setVar(d.cube, "--rx", spinTo(cur[0], rot[0] + tiltX, d.dir * turns) + "deg");
+      setVar(d.cube, "--ry", spinTo(cur[1], rot[1] + tiltY, d.dir * (turns + 1)) + "deg");
+      setVar(d.cube, "--rz", spinTo(cur[2], 0, d.dir * (turns - 1)) + "deg");
+    }
+    d.face = value;
+  }
+
+  /* ================= бросок ================= */
+  var timers = [];
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+  function roll() {
+    if (state.rolling) return;
+    syncDice();
+
+    var free = [];
+    for (var i = 0; i < diceEls.length; i++) if (!diceEls[i].held) free.push(i);
+    if (!free.length) { flashBadge("Сначала отпустите хотя бы один кубик", true); return; }
+
+    state.rolling = true;
+    rollBtn.disabled = true;
+    rollBtn.textContent = "Бросаем…";
+    badge.classList.remove("show");
+    table.classList.add("shake");
+    setTimeout(function () { table.classList.remove("shake"); }, 520);
+
+    // результат определяется сразу, анимация только «досчитывает» его до глаза.
+    // Значение крепится к кубику, а не к индексу: если во время броска что-то
+    // изменится, ничего не перепутается.
+    var results = [];
+    free.forEach(function (idx) {
+      var d = diceEls[idx];
+      d.pending = 1 + randInt(6);
+      results[idx] = d.pending;
+    });
+
+    clearTimers();
+    free.forEach(function (idx, order) {
+      var d = diceEls[idx];
+      var target = d.pending;
+      var size = d.die.offsetWidth || 90;
+      setVar(d.die, "--fly-x", Math.round(rnd(-size * 0.5, size * 0.5)) + "px");
+      setVar(d.die, "--fly-y", Math.round(rnd(12, 34)) + "px");
+      setVar(d.die, "--fly-time", SPIN_MS + "ms");
+      setVar(d.cube, "--spin-time", SPIN_MS + "ms");
+
+      timers.push(setTimeout(function () {
+        clack(0.55 - Math.min(0.3, order * 0.08));
+        d.die.classList.remove("throw");
+        void d.die.offsetWidth;
+        d.die.classList.add("throw");
+        applyOrientation(d, target, false, 3 + order + randInt(2));
+      }, order * STAGGER));
+
+      timers.push(setTimeout(function () {      // приземление: микродоворот грани
+        clack(0.4);
+        jolt(d);
+      }, order * STAGGER + SPIN_MS));
+    });
+
+    var total = (free.length - 1) * STAGGER + SPIN_MS + 160;
+    timers.push(setTimeout(function () {
+      var values = diceEls.map(function (d) {
+        var v = typeof d.pending === "number" ? d.pending : d.face;
+        d.pending = null;
+        d.face = v;
+        return v;
+      });
+      state.faces = values;
+      finishThrow(values);
+      state.rolling = false;
+      rollBtn.disabled = false;
+      rollBtn.textContent = "Бросить 🎲";
+    }, total));
+  }
+
+  // микродоворот после касания стола: грань «доезжает» до устойчивого положения.
+  // За основу берём ближайший эквивалентный базовый угол (а не текущий с наклоном),
+  // чтобы наклон не накапливался от броска к броску и не крутить лишний оборот.
+  function jolt(d) {
+    var rot = FACE_ROT[d.face];
+    setVar(d.cube, "--spin-time", "130ms");
+    ["--rx", "--ry"].forEach(function (k, i) {
+      var cur = parseFloat(d.cube.style.getPropertyValue(k)) || 0;
+      var near = rot[i] + 360 * Math.round((cur - rot[i]) / 360);
+      setVar(d.cube, k, (near + rnd(-6, 6)) + "deg");
+    });
+    setTimeout(function () { setVar(d.cube, "--spin-time", SPIN_MS + "ms"); }, 160);
+  }
+
+  function finishThrow(values) {
+    var sum = values.reduce(function (a, b) { return a + b; }, 0);
+
+    state.history.unshift({ values: values.slice(), sum: sum });
+    if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
+
+    var st = state.stats;
+    st.rolls += 1;
+    st.sum += sum;
+    if (sum > st.best) st.best = sum;
+    values.forEach(function (v) { st.pips[v - 1] += 1; });
+
+    animateSum(sum);
+    renderHistory();
+    renderStats();
+    save();
+    comboEl.textContent = values.join(" + ") + " = " + sum;
+
+    var n = values.length, min = n, max = n * 6;
+    var allSame = n > 1 && values.every(function (v) { return v === values[0]; });
+    if (allSame && n === 2) flashBadge("Дубль " + values[0] + "·" + values[0] + "!", true);
+    else if (allSame) flashBadge("Комбо: " + n + " × " + values[0] + "!", true);
+    else if (sum === max) flashBadge("Максимум! 🎯", true);
+    else if (sum === min) flashBadge("Минимум 🐌", false);
+    else if (n === 2 && sum === 7) flashBadge("Семь — удача! 🍀", true);
+    if (allSame || sum === max) fanfare();
+  }
+
+  var badgeTimer = null;
+  function flashBadge(text, alt) {
+    badge.textContent = text;
+    badge.classList.toggle("alt", !!alt);
+    badge.classList.add("show");
+    if (badgeTimer) clearTimeout(badgeTimer);
+    badgeTimer = setTimeout(function () { badge.classList.remove("show"); }, 4200);
+  }
+
+  function animateSum(target) {
+    var from = parseInt(sumEl.textContent, 10);
+    if (isNaN(from)) from = 0;
+    sumEl.classList.add("hit");
+    var t0 = performance.now(), dur = 420;
+    (function step(now) {
+      var p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      sumEl.textContent = Math.round(from + (target - from) * e);
+      if (p < 1) nextFrame(function () { step(performance.now()); });
+      else setTimeout(function () { sumEl.classList.remove("hit"); }, 150);
+    })(t0);
+  }
+
+  /* ================= закрепление кубика ================= */
+  function toggleHold(d) {
+    d.held = !d.held;
+    d.die.classList.toggle("held", d.held);
+    updateReleaseBtn();
+    clack(0.25);
+  }
+  function updateReleaseBtn() {
+    releaseBtn.hidden = !diceEls.some(function (d) { return d.held; });
+  }
+
+  /* ================= панели ================= */
+  function renderHistory() {
+    historyEl.innerHTML = "";
+    state.history.forEach(function (h, i) {
+      var row = document.createElement("div");
+      row.className = "row";
+
+      var num = document.createElement("span");
+      num.className = "num";
+      num.textContent = "#" + (state.stats.rolls - i);
+
+      var mini = document.createElement("span");
+      mini.className = "mini";
+      h.values.forEach(function (v) {
+        var s = document.createElement("span");
+        s.textContent = v;
+        if (v === 6) s.className = "hi";
+        else if (v === 1) s.className = "lo";
+        mini.appendChild(s);
+      });
+
+      var total = document.createElement("span");
+      total.className = "total";
+      total.textContent = h.sum;
+
+      row.appendChild(num); row.appendChild(mini); row.appendChild(total);
+      historyEl.appendChild(row);
+    });
+  }
+
+  function renderStats() {
+    var st = state.stats;
+    sRolls.textContent = st.rolls;
+    sAvg.textContent = st.rolls ? (st.sum / st.rolls).toFixed(2) : "—";
+    sBest.textContent = st.rolls ? st.best : "—";
+
+    var total = st.pips.reduce(function (a, b) { return a + b; }, 0);
+    distEl.innerHTML = "";
+    for (var f = 1; f <= 6; f++) {
+      var pct = total ? st.pips[f - 1] / total * 100 : 0;
+      var row = document.createElement("div");
+      row.className = "bar-row";
+      row.innerHTML =
+        '<span class="fl">' + f + "</span>" +
+        '<span class="bar"><i></i></span>' +
+        '<span class="pct">' + (total ? pct.toFixed(1) + "%" : "—") + "</span>";
+      distEl.appendChild(row);
+      (function (el, p) {
+        var fill = el.querySelector("i");
+        nextFrame(function () { fill.style.width = p.toFixed(1) + "%"; });
+      })(row, pct);
+    }
+    distNote.textContent = total
+      ? "Выпало граней: " + total + " " + plural(total, "раз", "раза", "раз") +
+        " · у честной кости каждая грань ≈ 16.7%"
+      : "Частота выпадения граней за всё время.";
+  }
+
+  /* ================= настройки ================= */
+  function setDice(n) {
+    if (state.rolling) { flashBadge("Кубики меняются только между бросками", false); return; }
+    n = Math.max(1, Math.min(MAX_DICE, n | 0));
+    if (n === state.dice) return;
+    state.dice = n;
+    countEl.textContent = n;
+    syncDice();
+    save();
+  }
+  function setTheme(t) {
+    state.theme = t;
+    diceEls.forEach(function (d) { d.die.dataset.theme = t; });
+    [].forEach.call(document.querySelectorAll(".swatch"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.theme === t));
+    });
+    save();
+  }
+
+  /* ================= сохранение ================= */
+  function save() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        dice: state.dice, theme: state.theme, sound: state.sound,
+        faces: diceEls.map(function (d) { return d.face; }),
+        history: state.history, stats: state.stats
+      }));
+    } catch (e) { /* приватный режим — просто не сохраняем */ }
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      var d = JSON.parse(raw);
+      if (typeof d.dice === "number") state.dice = Math.max(1, Math.min(MAX_DICE, d.dice | 0));
+      if (d.theme === "ivory" || d.theme === "obsidian" || d.theme === "ruby") state.theme = d.theme;
+      if (typeof d.sound === "boolean") state.sound = d.sound;
+      if (Array.isArray(d.faces)) state.faces = d.faces;
+      if (Array.isArray(d.history)) {
+        state.history = d.history.filter(function (h) {
+          return h && Array.isArray(h.values) && typeof h.sum === "number";
+        }).slice(0, HISTORY_MAX);
+      }
+      if (d.stats && Array.isArray(d.stats.pips) && d.stats.pips.length === 6) {
+        state.stats = {
+          rolls: d.stats.rolls | 0,
+          sum: +d.stats.sum || 0,
+          best: d.stats.best | 0,
+          pips: d.stats.pips.map(function (x) { return Math.max(0, x | 0); })
+        };
+      }
+    } catch (e) { /* повреждённые данные — стартуем с чистых */ }
+  }
+
+  /* ================= события ================= */
+  $("#plus").addEventListener("click", function () { setDice(state.dice + 1); });
+  $("#minus").addEventListener("click", function () { setDice(state.dice - 1); });
+  [].forEach.call(document.querySelectorAll(".swatch"), function (b) {
+    b.addEventListener("click", function () { setTheme(b.dataset.theme); });
+  });
+  soundBox.addEventListener("change", function () {
+    state.sound = soundBox.checked;
+    if (state.sound) clack(0.6);
+    save();
+  });
+  rollBtn.addEventListener("click", roll);
+  tray.addEventListener("click", roll);
+  releaseBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    diceEls.forEach(function (d) { d.held = false; d.die.classList.remove("held"); });
+    updateReleaseBtn();
+  });
+  $("#clearHistory").addEventListener("click", function () {
+    state.history = [];
+    renderHistory();
+    save();
+  });
+  $("#reset").addEventListener("click", function () {
+    if (!confirm("Обнулить историю и статистику?")) return;
+    state.history = [];
+    state.stats = { rolls: 0, sum: 0, best: 0, pips: [0, 0, 0, 0, 0, 0] };
+    sumEl.textContent = "—";
+    comboEl.textContent = "—";
+    renderHistory();
+    renderStats();
+    save();
+  });
+
+  // клик по кубику — закрепить/отпустить, а не бросить (ловим на capture, до tray)
+  tray.addEventListener("click", function (e) {
+    var el = e.target && e.target.closest ? e.target.closest(".die") : null;
+    if (!el) return;
+    e.stopPropagation();
+    if (state.rolling) return;
+    for (var i = 0; i < diceEls.length; i++) {
+      if (diceEls[i].die === el) { toggleHold(diceEls[i]); break; }
+    }
+  }, true);
+
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (t && t.classList && t.classList.contains("die") && (e.key === "Enter" || e.code === "Space")) {
+      e.preventDefault();
+      for (var i = 0; i < diceEls.length; i++) {
+        if (diceEls[i].die === t) { toggleHold(diceEls[i]); break; }
+      }
+      return;
+    }
+    if (t && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(t.tagName)) return;   // кнопки обрабатываются сами
+    if (e.code === "Space" || e.code === "Enter" || e.key === "r" || e.key === "ы") {
+      e.preventDefault();
+      roll();
+    } else if (e.key === "ArrowUp") { e.preventDefault(); setDice(state.dice + 1); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); setDice(state.dice - 1); }
+    else if (/^[1-6]$/.test(e.key)) { e.preventDefault(); setDice(parseInt(e.key, 10)); }
+  });
+  window.addEventListener("beforeunload", save);
+
+  /* ================= запуск ================= */
+  load();
+  countEl.textContent = state.dice;
+  soundBox.checked = state.sound;
+  syncDice();
+  setTheme(state.theme);
+  renderHistory();
+  renderStats();
+
+  // возвращаем кубики в то состояние, в котором их застал последний бросок
+  if (Array.isArray(state.faces) && state.faces.length === diceEls.length) {
+    diceEls.forEach(function (d, i) {
+      var v = state.faces[i] | 0;
+      v = v >= 1 && v <= 6 ? v : 1;
+      applyOrientation(d, v, true);
+    });
+    if (state.history.length) {
+      var last = state.history[0];
+      sumEl.textContent = last.sum;
+      comboEl.textContent = last.values.join(" + ") + " = " + last.sum;
+    }
+  }
+})();
+</script>
+</body>
+</html>
