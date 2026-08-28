@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#12153a" />
+  <title>Назад в будущее: Временной вираж</title>
+  <style>
+    :root {
+      --ink: #eff6ff;
+      --muted: #a8b3d0;
+      --panel: rgba(12, 16, 48, .88);
+      --line: rgba(147, 190, 255, .22);
+      --cyan: #54edff;
+      --pink: #ff5aae;
+      --yellow: #ffd35a;
+      --danger: #ff6380;
+      --success: #78f5bb;
+      --shadow: 0 20px 55px rgba(0,0,0,.35);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: #080a20; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 17% 3%, rgba(67, 97, 238, .26), transparent 25rem),
+        radial-gradient(circle at 92% 32%, rgba(236, 72, 153, .15), transparent 25rem),
+        #080a20;
+    }
+    body::before {
+      content: "";
+      z-index: -1;
+      position: fixed;
+      inset: 0;
+      opacity: .35;
+      background-image: radial-gradient(#fff 0.65px, transparent .8px), radial-gradient(#6be9ff 0.55px, transparent .75px);
+      background-position: 10px 13px, 93px 51px;
+      background-size: 79px 79px, 121px 121px;
+      pointer-events: none;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .48; transform: none !important; }
+    .screen { min-height: 100vh; }
+    .hidden { display: none !important; }
+
+    /* --- Стартовый экран --- */
+    #setupScreen {
+      display: grid;
+      place-items: center;
+      padding: 26px;
+    }
+    .setup-card {
+      width: min(820px, 100%);
+      overflow: hidden;
+      border: 1px solid rgba(112, 229, 255, .32);
+      border-radius: 26px;
+      background: linear-gradient(135deg, rgba(19,23,73,.96), rgba(12,14,42,.94));
+      box-shadow: var(--shadow), inset 0 0 50px rgba(60, 191, 255, .055);
+    }
+    .setup-hero {
+      position: relative;
+      min-height: 230px;
+      overflow: hidden;
+      padding: 38px 46px 30px;
+      background:
+        linear-gradient(100deg, rgba(2,6,31,.76), rgba(14, 19, 72, .19)),
+        radial-gradient(ellipse at 73% 74%, rgba(255, 185, 66, .67), transparent 12%),
+        radial-gradient(ellipse at 78% 72%, rgba(255, 73, 132, .52), transparent 22%),
+        linear-gradient(135deg, #0d1044, #283494 55%, #85265f);
+    }
+    .setup-hero::after {
+      content: "88";
+      position: absolute;
+      right: 7%; bottom: -50px;
+      color: rgba(222,248,255,.12);
+      font-family: Impact, Haettenschweiler, sans-serif;
+      font-size: 220px;
+      font-style: italic;
+      line-height: 1;
+    }
+    .eyebrow {
+      position: relative; z-index: 1;
+      margin: 0 0 8px;
+      color: var(--cyan);
+      font-weight: 800;
+      font-size: .72rem;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      position: relative; z-index: 1;
+      max-width: 590px;
+      margin-bottom: 11px;
+      font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+      font-size: clamp(2.25rem, 6vw, 4.5rem);
+      font-weight: 400;
+      letter-spacing: .02em;
+      line-height: .91;
+      text-transform: uppercase;
+      text-shadow: 0 3px 0 #dc3f85, 0 0 20px rgba(103,230,255,.7);
+    }
+    .hero-lead { position: relative; z-index: 1; max-width: 510px; margin: 0; color: #d9e8ff; line-height: 1.55; }
+    .setup-content { padding: 31px 46px 40px; }
+    .setup-heading { display: flex; justify-content: space-between; gap: 18px; align-items: flex-end; margin-bottom: 19px; }
+    .setup-heading h2 { margin: 0; font-size: 1.22rem; }
+    .setup-heading span { color: var(--muted); font-size: .86rem; }
+    .player-counts { display: flex; gap: 10px; margin-bottom: 25px; }
+    .count-btn {
+      min-width: 52px; height: 44px;
+      color: #dceaff;
+      border: 1px solid #3a4d89;
+      border-radius: 11px;
+      background: #161d50;
+      font-weight: 800;
+      transition: .2s ease;
+    }
+    .count-btn:hover, .count-btn.active { color: #061223; border-color: var(--cyan); background: var(--cyan); box-shadow: 0 0 20px rgba(84,237,255,.34); }
+    .player-configs { display: grid; gap: 10px; }
+    .config-row {
+      display: grid;
+      grid-template-columns: 38px 1fr 42px;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,.035);
+    }
+    .avatar-preview { display: grid; place-items: center; width: 27px; height: 27px; border: 2px solid rgba(255,255,255,.85); border-radius: 50%; font-size: .65rem; font-weight: 900; color: #10142d; }
+    .config-row label { color: #afbcda; font-size: .82rem; }
+    .name-input {
+      width: 100%; margin-top: 4px; padding: 4px 0;
+      color: #fff; border: 0; border-bottom: 1px solid #52628f; outline: 0; background: transparent;
+      font-weight: 700;
+    }
+    .name-input:focus { border-color: var(--cyan); }
+    .color-input { width: 34px; height: 34px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+    .start-btn, .primary-btn, .secondary-btn, .choice-btn, .debug-btn, .mini-btn {
+      border: 0;
+      border-radius: 11px;
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+    }
+    .start-btn:hover, .primary-btn:hover, .choice-btn:hover, .debug-btn:hover, .mini-btn:hover { transform: translateY(-2px); filter: brightness(1.08); }
+    .start-btn {
+      width: 100%; margin-top: 25px; padding: 15px 18px;
+      color: #07112b;
+      background: linear-gradient(100deg, #56edff, #93ffd9);
+      box-shadow: 0 8px 24px rgba(84,237,255,.22);
+      font-size: 1rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+
+    /* --- Игра --- */
+    #gameScreen { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    .game-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin: 0 0 17px; }
+    .game-logo { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .flux-icon {
+      display: grid; place-items: center; flex: 0 0 auto;
+      width: 45px; height: 45px; color: #051125;
+      border: 2px solid #b9f9ff; border-radius: 13px;
+      background: linear-gradient(135deg, var(--cyan), #788cff 64%, var(--pink));
+      box-shadow: 0 0 20px rgba(84,237,255,.35);
+      font-size: 1.42rem;
+    }
+    .game-logo .eyebrow { margin: 0 0 2px; font-size: .57rem; }
+    .game-logo strong { display: block; font-size: clamp(.94rem, 2vw, 1.23rem); letter-spacing: .025em; }
+    .timeline { display: flex; align-items: center; gap: 7px; color: #a7badb; font-size: .75rem; white-space: nowrap; }
+    .timeline .tline { width: clamp(32px, 5vw, 75px); height: 2px; background: linear-gradient(90deg, var(--cyan), var(--pink)); }
+    .main-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(295px, 355px); align-items: start; gap: 19px; }
+    .board-shell, .sidebar { border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
+    .board-shell { overflow: hidden; border-radius: 20px; }
+    .board-top { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 18px 13px; border-bottom: 1px solid var(--line); background: rgba(1,4,24,.37); }
+    .board-top h2 { margin: 0; font-size: 1rem; letter-spacing: .025em; }
+    .board-hint { color: var(--muted); font-size: .73rem; }
+    .epoch-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+    .epoch-key { display: inline-flex; align-items: center; gap: 5px; color: #cfddf5; font-size: .66rem; }
+    .epoch-key::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--key); box-shadow: 0 0 7px var(--key); }
+    .board-wrap { position: relative; padding: clamp(8px, 1.4vw, 16px); }
+    .board-wrap::before {
+      content: ""; position: absolute; inset: 5% 4%; z-index: 0;
+      border: 1px dashed rgba(151,202,255,.18); border-radius: 50%; transform: rotate(-7deg); pointer-events: none;
+    }
+    .game-board {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+      grid-template-rows: repeat(5, minmax(54px, 1fr));
+      gap: clamp(3px, .55vw, 7px);
+      aspect-ratio: 1.78 / 1;
+    }
+    .cell {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0; min-height: 0;
+      overflow: hidden;
+      padding: clamp(4px, .55vw, 8px);
+      border: 1px solid rgba(219,239,255,.29);
+      border-radius: clamp(7px, .9vw, 12px);
+      box-shadow: inset 0 0 18px rgba(255,255,255,.035), 0 2px 7px rgba(0,0,0,.18);
+      transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
+    }
+    .cell:hover { z-index: 3; transform: translateY(-2px) scale(1.035); filter: brightness(1.12); }
+    .cell::after { content: ""; position: absolute; pointer-events: none; width: 70%; height: 45%; right: -19%; bottom: -23%; border: 1px solid rgba(255,255,255,.14); border-radius: 50%; transform: rotate(-35deg); }
+    .zone-1985 { background: linear-gradient(145deg, #26395d, #163c60 58%, #242a62); }
+    .zone-1955 { background: linear-gradient(145deg, #794b78, #397b86 100%); }
+    .zone-2015 { background: linear-gradient(145deg, #4f237e, #793a9c 50%, #315da1); }
+    .zone-1885 { background: linear-gradient(145deg, #9c6a34, #b58b41 54%, #80572e); }
+    .cell-num { position: relative; z-index: 1; color: rgba(255,255,255,.86); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: clamp(.58rem, 1vw, .8rem); font-weight: 800; line-height: 1; }
+    .cell-title { position: relative; z-index: 1; overflow: hidden; color: rgba(248,253,255,.9); font-size: clamp(.45rem, .73vw, .62rem); font-weight: 800; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
+    .cell-special { outline: 1px solid rgba(255,255,255,.24); }
+    .cell-icon { position: absolute; z-index: 1; right: clamp(3px, .55vw, 7px); top: clamp(3px, .55vw, 7px); filter: drop-shadow(0 1px 4px rgba(0,0,0,.38)); font-size: clamp(.68rem, 1.2vw, 1rem); line-height: 1; }
+    .cell-marty { box-shadow: inset 0 0 20px rgba(96,244,255,.2), 0 0 11px rgba(69,231,255,.13); }
+    .cell-history { box-shadow: inset 0 0 20px rgba(255,73,138,.2), 0 0 11px rgba(255,73,138,.12); }
+    .cell-jump { box-shadow: inset 0 0 20px rgba(255,217,91,.2), 0 0 11px rgba(255,217,91,.12); }
+    .cell-skip { box-shadow: inset 0 0 20px rgba(244,91,113,.22), 0 0 11px rgba(244,91,113,.12); }
+    .cell-finish {
+      border-color: #f6e196; background: linear-gradient(145deg, #276573, #273b75 47%, #f06792); box-shadow: inset 0 0 22px rgba(255,234,126,.34), 0 0 18px rgba(255,199,91,.33);
+    }
+    .cell-finish .cell-title { color: #fff4ae; }
+    .tokens { position: absolute; z-index: 4; display: flex; flex-wrap: wrap; align-content: flex-end; gap: 2px; left: 4px; right: 3px; bottom: 3px; min-height: 16px; }
+    .token {
+      display: grid; place-items: center;
+      width: clamp(14px, 1.65vw, 23px); height: clamp(14px, 1.65vw, 23px);
+      overflow: hidden;
+      border: 1.5px solid rgba(255,255,255,.9); border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0,0,0,.43), 0 0 7px var(--player-color);
+      color: #071222; font-size: clamp(.39rem, .54vw, .55rem); font-weight: 1000; line-height: 1;
+      transform: translateZ(0);
+      transition: transform .17s ease, box-shadow .17s ease;
+    }
+    .token.moving { animation: tokenHop .2s ease-in-out; }
+    @keyframes tokenHop { 50% { transform: translateY(-8px) scale(1.18); box-shadow: 0 6px 10px rgba(0,0,0,.28), 0 0 12px var(--player-color); } }
+    .cell.has-active-player { outline: 2px solid rgba(255,255,255,.74); outline-offset: 1px; }
+
+    /* Панель */
+    .sidebar { overflow: hidden; border-radius: 20px; }
+    .turn-panel { padding: 16px; border-bottom: 1px solid var(--line); background: linear-gradient(115deg, rgba(79,50,167,.18), rgba(23,207,237,.08)); }
+    .turn-cap { margin: 0 0 5px; color: var(--cyan); font-size: .64rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    #turnTitle { margin: 0; font-size: 1.04rem; }
+    #turnSubtitle { min-height: 17px; margin: 4px 0 0; color: #b6c8ea; font-size: .75rem; line-height: 1.25; }
+    .players-panel { padding: 13px 13px 4px; }
+    .player-list { display: grid; gap: 8px; }
+    .player-card {
+      display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 9px; align-items: center;
+      padding: 9px; border: 1px solid rgba(155,189,246,.16); border-radius: 11px; background: rgba(255,255,255,.028);
+      transition: .2s ease;
+    }
+    .player-card.active { border-color: var(--player-color); background: linear-gradient(90deg, color-mix(in srgb, var(--player-color) 13%, transparent), rgba(255,255,255,.04)); box-shadow: inset 3px 0 0 var(--player-color); }
+    .player-color { width: 9px; height: 34px; border-radius: 7px; background: var(--player-color); box-shadow: 0 0 8px var(--player-color); }
+    .player-card-name { overflow: hidden; margin-bottom: 3px; font-size: .82rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .player-meta, .player-effects { display: flex; flex-wrap: wrap; gap: 4px; color: #b8c6e1; font-size: .64rem; }
+    .plutonium { color: #8effc2; font-weight: 800; }
+    .status-pill, .bonus-pill { padding: 2px 5px; border: 1px solid; border-radius: 5px; font-size: .56rem; font-weight: 800; line-height: 1.15; white-space: nowrap; }
+    .status-pill { color: #ffb2bd; border-color: rgba(255,99,128,.48); background: rgba(255,99,128,.11); }
+    .bonus-pill { color: #bafff3; border-color: rgba(88,238,255,.38); background: rgba(88,238,255,.09); }
+    .position-badge { align-self: center; min-width: 32px; padding: 5px 4px; color: #dcecff; border: 1px solid rgba(164,202,255,.24); border-radius: 7px; text-align: center; font-family: ui-monospace, monospace; font-size: .71rem; font-weight: 800; }
+    .controls-panel { padding: 15px; border-top: 1px solid rgba(155,189,246,.12); }
+    .dice-area { display: grid; grid-template-columns: 61px minmax(0,1fr); align-items: center; gap: 13px; min-height: 67px; }
+    .dice {
+      display: grid; place-items: center; width: 58px; height: 58px;
+      border: 2px solid #d4fbff; border-radius: 14px;
+      color: #13203c; background: linear-gradient(145deg, #e8ffff, #79e7ff 55%, #a585ff);
+      box-shadow: 0 0 18px rgba(93,234,255,.31), inset -4px -4px 8px rgba(41,77,158,.17);
+      font-family: ui-monospace, monospace; font-size: 1.8rem; font-weight: 1000;
+    }
+    .dice.rolling { animation: diceRoll .55s linear; }
+    @keyframes diceRoll { 0% { transform: rotate(0) scale(1); } 25% { transform: rotate(100deg) scale(.82); } 60% { transform: rotate(245deg) scale(1.1); } 100% { transform: rotate(360deg) scale(1); } }
+    .roll-info { min-width: 0; }
+    .roll-label { margin: 0 0 4px; color: #d8e7ff; font-size: .79rem; font-weight: 800; }
+    .roll-detail { margin: 0; color: var(--muted); font-size: .65rem; line-height: 1.35; }
+    .control-actions { display: grid; gap: 8px; margin-top: 10px; }
+    .primary-btn { min-height: 40px; color: #071226; background: linear-gradient(100deg, #58edff, #9affca); box-shadow: 0 5px 16px rgba(83,237,255,.18); font-weight: 900; }
+    .secondary-btn { min-height: 36px; color: #e2ebff; border: 1px solid #53679a; background: #1a2556; font-size: .79rem; font-weight: 800; }
+    .exact-prompt { margin: 0 0 5px; color: #b8edff; font-size: .68rem; font-weight: 700; text-align: center; }
+    .number-choices { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+    .mini-btn { min-height: 33px; color: #c9f7ff; border: 1px solid #416f9d; background: #152958; font-size: .75rem; font-weight: 900; }
+    .mini-btn:hover { border-color: var(--cyan); background: #1e4774; }
+    .debug-panel { padding: 12px 15px 15px; border-top: 1px dashed rgba(155,189,246,.2); }
+    .debug-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 7px; color: #e3ccff; font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .debug-heading span { color: #a9b4d0; font-size: .57rem; letter-spacing: 0; text-transform: none; }
+    .debug-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+    #debugPosition { width: 100%; padding: 7px 8px; color: #e8f5ff; border: 1px solid #526493; border-radius: 8px; outline: none; background: #111946; font-size: .72rem; }
+    #debugPosition:focus { border-color: #c485ff; }
+    .debug-btn { padding: 7px 10px; color: #191029; border: 0; border-radius: 8px; background: #d3a3ff; font-size: .68rem; font-weight: 900; }
+    .log-panel { padding: 0 15px 15px; border-top: 1px solid rgba(155,189,246,.12); }
+    .log-title { margin: 12px 0 7px; color: #c7d5ed; font-size: .71rem; letter-spacing: .09em; text-transform: uppercase; }
+    .game-log { display: flex; flex-direction: column-reverse; height: 123px; overflow-y: auto; padding: 7px; border: 1px solid rgba(144,177,241,.16); border-radius: 9px; background: rgba(0,0,0,.16); scrollbar-color: #50679d transparent; }
+    .log-entry { padding: 5px 2px; color: #acbad7; border-bottom: 1px solid rgba(153,181,238,.09); font-size: .66rem; line-height: 1.33; }
+    .log-entry:first-child { color: #e5f5ff; }
+    .log-entry:last-child { border-bottom: none; }
+
+    /* Модальные окна */
+    .modal-backdrop { position: fixed; z-index: 20; display: grid; place-items: center; inset: 0; padding: 20px; background: rgba(2,4,21,.77); backdrop-filter: blur(7px); }
+    .modal { width: min(485px, 100%); overflow: hidden; border: 1px solid rgba(173,228,255,.55); border-radius: 20px; background: #131944; box-shadow: 0 25px 70px rgba(0,0,0,.6), 0 0 35px rgba(91,222,255,.17); animation: modalIn .25s ease-out; }
+    @keyframes modalIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
+    .modal-band { padding: 18px 23px; background: linear-gradient(105deg, #146e83, #493486 54%, #b23667); }
+    .modal-band.history { background: linear-gradient(105deg, #873050, #57254d 56%, #283f7d); }
+    .modal-kicker { margin: 0 0 4px; color: rgba(255,255,255,.78); font-size: .65rem; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
+    .modal-band h2 { margin: 0; font-size: 1.34rem; line-height: 1.08; }
+    .modal-body { padding: 23px; }
+    .card-quote { margin: 0 0 14px; color: #dffbff; font-family: Georgia, serif; font-size: 1.12rem; font-style: italic; line-height: 1.4; }
+    .card-description { margin: 0; color: #c0cee8; font-size: .86rem; line-height: 1.5; }
+    .modal-actions { display: grid; gap: 8px; margin-top: 22px; }
+    .choice-intro { margin: 0 0 14px; color: #c1d0ec; line-height: 1.45; }
+    .choice-grid { display: grid; gap: 8px; }
+    .choice-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; color: #e9f5ff; border: 1px solid #50689f; background: rgba(52,67,128,.52); text-align: left; font-weight: 800; }
+    .choice-dot { flex: 0 0 auto; width: 18px; height: 18px; border: 1px solid rgba(255,255,255,.82); border-radius: 50%; background: var(--player-color); }
+    .choice-btn:hover { border-color: var(--cyan); background: rgba(56,109,158,.68); }
+    .win-modal .modal-band { padding-block: 29px; background: linear-gradient(105deg, #175a71, #62378f 48%, #d15168); text-align: center; }
+    .win-icon { display: block; margin-bottom: 6px; font-size: 3rem; filter: drop-shadow(0 2px 7px rgba(0,0,0,.35)); }
+    .winner-name { color: #f5f1b6; font-weight: 900; }
+
+    @media (max-width: 980px) {
+      .main-layout { grid-template-columns: 1fr; }
+      .sidebar { display: grid; grid-template-columns: 1fr 1fr; }
+      .turn-panel { grid-column: 1 / -1; }
+      .log-panel { grid-column: 1 / -1; }
+      .controls-panel { border-top: 1px solid rgba(155,189,246,.12); }
+    }
+    @media (max-width: 650px) {
+      #gameScreen { padding: 10px; }
+      .timeline { display: none; }
+      .game-header { margin-bottom: 10px; }
+      .board-top { align-items: flex-start; padding: 12px; }
+      .board-hint { display: none; }
+      .epoch-legend { max-width: 175px; justify-content: flex-start; }
+      .epoch-key { font-size: .55rem; }
+      .game-board { min-width: 500px; }
+      .board-wrap { overflow-x: auto; }
+      .sidebar { grid-template-columns: 1fr; }
+      .turn-panel, .log-panel { grid-column: auto; }
+      .setup-hero, .setup-content { padding-right: 24px; padding-left: 24px; }
+      .setup-hero { min-height: 215px; padding-top: 34px; }
+    }
+    @media (max-width: 390px) {
+      .game-board { min-width: 455px; }
+      .setup-card { border-radius: 18px; }
+      .setup-hero, .setup-content { padding-right: 18px; padding-left: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <main id="setupScreen" class="screen">
+    <section class="setup-card" aria-labelledby="gameTitle">
+      <header class="setup-hero">
+        <p class="eyebrow">Локальная настольная игра · 2–4 игрока</p>
+        <h1 id="gameTitle">Назад в будущее<br>Временной вираж</h1>
+        <p class="hero-lead">Проложите маршрут сквозь четыре эпохи, заряжайте DeLorean плутонием и вернитесь домой точным броском.</p>
+      </header>
+      <div class="setup-content">
+        <div class="setup-heading">
+          <h2>Настройте путешественников</h2>
+          <span>Игра на одном экране</span>
+        </div>
+        <div class="player-counts" aria-label="Количество игроков">
+          <button class="count-btn active" data-count="2" type="button">2</button>
+          <button class="count-btn" data-count="3" type="button">3</button>
+          <button class="count-btn" data-count="4" type="button">4</button>
+        </div>
+        <div id="playerConfigs" class="player-configs"></div>
+        <button id="startGameBtn" class="start-btn" type="button">Запустить временную цепь ⚡</button>
+      </div>
+    </section>
+  </main>
+
+  <main id="gameScreen" class="screen hidden">
+    <header class="game-header">
+      <div class="game-logo">
+        <div class="flux-icon" aria-hidden="true">ϟ</div>
+        <div>
+          <p class="eyebrow">Назад в будущее</p>
+          <strong>Временной вираж</strong>
+        </div>
+      </div>
+      <div class="timeline" aria-label="Временные зоны"><span>1985</span><i class="tline"></i><span>1955</span><i class="tline"></i><span>2015</span><i class="tline"></i><span>1885</span></div>
+    </header>
+
+    <div class="main-layout">
+      <section class="board-shell" aria-label="Игровое поле из 50 клеток">
+        <div class="board-top">
+          <div><h2>Маршрут DeLorean</h2><span class="board-hint">Доберитесь до клетки 50 точным броском</span></div>
+          <div class="epoch-legend" aria-label="Легенда эпох">
+            <span class="epoch-key" style="--key:#57d5ff">1985</span>
+            <span class="epoch-key" style="--key:#e78bad">1955</span>
+            <span class="epoch-key" style="--key:#bc70ff">2015</span>
+            <span class="epoch-key" style="--key:#f2bb5d">1885</span>
+          </div>
+        </div>
+        <div class="board-wrap"><div id="gameBoard" class="game-board"></div></div>
+      </section>
+
+      <aside class="sidebar" aria-label="Панель игры">
+        <section class="turn-panel">
+          <p class="turn-cap">Временной контур активен</p>
+          <h2 id="turnTitle">Подготовка к старту</h2>
+          <p id="turnSubtitle">Настройте игроков и запускайте игру.</p>
+        </section>
+        <section class="players-panel"><div id="playerList" class="player-list"></div></section>
+        <section class="controls-panel">
+          <div class="dice-area">
+            <div id="dice" class="dice" aria-label="Результат броска">?</div>
+            <div class="roll-info"><p id="rollLabel" class="roll-label">Кубик ждёт хода</p><p id="rollDetail" class="roll-detail">Каждый игрок начинает с одной ячейкой плутония.</p></div>
+          </div>
+          <div id="controlActions" class="control-actions"></div>
+        </section>
+        <section class="debug-panel">
+          <p class="debug-heading">Режим отладки <span>проверка клеток</span></p>
+          <div class="debug-row"><input id="debugPosition" type="number" min="1" max="50" value="4" aria-label="Номер клетки для отладки"><button id="debugMoveBtn" class="debug-btn" type="button">Переместить</button></div>
+        </section>
+        <section class="log-panel">
+          <h3 class="log-title">Журнал времени</h3>
+          <div id="gameLog" class="game-log" aria-live="polite"></div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-live="assertive">
+    <div id="modalContent" class="modal"></div>
+  </div>
+
+  <script>
+    'use strict';
+
+    /**
+     * Единственный глобальный объект игрового состояния. Карты представлены ID,
+     * а описания и эффекты находятся в константах ниже.
+     */
+    const gameState = {
+      players: [],
+      currentPlayerIndex: 0,
+      decks: { marty: [], history: [], martyDiscard: [], historyDiscard: [] },
+      gameLog: [],
+      phase: 'setup',
+      lastRoll: null,
+      history1885Visited: {}
+    };
+
+    const PLAYER_COLORS = ['#ff5c7a', '#58e8ff', '#ffd35a', '#a88cff'];
+    const DEFAULT_NAMES = ['Марти', 'Док', 'Дженнифер', 'Эйнштейн'];
+    const CELL_INFO = {
+      4: { type: 'jump', icon: '⚡', title: '88 миль/ч → 10', target: 10 },
+      5: { type: 'marty', icon: '✉', title: 'Письмо от Marty' },
+      8: { type: 'skip', icon: '⏳', title: 'Нет плутония' },
+      12: { type: 'history', icon: '◷', title: 'Проблемы с историей' },
+      15: { type: 'jump', icon: '⚡', title: 'Побег от Биффа → 20', target: 20 },
+      18: { type: 'marty', icon: '✉', title: 'Письмо от Marty' },
+      22: { type: 'skip', icon: '⏳', title: 'Потерял сознание' },
+      27: { type: 'history', icon: '◷', title: 'Проблемы с историей' },
+      29: { type: 'jump', icon: '⚡', title: 'Поток → 34', target: 34 },
+      32: { type: 'marty', icon: '✉', title: 'Письмо от Marty' },
+      35: { type: 'skip', icon: '⏳', title: 'Арест за ховерборд' },
+      38: { type: 'history', icon: '◷', title: 'Проблемы с историей' }
+    };
+    const SKIP_TEXT = {
+      8: 'Док забыл плутоний — пропустите ход.',
+      22: 'Марти потерял сознание после удара машиной — пропустите ход.',
+      35: 'Арест за ховерборд над водой — пропустите ход.'
+    };
+
+    const MARTY_CARDS = {
+      1: { title: 'Способ использовать молнию', quote: '«Дорога? Там, куда мы отправляемся, дороги не нужны.»', description: 'Выберите: получить 1 плутоний или сохранить один переброс кубика.' },
+      2: { title: 'Навозная машина для Биффа', quote: '«Никто не зовёт меня цыплёнком!»', description: 'Продвиньтесь на 3 клетки и проверьте клетку приземления.' },
+      3: { title: 'Удар на балу', quote: '«Твой отец поцеловал мою мать!»', description: 'В 1955 году — +5 клеток. В любой другой эпохе — +2 к следующему броску.' },
+      4: { title: 'Спортивный альманах', quote: '«У нас есть информация о будущем.»', description: 'Для следующего хода выберите любое число от 1 до 6 вместо броска.' },
+      5: { title: 'Грифф Таннен в 2015', quote: '«Эй, Макфлай! Ты трус?»', description: 'Выберите соперника: он пропустит следующий ход.' },
+      6: { title: 'DeLorean в шахте', quote: '«Всё, что нам нужно, — немного энергии.»', description: 'Если вы уже бывали в 1885, мгновенно доберитесь домой. Иначе попадите в случайную клетку Дикого Запада.' },
+      7: { title: 'Пошли в будущее!', quote: '«Ваши дети, Марти, должны спасти своих детей!»', description: 'После завершения этого хода сразу ходите ещё раз.' },
+      8: { title: 'Док влюбился', quote: '«Это может вызвать временной парадокс!»', description: 'Выберите соперника и поменяйтесь с ним местами. Обе клетки проверяются.' }
+    };
+    const HISTORY_CARDS = {
+      1: { title: 'Бифф украл DeLorean', quote: '«Всем нужна машина времени.»', description: 'Вернитесь на старт — клетку 1.' },
+      2: { title: 'Исчезающая рука', quote: '«Я исчезаю с семейной фотографии!»', description: 'Вернитесь к началу 1955 года — на клетку 11.' },
+      3: { title: 'Альтернативный 1985 год', quote: '«Это не тот Хилл-Вэлли, который я знаю.»', description: 'Пропустите следующие 2 хода.' },
+      4: { title: 'В DeLorean кончился бензин в 1885', quote: '«Похоже, мы застряли в прошлом.»', description: 'Вы застряли в 1885. Освободит только шестёрка или письмо от Marty другого игрока.' },
+      5: { title: 'Японские инвесторы: Вы уволены!', quote: '«Ты уволен!»', description: 'Потеряйте весь плутоний и все накопленные бонусы.' },
+      6: { title: 'Дуэль на ховербордах с Гриффом', quote: '«Ховерборд? Это же детская игрушка!»', description: 'Отдайте 1 плутоний сопернику. Если его нет, отступите на 3 клетки.' },
+      7: { title: 'Чистить навоз за Биффом', quote: '«Навоз! Я ненавижу навоз!»', description: 'Пропустите следующий ход.' },
+      8: { title: 'Временной парадокс', quote: '«Нельзя просто так встретить самого себя!»', description: 'Автоматический бросок: чётное число отбрасывает на 5 клеток, нечётное — без последствий.' }
+    };
+
+    const els = {
+      setup: document.getElementById('setupScreen'),
+      game: document.getElementById('gameScreen'),
+      configs: document.getElementById('playerConfigs'),
+      counts: [...document.querySelectorAll('.count-btn')],
+      start: document.getElementById('startGameBtn'),
+      board: document.getElementById('gameBoard'),
+      playerList: document.getElementById('playerList'),
+      turnTitle: document.getElementById('turnTitle'),
+      turnSubtitle: document.getElementById('turnSubtitle'),
+      dice: document.getElementById('dice'),
+      rollLabel: document.getElementById('rollLabel'),
+      rollDetail: document.getElementById('rollDetail'),
+      controls: document.getElementById('controlActions'),
+      log: document.getElementById('gameLog'),
+      debugPosition: document.getElementById('debugPosition'),
+      debugMove: document.getElementById('debugMoveBtn'),
+      modalBackdrop: document.getElementById('modalBackdrop'),
+      modalContent: document.getElementById('modalContent')
+    };
+
+    let selectedPlayerCount = 2;
+    let isResolving = false;
+    let pendingRoll = null;
+    let extraTurnAwarded = false;
+    let modalResolver = null;
+
+    /** Randomly shuffles a new draw pile. */
+    function shuffledIds() {
+      const ids = [1, 2, 3, 4, 5, 6, 7, 8];
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      return ids;
+    }
+
+    function escapeHTML(value) {
+      const div = document.createElement('div');
+      div.textContent = value;
+      return div.innerHTML;
+    }
+
+    function getZone(position) {
+      if (position <= 10) return '1985';
+      if (position <= 25) return '1955';
+      if (position <= 40) return '2015';
+      return '1885';
+    }
+
+    function zoneClass(position) {
+      return `zone-${getZone(position)}`;
+    }
+
+    function cellTitle(position) {
+      if (position === 1) return 'СТАРТ · Хилл-Вэлли';
+      if (position === 50) return 'ДОМОЙ!';
+      if (position === 49) return 'Разгонная полоса';
+      if (CELL_INFO[position]) return CELL_INFO[position].title;
+      const labels = { 2: 'ТЦ «Два дуба»', 10: 'Лаборатория Дока', 11: 'Очарование юности', 16: 'Кафе «У Лу»', 20: 'Часовая башня', 25: 'DeLorean на переходе', 26: 'Будущее уже здесь', 30: 'Кафе «80-е»', 34: 'Летающие машины', 40: 'Башня на ремонте', 41: 'Дикий Запад', 45: 'Паровоз' };
+      return labels[position] || getZone(position);
+    }
+
+    /** Converts a logical 1–50 route into a five-row serpentine grid. */
+    function gridPosition(position) {
+      const segment = Math.floor((position - 1) / 10);
+      const inSegment = (position - 1) % 10;
+      return {
+        row: 5 - segment,
+        column: segment % 2 === 0 ? inSegment + 1 : 10 - inSegment
+      };
+    }
+
+    function renderSetup() {
+      els.configs.innerHTML = '';
+      for (let i = 0; i < selectedPlayerCount; i++) {
+        const row = document.createElement('div');
+        row.className = 'config-row';
+        row.innerHTML = `
+          <div class="avatar-preview" style="background:${PLAYER_COLORS[i]}">${i + 1}</div>
+          <label>Путешественник
+            <input class="name-input" data-player-index="${i}" maxlength="20" value="${DEFAULT_NAMES[i]}" aria-label="Имя игрока ${i + 1}">
+          </label>
+          <input class="color-input" data-color-index="${i}" type="color" value="${PLAYER_COLORS[i]}" aria-label="Цвет игрока ${i + 1}">
+        `;
+        const colorInput = row.querySelector('.color-input');
+        const preview = row.querySelector('.avatar-preview');
+        colorInput.addEventListener('input', () => { preview.style.background = colorInput.value; });
+        els.configs.append(row);
+      }
+    }
+
+    function setupGame() {
+      const nameInputs = [...document.querySelectorAll('.name-input')];
+      const colors = [...document.querySelectorAll('.color-input')];
+      gameState.players = nameInputs.map((input, i) => ({
+        id: i + 1,
+        name: input.value.trim() || `Игрок ${i + 1}`,
+        color: colors[i].value,
+        position: 1,
+        plutonium: 1,
+        skipTurns: 0,
+        stuck1885: false,
+        bonuses: { reroll: false, exactRoll: null, nextRollModifier: 0 }
+      }));
+      gameState.currentPlayerIndex = 0;
+      gameState.decks = { marty: shuffledIds(), history: shuffledIds(), martyDiscard: [], historyDiscard: [] };
+      gameState.gameLog = [];
+      gameState.lastRoll = null;
+      gameState.history1885Visited = {};
+      gameState.phase = 'playing';
+      isResolving = false;
+      pendingRoll = null;
+      extraTurnAwarded = false;
+      logEvent('Потоковый накопитель запущен. Первый ход — у ' + currentPlayer().name + '.');
+      els.setup.classList.add('hidden');
+      els.game.classList.remove('hidden');
+      renderAll();
+      prepareTurn();
+    }
+
+    function currentPlayer() {
+      return gameState.players[gameState.currentPlayerIndex];
+    }
+
+    function logEvent(message) {
+      gameState.gameLog.push(message);
+      if (gameState.gameLog.length > 50) gameState.gameLog.shift();
+    }
+
+    function renderBoard() {
+      els.board.innerHTML = '';
+      for (let position = 1; position <= 50; position++) {
+        const special = CELL_INFO[position];
+        const coordinates = gridPosition(position);
+        const cell = document.createElement('div');
+        cell.className = `cell ${zoneClass(position)} ${special ? `cell-special cell-${special.type}` : ''} ${position === 50 ? 'cell-finish' : ''}`;
+        cell.id = `cell-${position}`;
+        cell.style.gridRow = coordinates.row;
+        cell.style.gridColumn = coordinates.column;
+        cell.setAttribute('aria-label', `Клетка ${position}: ${cellTitle(position)}`);
+        cell.innerHTML = `
+          <span class="cell-num">${position}</span>
+          ${special ? `<span class="cell-icon" aria-hidden="true">${special.icon}</span>` : ''}
+          <span class="cell-title">${cellTitle(position)}</span>
+          <div class="tokens"></div>
+        `;
+        els.board.append(cell);
+      }
+      renderTokens();
+    }
+
+    function initials(name) {
+      const words = name.trim().split(/\s+/).filter(Boolean);
+      return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || '?';
+    }
+
+    function renderTokens(movingPlayerId = null) {
+      document.querySelectorAll('.tokens').forEach(container => { container.innerHTML = ''; });
+      gameState.players.forEach(player => {
+        const cell = document.getElementById(`cell-${player.position}`);
+        if (!cell) return;
+        const token = document.createElement('div');
+        token.className = `token ${movingPlayerId === player.id ? 'moving' : ''}`;
+        token.style.setProperty('--player-color', player.color);
+        token.style.background = player.color;
+        token.title = `${player.name}, клетка ${player.position}`;
+        token.textContent = initials(player.name);
+        cell.querySelector('.tokens').append(token);
+      });
+      document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('has-active-player'));
+      if (gameState.phase !== 'setup' && currentPlayer()) {
+        document.getElementById(`cell-${currentPlayer().position}`)?.classList.add('has-active-player');
+      }
+    }
+
+    function playerStatus(player) {
+      const statuses = [];
+      if (player.stuck1885) statuses.push('Застрял в 1885');
+      if (player.skipTurns > 0) statuses.push(`Пропуск ×${player.skipTurns}`);
+      return statuses;
+    }
+
+    function renderPlayers() {
+      els.playerList.innerHTML = gameState.players.map((player, index) => {
+        const bonuses = [];
+        if (player.bonuses.reroll) bonuses.push('↻ переброс');
+        if (player.bonuses.exactRoll) bonuses.push('⌘ точное число');
+        if (player.bonuses.nextRollModifier) bonuses.push(`+${player.bonuses.nextRollModifier} к кубику`);
+        const statuses = playerStatus(player);
+        return `
+          <article class="player-card ${index === gameState.currentPlayerIndex && gameState.phase !== 'game_over' ? 'active' : ''}" style="--player-color:${player.color}">
+            <span class="player-color"></span>
+            <div>
+              <div class="player-card-name">${escapeHTML(player.name)}</div>
+              <div class="player-meta"><span class="plutonium">⚛ ${player.plutonium} Pu</span><span>·</span><span>${getZone(player.position)}</span></div>
+              <div class="player-effects">
+                ${bonuses.map(bonus => `<span class="bonus-pill">${bonus}</span>`).join('')}
+                ${statuses.map(status => `<span class="status-pill">${status}</span>`).join('')}
+              </div>
+            </div>
+            <span class="position-badge">#${player.position}</span>
+          </article>`;
+      }).join('');
+    }
+
+    function renderTurn() {
+      if (gameState.phase === 'game_over') return;
+      const player = currentPlayer();
+      els.turnTitle.textContent = `Ход: ${player.name}`;
+      if (player.stuck1885) {
+        els.turnSubtitle.textContent = 'Застрял в 1885: только шестёрка запустит DeLorean.';
+      } else if (player.skipTurns > 0) {
+        els.turnSubtitle.textContent = `На временной линии висит пропуск хода ×${player.skipTurns}.`;
+      } else if (player.bonuses.exactRoll) {
+        els.turnSubtitle.textContent = 'Спортивный альманах: задайте число для этого броска.';
+      } else {
+        els.turnSubtitle.textContent = `Клетка ${player.position} · эпоха ${getZone(player.position)}.`;
+      }
+    }
+
+    function renderDice() {
+      const player = currentPlayer();
+      els.dice.textContent = gameState.lastRoll ?? '?';
+      if (gameState.phase === 'game_over') {
+        els.rollLabel.textContent = 'Путешествие завершено';
+        els.rollDetail.textContent = 'Победитель уже дома.';
+      } else if (pendingRoll) {
+        els.rollLabel.textContent = `Выпало ${pendingRoll.total}`;
+        els.rollDetail.textContent = pendingRoll.modifier ? `Кубик ${pendingRoll.base} + модификатор ${pendingRoll.modifier}. Использовать переброс?` : 'Использовать результат или перебросить кубик?';
+      } else if (player?.stuck1885) {
+        els.rollLabel.textContent = 'Нужна шестёрка';
+        els.rollDetail.textContent = 'Бросьте кубик, чтобы выбраться из 1885 года.';
+      } else if (gameState.lastRoll !== null) {
+        els.rollLabel.textContent = `Последний бросок: ${gameState.lastRoll}`;
+        els.rollDetail.textContent = 'Продолжайте путешествие по временной линии.';
+      } else {
+        els.rollLabel.textContent = 'Кубик ждёт хода';
+        els.rollDetail.textContent = 'Выберите бросок, когда будете готовы.';
+      }
+    }
+
+    function button(label, className, handler, disabled = false) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = className;
+      btn.textContent = label;
+      btn.disabled = disabled;
+      btn.addEventListener('click', handler);
+      return btn;
+    }
+
+    function renderControls() {
+      els.controls.innerHTML = '';
+      const disabled = gameState.phase !== 'playing' || isResolving;
+      const player = currentPlayer();
+      if (gameState.phase === 'game_over') {
+        els.controls.append(button('Начать новую игру', 'primary-btn', resetToSetup));
+        return;
+      }
+      if (pendingRoll) {
+        els.controls.append(button(`Идти на ${pendingRoll.total}`, 'primary-btn', () => usePendingRoll(false), false));
+        els.controls.append(button('↻ Перебросить кубик', 'secondary-btn', () => usePendingRoll(true), false));
+        return;
+      }
+      if (isResolving) {
+        els.controls.append(button('Временная линия обновляется…', 'secondary-btn', () => {}, true));
+        return;
+      }
+      if (player.bonuses.exactRoll && !player.stuck1885) {
+        const prompt = document.createElement('p');
+        prompt.className = 'exact-prompt';
+        prompt.textContent = 'Спортивный альманах — выберите результат:';
+        const grid = document.createElement('div');
+        grid.className = 'number-choices';
+        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => rollForPlayer(number)));
+        els.controls.append(prompt, grid);
+      } else {
+        els.controls.append(button(player.stuck1885 ? 'Бросить кубик спасения' : 'Бросить кубик', 'primary-btn', () => rollForPlayer()));
+        if (player.bonuses.reroll && player.stuck1885) {
+          const hint = document.createElement('p');
+          hint.className = 'exact-prompt';
+          hint.textContent = 'Переброс доступен после обычного броска.';
+          els.controls.append(hint);
+        }
+      }
+    }
+
+    function renderLog() {
+      els.log.innerHTML = gameState.gameLog.slice(-24).reverse().map(entry => `<div class="log-entry">${escapeHTML(entry)}</div>`).join('');
+    }
+
+    function renderAll(movingPlayerId = null) {
+      renderBoard();
+      if (movingPlayerId) renderTokens(movingPlayerId);
+      renderPlayers();
+      renderTurn();
+      renderDice();
+      renderControls();
+      renderLog();
+      els.debugMove.disabled = isResolving || gameState.phase !== 'playing' || Boolean(pendingRoll);
+    }
+
+    function sleep(ms) { return new Promise(resolve => window.setTimeout(resolve, ms)); }
+
+    function animateDice(value) {
+      els.dice.classList.remove('rolling');
+      void els.dice.offsetWidth;
+      els.dice.classList.add('rolling');
+      window.setTimeout(() => els.dice.classList.remove('rolling'), 600);
+      els.dice.textContent = value;
+    }
+
+    function randomDie() { return Math.floor(Math.random() * 6) + 1; }
+
+    /** Checks compulsory skipped turns before the active player can roll. */
+    async function prepareTurn() {
+      if (gameState.phase !== 'playing' || isResolving) return;
+      const player = currentPlayer();
+      if (player.skipTurns > 0) {
+        isResolving = true;
+        player.skipTurns -= 1;
+        logEvent(`${player.name} пропускает ход. Осталось пропусков: ${player.skipTurns}.`);
+        renderAll();
+        await sleep(750);
+        isResolving = false;
+        advanceTurn();
+        return;
+      }
+      renderAll();
+    }
+
+    /** Performs a regular, selected, or escape roll. */
+    async function rollForPlayer(forcedValue = null, isReroll = false) {
+      if (gameState.phase !== 'playing' || isResolving || pendingRoll) return;
+      const player = currentPlayer();
+      isResolving = true;
+      const base = forcedValue ?? randomDie();
+      const modifier = player.stuck1885 ? 0 : player.bonuses.nextRollModifier;
+      if (!player.stuck1885) {
+        player.bonuses.nextRollModifier = 0;
+        if (forcedValue !== null) player.bonuses.exactRoll = null;
+      }
+      const total = base + modifier;
+      gameState.lastRoll = total;
+      animateDice(total);
+      renderAll();
+      await sleep(450);
+
+      if (player.stuck1885) {
+        logEvent(`${player.name} бросает кубик спасения: ${base}.`);
+        if (base === 6) {
+          player.stuck1885 = false;
+          logEvent(`Шестёрка! ${player.name} запускает DeLorean и мчится на 6 клеток.`);
+          await movePlayerBy(player, 6, true, 'побег из 1885');
+          if (gameState.phase === 'playing') await resolveLanding(player);
+        } else {
+          logEvent(`${player.name} остаётся в 1885 году — нужна шестёрка.`);
+        }
+        isResolving = false;
+        renderAll();
+        if (gameState.phase === 'playing') finishTurn();
+        return;
+      }
+
+      if (player.bonuses.reroll && !isReroll) {
+        pendingRoll = { base, modifier, total };
+        isResolving = false;
+        renderAll();
+        return;
+      }
+      logEvent(`${player.name} выбрасывает ${total}${modifier ? ` (${base} + ${modifier})` : ''}.`);
+      await applyRoll(total);
+    }
+
+    async function usePendingRoll(wantsReroll) {
+      if (!pendingRoll || isResolving) return;
+      const saved = pendingRoll;
+      pendingRoll = null;
+      const player = currentPlayer();
+      if (wantsReroll) {
+        player.bonuses.reroll = false;
+        logEvent(`${player.name} использует переброс.`);
+        renderAll();
+        await rollForPlayer(null, true);
+      } else {
+        isResolving = true;
+        gameState.lastRoll = saved.total;
+        logEvent(`${player.name} принимает результат ${saved.total}.`);
+        renderAll();
+        await applyRoll(saved.total);
+      }
+    }
+
+    async function applyRoll(roll) {
+      const player = currentPlayer();
+      isResolving = true;
+      extraTurnAwarded = false;
+      await movePlayerBy(player, roll, true, 'бросок');
+      if (gameState.phase === 'playing') await resolveLanding(player);
+      isResolving = false;
+      renderAll();
+      if (gameState.phase === 'playing') finishTurn();
+    }
+
+    /**
+     * Moves a chip cell-by-cell. On an overshoot it travels to 50 then bounces
+     * backward, which makes the exact-finish rule visible rather than invisible.
+     */
+    async function movePlayerBy(player, steps, animate = true, reason = '') {
+      if (steps === 0) return;
+      const start = player.position;
+      let path = [];
+      if (steps > 0) {
+        const rawTarget = start + steps;
+        if (rawTarget <= 50) {
+          for (let cell = start + 1; cell <= rawTarget; cell++) path.push(cell);
+        } else {
+          for (let cell = start + 1; cell <= 50; cell++) path.push(cell);
+          for (let cell = 49; cell >= 50 - (rawTarget - 50); cell--) path.push(cell);
+          logEvent(`${player.name} перелетает финиш и отскакивает назад.`);
+        }
+      } else {
+        const target = Math.max(1, start + steps);
+        for (let cell = start - 1; cell >= target; cell--) path.push(cell);
+      }
+      for (const position of path) {
+        player.position = position;
+        if (position >= 41 && position <= 48) gameState.history1885Visited[player.id] = true;
+        renderBoard();
+        renderPlayers();
+        if (animate) await sleep(105);
+      }
+      if (reason && path.length) logEvent(`${player.name}: ${reason} → клетка ${player.position}.`);
+    }
+
+    async function movePlayerTo(player, target, animate = true, reason = '') {
+      target = Math.max(1, Math.min(50, target));
+      if (target === player.position) return;
+      const step = target > player.position ? 1 : -1;
+      const distance = Math.abs(target - player.position);
+      for (let i = 0; i < distance; i++) {
+        player.position += step;
+        if (player.position >= 41 && player.position <= 48) gameState.history1885Visited[player.id] = true;
+        renderBoard();
+        renderPlayers();
+        if (animate) await sleep(distance > 15 ? 48 : 105);
+      }
+      if (reason) logEvent(`${player.name}: ${reason} → клетка ${player.position}.`);
+    }
+
+    /** Resolves a special cell, including chained jumps and cards. */
+    async function resolveLanding(player, depth = 0) {
+      if (gameState.phase !== 'playing' || depth > 16) return;
+      if (player.position >= 41 && player.position <= 48) gameState.history1885Visited[player.id] = true;
+      if (player.position === 50) {
+        declareWinner(player);
+        return;
+      }
+      const special = CELL_INFO[player.position];
+      if (!special) return;
+
+      if (special.type === 'skip') {
+        player.skipTurns = Math.max(player.skipTurns, 1);
+        logEvent(`${player.name}: ${SKIP_TEXT[player.position]}`);
+        return;
+      }
+      if (special.type === 'jump') {
+        if (player.plutonium >= 1) {
+          player.plutonium -= 1;
+          logEvent(`${player.name} тратит 1 плутоний: 88 миль/ч! Прыжок на клетку ${special.target}.`);
+          await movePlayerTo(player, special.target, true, 'временной прыжок');
+          await resolveLanding(player, depth + 1);
+        } else {
+          logEvent(`${player.name} достиг клетки 88 миль/ч, но плутония нет — прыжок не состоялся.`);
+        }
+        return;
+      }
+      if (special.type === 'marty') {
+        let rescued = 0;
+        gameState.players.forEach(other => {
+          if (other.id !== player.id && other.stuck1885) { other.stuck1885 = false; rescued++; }
+        });
+        if (rescued) logEvent(`Письмо от Marty освобождает застрявших в 1885: ${rescued}.`);
+        await drawAndPlayCard('marty', player, depth);
+        return;
+      }
+      if (special.type === 'history') {
+        await drawAndPlayCard('history', player, depth);
+      }
+    }
+
+    /** Uses shift/push to return every card to the bottom of its deck after use. */
+    async function drawAndPlayCard(deckName, player, depth) {
+      const deck = gameState.decks[deckName];
+      const discard = gameState.decks[deckName === 'marty' ? 'martyDiscard' : 'historyDiscard'];
+      const id = deck.shift();
+      if (!id) return;
+      deck.push(id);
+      discard.push(id);
+      // Keep discard as a readable history while the live deck itself is cyclic.
+      if (discard.length > 8) discard.shift();
+      const card = (deckName === 'marty' ? MARTY_CARDS : HISTORY_CARDS)[id];
+      logEvent(`${player.name} берёт карту «${card.title}».`);
+      await showCard(deckName, card);
+      if (gameState.phase === 'game_over') return;
+      await applyCardEffect(deckName, id, player, depth);
+    }
+
+    function openModal(html, className = '') {
+      els.modalContent.className = `modal ${className}`;
+      els.modalContent.innerHTML = html;
+      els.modalBackdrop.classList.remove('hidden');
+      gameState.phase = 'modal_active';
+      renderAll();
+    }
+
+    function closeModal() {
+      els.modalBackdrop.classList.add('hidden');
+      if (gameState.phase === 'modal_active') gameState.phase = 'playing';
+    }
+
+    function showCard(deckName, card) {
+      return new Promise(resolve => {
+        const isHistory = deckName === 'history';
+        openModal(`
+          <div class="modal-band ${isHistory ? 'history' : ''}">
+            <p class="modal-kicker">${isHistory ? 'Проблемы с альтернативной историей' : 'Вам письмо от Marty'}</p>
+            <h2>${escapeHTML(card.title)}</h2>
+          </div>
+          <div class="modal-body">
+            <p class="card-quote">${escapeHTML(card.quote)}</p>
+            <p class="card-description">${escapeHTML(card.description)}</p>
+            <div class="modal-actions"><button id="applyCardBtn" class="primary-btn" type="button">Применить эффект</button></div>
+          </div>`);
+        document.getElementById('applyCardBtn').addEventListener('click', () => {
+          closeModal();
+          renderAll();
+          resolve();
+        }, { once: true });
+      });
+    }
+
+    function chooseFromModal(title, description, choices) {
+      return new Promise(resolve => {
+        openModal(`
+          <div class="modal-band"><p class="modal-kicker">Временная развилка</p><h2>${escapeHTML(title)}</h2></div>
+          <div class="modal-body"><p class="choice-intro">${escapeHTML(description)}</p><div id="choiceGrid" class="choice-grid"></div></div>`);
+        const grid = document.getElementById('choiceGrid');
+        choices.forEach(choice => {
+          const btn = document.createElement('button');
+          btn.type = 'button'; btn.className = 'choice-btn';
+          if (choice.color) btn.innerHTML = `<span class="choice-dot" style="--player-color:${choice.color}"></span><span>${escapeHTML(choice.label)}</span>`;
+          else btn.textContent = choice.label;
+          btn.addEventListener('click', () => {
+            closeModal();
+            renderAll();
+            resolve(choice.value);
+          }, { once: true });
+          grid.append(btn);
+        });
+      });
+    }
+
+    async function chooseOpponent(player, title, description) {
+      const opponents = gameState.players.filter(other => other.id !== player.id);
+      const selectedId = await chooseFromModal(title, description, opponents.map(other => ({ value: other.id, label: `${other.name} · клетка ${other.position}`, color: other.color })));
+      return gameState.players.find(other => other.id === selectedId);
+    }
+
+    async function applyCardEffect(deckName, id, player, depth) {
+      if (deckName === 'marty') {
+        switch (id) {
+          case 1: {
+            const choice = await chooseFromModal('Способ использовать молнию', 'Как использовать заряд?', [
+              { value: 'plutonium', label: '⚛ Получить 1 плутоний' },
+              { value: 'reroll', label: '↻ Сохранить переброс кубика' }
+            ]);
+            if (choice === 'plutonium') { player.plutonium += 1; logEvent(`${player.name} получает 1 плутоний.`); }
+            else { player.bonuses.reroll = true; logEvent(`${player.name} получает право на один переброс.`); }
+            break;
+          }
+          case 2:
+            await movePlayerBy(player, 3, true, 'навозная машина');
+            if (gameState.phase === 'playing') await resolveLanding(player, depth + 1);
+            break;
+          case 3:
+            if (player.position >= 11 && player.position <= 25) {
+              await movePlayerBy(player, 5, true, 'удачный удар на балу');
+              if (gameState.phase === 'playing') await resolveLanding(player, depth + 1);
+            } else {
+              player.bonuses.nextRollModifier = 2;
+              logEvent(`${player.name} получает +2 к следующему броску.`);
+            }
+            break;
+          case 4:
+            player.bonuses.exactRoll = true;
+            logEvent(`${player.name} получает право выбрать число для следующего броска.`);
+            break;
+          case 5: {
+            const opponent = await chooseOpponent(player, 'Грифф Таннен в 2015', 'Кто пропустит следующий ход?');
+            opponent.skipTurns = Math.max(opponent.skipTurns, 1);
+            logEvent(`${opponent.name} пропустит следующий ход из-за Гриффа.`);
+            break;
+          }
+          case 6:
+            if (gameState.history1885Visited[player.id]) {
+              await movePlayerTo(player, 50, true, 'DeLorean выходит из шахты прямо домой');
+              if (gameState.phase === 'playing') declareWinner(player);
+            } else {
+              const target = Math.floor(Math.random() * 8) + 41;
+              await movePlayerTo(player, target, true, 'DeLorean переносит в 1885 год');
+              gameState.history1885Visited[player.id] = true;
+            }
+            break;
+          case 7:
+            extraTurnAwarded = true;
+            logEvent(`${player.name} получает немедленный дополнительный ход.`);
+            break;
+          case 8: {
+            const opponent = await chooseOpponent(player, 'Док влюбился', 'С кем поменяться координатами во времени?');
+            const ownPosition = player.position;
+            player.position = opponent.position;
+            opponent.position = ownPosition;
+            if (player.position >= 41 && player.position <= 48) gameState.history1885Visited[player.id] = true;
+            if (opponent.position >= 41 && opponent.position <= 48) gameState.history1885Visited[opponent.id] = true;
+            logEvent(`${player.name} и ${opponent.name} меняются местами.`);
+            renderBoard(); renderPlayers();
+            await sleep(350);
+            if (gameState.phase === 'playing') await resolveLanding(player, depth + 1);
+            if (gameState.phase === 'playing') await resolveLanding(opponent, depth + 1);
+            break;
+          }
+        }
+      } else {
+        switch (id) {
+          case 1:
+            await movePlayerTo(player, 1, true, 'Бифф украл DeLorean: возврат на старт');
+            break;
+          case 2:
+            await movePlayerTo(player, 11, true, 'исчезающая рука: возврат в 1955');
+            break;
+          case 3:
+            player.skipTurns = 2;
+            logEvent(`${player.name} попал в альтернативный 1985 и пропустит 2 хода.`);
+            break;
+          case 4:
+            player.stuck1885 = true;
+            logEvent(`${player.name} застрял в 1885: нужна шестёрка или письмо от Marty другого игрока.`);
+            break;
+          case 5:
+            player.plutonium = 0;
+            player.bonuses = { reroll: false, exactRoll: null, nextRollModifier: 0 };
+            logEvent(`${player.name} уволен: плутоний и бонусы потеряны.`);
+            break;
+          case 6:
+            if (player.plutonium > 0) {
+              const opponent = await chooseOpponent(player, 'Дуэль на ховербордах', 'Кому отдать одну ячейку плутония?');
+              player.plutonium = Math.max(0, player.plutonium - 1);
+              opponent.plutonium += 1;
+              logEvent(`${player.name} отдаёт 1 плутоний игроку ${opponent.name}.`);
+            } else {
+              await movePlayerBy(player, -3, true, 'проигранная дуэль на ховербордах');
+            }
+            break;
+          case 7:
+            player.skipTurns = Math.max(player.skipTurns, 1);
+            logEvent(`${player.name} чистит навоз и пропустит ход.`);
+            break;
+          case 8: {
+            const paradoxRoll = randomDie();
+            animateDice(paradoxRoll);
+            await sleep(450);
+            logEvent(`Временной парадокс: выпало ${paradoxRoll}.`);
+            if (paradoxRoll % 2 === 0) {
+              await movePlayerBy(player, -5, true, 'чётный парадокс');
+            } else {
+              logEvent('Нечётное число — временная линия устояла.');
+            }
+            break;
+          }
+        }
+      }
+      renderAll();
+    }
+
+    function finishTurn() {
+      if (gameState.phase !== 'playing') return;
+      if (extraTurnAwarded) {
+        extraTurnAwarded = false;
+        logEvent(`${currentPlayer().name} остаётся активным: дополнительный ход.`);
+        gameState.lastRoll = null;
+        renderAll();
+        prepareTurn();
+        return;
+      }
+      advanceTurn();
+    }
+
+    function advanceTurn() {
+      if (gameState.phase !== 'playing') return;
+      gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+      gameState.lastRoll = null;
+      pendingRoll = null;
+      renderAll();
+      prepareTurn();
+    }
+
+    function declareWinner(player) {
+      gameState.phase = 'game_over';
+      isResolving = false;
+      pendingRoll = null;
+      logEvent(`⚡ ${player.name} прибывает на клетку 50 и возвращается домой!`);
+      renderAll();
+      openWinModal(player);
+    }
+
+    function openWinModal(player) {
+      els.modalContent.className = 'modal win-modal';
+      els.modalContent.innerHTML = `
+        <div class="modal-band"><span class="win-icon">⚡</span><p class="modal-kicker">Потоковый накопитель стабилен</p><h2>Возвращение домой!</h2></div>
+        <div class="modal-body">
+          <p class="card-quote"><span class="winner-name">${escapeHTML(player.name)}</span> первым добрался до клетки №50.</p>
+          <p class="card-description">DeLorean остановился у ТЦ «Одинокий дуб». Временная линия спасена — по крайней мере, до следующей партии.</p>
+          <div class="modal-actions"><button id="newGameBtn" class="primary-btn" type="button">Новая игра</button></div>
+        </div>`;
+      els.modalBackdrop.classList.remove('hidden');
+      document.getElementById('newGameBtn').addEventListener('click', resetToSetup, { once: true });
+    }
+
+    async function debugMove() {
+      if (isResolving || gameState.phase !== 'playing' || pendingRoll) return;
+      const target = Number(els.debugPosition.value);
+      if (!Number.isInteger(target) || target < 1 || target > 50) return;
+      const player = currentPlayer();
+      isResolving = true;
+      extraTurnAwarded = false;
+      logEvent(`Режим отладки: ${player.name} направлен на клетку ${target}.`);
+      renderAll();
+      await movePlayerTo(player, target, true, 'отладочное перемещение');
+      if (gameState.phase === 'playing') await resolveLanding(player);
+      isResolving = false;
+      renderAll();
+      if (gameState.phase === 'playing') finishTurn();
+    }
+
+    function resetToSetup() {
+      els.modalBackdrop.classList.add('hidden');
+      gameState.phase = 'setup';
+      isResolving = false;
+      pendingRoll = null;
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      renderSetup();
+    }
+
+    // UI events
+    els.counts.forEach(btn => btn.addEventListener('click', () => {
+      selectedPlayerCount = Number(btn.dataset.count);
+      els.counts.forEach(other => other.classList.toggle('active', other === btn));
+      renderSetup();
+    }));
+    els.start.addEventListener('click', setupGame);
+    els.debugMove.addEventListener('click', debugMove);
+    renderSetup();
+  </script>
+</body>
+</html>
