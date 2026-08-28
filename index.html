@@ -173,58 +173,99 @@
     .timeline { display: flex; align-items: center; gap: 7px; color: #a7badb; font-size: .75rem; white-space: nowrap; }
     .timeline .tline { width: clamp(32px, 5vw, 75px); height: 2px; background: linear-gradient(90deg, var(--cyan), var(--pink)); }
     .main-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(295px, 355px); align-items: start; gap: 19px; }
+    /* The board is deliberately treated as a printed playmat, not as an app grid. */
     .board-shell, .sidebar { border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
-    .board-shell { overflow: hidden; border-radius: 20px; }
-    .board-top { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 18px 13px; border-bottom: 1px solid var(--line); background: rgba(1,4,24,.37); }
-    .board-top h2 { margin: 0; font-size: 1rem; letter-spacing: .025em; }
-    .board-hint { color: var(--muted); font-size: .73rem; }
-    .epoch-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-    .epoch-key { display: inline-flex; align-items: center; gap: 5px; color: #cfddf5; font-size: .66rem; }
-    .epoch-key::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--key); box-shadow: 0 0 7px var(--key); }
-    .board-wrap { position: relative; padding: clamp(8px, 1.4vw, 16px); }
-    .board-wrap::before {
-      content: ""; position: absolute; inset: 5% 4%; z-index: 0;
-      border: 1px dashed rgba(151,202,255,.18); border-radius: 50%; transform: rotate(-7deg); pointer-events: none;
+    .board-shell {
+      overflow: hidden;
+      padding: 5px;
+      border: 1px solid #c99d51;
+      border-radius: 20px;
+      background: repeating-linear-gradient(110deg, #2c1a12 0 4px, #5e3920 4px 8px, #25160f 8px 12px);
+      box-shadow: 0 0 0 2px #0b0d20, 0 20px 55px rgba(0,0,0,.4), inset 0 0 0 1px #f1d184;
     }
+    .board-top { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 18px 13px; border: 1px solid rgba(220,177,91,.52); border-radius: 14px 14px 4px 4px; background: linear-gradient(105deg, rgba(6,12,35,.95), rgba(22,37,82,.94)); }
+    .board-top h2 { margin: 0; color: #fff1c4; font-family: Georgia, serif; font-size: 1rem; letter-spacing: .025em; }
+    .board-hint { color: #cfc39b; font-size: .73rem; }
+    .epoch-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+    .epoch-key { display: inline-flex; align-items: center; gap: 5px; color: #e4dcc6; font-size: .66rem; }
+    .epoch-key::before { content: ""; width: 8px; height: 8px; border: 1px solid rgba(255,245,214,.75); border-radius: 50%; background: var(--key); box-shadow: 0 0 7px var(--key); }
+    .board-wrap {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(8px, 1.4vw, 16px);
+      border: 1px solid rgba(223,177,91,.6);
+      border-top: 0;
+      border-radius: 0 0 14px 14px;
+      background: #182239;
+    }
+    .board-wrap::before {
+      content: ""; position: absolute; z-index: 0; inset: 5px;
+      border: 2px solid rgba(238,200,105,.62); border-radius: 9px;
+      box-shadow: inset 0 0 0 3px rgba(10,17,39,.8), inset 0 0 30px rgba(0,0,0,.45); pointer-events: none;
+    }
+    .route-stage { position: relative; z-index: 1; width: 100%; }
     .game-board {
-      position: relative; z-index: 1;
+      position: relative;
       display: grid;
       grid-template-columns: repeat(10, minmax(0, 1fr));
       grid-template-rows: repeat(5, minmax(54px, 1fr));
-      gap: clamp(3px, .55vw, 7px);
+      gap: clamp(4px, .65vw, 9px);
+      overflow: hidden;
+      padding: clamp(11px, 1.7vw, 19px);
+      border: 3px solid #182039;
+      border-radius: 11px;
       aspect-ratio: 1.78 / 1;
+      background-image: linear-gradient(rgba(9,14,30,.07), rgba(9,14,30,.07)), url("assets/time-travel-board-map.png");
+      background-position: center;
+      background-size: cover;
+      box-shadow: inset 0 0 38px rgba(1,4,15,.45);
+    }
+    .game-board::before {
+      content: ""; position: absolute; z-index: 0; inset: 0; pointer-events: none;
+      opacity: .35;
+      background: repeating-linear-gradient(0deg, rgba(255,255,255,.09) 0 1px, transparent 1px 4px);
+      mix-blend-mode: overlay;
     }
     .cell {
-      position: relative;
+      position: relative; z-index: 1;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      align-self: center; justify-self: center;
+      width: 96%; height: 84%;
       min-width: 0; min-height: 0;
       overflow: hidden;
       padding: clamp(4px, .55vw, 8px);
-      border: 1px solid rgba(219,239,255,.29);
+      border: 1.5px solid #3f2b19;
       border-radius: clamp(7px, .9vw, 12px);
-      box-shadow: inset 0 0 18px rgba(255,255,255,.035), 0 2px 7px rgba(0,0,0,.18);
+      background-color: rgba(255,239,190,.91);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.45), 0 2px 5px rgba(17,13,8,.5);
       transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
     }
-    .cell:hover { z-index: 3; transform: translateY(-2px) scale(1.035); filter: brightness(1.12); }
-    .cell::after { content: ""; position: absolute; pointer-events: none; width: 70%; height: 45%; right: -19%; bottom: -23%; border: 1px solid rgba(255,255,255,.14); border-radius: 50%; transform: rotate(-35deg); }
-    .zone-1985 { background: linear-gradient(145deg, #26395d, #163c60 58%, #242a62); }
-    .zone-1955 { background: linear-gradient(145deg, #794b78, #397b86 100%); }
-    .zone-2015 { background: linear-gradient(145deg, #4f237e, #793a9c 50%, #315da1); }
-    .zone-1885 { background: linear-gradient(145deg, #9c6a34, #b58b41 54%, #80572e); }
-    .cell-num { position: relative; z-index: 1; color: rgba(255,255,255,.86); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: clamp(.58rem, 1vw, .8rem); font-weight: 800; line-height: 1; }
-    .cell-title { position: relative; z-index: 1; overflow: hidden; color: rgba(248,253,255,.9); font-size: clamp(.45rem, .73vw, .62rem); font-weight: 800; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
-    .cell-special { outline: 1px solid rgba(255,255,255,.24); }
-    .cell-icon { position: absolute; z-index: 1; right: clamp(3px, .55vw, 7px); top: clamp(3px, .55vw, 7px); filter: drop-shadow(0 1px 4px rgba(0,0,0,.38)); font-size: clamp(.68rem, 1.2vw, 1rem); line-height: 1; }
-    .cell-marty { box-shadow: inset 0 0 20px rgba(96,244,255,.2), 0 0 11px rgba(69,231,255,.13); }
-    .cell-history { box-shadow: inset 0 0 20px rgba(255,73,138,.2), 0 0 11px rgba(255,73,138,.12); }
-    .cell-jump { box-shadow: inset 0 0 20px rgba(255,217,91,.2), 0 0 11px rgba(255,217,91,.12); }
-    .cell-skip { box-shadow: inset 0 0 20px rgba(244,91,113,.22), 0 0 11px rgba(244,91,113,.12); }
+    .cell:hover { z-index: 5; transform: translateY(-3px) scale(1.07); filter: brightness(1.07); box-shadow: inset 0 0 0 1px #fff6cf, 0 5px 10px rgba(0,0,0,.45); }
+    .cell::after { content: ""; position: absolute; pointer-events: none; width: 72%; height: 45%; right: -19%; bottom: -23%; border: 1px solid rgba(74,47,21,.17); border-radius: 50%; transform: rotate(-35deg); }
+    .zone-1985 { background-image: linear-gradient(135deg, rgba(161,215,233,.73), rgba(253,240,194,.93)); }
+    .zone-1955 { background-image: linear-gradient(135deg, rgba(245,176,183,.77), rgba(251,237,194,.94)); }
+    .zone-2015 { background-image: linear-gradient(135deg, rgba(178,147,239,.78), rgba(212,242,250,.94)); }
+    .zone-1885 { background-image: linear-gradient(135deg, rgba(235,180,93,.86), rgba(255,239,189,.95)); }
+    .cell-num { position: relative; z-index: 1; color: #302116; font-family: Georgia, serif; font-size: clamp(.66rem, 1.08vw, .94rem); font-weight: 900; line-height: 1; text-shadow: 0 1px rgba(255,255,255,.6); }
+    .cell-title { position: relative; z-index: 1; overflow: hidden; color: rgba(57,39,24,.9); font-size: clamp(.43rem, .67vw, .59rem); font-weight: 900; line-height: 1.05; letter-spacing: .01em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .cell-special { outline: 1px solid rgba(255,255,255,.55); outline-offset: -4px; }
+    .cell-icon { position: absolute; z-index: 1; right: clamp(3px, .55vw, 7px); top: clamp(3px, .55vw, 7px); filter: drop-shadow(0 1px 1px rgba(255,255,255,.6)) drop-shadow(0 1px 2px rgba(0,0,0,.3)); font-size: clamp(.75rem, 1.3vw, 1.1rem); line-height: 1; }
+    .cell-marty { background-image: linear-gradient(135deg, rgba(96,231,245,.93), rgba(224,255,244,.92)); box-shadow: inset 0 0 0 2px rgba(18,135,156,.66), 0 2px 5px rgba(17,13,8,.5); }
+    .cell-history { background-image: linear-gradient(135deg, rgba(250,125,139,.91), rgba(255,220,180,.94)); box-shadow: inset 0 0 0 2px rgba(169,45,58,.6), 0 2px 5px rgba(17,13,8,.5); }
+    .cell-jump { background-image: linear-gradient(135deg, rgba(255,205,62,.94), rgba(255,239,164,.95)); box-shadow: inset 0 0 0 2px rgba(200,119,20,.6), 0 2px 5px rgba(17,13,8,.5); }
+    .cell-skip { background-image: linear-gradient(135deg, rgba(196,210,216,.95), rgba(250,235,190,.94)); box-shadow: inset 0 0 0 2px rgba(90,99,104,.5), 0 2px 5px rgba(17,13,8,.5); }
     .cell-finish {
-      border-color: #f6e196; background: linear-gradient(145deg, #276573, #273b75 47%, #f06792); box-shadow: inset 0 0 22px rgba(255,234,126,.34), 0 0 18px rgba(255,199,91,.33);
+      border-color: #704820; background-image: linear-gradient(135deg, rgba(255,220,81,.96), rgba(255,131,99,.91)); box-shadow: inset 0 0 0 2px rgba(255,246,178,.82), 0 0 12px rgba(255,199,91,.7), 0 2px 5px rgba(17,13,8,.5);
     }
-    .cell-finish .cell-title { color: #fff4ae; }
+    .cell-finish .cell-title { color: #54271d; }
+    .move-trail { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)); }
+    .move-trail .trail-line { fill: none; stroke: var(--trail-color, #fff26b); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 8 7; animation: trailFlow 1.2s linear infinite; }
+    .move-trail .trail-start { fill: #fff5bf; stroke: var(--trail-color, #fff26b); stroke-width: 3; }
+    .move-trail .trail-label { fill: #fff7c9; font-family: Inter, sans-serif; font-size: 11px; font-weight: 900; letter-spacing: .05em; paint-order: stroke; stroke: #16152a; stroke-width: 3px; stroke-linejoin: round; }
+    @keyframes trailFlow { to { stroke-dashoffset: -30; } }
+
     .tokens { position: absolute; z-index: 4; display: flex; flex-wrap: wrap; align-content: flex-end; gap: 2px; left: 4px; right: 3px; bottom: 3px; min-height: 16px; }
     .token {
       display: grid; place-items: center;
@@ -333,7 +374,8 @@
       .board-hint { display: none; }
       .epoch-legend { max-width: 175px; justify-content: flex-start; }
       .epoch-key { font-size: .55rem; }
-      .game-board { min-width: 500px; }
+      .route-stage { min-width: 500px; }
+      .game-board { min-width: 0; }
       .board-wrap { overflow-x: auto; }
       .sidebar { grid-template-columns: 1fr; }
       .turn-panel, .log-panel { grid-column: auto; }
@@ -341,7 +383,7 @@
       .setup-hero { min-height: 215px; padding-top: 34px; }
     }
     @media (max-width: 390px) {
-      .game-board { min-width: 455px; }
+      .route-stage { min-width: 455px; }
       .setup-card { border-radius: 18px; }
       .setup-hero, .setup-content { padding-right: 18px; padding-left: 18px; }
     }
@@ -394,7 +436,12 @@
             <span class="epoch-key" style="--key:#f2bb5d">1885</span>
           </div>
         </div>
-        <div class="board-wrap"><div id="gameBoard" class="game-board"></div></div>
+        <div class="board-wrap">
+          <div id="routeStage" class="route-stage">
+            <div id="gameBoard" class="game-board"></div>
+            <svg id="moveTrail" class="move-trail" aria-hidden="true"></svg>
+          </div>
+        </div>
       </section>
 
       <aside class="sidebar" aria-label="Панель игры">
@@ -443,6 +490,8 @@
       lastRoll: null,
       history1885Visited: {}
     };
+    // Exposed deliberately for convenient inspection during local debugging.
+    window.gameState = gameState;
 
     const PLAYER_COLORS = ['#ff5c7a', '#58e8ff', '#ffd35a', '#a88cff'];
     const DEFAULT_NAMES = ['Марти', 'Док', 'Дженнифер', 'Эйнштейн'];
@@ -494,6 +543,8 @@
       counts: [...document.querySelectorAll('.count-btn')],
       start: document.getElementById('startGameBtn'),
       board: document.getElementById('gameBoard'),
+      routeStage: document.getElementById('routeStage'),
+      moveTrail: document.getElementById('moveTrail'),
       playerList: document.getElementById('playerList'),
       turnTitle: document.getElementById('turnTitle'),
       turnSubtitle: document.getElementById('turnSubtitle'),
@@ -512,7 +563,8 @@
     let isResolving = false;
     let pendingRoll = null;
     let extraTurnAwarded = false;
-    let modalResolver = null;
+    // Kept separately from state so a visual trace can be redrawn on resizing.
+    let lastMoveTrail = null;
 
     /** Randomly shuffles a new draw pile. */
     function shuffledIds() {
@@ -601,6 +653,7 @@
       isResolving = false;
       pendingRoll = null;
       extraTurnAwarded = false;
+      lastMoveTrail = null;
       logEvent('Потоковый накопитель запущен. Первый ход — у ' + currentPlayer().name + '.');
       els.setup.classList.add('hidden');
       els.game.classList.remove('hidden');
@@ -661,6 +714,46 @@
       if (gameState.phase !== 'setup' && currentPlayer()) {
         document.getElementById(`cell-${currentPlayer().position}`)?.classList.add('has-active-player');
       }
+    }
+
+    /** Draws a curved, player-coloured arrow from the start to the final cell of the last turn. */
+    function renderMoveTrail() {
+      const svg = els.moveTrail;
+      const trail = lastMoveTrail;
+      if (!svg || !trail || trail.from === trail.to) {
+        if (svg) svg.innerHTML = '';
+        return;
+      }
+      const stageRect = els.routeStage.getBoundingClientRect();
+      const fromCell = document.getElementById(`cell-${trail.from}`);
+      const toCell = document.getElementById(`cell-${trail.to}`);
+      if (!stageRect.width || !stageRect.height || !fromCell || !toCell) return;
+      const fromRect = fromCell.getBoundingClientRect();
+      const toRect = toCell.getBoundingClientRect();
+      const startX = fromRect.left - stageRect.left + fromRect.width / 2;
+      const startY = fromRect.top - stageRect.top + fromRect.height / 2;
+      const endX = toRect.left - stageRect.left + toRect.width / 2;
+      const endY = toRect.top - stageRect.top + toRect.height / 2;
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const distance = Math.hypot(dx, dy) || 1;
+      // Bend away from the middle of the segment to make a clearly visible arc.
+      const bend = Math.min(88, Math.max(32, distance * .22)) * (startY > endY ? -1 : 1);
+      const controlX = (startX + endX) / 2 - (dy / distance) * bend;
+      const controlY = (startY + endY) / 2 + (dx / distance) * bend;
+      const color = gameState.players.find(player => player.id === trail.playerId)?.color || '#fff26b';
+      const markerId = 'trailArrow';
+      svg.setAttribute('viewBox', `0 0 ${stageRect.width} ${stageRect.height}`);
+      svg.innerHTML = `
+        <defs><marker id="${markerId}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L7,3 z" fill="${color}"></path></marker></defs>
+        <path class="trail-line" style="--trail-color:${color}" d="M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}" marker-end="url(#${markerId})"></path>
+        <circle class="trail-start" style="--trail-color:${color}" cx="${startX}" cy="${startY}" r="5"></circle>
+        <text class="trail-label" x="${controlX}" y="${controlY - 9}" text-anchor="middle">ХОД</text>`;
+    }
+
+    function setMoveTrail(player, from, to) {
+      if (from !== to) lastMoveTrail = { playerId: player.id, from, to };
+      renderMoveTrail();
     }
 
     function playerStatus(player) {
@@ -781,6 +874,7 @@
 
     function renderAll(movingPlayerId = null) {
       renderBoard();
+      renderMoveTrail();
       if (movingPlayerId) renderTokens(movingPlayerId);
       renderPlayers();
       renderTurn();
@@ -839,10 +933,12 @@
       if (player.stuck1885) {
         logEvent(`${player.name} бросает кубик спасения: ${base}.`);
         if (base === 6) {
+          const turnStart = player.position;
           player.stuck1885 = false;
           logEvent(`Шестёрка! ${player.name} запускает DeLorean и мчится на 6 клеток.`);
           await movePlayerBy(player, 6, true, 'побег из 1885');
           if (gameState.phase === 'playing') await resolveLanding(player);
+          setMoveTrail(player, turnStart, player.position);
         } else {
           logEvent(`${player.name} остаётся в 1885 году — нужна шестёрка.`);
         }
@@ -883,10 +979,13 @@
 
     async function applyRoll(roll) {
       const player = currentPlayer();
+      const turnStart = player.position;
       isResolving = true;
       extraTurnAwarded = false;
       await movePlayerBy(player, roll, true, 'бросок');
       if (gameState.phase === 'playing') await resolveLanding(player);
+      // A single arc documents the entire turn, including any card-driven movement.
+      setMoveTrail(player, turnStart, player.position);
       isResolving = false;
       renderAll();
       if (gameState.phase === 'playing') finishTurn();
@@ -1158,6 +1257,8 @@
             break;
           case 8: {
             const paradoxRoll = randomDie();
+            // It is a real automatic roll, so its face stays visible just like a normal one.
+            gameState.lastRoll = paradoxRoll;
             animateDice(paradoxRoll);
             await sleep(450);
             logEvent(`Временной парадокс: выпало ${paradoxRoll}.`);
@@ -1178,7 +1279,6 @@
       if (extraTurnAwarded) {
         extraTurnAwarded = false;
         logEvent(`${currentPlayer().name} остаётся активным: дополнительный ход.`);
-        gameState.lastRoll = null;
         renderAll();
         prepareTurn();
         return;
@@ -1189,7 +1289,7 @@
     function advanceTurn() {
       if (gameState.phase !== 'playing') return;
       gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
-      gameState.lastRoll = null;
+      // The die remains on its latest face until the next actual roll.
       pendingRoll = null;
       renderAll();
       prepareTurn();
@@ -1222,12 +1322,14 @@
       const target = Number(els.debugPosition.value);
       if (!Number.isInteger(target) || target < 1 || target > 50) return;
       const player = currentPlayer();
+      const turnStart = player.position;
       isResolving = true;
       extraTurnAwarded = false;
       logEvent(`Режим отладки: ${player.name} направлен на клетку ${target}.`);
       renderAll();
       await movePlayerTo(player, target, true, 'отладочное перемещение');
       if (gameState.phase === 'playing') await resolveLanding(player);
+      setMoveTrail(player, turnStart, player.position);
       isResolving = false;
       renderAll();
       if (gameState.phase === 'playing') finishTurn();
@@ -1238,6 +1340,7 @@
       gameState.phase = 'setup';
       isResolving = false;
       pendingRoll = null;
+      lastMoveTrail = null;
       els.game.classList.add('hidden');
       els.setup.classList.remove('hidden');
       renderSetup();
@@ -1251,6 +1354,7 @@
     }));
     els.start.addEventListener('click', setupGame);
     els.debugMove.addEventListener('click', debugMove);
+    window.addEventListener('resize', () => window.requestAnimationFrame(renderMoveTrail));
     renderSetup();
   </script>
 </body>
