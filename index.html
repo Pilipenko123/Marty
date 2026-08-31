@@ -587,6 +587,34 @@
       .setup-card { border-radius: 18px; }
       .setup-hero, .setup-content { padding-right: 18px; padding-left: 18px; }
     }
+
+    /* ================= Онлайн-режим: вкладки и лобби ================= */
+    [hidden] { display: none !important; }
+    .mode-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+    .mode-tab { flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(88,232,255,.35); background: rgba(10,16,32,.5); color: #9fb4d8; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+    .mode-tab:hover { background: rgba(88,232,255,.08); }
+    .mode-tab.active { background: rgba(88,232,255,.14); color: #eaf6ff; border-color: #58e8ff; box-shadow: 0 0 14px rgba(88,232,255,.25); }
+    .setup-tab.hidden { display: none; }
+    .online-hint { color: #ffd35a; font-size: 13px; margin: 0 0 14px; line-height: 1.5; }
+    .online-hint code { background: rgba(0,0,0,.35); padding: 2px 6px; border-radius: 6px; }
+    .online-form { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+    .online-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #9fb4d8; font-weight: 600; }
+    .online-join-row { display: flex; gap: 10px; }
+    .code-input { flex: 1; max-width: 150px; text-align: center; font-size: 22px; letter-spacing: 8px; font-weight: 800; text-transform: uppercase; background: rgba(6,10,22,.8); color: #eaf6ff; border: 1px solid rgba(88,232,255,.35); border-radius: 10px; padding: 10px 12px; }
+    .code-input:focus { outline: none; border-color: #58e8ff; box-shadow: 0 0 12px rgba(88,232,255,.3); }
+    .online-divider { display: flex; align-items: center; gap: 10px; color: #5d6f92; font-size: 12px; }
+    .online-divider::before, .online-divider::after { content: ''; flex: 1; height: 1px; background: rgba(88,232,255,.18); }
+    .online-btn { padding: 12px 18px; font-size: 15px; }
+    .lobby-status { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+    .lobby-caption { margin: 0; color: #9fb4d8; font-weight: 600; }
+    .room-code { font-size: 52px; font-weight: 900; letter-spacing: 14px; color: #58e8ff; text-shadow: 0 0 24px rgba(88,232,255,.6); margin: 4px 0; line-height: 1.1; }
+    .lobby-players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .lobby-players li { display: flex; align-items: center; gap: 10px; color: #eaf6ff; font-weight: 600; }
+    .lobby-players em { color: #9fb4d8; font-style: normal; font-size: 12px; }
+    .lobby-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
+    .lobby-message { margin: 0; color: #9fb4d8; font-size: 14px; }
+    .lobby-error { color: #ff8fa3; }
+    .net-status { margin: 0 0 6px; font-size: 12px; color: #9fb4d8; letter-spacing: .3px; }
   </style>
 </head>
 <body>
@@ -598,17 +626,42 @@
         <p class="hero-lead">Проложите маршрут сквозь четыре эпохи, заряжайте DeLorean плутонием и вернитесь домой точным броском.</p>
       </header>
       <div class="setup-content">
-        <div class="setup-heading">
-          <h2>Настройте путешественников</h2>
-          <span>Игра на одном экране</span>
+        <div class="mode-tabs" role="tablist" aria-label="Режим игры">
+          <button class="mode-tab active" data-mtab="local" type="button">На одном экране</button>
+          <button class="mode-tab" data-mtab="online" type="button">Онлайн · комната</button>
         </div>
-        <div class="player-counts" aria-label="Количество игроков">
-          <button class="count-btn active" data-count="2" type="button">2</button>
-          <button class="count-btn" data-count="3" type="button">3</button>
-          <button class="count-btn" data-count="4" type="button">4</button>
+        <div id="localSetup" class="setup-tab">
+          <div class="setup-heading">
+            <h2>Настройте путешественников</h2>
+            <span>Игра на одном экране</span>
+          </div>
+          <div class="player-counts" aria-label="Количество игроков">
+            <button class="count-btn active" data-count="2" type="button">2</button>
+            <button class="count-btn" data-count="3" type="button">3</button>
+            <button class="count-btn" data-count="4" type="button">4</button>
+          </div>
+          <div id="playerConfigs" class="player-configs"></div>
+          <button id="startGameBtn" class="start-btn" type="button">Запустить временную цепь ⚡</button>
         </div>
-        <div id="playerConfigs" class="player-configs"></div>
-        <button id="startGameBtn" class="start-btn" type="button">Запустить временную цепь ⚡</button>
+        <div id="onlineSetup" class="setup-tab hidden">
+          <div class="setup-heading">
+            <h2>Онлайн-игра</h2>
+            <span>Комната · 2–4 игрока на разных устройствах</span>
+          </div>
+          <p class="online-hint" id="onlineUnavailable" hidden>Онлайн-режим работает, когда игра открыта через сервер: запустите <code>node server.js</code> рядом с файлом игры и откройте адрес из консоли в браузерах всех игроков.</p>
+          <div class="online-form" id="onlineForm">
+            <label class="online-field">Ваше имя
+              <input id="netNameInput" class="name-input" maxlength="20" value="Марти" aria-label="Ваше имя в онлайн-игре">
+            </label>
+            <button id="createRoomBtn" class="start-btn online-btn" type="button">Создать комнату</button>
+            <div class="online-divider"><span>или войти по коду</span></div>
+            <div class="online-join-row">
+              <input id="roomCodeInput" class="code-input" maxlength="4" placeholder="КОД" aria-label="Код комнаты" autocomplete="off">
+              <button id="joinRoomBtn" class="start-btn online-btn" type="button">Войти</button>
+            </div>
+          </div>
+          <div id="lobbyStatus" class="lobby-status hidden"></div>
+        </div>
       </div>
     </section>
   </main>
@@ -623,6 +676,7 @@
         </div>
       </div>
       <div class="timeline" aria-label="Временные зоны"><span>1985</span><i class="tline"></i><span>1955</span><i class="tline"></i><span>2015</span><i class="tline"></i><span>1885</span></div>
+      <p id="netStatus" class="net-status" hidden></p>
     </header>
 
     <div class="main-layout">
@@ -990,9 +1044,9 @@
     }
 
     function setupGame() {
-      const nameInputs = [...document.querySelectorAll('.name-input')];
-      const colors = [...document.querySelectorAll('.color-input')];
-      gameState.players = nameInputs.map((input, i) => ({
+      const nameInputs = [...document.querySelectorAll('#localSetup .name-input')];
+      const colors = [...document.querySelectorAll('#localSetup .color-input')];
+      const players = nameInputs.map((input, i) => ({
         id: i + 1,
         name: input.value.trim() || `Игрок ${i + 1}`,
         color: colors[i].value,
@@ -1002,6 +1056,12 @@
         stuck1885: false,
         bonuses: { reroll: false, exactRoll: null, nextRollModifier: 0 }
       }));
+      launchGame(players);
+    }
+
+    /** Общий запуск партии (локальный и онлайн): список игроков уже готов. */
+    function launchGame(players) {
+      gameState.players = players;
       gameState.currentPlayerIndex = 0;
       gameState.decks = { marty: shuffledIds(), history: shuffledIds(), martyDiscard: [], historyDiscard: [] };
       gameState.gameLog = [];
@@ -1214,12 +1274,26 @@
       els.controls.innerHTML = '';
       const player = currentPlayer();
       if (gameState.phase === 'game_over') {
+        if (net.mode === 'guest') {
+          const waitHint = document.createElement('p');
+          waitHint.className = 'exact-prompt';
+          waitHint.textContent = 'Игра завершена — новую партию запускает хозяин комнаты.';
+          els.controls.append(waitHint);
+          return;
+        }
         els.controls.append(button('Начать новую игру', 'primary-btn', resetToSetup));
         return;
       }
+      if (net.mode === 'guest' && player && player.id !== net.myPlayerId) {
+        const waitHint = document.createElement('p');
+        waitHint.className = 'exact-prompt';
+        waitHint.textContent = `Сейчас ходит ${player.name} — ваша очередь придёт на этом устройстве.`;
+        els.controls.append(waitHint);
+        return;
+      }
       if (pendingRoll) {
-        els.controls.append(button(`Идти на ${pendingRoll.total}`, 'primary-btn', () => usePendingRoll(false), false));
-        els.controls.append(button('↻ Генератор ещё раз', 'secondary-btn', () => usePendingRoll(true), false));
+        els.controls.append(button(`Идти на ${pendingRoll.total}`, 'primary-btn', () => net.guardedRollDecision(false), false));
+        els.controls.append(button('↻ Генератор ещё раз', 'secondary-btn', () => net.guardedRollDecision(true), false));
         return;
       }
       if (isResolving) {
@@ -1232,7 +1306,7 @@
         prompt.textContent = 'Спортивный альманах — выберите результат:';
         const grid = document.createElement('div');
         grid.className = 'number-choices';
-        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => executeRoll(number, true)));
+        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => net.guardedExactPick(number)));
         els.controls.append(prompt, grid);
         return;
       }
@@ -1265,6 +1339,7 @@
       updateGeneratorState();
       renderLog();
       els.debugMove.disabled = isResolving || gameState.phase !== 'playing' || Boolean(pendingRoll) || QUANTUM.state !== 'idle';
+      if (net.mode === 'host') net.pushSync();
     }
 
     function sleep(ms) { return new Promise(resolve => window.setTimeout(resolve, ms)); }
@@ -1296,6 +1371,9 @@
 
     function canCharge() {
       const player = currentPlayer();
+      // Онлайн: каждое устройство управляет только своим игроком.
+      if (net.mode === 'host' && player && player.clientId && player.clientId !== net.myId) return false;
+      if (net.mode === 'guest' && (!player || player.id !== net.myPlayerId)) return false;
       return gameState.phase === 'playing' && !isResolving && !pendingRoll &&
         QUANTUM.state === 'idle' && !(player && player.bonuses.exactRoll && !player.stuck1885);
     }
@@ -1326,6 +1404,7 @@
       els.generator.classList.add('charging');
       els.generator.classList.remove('spinning', 'landed');
       isResolving = true;
+      if (net.mode === 'host') net.broadcast({ t: 'gen', phase: 'charge' });
       renderAll();
       chargeTick();
     }
@@ -1356,6 +1435,7 @@
       if (QUANTUM.state !== 'charging') return;
       window.clearTimeout(QUANTUM.timer);
       QUANTUM.state = 'spinning';
+      if (net.mode === 'host') net.broadcast({ t: 'gen', phase: 'spin' });
       els.generator.classList.remove('charging');
       els.generator.classList.add('spinning');
       renderAll();
@@ -1386,6 +1466,7 @@
             els.generator.classList.remove('spinning');
             els.generator.classList.add('landed');
             window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+            if (net.mode === 'host') net.broadcast({ t: 'gen', phase: 'land', value: QUANTUM.target });
             const callback = QUANTUM.onLanded;
             QUANTUM.onLanded = null;
             if (callback) {
@@ -1423,12 +1504,22 @@
         if (!canCharge()) return;
         holding = true;
         btn.classList.add('pressed');
+        if (net.mode === 'guest') {
+          net.sendToHost({ t: 'gen-press' });
+          net.guestChargeStart();
+          return;
+        }
         beginCharge();
       };
       const release = () => {
         if (!holding) return;
         holding = false;
         btn.classList.remove('pressed');
+        if (net.mode === 'guest') {
+          net.sendToHost({ t: 'gen-release' });
+          net.guestSpinStart();
+          return;
+        }
         releaseCharge();
       };
       btn.addEventListener('pointerdown', press);
@@ -1472,6 +1563,7 @@
      * "Sports Almanac" card): modifiers, escape from 1885, reroll, and movement.
      */
     async function executeRoll(base, isExact = false) {
+      if (net.mode === 'guest') return;
       if (gameState.phase !== 'playing' || isResolving || pendingRoll) return;
       const player = currentPlayer();
       isResolving = true;
@@ -1513,6 +1605,7 @@
     }
 
     async function usePendingRoll(wantsReroll) {
+      if (net.mode === 'guest') return;
       if (!pendingRoll || isResolving) return;
       const saved = pendingRoll;
       pendingRoll = null;
@@ -1645,7 +1738,7 @@
       if (discard.length > 8) discard.shift();
       const card = (deckName === 'marty' ? MARTY_CARDS : HISTORY_CARDS)[id];
       logEvent(`${player.name} берёт карту «${card.title}».`);
-      await showCard(deckName, card);
+      await showCard(deckName, card, id);
       if (gameState.phase === 'game_over') return;
       await applyCardEffect(deckName, id, player, depth);
     }
@@ -1663,10 +1756,10 @@
       if (gameState.phase === 'modal_active') gameState.phase = 'playing';
     }
 
-    function showCard(deckName, card) {
-      return new Promise(resolve => {
-        const isHistory = deckName === 'history';
-        openModal(`
+    /** Разметка модалки карты — общая для устройства хоста и устройств гостей. */
+    function cardModalHtml(deckName, card) {
+      const isHistory = deckName === 'history';
+      return `
           <div class="modal-band ${isHistory ? 'history' : ''}">
             <p class="modal-kicker">${isHistory ? 'Проблемы с альтернативной историей' : 'Вам письмо от Marty'}</p>
             <h2>${escapeHTML(card.title)}</h2>
@@ -1675,34 +1768,97 @@
             <p class="card-quote">${escapeHTML(card.quote)}</p>
             <p class="card-description">${escapeHTML(card.description)}</p>
             <div class="modal-actions"><button id="applyCardBtn" class="primary-btn" type="button">Применить эффект</button></div>
-          </div>`);
-        document.getElementById('applyCardBtn').addEventListener('click', () => {
-          closeModal();
-          renderAll();
-          resolve();
-        }, { once: true });
-      });
+          </div>`;
     }
 
-    function chooseFromModal(title, description, choices) {
-      return new Promise(resolve => {
-        openModal(`
+    /**
+     * Показывает карту. В онлайн-режиме подтверждение делает игрок, вытянувший
+     * карту, — на том устройстве, где он находится: все устройства видят одну
+     * и ту же модалку, но активна кнопка только у него (nonce связывает ответ).
+     */
+    function showCard(deckName, card, cardId) {
+      const chooser = currentPlayer();
+      const online = net.mode === 'host' && net.roster.length > 1;
+      const nonce = online ? ++net.nonceSeq : null;
+      const chooserClient = online ? chooser.clientId : null;
+      const iAmChooser = chooserClient === null || chooserClient === net.myId;
+      let resolvePromise;
+      const promise = new Promise(r => { resolvePromise = r; });
+      openModal(cardModalHtml(deckName, card));
+      const btn = document.getElementById('applyCardBtn');
+      if (iAmChooser) {
+        btn.addEventListener('click', () => {
+          closeModal();
+          renderAll();
+          if (nonce && net.mode === 'guest') net.sendToHost({ t: 'modal-response', nonce, value: null });
+          else if (nonce) netBroadcast({ t: 'modal-close', nonce, value: null });
+          resolvePromise(null);
+        }, { once: true });
+      } else {
+        btn.disabled = true;
+        btn.textContent = `Ожидание: ${chooser.name}…`;
+        net.openNonces.add(nonce);
+        net.pendingModals.set(nonce, { resolve: resolvePromise, chooserClient, name: chooser.name, fallback: null });
+      }
+      if (online && net.mode === 'host') {
+        net.broadcast({ t: 'modal-card', nonce, chooserId: chooser.id, chooserClient, deckName, card, cardId });
+      }
+      return promise;
+    }
+
+    function choiceModalHtml(title, description) {
+      return `
           <div class="modal-band"><p class="modal-kicker">Временная развилка</p><h2>${escapeHTML(title)}</h2></div>
-          <div class="modal-body"><p class="choice-intro">${escapeHTML(description)}</p><div id="choiceGrid" class="choice-grid"></div></div>`);
-        const grid = document.getElementById('choiceGrid');
-        choices.forEach(choice => {
-          const btn = document.createElement('button');
-          btn.type = 'button'; btn.className = 'choice-btn';
-          if (choice.color) btn.innerHTML = `<span class="choice-dot" style="--player-color:${choice.color}"></span><span>${escapeHTML(choice.label)}</span>`;
-          else btn.textContent = choice.label;
+          <div class="modal-body"><p class="choice-intro">${escapeHTML(description)}</p><div id="choiceGrid" class="choice-grid"></div></div>`;
+    }
+
+    function makeChoiceButton(choice) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-btn';
+      if (choice.color) btn.innerHTML = `<span class="choice-dot" style="--player-color:${choice.color}"></span><span>${escapeHTML(choice.label)}</span>`;
+      else btn.textContent = choice.label;
+      return btn;
+    }
+
+    /**
+     * Выбор из вариантов (карты, 1885-побег и т.п.). В онлайн-режиме вариант
+     * выбирает игрок-участник на своём устройстве; остальные видят модалку
+     * с неактивными кнопками, пока не придёт ответ (modal-close).
+     */
+    function chooseFromModal(title, description, choices) {
+      const chooser = currentPlayer();
+      const online = net.mode === 'host' && net.roster.length > 1;
+      const nonce = online ? ++net.nonceSeq : null;
+      const chooserClient = online ? chooser.clientId : null;
+      const iAmChooser = chooserClient === null || chooserClient === net.myId;
+      let resolvePromise;
+      const promise = new Promise(r => { resolvePromise = r; });
+      openModal(choiceModalHtml(title, description));
+      const grid = document.getElementById('choiceGrid');
+      choices.forEach(choice => {
+        const btn = makeChoiceButton(choice);
+        if (iAmChooser) {
           btn.addEventListener('click', () => {
             closeModal();
             renderAll();
-            resolve(choice.value);
+            if (nonce && net.mode === 'guest') net.sendToHost({ t: 'modal-response', nonce, value: choice.value });
+            else if (nonce) netBroadcast({ t: 'modal-close', nonce, value: choice.value });
+            resolvePromise(choice.value);
           }, { once: true });
-          grid.append(btn);
-        });
+        } else {
+          btn.disabled = true;
+        }
+        grid.append(btn);
       });
+      if (!iAmChooser) {
+        net.openNonces.add(nonce);
+        net.pendingModals.set(nonce, { resolve: resolvePromise, chooserClient, name: chooser.name, fallback: choices[0] ? choices[0].value : null });
+      }
+      if (online && net.mode === 'host') {
+        net.broadcast({ t: 'modal-choice', nonce, chooserId: chooser.id, chooserClient, title, description, choices });
+      }
+      return promise;
     }
 
     async function chooseOpponent(player, title, description) {
@@ -1864,10 +2020,10 @@
         <div class="modal-body">
           <p class="card-quote"><span class="winner-name">${escapeHTML(player.name)}</span> первым добрался до клетки №50.</p>
           <p class="card-description">DeLorean остановился у ТЦ «Одинокий дуб». Временная линия спасена — по крайней мере, до следующей партии.</p>
-          <div class="modal-actions"><button id="newGameBtn" class="primary-btn" type="button">Новая игра</button></div>
+          <div class="modal-actions"><button id="newGameBtn" class="primary-btn" type="button"${net.mode === 'guest' ? ' disabled' : ''}>${net.mode === 'guest' ? 'Новую игру запускает хозяин…' : 'Новая игра'}</button></div>
         </div>`;
       els.modalBackdrop.classList.remove('hidden');
-      document.getElementById('newGameBtn').addEventListener('click', resetToSetup, { once: true });
+      if (net.mode !== 'guest') document.getElementById('newGameBtn').addEventListener('click', resetToSetup, { once: true });
     }
 
     async function debugMove() {
@@ -1907,6 +2063,13 @@
       els.game.classList.add('hidden');
       els.setup.classList.remove('hidden');
       renderSetup();
+      if (net.mode !== 'local') {
+        net.pendingModals.clear();
+        net.openNonces.clear();
+        net.sawGameOver = false;
+        if (net.mode === 'host') net.broadcast({ t: 'reset' });
+        net.toLobby();
+      }
     }
 
     /**
@@ -1936,6 +2099,628 @@
     bindGenerator();
     renderRouteDecor();
     renderSetup();
+
+    /* ================= Режим онлайн: комнаты поверх WebSocket =================
+     * Модель «хост-авторитетен»: браузер хоста запускает движок и после
+     * каждого renderAll рассылает снимок состояния (sync). Гости зеркалят
+     * состояние, играют на своих устройствах и отправляют хосту действия:
+     * gen-press / gen-release / decision / modal-response. Сервер лишь
+     * ретранслирует сообщения, хранит последний снимок и повышает гостя
+     * в хосты, если хост покинул комнату. */
+    const net = {
+      mode: 'local',            // 'local' | 'host' | 'guest'
+      ws: null,
+      room: null,
+      myId: null,               // мой clientId, выданный сервером
+      myPlayerId: null,         // мой id игрока (вычисляется из снимков)
+      roster: [],               // лобби: [{clientId, name}]
+      myName: '',
+      pendingModals: new Map(), // nonce -> {resolve, chooserClient, name, fallback}
+      openNonces: new Set(),
+      nonceSeq: 0,
+      sawGameOver: false,
+      walkSeq: 0
+    };
+    window.net = net;
+
+    const netEls = {
+      tabs: [...document.querySelectorAll('.mode-tab')],
+      local: document.getElementById('localSetup'),
+      online: document.getElementById('onlineSetup'),
+      form: document.getElementById('onlineForm'),
+      nameInput: document.getElementById('netNameInput'),
+      codeInput: document.getElementById('roomCodeInput'),
+      createBtn: document.getElementById('createRoomBtn'),
+      joinBtn: document.getElementById('joinRoomBtn'),
+      lobby: document.getElementById('lobbyStatus'),
+      unavailable: document.getElementById('onlineUnavailable'),
+      status: document.getElementById('netStatus'),
+      debugPanel: document.querySelector('.debug-panel')
+    };
+
+    function netWsUrl() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      return proto + '://' + location.host + '/ws';
+    }
+    function netIsFileProtocol() { return location.protocol === 'file:'; }
+
+    function netSetTab(which) {
+      netEls.tabs.forEach(t => t.classList.toggle('active', t.dataset.mtab === which));
+      netEls.local.classList.toggle('hidden', which !== 'local');
+      netEls.online.classList.toggle('hidden', which !== 'online');
+    }
+
+    function netUpdateStatus(text) {
+      if (!text) { netEls.status.hidden = true; netEls.status.textContent = ''; return; }
+      netEls.status.hidden = false;
+      netEls.status.textContent = text;
+    }
+
+    function netPushSync() {
+      if (net.mode !== 'host' || !net.ws || net.ws.readyState !== 1) return;
+      net.ws.send(JSON.stringify({
+        t: 'relay', to: 'all',
+        payload: {
+          t: 'sync',
+          state: JSON.parse(JSON.stringify(gameState)),
+          pendingRoll,
+          isResolving,
+          trail: lastMoveTrail,
+          isRerollSpin: QUANTUM.isRerollSpin
+        }
+      }));
+    }
+    net.pushSync = netPushSync;
+
+    function netBroadcast(obj) {
+      if (net.mode === 'host' && net.ws && net.ws.readyState === 1) {
+        net.ws.send(JSON.stringify({ t: 'relay', to: 'all', payload: obj }));
+      }
+    }
+    net.broadcast = netBroadcast;
+
+    function netSendToHost(obj) {
+      if (net.mode === 'guest' && net.ws && net.ws.readyState === 1) {
+        net.ws.send(JSON.stringify({ t: 'relay', to: 'host', payload: obj }));
+      }
+    }
+    net.sendToHost = netSendToHost;
+
+    /** Кнопки хода: локально — движок напрямую, онлайн гость — запрос к хосту. */
+    net.guardedRollDecision = function (wantsReroll) {
+      if (net.mode === 'guest') {
+        const player = currentPlayer();
+        if (!player || player.id !== net.myPlayerId) return;
+        netSendToHost({ t: 'decision', kind: 'roll', action: wantsReroll ? 'reroll' : 'accept' });
+        return;
+      }
+      usePendingRoll(wantsReroll);
+    };
+    net.guardedExactPick = function (value) {
+      if (net.mode === 'guest') {
+        const player = currentPlayer();
+        if (!player || player.id !== net.myPlayerId) return;
+        netSendToHost({ t: 'decision', kind: 'exact', value });
+        return;
+      }
+      executeRoll(value, true);
+    };
+
+    function netConnect() {
+      // Разрешается, когда сокет открыт; ответы сервера (ok/error) обрабатывает netOnEnvelope.
+      return new Promise((resolve, reject) => {
+        if (net.ws) { try { net.ws.close(); } catch (_) { /* уже закрыт */ } }
+        const ws = new WebSocket(netWsUrl());
+        net.ws = ws;
+        let settled = false;
+        ws.onopen = () => { if (!settled) { settled = true; resolve(); } };
+        ws.onmessage = (event) => {
+          let env;
+          try { env = JSON.parse(event.data); } catch (_) { return; }
+          netOnEnvelope(env);
+        };
+        ws.onerror = () => {
+          if (!settled) {
+            settled = true;
+            try { ws.close(); } catch (_) {}
+            net.ws = null;
+            netLobbyError('Не удалось подключиться к серверу. Запущен ли node server.js?');
+            reject({ reason: 'network' });
+          }
+        };
+        ws.onclose = () => { netOnConnectionLost(); };
+      });
+    }
+
+    function netOnEnvelope(env) {
+      if (env.t === 'ok') {
+        net.room = env.room;
+        net.myId = env.clientId;
+        net.mode = env.role === 'host' ? 'host' : 'guest';
+        if (net.mode === 'host') net.roster = [{ clientId: env.clientId, name: net.myName }];
+        if (netEls.debugPanel) netEls.debugPanel.classList.toggle('hidden', net.mode === 'guest');
+        netUpdateStatus(`Онлайн · комната ${env.room} · вы: ${net.myName}${net.mode === 'host' ? ' (хозяин)' : ''}`);
+        if (env.snapshot) netAdoptSnapshot(env.snapshot);
+        else netShowLobby();
+      } else if (env.t === 'error') {
+        const messages = {
+          'not-found': 'Комната не найдена. Проверьте код: его показывает экран создателя комнаты.',
+          'full': 'Комната заполнена — максимум 4 игрока.',
+          'network': 'Не удалось подключиться к серверу. Запущен ли node server.js?',
+          'no-code': 'Сервер не смог выделить код комнаты. Попробуйте ещё раз.'
+        };
+        netLobbyError(messages[env.reason] || 'Не удалось войти в комнату.');
+      } else if (env.t === 'player-joined') {
+        if (net.mode === 'host') {
+          if (!net.roster.some(p => p.clientId === env.clientId)) {
+            net.roster.push({ clientId: env.clientId, name: env.name });
+          }
+          if (gameState.phase === 'playing') netPushSync(); // новичок получает поле сразу
+          else netShowLobby();
+        }
+      } else if (env.t === 'player-left') {
+        if (net.mode === 'host') {
+          net.roster = net.roster.filter(p => p.clientId !== env.clientId);
+          netHostPlayerLeft(env.clientId);
+          if (gameState.phase !== 'playing') netShowLobby();
+        }
+      } else if (env.t === 'relay') {
+        if (env.from === 'host') netOnHostMessage(env.payload);
+        else netOnGuestMessage(env.payload, env.fromId);
+      } else if (env.t === 'host-promoted') {
+        net.mode = 'host';
+        if (netEls.debugPanel) netEls.debugPanel.classList.remove('hidden');
+        net.roster = (env.roster || []).map(p => ({ clientId: p.clientId, name: p.name }));
+        netUpdateStatus(`Онлайн · комната ${net.room} · вы: ${net.myName} (хозяин)`);
+        if (env.snapshot) netAdoptSnapshot(env.snapshot);
+        else netShowLobby();
+      } else if (env.t === 'host-lost') {
+        netShowLobby('Хозяин комнаты отключился. Партия завершена — кто-то из игроков стал новым хозяином и может запустить новую игру.');
+      }
+    }
+
+    function netOnConnectionLost() {
+      if (net.mode === 'local' || !net.ws) return;
+      const wasHost = net.mode === 'host';
+      net.mode = 'local';
+      net.ws = null;
+      net.roster = [];
+      net.pendingModals.clear();
+      net.openNonces.clear();
+      netUpdateStatus('');
+      if (netEls.debugPanel) netEls.debugPanel.classList.remove('hidden');
+      gameState.phase = 'setup';
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      netSetTab('online');
+      netLobbyError(wasHost
+        ? 'Соединение с сервером потеряно — комната закрыта. Создайте новую.'
+        : 'Соединение с сервером потеряно. Можно войти снова по коду комнаты.');
+    }
+
+    /** Сообщения гостей (только хост их получает). */
+    function netOnGuestMessage(msg, fromId) {
+      if (net.mode !== 'host' || !msg || typeof msg !== 'object') return;
+      const player = gameState.players.find(p => p.clientId === fromId);
+      if (!player) return;
+      const active = currentPlayer();
+      if (msg.t === 'gen-press') {
+        if (active.id !== player.id) return;
+        if (gameState.phase !== 'playing' || isResolving || pendingRoll) return;
+        if (QUANTUM.state !== 'idle') return;
+        if (active.bonuses.exactRoll && !active.stuck1885) return;
+        beginCharge();
+      } else if (msg.t === 'gen-release') {
+        if (active.id !== player.id) return;
+        if (QUANTUM.state !== 'charging') return;
+        releaseCharge();
+      } else if (msg.t === 'decision' && msg.kind === 'roll') {
+        if (active.id !== player.id || !pendingRoll) return;
+        usePendingRoll(msg.action === 'reroll');
+      } else if (msg.t === 'decision' && msg.kind === 'exact') {
+        if (active.id !== player.id) return;
+        if (!active.bonuses.exactRoll || active.stuck1885) return;
+        if (!Number.isInteger(msg.value) || msg.value < 1 || msg.value > 6) return;
+        executeRoll(msg.value, true);
+      } else if (msg.t === 'modal-response') {
+        const pending = net.pendingModals.get(msg.nonce);
+        if (!pending || pending.chooserClient !== fromId) return;
+        net.pendingModals.delete(msg.nonce);
+        net.openNonces.delete(msg.nonce);
+        closeModal();
+        netBroadcast({ t: 'modal-close', nonce: msg.nonce, value: msg.value });
+        renderAll();
+        pending.resolve(msg.value);
+      }
+    }
+
+    /** Сообщения хоста (получают гости). */
+    function netOnHostMessage(msg) {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.t === 'sync') { netAdoptSnapshot(msg); return; }
+      if (msg.t === 'gen') {
+        if (msg.phase === 'charge') net.guestChargeStart();
+        else if (msg.phase === 'spin') net.guestSpinStart();
+        else if (msg.phase === 'land') net.guestLand(msg.value);
+        return;
+      }
+      if (msg.t === 'modal-card') { netGuestShowCard(msg); return; }
+      if (msg.t === 'modal-choice') { netGuestShowChoice(msg); return; }
+      if (msg.t === 'modal-close') {
+        if (net.openNonces.has(msg.nonce)) {
+          net.openNonces.delete(msg.nonce);
+          closeModal();
+          renderAll();
+        }
+        return;
+      }
+      if (msg.t === 'reset') { netGuestReset(); }
+    }
+
+    /** Гость зеркалит снимок состояния: позиции, очередь, карты, журнал. */
+    function netAdoptSnapshot(snap) {
+      if (!snap || !snap.state || !Array.isArray(snap.state.players)) return;
+      const finalPos = {};
+      snap.state.players.forEach(p => { finalPos[p.id] = p.position; });
+      const oldPos = {};
+      gameState.players.forEach(p => { oldPos[p.id] = p.position; });
+      const wasOver = gameState.phase === 'game_over';
+      Object.assign(gameState, snap.state);
+      pendingRoll = snap.pendingRoll || null;
+      isResolving = !!snap.isResolving;
+      lastMoveTrail = snap.trail || null;
+      QUANTUM.isRerollSpin = !!snap.isRerollSpin;
+      if (gameState.phase === 'playing') net.sawGameOver = false;
+      const me = gameState.players.find(p => p.clientId === net.myId);
+      if (me) net.myPlayerId = me.id;
+      if (gameState.phase !== 'setup') {
+        els.setup.classList.add('hidden');
+        els.game.classList.remove('hidden');
+        updateRouteScale();
+      }
+      renderAll();
+      if (gameState.phase === 'game_over' && !wasOver) {
+        const winner = gameState.players.find(p => p.position === 50) || currentPlayer();
+        openWinModal(winner);
+      }
+      const movers = [];
+      for (const p of gameState.players) {
+        const from = oldPos[p.id];
+        const to = finalPos[p.id];
+        if (from !== undefined && to !== undefined && from !== to) movers.push({ id: p.id, from, to });
+      }
+      netWalkTokens(movers);
+    }
+
+    /** Анимация перемещения фишек гостя от старого снимка к новому. */
+    async function netWalkTokens(movers) {
+      if (!movers.length) return;
+      const seq = ++net.walkSeq;
+      for (const m of movers) {
+        const p = gameState.players.find(x => x.id === m.id);
+        if (!p) continue;
+        p.position = m.from;
+        renderTokens();
+        const step = m.to > m.from ? 1 : -1;
+        while (p.position !== m.to) {
+          await sleep(90);
+          if (net.walkSeq !== seq) return;
+          p.position += step;
+          renderTokens();
+        }
+      }
+    }
+
+    /* --- Локальная анимация генератора на устройстве гостя --- */
+    net.guestChargeStart = function () {
+      window.clearTimeout(QUANTUM.guestTimer);
+      (QUANTUM.guestTimers || []).forEach(t => window.clearTimeout(t));
+      QUANTUM.guestTimers = [];
+      QUANTUM.guestLandValue = null;
+      if (QUANTUM.state !== 'idle') {
+        window.clearTimeout(QUANTUM.timer);
+        (QUANTUM.timers || []).forEach(t => window.clearTimeout(t));
+        QUANTUM.timers = [];
+        els.generator.classList.remove('spinning');
+      }
+      QUANTUM.state = 'charging';
+      setQuantumHeat(1);
+      els.generator.classList.add('charging');
+      els.generator.classList.remove('spinning', 'landed');
+      const tick = () => {
+        if (QUANTUM.state !== 'charging') return;
+        showQuantumDigit(nextQuantumDigit());
+        QUANTUM.guestTimer = window.setTimeout(tick, 42);
+      };
+      tick();
+      renderAll();
+    };
+
+    net.guestSpinStart = function () {
+      if (QUANTUM.state !== 'charging') return;
+      window.clearTimeout(QUANTUM.guestTimer);
+      QUANTUM.state = 'spinning';
+      els.generator.classList.remove('charging');
+      els.generator.classList.add('spinning');
+      // Та же разрядка, что и у хоста: 24 такта ровно за 4.5 секунды.
+      const startInterval = 40;
+      const ratio = decayRatio(startInterval);
+      const raw = [];
+      let sum = 0;
+      for (let i = 0; i < QUANTUM_DECAY_TICKS; i++) {
+        const iv = startInterval * Math.pow(ratio, i);
+        raw.push(iv);
+        sum += iv;
+      }
+      const tail = QUANTUM_DECAY_MS - (sum - raw[QUANTUM_DECAY_TICKS - 1]);
+      raw[QUANTUM_DECAY_TICKS - 1] = Math.max(raw[QUANTUM_DECAY_TICKS - 2], tail);
+      let acc = 0;
+      raw.forEach((iv, i) => {
+        acc += iv;
+        const isLast = i === QUANTUM_DECAY_TICKS - 1;
+        const timer = window.setTimeout(() => {
+          if (isLast) {
+            const value = QUANTUM.guestLandValue != null ? QUANTUM.guestLandValue : randomDie();
+            QUANTUM.guestLandValue = null;
+            showQuantumDigit(value);
+            setQuantumHeat(0);
+            QUANTUM.state = 'idle';
+            els.generator.classList.remove('spinning');
+            els.generator.classList.add('landed');
+            window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+            renderAll();
+          } else {
+            showQuantumDigit(nextQuantumDigit());
+            setQuantumHeat(1 - acc / QUANTUM_DECAY_MS);
+          }
+        }, acc);
+        QUANTUM.guestTimers.push(timer);
+      });
+      renderAll();
+    };
+
+    net.guestLand = function (value) {
+      if (!Number.isInteger(value)) return;
+      if (QUANTUM.state === 'spinning') {
+        QUANTUM.guestLandValue = value; // итог появится в последний такт
+        return;
+      }
+      if (QUANTUM.state === 'charging') {
+        QUANTUM.guestLandValue = value;
+        net.guestSpinStart();
+        return;
+      }
+      if (QUANTUM.state === 'idle') {
+        showQuantumDigit(value);
+        setQuantumHeat(0);
+        els.generator.classList.add('landed');
+        window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+      }
+    };
+
+    /* --- Модалки на устройствах гостей --- */
+    function netGuestShowCard(msg) {
+      if (net.openNonces.has(msg.nonce)) return;
+      const chooser = gameState.players.find(p => p.id === msg.chooserId);
+      const iAmChooser = msg.chooserClient === net.myId;
+      openModal(cardModalHtml(msg.deckName, msg.card));
+      const btn = document.getElementById('applyCardBtn');
+      if (iAmChooser) {
+        btn.addEventListener('click', () => {
+          netSendToHost({ t: 'modal-response', nonce: msg.nonce, value: null });
+        }, { once: true });
+      } else {
+        btn.disabled = true;
+        btn.textContent = `Ожидание: ${chooser ? chooser.name : 'игрок'}…`;
+      }
+      net.openNonces.add(msg.nonce);
+    }
+
+    function netGuestShowChoice(msg) {
+      if (net.openNonces.has(msg.nonce)) return;
+      const chooser = gameState.players.find(p => p.id === msg.chooserId);
+      const iAmChooser = msg.chooserClient === net.myId;
+      openModal(choiceModalHtml(msg.title, msg.description));
+      const grid = document.getElementById('choiceGrid');
+      msg.choices.forEach(choice => {
+        const btn = makeChoiceButton(choice);
+        if (iAmChooser) {
+          btn.addEventListener('click', () => {
+            netSendToHost({ t: 'modal-response', nonce: msg.nonce, value: choice.value });
+          }, { once: true });
+        } else {
+          btn.disabled = true;
+        }
+        grid.append(btn);
+      });
+      if (!iAmChooser) {
+        const note = document.createElement('p');
+        note.className = 'choice-intro';
+        note.textContent = `Выбирает ${chooser ? chooser.name : 'игрок'}…`;
+        grid.append(note);
+      }
+      net.openNonces.add(msg.nonce);
+    }
+
+    /** Хост: игрок отключился во время партии — не даём игре зависнуть. */
+    function netHostPlayerLeft(clientId) {
+      for (const [nonce, pending] of net.pendingModals) {
+        if (pending.chooserClient === clientId) {
+          net.pendingModals.delete(nonce);
+          net.openNonces.delete(nonce);
+          logEvent(`${pending.name} отключился — выбор сделан автоматически.`);
+          closeModal();
+          netBroadcast({ t: 'modal-close', nonce, value: pending.fallback });
+          renderAll();
+          pending.resolve(pending.fallback);
+          break;
+        }
+      }
+      const active = gameState.players[gameState.currentPlayerIndex];
+      if (active && active.clientId === clientId && QUANTUM.state === 'charging') {
+        logEvent(`${active.name} отключился во время заряда — генератор отпущен автоматически.`);
+        window.setTimeout(() => { if (QUANTUM.state === 'charging') releaseCharge(); }, 1200);
+      }
+    }
+
+    /* --- Лобби комнаты --- */
+    function netShowLobby(message = null) {
+      if (net.mode === 'local') return;
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      netSetTab('online');
+      netEls.form.classList.add('hidden');
+      netEls.lobby.classList.remove('hidden');
+      const isHost = net.mode === 'host';
+      let html = '';
+      if (message) html += `<p class="lobby-message lobby-error">${escapeHTML(message)}</p>`;
+      if (isHost) {
+        const full = net.roster.length >= 4;
+        html += `
+          <p class="lobby-caption">Код комнаты — назовите его остальным:</p>
+          <div class="room-code">${escapeHTML(net.room || '????')}</div>
+          <ul class="lobby-players">
+            ${net.roster.map((p, i) => `<li><span class="lobby-dot" style="background:${PLAYER_COLORS[i]}"></span>${escapeHTML(p.name)}${p.clientId === net.myId ? ' <em>(вы)</em>' : ''}</li>`).join('')}
+          </ul>
+          ${full
+            ? '<p class="lobby-message">Комната заполнена — можно запускать.</p>'
+            : `<p class="lobby-message">Игроков: ${net.roster.length}/4${net.roster.length < 2 ? ' — нужно минимум два' : ''}.</p>`}
+          <button id="lobbyStartBtn" class="start-btn" type="button" ${net.roster.length < 2 ? 'disabled' : ''}>Запустить временную цепь ⚡</button>
+          <button id="lobbyLeaveBtn" class="secondary-btn" type="button">Выйти из комнаты</button>`;
+      } else {
+        html += `
+          <p class="lobby-caption">Вы в комнате:</p>
+          <div class="room-code">${escapeHTML(net.room || '????')}</div>
+          <p class="lobby-message">Ожидаем, пока хозяин запустит игру…</p>
+          <button id="lobbyLeaveBtn" class="secondary-btn" type="button">Выйти из комнаты</button>`;
+      }
+      netEls.lobby.innerHTML = html;
+      const startBtn = document.getElementById('lobbyStartBtn');
+      if (startBtn) startBtn.addEventListener('click', netStartOnlineGame);
+      const leaveBtn = document.getElementById('lobbyLeaveBtn');
+      if (leaveBtn) leaveBtn.addEventListener('click', netLeave);
+    }
+    net.toLobby = () => netShowLobby();
+
+    function netLobbyBusy(text) {
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      netSetTab('online');
+      netEls.form.classList.add('hidden');
+      netEls.lobby.classList.remove('hidden');
+      netEls.lobby.innerHTML = `<p class="lobby-message">${escapeHTML(text)}</p>`;
+    }
+
+    function netLobbyError(text) {
+      netLobbyBusy('');
+      netEls.lobby.innerHTML = `
+        <p class="lobby-message lobby-error">${escapeHTML(text)}</p>
+        <button id="lobbyBackBtn" class="secondary-btn" type="button">Назад к настройкам</button>`;
+      document.getElementById('lobbyBackBtn').addEventListener('click', () => {
+        netEls.lobby.classList.add('hidden');
+        netEls.form.classList.remove('hidden');
+      });
+    }
+
+    async function netCreateRoom() {
+      if (netIsFileProtocol()) return;
+      net.myName = (netEls.nameInput.value.trim() || 'Марти').slice(0, 20);
+      netLobbyBusy('Создаём комнату…');
+      try {
+        await netConnect();
+        net.ws.send(JSON.stringify({ t: 'join', room: null, name: net.myName, mode: 'host' }));
+      } catch (_) { /* ошибка уже показана в лобби */ }
+    }
+
+    async function netJoinRoom() {
+      if (netIsFileProtocol()) return;
+      net.myName = (netEls.nameInput.value.trim() || 'Док').slice(0, 20);
+      const code = netEls.codeInput.value.trim().toUpperCase();
+      if (!/^[A-Z2-9]{4}$/.test(code)) {
+        netLobbyError('Введите 4-значный код комнаты, например 7K4M.');
+        return;
+      }
+      netLobbyBusy('Входим в комнату ' + code + '…');
+      try {
+        await netConnect();
+        net.ws.send(JSON.stringify({ t: 'join', room: code, name: net.myName, mode: 'guest' }));
+      } catch (_) { /* ошибка уже показана в лобби */ }
+    }
+
+    function netLeave() {
+      if (net.ws) { try { net.ws.close(); } catch (_) {} }
+      net.ws = null;
+      net.mode = 'local';
+      net.room = null;
+      net.myId = null;
+      net.myPlayerId = null;
+      net.roster = [];
+      net.pendingModals.clear();
+      net.openNonces.clear();
+      net.sawGameOver = false;
+      netUpdateStatus('');
+      if (netEls.debugPanel) netEls.debugPanel.classList.remove('hidden');
+      gameState.phase = 'setup';
+      netEls.lobby.classList.add('hidden');
+      netEls.form.classList.remove('hidden');
+    }
+
+    function netStartOnlineGame() {
+      if (net.mode !== 'host' || net.roster.length < 2) return;
+      const players = net.roster.slice(0, 4).map((r, i) => ({
+        id: i + 1,
+        name: r.name,
+        color: PLAYER_COLORS[i],
+        clientId: r.clientId,
+        position: 1,
+        plutonium: 1,
+        skipTurns: 0,
+        stuck1885: false,
+        bonuses: { reroll: false, exactRoll: null, nextRollModifier: 0 }
+      }));
+      launchGame(players);
+    }
+
+    /** Гость: хозяин начал подготовку новой игры. */
+    function netGuestReset() {
+      net.pendingModals.clear();
+      net.openNonces.clear();
+      net.sawGameOver = false;
+      net.myPlayerId = null;
+      els.modalBackdrop.classList.add('hidden');
+      gameState.phase = 'setup';
+      QUANTUM.timers.forEach(t => window.clearTimeout(t));
+      QUANTUM.timers = [];
+      window.clearTimeout(QUANTUM.timer);
+      window.clearTimeout(QUANTUM.guestTimer);
+      (QUANTUM.guestTimers || []).forEach(t => window.clearTimeout(t));
+      QUANTUM.guestTimers = [];
+      QUANTUM.state = 'idle';
+      QUANTUM.isRerollSpin = false;
+      QUANTUM.onLanded = null;
+      QUANTUM.guestLandValue = null;
+      setQuantumHeat(0);
+      els.generator.classList.remove('charging', 'spinning', 'landed');
+      netShowLobby('Хозяин готовит новую игру…');
+    }
+
+    function initNet() {
+      const isFile = netIsFileProtocol();
+      netEls.tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const which = tab.dataset.mtab;
+          netSetTab(which);
+          if (which === 'online' && isFile) netEls.unavailable.hidden = false;
+        });
+      });
+      netEls.createBtn.addEventListener('click', netCreateRoom);
+      netEls.joinBtn.addEventListener('click', netJoinRoom);
+      netEls.codeInput.addEventListener('input', () => {
+        netEls.codeInput.value = netEls.codeInput.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
+      });
+      if (isFile) netEls.unavailable.hidden = false;
+    }
+    initNet();
   </script>
 </body>
 </html>
