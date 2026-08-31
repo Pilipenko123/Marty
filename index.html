@@ -434,16 +434,87 @@
     .bonus-pill { color: #bafff3; border-color: rgba(88,238,255,.38); background: rgba(88,238,255,.09); }
     .position-badge { align-self: center; min-width: 32px; padding: 5px 4px; color: #dcecff; border: 1px solid rgba(164,202,255,.24); border-radius: 7px; text-align: center; font-family: ui-monospace, monospace; font-size: .71rem; font-weight: 800; }
     .controls-panel { padding: 15px; border-top: 1px solid rgba(155,189,246,.12); }
-    .dice-area { display: grid; grid-template-columns: 61px minmax(0,1fr); align-items: center; gap: 13px; min-height: 67px; }
-    .dice {
-      display: grid; place-items: center; width: 58px; height: 58px;
-      border: 2px solid #d4fbff; border-radius: 14px;
-      color: #13203c; background: linear-gradient(145deg, #e8ffff, #79e7ff 55%, #a585ff);
-      box-shadow: 0 0 18px rgba(93,234,255,.31), inset -4px -4px 8px rgba(41,77,158,.17);
-      font-family: ui-monospace, monospace; font-size: 1.8rem; font-weight: 1000;
+    .gen-area { display: grid; grid-template-columns: 112px minmax(0,1fr); align-items: center; gap: 13px; }
+    .generator { display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: 2px; }
+    .gen-tube {
+      position: relative;
+      width: 64px; height: 98px;
+      border: 2px solid #6b5326;
+      border-radius: 30px 30px 12px 12px;
+      background:
+        radial-gradient(ellipse 72% 44% at 50% 78%, rgba(255,150,40, calc(.10 + var(--heat, 0) * .38)), transparent 70%),
+        linear-gradient(180deg, rgba(56,44,26,.55), rgba(18,13,8,.92) 45%, rgba(30,22,12,.9));
+      box-shadow:
+        inset 0 8px 16px rgba(0,0,0,.75),
+        inset 0 -10px 22px rgba(255,140,30, calc(.05 + var(--heat, 0) * .4)),
+        0 0 calc(6px + var(--heat, 0) * 22px) rgba(255,160,60, calc(.12 + var(--heat, 0) * .5)),
+        0 3px 6px rgba(0,0,0,.5);
+      overflow: hidden;
+      transition: box-shadow .15s linear;
     }
-    .dice.rolling { animation: diceRoll .55s linear; }
-    @keyframes diceRoll { 0% { transform: rotate(0) scale(1); } 25% { transform: rotate(100deg) scale(.82); } 60% { transform: rotate(245deg) scale(1.1); } 100% { transform: rotate(360deg) scale(1); } }
+    .gen-tube::before {
+      content: ""; position: absolute; z-index: 2; inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(115deg, rgba(255,255,255,.13), transparent 36%);
+      pointer-events: none;
+    }
+    .gen-ghost {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+      color: #ff9c3f;
+      opacity: calc(.08 + var(--heat, 0) * .16);
+      font-family: "Arial Narrow", Bahnschrift, Inter, sans-serif;
+      font-size: 13px; font-weight: 700; line-height: 1;
+      transition: opacity .15s linear;
+    }
+    .gen-ghost i { font-style: normal; }
+    .gen-display {
+      position: relative; z-index: 1;
+      display: block;
+      font-family: "Arial Narrow", Bahnschrift, Inter, sans-serif;
+      font-size: 50px; font-weight: 700; line-height: 1;
+      color: #ffd9a0;
+      text-shadow:
+        0 0 5px rgba(255,190,110, calc(.55 + var(--heat, 0) * .45)),
+        0 0 16px rgba(255,150,40, calc(.30 + var(--heat, 0) * .55)),
+        0 0 34px rgba(255,120,20, calc(.12 + var(--heat, 0) * .5));
+      transform-origin: center;
+    }
+    .generator.landed .gen-display { animation: landedFlash .8s ease; }
+    @keyframes landedFlash {
+      0% { transform: scale(1.14); text-shadow: 0 0 8px #ffe2b0, 0 0 24px rgba(255,175,65,.95), 0 0 52px rgba(255,135,35,.85); }
+      100% { transform: scale(1); }
+    }
+    .generator.charging .gen-tube { animation: genShake .22s linear infinite; }
+    @keyframes genShake { 0%, 100% { transform: translateX(0); } 30% { transform: translateX(-1.2px); } 70% { transform: translateX(1.2px); } }
+    .gen-base {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 88px; height: 15px;
+      padding: 0 7px;
+      border-radius: 4px;
+      background: linear-gradient(180deg, #d8b46a, #9a7434 60%, #6d4d1e);
+      box-shadow: inset 0 1px 0 rgba(255,240,200,.55), 0 2px 4px rgba(0,0,0,.45);
+    }
+    .gen-led { width: 7px; height: 7px; border-radius: 50%; background: #5a231c; box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+    .generator.charging .gen-led { background: #8affc1; box-shadow: 0 0 7px rgba(120,255,180,.9); }
+    .generator.spinning .gen-led { background: #ffb454; box-shadow: 0 0 7px rgba(255,170,60,.9); animation: ledBlink .5s linear infinite; }
+    @keyframes ledBlink { 50% { opacity: .35; } }
+    .gen-name { font-size: 7px; font-weight: 900; letter-spacing: .14em; color: #3a2a10; }
+    .gen-button {
+      width: 96px; height: 46px;
+      border: 2px solid #ffd9c2;
+      border-radius: 14px;
+      background: radial-gradient(circle at 35% 28%, #ff9a6b, #e04a33 55%, #93201b);
+      color: #fff3e8;
+      font-size: .92rem; font-weight: 900; letter-spacing: .16em;
+      box-shadow: 0 5px 0 #61130f, 0 9px 16px rgba(0,0,0,.45);
+      transition: transform .06s ease, box-shadow .06s ease, filter .06s ease;
+      user-select: none; -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+    }
+    .gen-button.pressed, .gen-button:active { transform: translateY(4px); box-shadow: 0 1px 0 #61130f, 0 4px 8px rgba(0,0,0,.45); }
+    .gen-button:disabled { filter: saturate(.55) brightness(.8); }
     .roll-info { min-width: 0; }
     .roll-label { margin: 0 0 4px; color: #d8e7ff; font-size: .79rem; font-weight: 800; }
     .roll-detail { margin: 0; color: var(--muted); font-size: .65rem; line-height: 1.35; }
@@ -585,9 +656,16 @@
         </section>
         <section class="players-panel"><div id="playerList" class="player-list"></div></section>
         <section class="controls-panel">
-          <div class="dice-area">
-            <div id="dice" class="dice" aria-label="Результат броска">?</div>
-            <div class="roll-info"><p id="rollLabel" class="roll-label">Кубик ждёт хода</p><p id="rollDetail" class="roll-detail">Каждый игрок начинает с одной ячейкой плутония.</p></div>
+          <div class="gen-area">
+            <div id="generator" class="generator" aria-label="Квантовый генератор хода">
+              <div class="gen-tube" aria-hidden="true">
+                <span class="gen-ghost"><i>6</i><i>5</i><i>4</i><i>3</i><i>2</i><i>1</i></span>
+                <span id="genDisplay" class="gen-display">–</span>
+              </div>
+              <div class="gen-base" aria-hidden="true"><span class="gen-led"></span><span class="gen-name">КГХ·88</span></div>
+              <button id="genButton" class="gen-button" type="button" aria-label="ПУСК: удерживайте кнопку, чтобы зарядить генератор хода">ПУСК</button>
+            </div>
+            <div class="roll-info"><p id="rollLabel" class="roll-label">Генератор готов</p><p id="rollDetail" class="roll-detail">Жмите и держите «ПУСК» — табло раскрутится, а на отпускании плавно остановится на цифре хода.</p></div>
           </div>
           <div id="controlActions" class="control-actions"></div>
         </section>
@@ -682,7 +760,9 @@
       playerList: document.getElementById('playerList'),
       turnTitle: document.getElementById('turnTitle'),
       turnSubtitle: document.getElementById('turnSubtitle'),
-      dice: document.getElementById('dice'),
+      generator: document.getElementById('generator'),
+      genDisplay: document.getElementById('genDisplay'),
+      genButton: document.getElementById('genButton'),
       rollLabel: document.getElementById('rollLabel'),
       rollDetail: document.getElementById('rollDetail'),
       controls: document.getElementById('controlActions'),
@@ -1089,24 +1169,34 @@
       }
     }
 
-    function renderDice() {
+    function renderRoll() {
       const player = currentPlayer();
-      els.dice.textContent = gameState.lastRoll ?? '?';
       if (gameState.phase === 'game_over') {
         els.rollLabel.textContent = 'Путешествие завершено';
         els.rollDetail.textContent = 'Победитель уже дома.';
+      } else if (QUANTUM.state === 'charging') {
+        els.rollLabel.textContent = 'Заряд набирает обороты…';
+        els.rollDetail.textContent = 'Держите кнопку — генератор раскручивается.';
+      } else if (QUANTUM.state === 'spinning') {
+        els.rollLabel.textContent = 'Разрядка лампы…';
+        els.rollDetail.textContent = 'Табло плавно замедляется до полной остановки.';
       } else if (pendingRoll) {
-        els.rollLabel.textContent = `Выпало ${pendingRoll.total}`;
-        els.rollDetail.textContent = pendingRoll.modifier ? `Кубик ${pendingRoll.base} + модификатор ${pendingRoll.modifier}. Использовать переброс?` : 'Использовать результат или перебросить кубик?';
+        els.rollLabel.textContent = `Генератор дал ${pendingRoll.total}`;
+        els.rollDetail.textContent = pendingRoll.modifier
+          ? `База ${pendingRoll.base} + модификатор ${pendingRoll.modifier}. Принять результат или ещё раз?`
+          : 'Принять результат или запустить генератор ещё раз?';
+      } else if (QUANTUM.isRerollSpin) {
+        els.rollLabel.textContent = 'Переброс: ещё один запуск';
+        els.rollDetail.textContent = 'Жмите и держите «ПУСК» для нового раскручивания.';
       } else if (player?.stuck1885) {
         els.rollLabel.textContent = 'Нужна шестёрка';
-        els.rollDetail.textContent = 'Бросьте кубик, чтобы выбраться из 1885 года.';
+        els.rollDetail.textContent = 'Жмите и держите «ПУСК», чтобы выбраться из 1885 года.';
       } else if (gameState.lastRoll !== null) {
-        els.rollLabel.textContent = `Последний бросок: ${gameState.lastRoll}`;
+        els.rollLabel.textContent = `Последний результат: ${gameState.lastRoll}`;
         els.rollDetail.textContent = 'Продолжайте путешествие по временной линии.';
       } else {
-        els.rollLabel.textContent = 'Кубик ждёт хода';
-        els.rollDetail.textContent = 'Выберите бросок, когда будете готовы.';
+        els.rollLabel.textContent = 'Генератор готов';
+        els.rollDetail.textContent = 'Жмите и держите «ПУСК», чтобы раскрутить генератор хода.';
       }
     }
 
@@ -1122,7 +1212,6 @@
 
     function renderControls() {
       els.controls.innerHTML = '';
-      const disabled = gameState.phase !== 'playing' || isResolving;
       const player = currentPlayer();
       if (gameState.phase === 'game_over') {
         els.controls.append(button('Начать новую игру', 'primary-btn', resetToSetup));
@@ -1130,11 +1219,11 @@
       }
       if (pendingRoll) {
         els.controls.append(button(`Идти на ${pendingRoll.total}`, 'primary-btn', () => usePendingRoll(false), false));
-        els.controls.append(button('↻ Перебросить кубик', 'secondary-btn', () => usePendingRoll(true), false));
+        els.controls.append(button('↻ Генератор ещё раз', 'secondary-btn', () => usePendingRoll(true), false));
         return;
       }
       if (isResolving) {
-        els.controls.append(button('Временная линия обновляется…', 'secondary-btn', () => {}, true));
+        els.controls.append(button(QUANTUM.state !== 'idle' ? 'Квантовый генератор работает…' : 'Временная линия обновляется…', 'secondary-btn', () => {}, true));
         return;
       }
       if (player.bonuses.exactRoll && !player.stuck1885) {
@@ -1143,16 +1232,21 @@
         prompt.textContent = 'Спортивный альманах — выберите результат:';
         const grid = document.createElement('div');
         grid.className = 'number-choices';
-        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => rollForPlayer(number)));
+        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => executeRoll(number, true)));
         els.controls.append(prompt, grid);
-      } else {
-        els.controls.append(button(player.stuck1885 ? 'Бросить кубик спасения' : 'Бросить кубик', 'primary-btn', () => rollForPlayer()));
-        if (player.bonuses.reroll && player.stuck1885) {
-          const hint = document.createElement('p');
-          hint.className = 'exact-prompt';
-          hint.textContent = 'Переброс доступен после обычного броска.';
-          els.controls.append(hint);
-        }
+        return;
+      }
+      const hint = document.createElement('p');
+      hint.className = 'exact-prompt';
+      hint.textContent = player.stuck1885
+        ? 'Генератор спасения: удерживайте «ПУСК». Нужна ровно шестёрка.'
+        : 'Жмите и держите «ПУСК», отпускайте — табло остановится на цифре хода.';
+      els.controls.append(hint);
+      if (player.bonuses.reroll && player.stuck1885) {
+        const extra = document.createElement('p');
+        extra.className = 'exact-prompt';
+        extra.textContent = 'Переброс доступен после обычного броска.';
+        els.controls.append(extra);
       }
     }
 
@@ -1166,23 +1260,195 @@
       if (movingPlayerId) renderTokens(movingPlayerId);
       renderPlayers();
       renderTurn();
-      renderDice();
+      renderRoll();
       renderControls();
+      updateGeneratorState();
       renderLog();
-      els.debugMove.disabled = isResolving || gameState.phase !== 'playing' || Boolean(pendingRoll);
+      els.debugMove.disabled = isResolving || gameState.phase !== 'playing' || Boolean(pendingRoll) || QUANTUM.state !== 'idle';
     }
 
     function sleep(ms) { return new Promise(resolve => window.setTimeout(resolve, ms)); }
 
-    function animateDice(value) {
-      els.dice.classList.remove('rolling');
-      void els.dice.offsetWidth;
-      els.dice.classList.add('rolling');
-      window.setTimeout(() => els.dice.classList.remove('rolling'), 600);
-      els.dice.textContent = value;
+    function randomDie() { return Math.floor(Math.random() * 6) + 1; }
+
+    /* ================= Квантовый генератор хода =================
+     * Вместо кубика — неоновое табло в стиле газоразрядной лампы.
+     * Удержание «ПУСК»: цифры 1–6 стремительно сменяются и набирают
+     * обороты. Отпускание: «лампа» разряжается ровно 4.5 секунды,
+     * замедляясь по геометрической прогрессии и останавливаясь на
+     * заранее выпавшей случайной цифре (справедливый бросок). */
+    const QUANTUM = {
+      state: 'idle', // 'idle' | 'charging' | 'spinning'
+      target: null,
+      isRerollSpin: false,
+      onLanded: null,
+      timer: null,
+      timers: [],
+      startedAt: 0,
+      currentInterval: 64,
+      lastDigit: 0
+    };
+    const QUANTUM_START_INTERVAL = 64; // мс — стартовая частота смены цифр при удержании
+    const QUANTUM_MIN_INTERVAL = 24;   // мс — максимальные «обороты» маховика
+    const QUANTUM_ACCEL = 0.016;       // мс сокращения интервала на каждую мс удержания
+    const QUANTUM_DECAY_MS = 4500;     // точная длительность «затухания тока»
+    const QUANTUM_DECAY_TICKS = 24;
+
+    function canCharge() {
+      const player = currentPlayer();
+      return gameState.phase === 'playing' && !isResolving && !pendingRoll &&
+        QUANTUM.state === 'idle' && !(player && player.bonuses.exactRoll && !player.stuck1885);
     }
 
-    function randomDie() { return Math.floor(Math.random() * 6) + 1; }
+    function setQuantumHeat(value) {
+      els.generator.style.setProperty('--heat', Math.max(0, Math.min(1, value)).toFixed(3));
+    }
+
+    function showQuantumDigit(digit) {
+      QUANTUM.lastDigit = digit;
+      els.genDisplay.textContent = digit;
+    }
+
+    function nextQuantumDigit() {
+      let digit;
+      do { digit = randomDie(); } while (digit === QUANTUM.lastDigit);
+      return digit;
+    }
+
+    /** Фаза 1+2: удержание — быстрая хаотичная смена цифр с набором оборотов. */
+    function beginCharge() {
+      if (QUANTUM.state !== 'idle') return;
+      QUANTUM.state = 'charging';
+      QUANTUM.target = randomDie();
+      QUANTUM.startedAt = performance.now();
+      QUANTUM.currentInterval = QUANTUM_START_INTERVAL;
+      setQuantumHeat(1);
+      els.generator.classList.add('charging');
+      els.generator.classList.remove('spinning', 'landed');
+      isResolving = true;
+      renderAll();
+      chargeTick();
+    }
+
+    function chargeTick() {
+      if (QUANTUM.state !== 'charging') return;
+      const elapsed = performance.now() - QUANTUM.startedAt;
+      QUANTUM.currentInterval = Math.max(QUANTUM_MIN_INTERVAL, QUANTUM_START_INTERVAL - elapsed * QUANTUM_ACCEL);
+      showQuantumDigit(nextQuantumDigit());
+      QUANTUM.timer = window.setTimeout(chargeTick, QUANTUM.currentInterval);
+    }
+
+    /** Коэффициент замедления: решает прогрессию так, чтобы разрядка
+     *  от текущей скорости заняла ровно QUANTUM_DECAY_MS. */
+    function decayRatio(startInterval) {
+      let lo = 1.0001, hi = 1.6;
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        const sum = startInterval * (Math.pow(mid, QUANTUM_DECAY_TICKS) - 1) / (mid - 1);
+        if (sum < QUANTUM_DECAY_MS) lo = mid;
+        else hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    /** Фаза 3: отпускание — плавное замедление ровно до остановки (4.5 c). */
+    function releaseCharge() {
+      if (QUANTUM.state !== 'charging') return;
+      window.clearTimeout(QUANTUM.timer);
+      QUANTUM.state = 'spinning';
+      els.generator.classList.remove('charging');
+      els.generator.classList.add('spinning');
+      renderAll();
+      // Расписание замедления: геометрическая прогрессия интервалов,
+      // стартующая с текущей скорости «маховика» и суммарно равная
+      // QUANTUM_DECAY_MS (затухание тока в лампе).
+      const ratio = decayRatio(QUANTUM.currentInterval);
+      const raw = [];
+      let sum = 0;
+      for (let i = 0; i < QUANTUM_DECAY_TICKS; i++) {
+        const iv = QUANTUM.currentInterval * Math.pow(ratio, i);
+        raw.push(iv);
+        sum += iv;
+      }
+      // Корректировка последнего такта, чтобы суммарно было ровно 4.5 c.
+      const tail = QUANTUM_DECAY_MS - (sum - raw[QUANTUM_DECAY_TICKS - 1]);
+      raw[QUANTUM_DECAY_TICKS - 1] = Math.max(raw[QUANTUM_DECAY_TICKS - 2], tail);
+      let acc = 0;
+      raw.forEach((iv, i) => {
+        acc += iv;
+        const isLast = i === QUANTUM_DECAY_TICKS - 1;
+        const timer = window.setTimeout(() => {
+          if (isLast) {
+            showQuantumDigit(QUANTUM.target);
+            setQuantumHeat(0);
+            QUANTUM.state = 'idle';
+            QUANTUM.isRerollSpin = false;
+            els.generator.classList.remove('spinning');
+            els.generator.classList.add('landed');
+            window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+            const callback = QUANTUM.onLanded;
+            QUANTUM.onLanded = null;
+            if (callback) {
+              callback(QUANTUM.target);
+            } else {
+              isResolving = false;
+              renderAll();
+              executeRoll(QUANTUM.target);
+            }
+          } else {
+            showQuantumDigit(nextQuantumDigit());
+            setQuantumHeat(1 - acc / QUANTUM_DECAY_MS);
+          }
+        }, acc);
+        QUANTUM.timers.push(timer);
+      });
+    }
+
+    /** Автоматический прогон табло (карта «Временной парадокс»). */
+    function autoSpinGenerator() {
+      return new Promise(resolve => {
+        if (QUANTUM.state !== 'idle') { resolve(randomDie()); return; }
+        QUANTUM.onLanded = resolve;
+        beginCharge();
+        QUANTUM.timers.push(window.setTimeout(() => releaseCharge(), 900));
+      });
+    }
+
+    function bindGenerator() {
+      const btn = els.genButton;
+      let holding = false;
+      const press = (e) => {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (holding) return;
+        if (!canCharge()) return;
+        holding = true;
+        btn.classList.add('pressed');
+        beginCharge();
+      };
+      const release = () => {
+        if (!holding) return;
+        holding = false;
+        btn.classList.remove('pressed');
+        releaseCharge();
+      };
+      btn.addEventListener('pointerdown', press);
+      // Отпускание ловим глобально: сработает, даже если палец ушёл с кнопки.
+      window.addEventListener('pointerup', release);
+      window.addEventListener('pointercancel', release);
+      window.addEventListener('blur', release);
+      btn.addEventListener('keydown', (e) => {
+        if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) press(e);
+      });
+      btn.addEventListener('keyup', (e) => {
+        if (e.key === ' ' || e.key === 'Enter') release();
+      });
+    }
+
+    function updateGeneratorState() {
+      const inCharge = QUANTUM.state === 'charging';
+      els.genButton.disabled = inCharge ? false : !canCharge();
+      els.genButton.textContent = QUANTUM.isRerollSpin ? 'ЕЩЁ РАЗ' : 'ПУСК';
+    }
 
     /** Checks compulsory skipped turns before the active player can roll. */
     async function prepareTurn() {
@@ -1201,25 +1467,25 @@
       renderAll();
     }
 
-    /** Performs a regular, selected, or escape roll. */
-    async function rollForPlayer(forcedValue = null, isReroll = false) {
+    /**
+     * Applies the result of the generator (or an exact pick from the
+     * "Sports Almanac" card): modifiers, escape from 1885, reroll, and movement.
+     */
+    async function executeRoll(base, isExact = false) {
       if (gameState.phase !== 'playing' || isResolving || pendingRoll) return;
       const player = currentPlayer();
       isResolving = true;
-      const base = forcedValue ?? randomDie();
       const modifier = player.stuck1885 ? 0 : player.bonuses.nextRollModifier;
       if (!player.stuck1885) {
         player.bonuses.nextRollModifier = 0;
-        if (forcedValue !== null) player.bonuses.exactRoll = null;
+        if (isExact) player.bonuses.exactRoll = null;
       }
       const total = base + modifier;
       gameState.lastRoll = total;
-      animateDice(total);
       renderAll();
-      await sleep(450);
 
       if (player.stuck1885) {
-        logEvent(`${player.name} бросает кубик спасения: ${base}.`);
+        logEvent(`${player.name} запускает генератор спасения: ${base}.`);
         if (base === 6) {
           const turnStart = player.position;
           player.stuck1885 = false;
@@ -1236,13 +1502,13 @@
         return;
       }
 
-      if (player.bonuses.reroll && !isReroll) {
+      if (player.bonuses.reroll) {
         pendingRoll = { base, modifier, total };
         isResolving = false;
         renderAll();
         return;
       }
-      logEvent(`${player.name} выбрасывает ${total}${modifier ? ` (${base} + ${modifier})` : ''}.`);
+      logEvent(`${player.name}: квантовый генератор дал ${total}${modifier ? ` (${base} + ${modifier})` : ''}.`);
       await applyRoll(total);
     }
 
@@ -1253,9 +1519,10 @@
       const player = currentPlayer();
       if (wantsReroll) {
         player.bonuses.reroll = false;
-        logEvent(`${player.name} использует переброс.`);
+        QUANTUM.isRerollSpin = true;
+        logEvent(`${player.name} использует переброс: ещё один запуск генератора.`);
         renderAll();
-        await rollForPlayer(null, true);
+        return;
       } else {
         isResolving = true;
         gameState.lastRoll = saved.total;
@@ -1544,12 +1811,10 @@
             logEvent(`${player.name} чистит навоз и пропустит ход.`);
             break;
           case 8: {
-            const paradoxRoll = randomDie();
-            // It is a real automatic roll, so its face stays visible just like a normal one.
+            // A real automatic spin of the generator, so the face stays visible like a normal one.
+            const paradoxRoll = await autoSpinGenerator();
             gameState.lastRoll = paradoxRoll;
-            animateDice(paradoxRoll);
-            await sleep(450);
-            logEvent(`Временной парадокс: выпало ${paradoxRoll}.`);
+            logEvent(`Временной парадокс: генератор дал ${paradoxRoll}.`);
             if (paradoxRoll % 2 === 0) {
               await movePlayerBy(player, -5, true, 'чётный парадокс');
             } else {
@@ -1629,6 +1894,16 @@
       isResolving = false;
       pendingRoll = null;
       lastMoveTrail = null;
+      // Полный сброс генератора: гасим раскрутку и «разряд» лампы.
+      QUANTUM.timers.forEach(timer => window.clearTimeout(timer));
+      QUANTUM.timers = [];
+      window.clearTimeout(QUANTUM.timer);
+      QUANTUM.state = 'idle';
+      QUANTUM.isRerollSpin = false;
+      QUANTUM.onLanded = null;
+      QUANTUM.target = null;
+      setQuantumHeat(0);
+      els.generator.classList.remove('charging', 'spinning', 'landed');
       els.game.classList.add('hidden');
       els.setup.classList.remove('hidden');
       renderSetup();
@@ -1658,6 +1933,7 @@
       new ResizeObserver(() => window.requestAnimationFrame(updateRouteScale)).observe(els.routeViewport);
     }
     window.addEventListener('resize', () => window.requestAnimationFrame(updateRouteScale));
+    bindGenerator();
     renderRouteDecor();
     renderSetup();
   </script>
