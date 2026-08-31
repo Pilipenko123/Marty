@@ -173,10 +173,9 @@
     .timeline { display: flex; align-items: center; gap: 7px; color: #a7badb; font-size: .75rem; white-space: nowrap; }
     .timeline .tline { width: clamp(32px, 5vw, 75px); height: 2px; background: linear-gradient(90deg, var(--cyan), var(--pink)); }
     .main-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(295px, 355px); align-items: start; gap: 19px; }
-    /* The board is deliberately treated as a printed playmat, not as an app grid. */
+    /* The board is a printed playmat carrying a 3D winding time-track. */
     .board-shell, .sidebar { border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
     .board-shell {
-      overflow: hidden;
       padding: 5px;
       border: 1px solid #c99d51;
       border-radius: 20px;
@@ -191,7 +190,6 @@
     .epoch-key::before { content: ""; width: 8px; height: 8px; border: 1px solid rgba(255,245,214,.75); border-radius: 50%; background: var(--key); box-shadow: 0 0 7px var(--key); }
     .board-wrap {
       position: relative;
-      overflow: hidden;
       padding: clamp(8px, 1.4vw, 16px);
       border: 1px solid rgba(223,177,91,.6);
       border-top: 0;
@@ -203,83 +201,215 @@
       border: 2px solid rgba(238,200,105,.62); border-radius: 9px;
       box-shadow: inset 0 0 0 3px rgba(10,17,39,.8), inset 0 0 30px rgba(0,0,0,.45); pointer-events: none;
     }
-    .route-stage { position: relative; z-index: 1; width: 100%; }
-    .game-board {
-      position: relative;
-      display: grid;
-      grid-template-columns: repeat(10, minmax(0, 1fr));
-      grid-template-rows: repeat(5, minmax(54px, 1fr));
-      gap: clamp(4px, .65vw, 9px);
-      overflow: hidden;
-      padding: clamp(11px, 1.7vw, 19px);
-      border: 3px solid #182039;
-      border-radius: 11px;
-      aspect-ratio: 1.78 / 1;
-      background-image: linear-gradient(rgba(9,14,30,.07), rgba(9,14,30,.07)), url("assets/time-travel-board-map.png");
-      background-position: center;
-      background-size: cover;
-      box-shadow: inset 0 0 38px rgba(1,4,15,.45);
-    }
-    .game-board::before {
-      content: ""; position: absolute; z-index: 0; inset: 0; pointer-events: none;
-      opacity: .35;
-      background: repeating-linear-gradient(0deg, rgba(255,255,255,.09) 0 1px, transparent 1px 4px);
-      mix-blend-mode: overlay;
-    }
-    .cell {
-      position: relative; z-index: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      align-self: center; justify-self: center;
-      width: 96%; height: 84%;
-      min-width: 0; min-height: 0;
-      overflow: hidden;
-      padding: clamp(4px, .55vw, 8px);
-      border: 1.5px solid #3f2b19;
-      border-radius: clamp(7px, .9vw, 12px);
-      background-color: rgba(255,239,190,.91);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.45), 0 2px 5px rgba(17,13,8,.5);
-      transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
-    }
-    .cell:hover { z-index: 5; transform: translateY(-3px) scale(1.07); filter: brightness(1.07); box-shadow: inset 0 0 0 1px #fff6cf, 0 5px 10px rgba(0,0,0,.45); }
-    .cell::after { content: ""; position: absolute; pointer-events: none; width: 72%; height: 45%; right: -19%; bottom: -23%; border: 1px solid rgba(74,47,21,.17); border-radius: 50%; transform: rotate(-35deg); }
-    .zone-1985 { background-image: linear-gradient(135deg, rgba(161,215,233,.73), rgba(253,240,194,.93)); }
-    .zone-1955 { background-image: linear-gradient(135deg, rgba(245,176,183,.77), rgba(251,237,194,.94)); }
-    .zone-2015 { background-image: linear-gradient(135deg, rgba(178,147,239,.78), rgba(212,242,250,.94)); }
-    .zone-1885 { background-image: linear-gradient(135deg, rgba(235,180,93,.86), rgba(255,239,189,.95)); }
-    .cell-num { position: relative; z-index: 1; color: #302116; font-family: Georgia, serif; font-size: clamp(.66rem, 1.08vw, .94rem); font-weight: 900; line-height: 1; text-shadow: 0 1px rgba(255,255,255,.6); }
-    .cell-title { position: relative; z-index: 1; overflow: hidden; color: rgba(57,39,24,.9); font-size: clamp(.43rem, .67vw, .59rem); font-weight: 900; line-height: 1.05; letter-spacing: .01em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-    .cell-special { outline: 1px solid rgba(255,255,255,.55); outline-offset: -4px; }
-    .cell-icon { position: absolute; z-index: 1; right: clamp(3px, .55vw, 7px); top: clamp(3px, .55vw, 7px); filter: drop-shadow(0 1px 1px rgba(255,255,255,.6)) drop-shadow(0 1px 2px rgba(0,0,0,.3)); font-size: clamp(.75rem, 1.3vw, 1.1rem); line-height: 1; }
-    .cell-marty { background-image: linear-gradient(135deg, rgba(96,231,245,.93), rgba(224,255,244,.92)); box-shadow: inset 0 0 0 2px rgba(18,135,156,.66), 0 2px 5px rgba(17,13,8,.5); }
-    .cell-history { background-image: linear-gradient(135deg, rgba(250,125,139,.91), rgba(255,220,180,.94)); box-shadow: inset 0 0 0 2px rgba(169,45,58,.6), 0 2px 5px rgba(17,13,8,.5); }
-    .cell-jump { background-image: linear-gradient(135deg, rgba(255,205,62,.94), rgba(255,239,164,.95)); box-shadow: inset 0 0 0 2px rgba(200,119,20,.6), 0 2px 5px rgba(17,13,8,.5); }
-    .cell-skip { background-image: linear-gradient(135deg, rgba(196,210,216,.95), rgba(250,235,190,.94)); box-shadow: inset 0 0 0 2px rgba(90,99,104,.5), 0 2px 5px rgba(17,13,8,.5); }
-    .cell-finish {
-      border-color: #704820; background-image: linear-gradient(135deg, rgba(255,220,81,.96), rgba(255,131,99,.91)); box-shadow: inset 0 0 0 2px rgba(255,246,178,.82), 0 0 12px rgba(255,199,91,.7), 0 2px 5px rgba(17,13,8,.5);
-    }
-    .cell-finish .cell-title { color: #54271d; }
-    .move-trail { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)); }
-    .move-trail .trail-line { fill: none; stroke: var(--trail-color, #fff26b); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 8 7; animation: trailFlow 1.2s linear infinite; }
-    .move-trail .trail-start { fill: #fff5bf; stroke: var(--trail-color, #fff26b); stroke-width: 3; }
-    .move-trail .trail-label { fill: #fff7c9; font-family: Inter, sans-serif; font-size: 11px; font-weight: 900; letter-spacing: .05em; paint-order: stroke; stroke: #16152a; stroke-width: 3px; stroke-linejoin: round; }
-    @keyframes trailFlow { to { stroke-dashoffset: -30; } }
 
-    .tokens { position: absolute; z-index: 4; display: flex; flex-wrap: wrap; align-content: flex-end; gap: 2px; left: 4px; right: 3px; bottom: 3px; min-height: 16px; }
+    /* --- 3D-визор: наклонённая плоскость поля с перспективой --- */
+    .route-viewport {
+      position: relative; z-index: 1;
+      width: 100%;
+      min-width: 520px;
+      aspect-ratio: 1000 / 556;
+      perspective: 1600px;
+      perspective-origin: 50% 36%;
+    }
+    .route-plane {
+      position: absolute; left: 50%; top: 50%;
+      width: 1000px; height: 560px;
+      transform: translate(-50%, -50%) rotateX(14deg) scale(var(--route-scale, 1));
+      transform-style: preserve-3d;
+      border-radius: 14px;
+      background:
+        radial-gradient(ellipse 640px 300px at 13% 94%, rgba(125,249,192,.16), transparent 65%),
+        radial-gradient(ellipse 620px 280px at 10% 20%, rgba(84,237,255,.20), transparent 65%),
+        linear-gradient(rgba(8,11,30,.34), rgba(8,11,30,.44)),
+        url("assets/time-travel-board-map.png") center / cover no-repeat,
+        #0b1029;
+      box-shadow: inset 0 0 60px rgba(2,5,18,.55);
+    }
+
+    /* Дорога трассы */
+    .road-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+    .road-glow { fill: none; stroke: rgba(96,209,255,.13); stroke-width: 74; stroke-linecap: round; stroke-linejoin: round; }
+    .road-base { fill: none; stroke: #121834; stroke-width: 60; stroke-linecap: round; stroke-linejoin: round; opacity: .92; }
+    .road-era { fill: none; stroke-width: 48; stroke-linecap: butt; stroke-linejoin: round; opacity: .95; }
+    .road-era-1985 { stroke: #57d5ff; }
+    .road-era-1955 { stroke: #e78bad; }
+    .road-era-2015 { stroke: #bc70ff; }
+    .road-era-1885 { stroke: #f2bb5d; }
+    .road-center { fill: none; stroke: rgba(255,255,255,.78); stroke-width: 2.4; stroke-dasharray: 12 11; animation: roadFlow 24s linear infinite; }
+    @keyframes roadFlow { to { stroke-dashoffset: -460; } }
+
+    /* Декорации старта и финиша */
+    .deco-layer { position: absolute; inset: 0; transform: translateZ(1px); pointer-events: none; }
+    .start-line {
+      position: absolute;
+      width: 68px; height: 14px;
+      margin: -7px 0 0 -34px;
+      border: 1px solid rgba(255,255,255,.55);
+      border-radius: 3px;
+      background: conic-gradient(#f2f6ff 0 90deg, #17203f 0 180deg, #f2f6ff 0 270deg, #17203f 0 360deg) 0 0 / 34px 14px;
+      box-shadow: 0 0 10px rgba(125,249,192,.55);
+      transform: rotate(var(--a, 0deg));
+    }
+    .track-label {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 10.5px; font-weight: 900; letter-spacing: .16em;
+      white-space: nowrap;
+    }
+    .track-label.start { color: #032119; background: linear-gradient(115deg, #8df9c9, #3bd8a4); box-shadow: 0 0 12px rgba(125,249,192,.5), 0 2px 5px rgba(0,0,0,.35); }
+    .track-label.finish { color: #2a1602; background: linear-gradient(115deg, #ffd35a, #ff9a4d); box-shadow: 0 0 14px rgba(255,170,60,.55), 0 2px 5px rgba(0,0,0,.35); }
+    .portal {
+      position: absolute;
+      width: 76px; height: 76px;
+      margin: -38px 0 0 -38px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(125,249,255,.30) 0 28%, rgba(84,237,255,.12) 46%, transparent 64%);
+    }
+    .portal::before {
+      content: ""; position: absolute; inset: 8px;
+      border-radius: 50%;
+      border: 3px solid rgba(125,249,255,.95);
+      box-shadow: 0 0 18px rgba(84,237,255,.8), inset 0 0 16px rgba(84,237,255,.5);
+      animation: portalSpin 7s linear infinite;
+    }
+    .portal::after {
+      content: ""; position: absolute; inset: 18px;
+      border-radius: 50%;
+      border: 2px dashed rgba(255,211,90,.95);
+      box-shadow: 0 0 10px rgba(255,211,90,.55);
+      animation: portalSpin 4.5s linear infinite reverse;
+    }
+    @keyframes portalSpin { to { transform: rotate(360deg); } }
+
+    /* --- Объёмные клетки --- */
+    .game-board { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .cell3d {
+      position: absolute;
+      width: 54px; height: 44px;
+      cursor: default;
+      transform: translate(-50%, -50%) rotate(var(--a, 0deg));
+      transform-style: preserve-3d;
+    }
+    .cell-shadow {
+      position: absolute;
+      left: 0; right: 0; top: 3px; bottom: -5px;
+      border-radius: 12px;
+      background: rgba(2,5,16,.5);
+      filter: blur(5px);
+      transform: translateZ(.6px) translate(3px, 4px);
+    }
+    .cell-block { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .16s ease; }
+    .cell3d:hover .cell-block { transform: translateZ(9px); }
+    .face, .face-top { position: absolute; backface-visibility: hidden; }
+    .face-n {
+      left: -.5px; width: calc(100% + 1px);
+      top: 0; height: 12px;
+      transform-origin: 50% 0;
+      transform: rotateX(90deg);
+      background: var(--side-light);
+    }
+    .face-s {
+      left: -.5px; width: calc(100% + 1px);
+      top: calc(100% - 12px); height: 12px;
+      transform-origin: 50% 100%;
+      transform: rotateX(-90deg);
+      background: var(--side-dark);
+    }
+    .face-w {
+      left: 0; width: 12px;
+      top: -.5px; height: calc(100% + 1px);
+      transform-origin: 0 50%;
+      transform: rotateY(-90deg);
+      background: var(--side-light);
+    }
+    .face-e {
+      left: calc(100% - 12px); width: 12px;
+      top: -.5px; height: calc(100% + 1px);
+      transform-origin: 100% 50%;
+      transform: rotateY(90deg);
+      background: var(--side-mid);
+    }
+    .face-top {
+      inset: 0;
+      transform: translateZ(12px) rotate(calc(var(--a, 0deg) * -1));
+      border: 1px solid rgba(255,255,255,.55);
+      border-radius: 9px;
+      background: linear-gradient(145deg, var(--top-a), var(--top-b));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 0 0 1px rgba(0,0,0,.06);
+      overflow: hidden;
+      transition: filter .16s ease, box-shadow .16s ease;
+    }
+    .cell3d:hover .face-top { filter: brightness(1.07); }
+    .cell-num {
+      position: absolute; top: 3px; left: 4px; z-index: 1;
+      font-family: Georgia, serif;
+      font-size: 13.5px; font-weight: 900; line-height: 1;
+      color: #2b1d10;
+      text-shadow: 0 1px 0 rgba(255,255,255,.55);
+    }
+    .cell-icon {
+      position: absolute; top: 3px; right: 4px; z-index: 1;
+      font-size: 11px; line-height: 1.2;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.25));
+    }
+    .cell-title {
+      position: absolute; left: 4px; right: 4px; top: 17px; z-index: 1;
+      font-size: 5.9px; font-weight: 900; line-height: 1.1; letter-spacing: .01em;
+      text-transform: uppercase;
+      color: rgba(48,32,18,.88);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+    .tokens {
+      position: absolute; z-index: 2;
+      left: 3px; right: 3px; bottom: 2px;
+      display: flex; flex-wrap: wrap; align-content: flex-end; gap: 2px;
+      min-height: 11px;
+    }
     .token {
       display: grid; place-items: center;
-      width: clamp(14px, 1.65vw, 23px); height: clamp(14px, 1.65vw, 23px);
+      width: 11px; height: 11px;
       overflow: hidden;
-      border: 1.5px solid rgba(255,255,255,.9); border-radius: 50%;
-      box-shadow: 0 2px 5px rgba(0,0,0,.43), 0 0 7px var(--player-color);
-      color: #071222; font-size: clamp(.39rem, .54vw, .55rem); font-weight: 1000; line-height: 1;
+      border: 1px solid rgba(255,255,255,.9);
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.45), 0 0 5px var(--player-color);
+      color: #071222;
+      font-size: 4.6px; font-weight: 1000; line-height: 1;
       transform: translateZ(0);
       transition: transform .17s ease, box-shadow .17s ease;
     }
     .token.moving { animation: tokenHop .2s ease-in-out; }
     @keyframes tokenHop { 50% { transform: translateY(-8px) scale(1.18); box-shadow: 0 6px 10px rgba(0,0,0,.28), 0 0 12px var(--player-color); } }
-    .cell.has-active-player { outline: 2px solid rgba(255,255,255,.74); outline-offset: 1px; }
+
+    /* Эпохи и спецклетки */
+    .cell3d.zone-1985 { --top-a: #e8f7ff; --top-b: #a8d9f0; --side-light: #6ea3c8; --side-mid: #5484a6; --side-dark: #3f6585; }
+    .cell3d.zone-1955 { --top-a: #ffeef2; --top-b: #f5b8c9; --side-light: #c9839c; --side-mid: #a96580; --side-dark: #874a62; }
+    .cell3d.zone-2015 { --top-a: #f0e6ff; --top-b: #c9aef2; --side-light: #9678c4; --side-mid: #7a5da4; --side-dark: #5f4684; }
+    .cell3d.zone-1885 { --top-a: #fff1cf; --top-b: #f0c87e; --side-light: #c2925a; --side-mid: #a07444; --side-dark: #7d5733; }
+    .cell3d.cell-marty { --top-a: #dcfbff; --top-b: #93e9f6; --side-light: #56aec4; --side-mid: #4190a5; --side-dark: #307083; }
+    .cell3d.cell-history { --top-a: #ffe0d9; --top-b: #ff9f92; --side-light: #c8705f; --side-mid: #a5564a; --side-dark: #82403a; }
+    .cell3d.cell-jump { --top-a: #fff4c8; --top-b: #ffd75e; --side-light: #cfa143; --side-mid: #ab8332; --side-dark: #866423; }
+    .cell3d.cell-skip { --top-a: #f0f3f7; --top-b: #c6cfd9; --side-light: #8e9bad; --side-mid: #728092; --side-dark: #57647a; }
+    .cell3d.cell-special .face-top { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 0 0 1.5px rgba(255,255,255,.5); }
+    .cell3d.cell-start { --top-a: #dcfff1; --top-b: #93efd9; --side-light: #5cb69e; --side-mid: #47967f; --side-dark: #347466; }
+    .cell3d.cell-start .face-top { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 0 14px rgba(125,249,192,.6); }
+    .cell3d.cell-finish { --top-a: #fff3ba; --top-b: #ffb964; --side-light: #d09a4e; --side-mid: #ab7a3d; --side-dark: #875d2c; }
+    .cell3d.cell-finish .face-top { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 0 16px rgba(255,187,82,.8); }
+    .cell3d.cell-finish .cell-title { color: #54271d; }
+    .cell3d.has-active-player .face-top { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 0 0 2.5px rgba(255,255,255,.9), 0 0 18px rgba(140,235,255,.55); }
+
+    /* Следи за ходом: дуга над трассой */
+    .trail-layer { position: absolute; inset: 0; transform: translateZ(30px); pointer-events: none; }
+    .move-trail { display: block; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 3px 3px rgba(0,0,0,.5)); }
+    .move-trail .trail-line { fill: none; stroke: var(--trail-color, #fff26b); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 9 8; animation: trailFlow 1.1s linear infinite; }
+    .move-trail .trail-start { fill: #fff5bf; stroke: var(--trail-color, #fff26b); stroke-width: 3; }
+    .move-trail .trail-label { fill: #fff7c9; font-family: Inter, sans-serif; font-size: 15px; font-weight: 900; letter-spacing: .06em; paint-order: stroke; stroke: #16152a; stroke-width: 4px; stroke-linejoin: round; }
+    @keyframes trailFlow { to { stroke-dashoffset: -34; } }
 
     /* Панель */
     .sidebar { overflow: hidden; border-radius: 20px; }
@@ -304,16 +434,87 @@
     .bonus-pill { color: #bafff3; border-color: rgba(88,238,255,.38); background: rgba(88,238,255,.09); }
     .position-badge { align-self: center; min-width: 32px; padding: 5px 4px; color: #dcecff; border: 1px solid rgba(164,202,255,.24); border-radius: 7px; text-align: center; font-family: ui-monospace, monospace; font-size: .71rem; font-weight: 800; }
     .controls-panel { padding: 15px; border-top: 1px solid rgba(155,189,246,.12); }
-    .dice-area { display: grid; grid-template-columns: 61px minmax(0,1fr); align-items: center; gap: 13px; min-height: 67px; }
-    .dice {
-      display: grid; place-items: center; width: 58px; height: 58px;
-      border: 2px solid #d4fbff; border-radius: 14px;
-      color: #13203c; background: linear-gradient(145deg, #e8ffff, #79e7ff 55%, #a585ff);
-      box-shadow: 0 0 18px rgba(93,234,255,.31), inset -4px -4px 8px rgba(41,77,158,.17);
-      font-family: ui-monospace, monospace; font-size: 1.8rem; font-weight: 1000;
+    .gen-area { display: grid; grid-template-columns: 112px minmax(0,1fr); align-items: center; gap: 13px; }
+    .generator { display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: 2px; }
+    .gen-tube {
+      position: relative;
+      width: 64px; height: 98px;
+      border: 2px solid #6b5326;
+      border-radius: 30px 30px 12px 12px;
+      background:
+        radial-gradient(ellipse 72% 44% at 50% 78%, rgba(255,150,40, calc(.10 + var(--heat, 0) * .38)), transparent 70%),
+        linear-gradient(180deg, rgba(56,44,26,.55), rgba(18,13,8,.92) 45%, rgba(30,22,12,.9));
+      box-shadow:
+        inset 0 8px 16px rgba(0,0,0,.75),
+        inset 0 -10px 22px rgba(255,140,30, calc(.05 + var(--heat, 0) * .4)),
+        0 0 calc(6px + var(--heat, 0) * 22px) rgba(255,160,60, calc(.12 + var(--heat, 0) * .5)),
+        0 3px 6px rgba(0,0,0,.5);
+      overflow: hidden;
+      transition: box-shadow .15s linear;
     }
-    .dice.rolling { animation: diceRoll .55s linear; }
-    @keyframes diceRoll { 0% { transform: rotate(0) scale(1); } 25% { transform: rotate(100deg) scale(.82); } 60% { transform: rotate(245deg) scale(1.1); } 100% { transform: rotate(360deg) scale(1); } }
+    .gen-tube::before {
+      content: ""; position: absolute; z-index: 2; inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(115deg, rgba(255,255,255,.13), transparent 36%);
+      pointer-events: none;
+    }
+    .gen-ghost {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+      color: #ff9c3f;
+      opacity: calc(.08 + var(--heat, 0) * .16);
+      font-family: "Arial Narrow", Bahnschrift, Inter, sans-serif;
+      font-size: 13px; font-weight: 700; line-height: 1;
+      transition: opacity .15s linear;
+    }
+    .gen-ghost i { font-style: normal; }
+    .gen-display {
+      position: relative; z-index: 1;
+      display: block;
+      font-family: "Arial Narrow", Bahnschrift, Inter, sans-serif;
+      font-size: 50px; font-weight: 700; line-height: 1;
+      color: #ffd9a0;
+      text-shadow:
+        0 0 5px rgba(255,190,110, calc(.55 + var(--heat, 0) * .45)),
+        0 0 16px rgba(255,150,40, calc(.30 + var(--heat, 0) * .55)),
+        0 0 34px rgba(255,120,20, calc(.12 + var(--heat, 0) * .5));
+      transform-origin: center;
+    }
+    .generator.landed .gen-display { animation: landedFlash .8s ease; }
+    @keyframes landedFlash {
+      0% { transform: scale(1.14); text-shadow: 0 0 8px #ffe2b0, 0 0 24px rgba(255,175,65,.95), 0 0 52px rgba(255,135,35,.85); }
+      100% { transform: scale(1); }
+    }
+    .generator.charging .gen-tube { animation: genShake .22s linear infinite; }
+    @keyframes genShake { 0%, 100% { transform: translateX(0); } 30% { transform: translateX(-1.2px); } 70% { transform: translateX(1.2px); } }
+    .gen-base {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 88px; height: 15px;
+      padding: 0 7px;
+      border-radius: 4px;
+      background: linear-gradient(180deg, #d8b46a, #9a7434 60%, #6d4d1e);
+      box-shadow: inset 0 1px 0 rgba(255,240,200,.55), 0 2px 4px rgba(0,0,0,.45);
+    }
+    .gen-led { width: 7px; height: 7px; border-radius: 50%; background: #5a231c; box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+    .generator.charging .gen-led { background: #8affc1; box-shadow: 0 0 7px rgba(120,255,180,.9); }
+    .generator.spinning .gen-led { background: #ffb454; box-shadow: 0 0 7px rgba(255,170,60,.9); animation: ledBlink .5s linear infinite; }
+    @keyframes ledBlink { 50% { opacity: .35; } }
+    .gen-name { font-size: 7px; font-weight: 900; letter-spacing: .14em; color: #3a2a10; }
+    .gen-button {
+      width: 96px; height: 46px;
+      border: 2px solid #ffd9c2;
+      border-radius: 14px;
+      background: radial-gradient(circle at 35% 28%, #ff9a6b, #e04a33 55%, #93201b);
+      color: #fff3e8;
+      font-size: .92rem; font-weight: 900; letter-spacing: .16em;
+      box-shadow: 0 5px 0 #61130f, 0 9px 16px rgba(0,0,0,.45);
+      transition: transform .06s ease, box-shadow .06s ease, filter .06s ease;
+      user-select: none; -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+    }
+    .gen-button.pressed, .gen-button:active { transform: translateY(4px); box-shadow: 0 1px 0 #61130f, 0 4px 8px rgba(0,0,0,.45); }
+    .gen-button:disabled { filter: saturate(.55) brightness(.8); }
     .roll-info { min-width: 0; }
     .roll-label { margin: 0 0 4px; color: #d8e7ff; font-size: .79rem; font-weight: 800; }
     .roll-detail { margin: 0; color: var(--muted); font-size: .65rem; line-height: 1.35; }
@@ -374,8 +575,7 @@
       .board-hint { display: none; }
       .epoch-legend { max-width: 175px; justify-content: flex-start; }
       .epoch-key { font-size: .55rem; }
-      .route-stage { min-width: 500px; }
-      .game-board { min-width: 0; }
+      .route-viewport { min-width: 500px; }
       .board-wrap { overflow-x: auto; }
       .sidebar { grid-template-columns: 1fr; }
       .turn-panel, .log-panel { grid-column: auto; }
@@ -383,10 +583,38 @@
       .setup-hero { min-height: 215px; padding-top: 34px; }
     }
     @media (max-width: 390px) {
-      .route-stage { min-width: 455px; }
+      .route-viewport { min-width: 455px; }
       .setup-card { border-radius: 18px; }
       .setup-hero, .setup-content { padding-right: 18px; padding-left: 18px; }
     }
+
+    /* ================= Онлайн-режим: вкладки и лобби ================= */
+    [hidden] { display: none !important; }
+    .mode-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+    .mode-tab { flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(88,232,255,.35); background: rgba(10,16,32,.5); color: #9fb4d8; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+    .mode-tab:hover { background: rgba(88,232,255,.08); }
+    .mode-tab.active { background: rgba(88,232,255,.14); color: #eaf6ff; border-color: #58e8ff; box-shadow: 0 0 14px rgba(88,232,255,.25); }
+    .setup-tab.hidden { display: none; }
+    .online-hint { color: #ffd35a; font-size: 13px; margin: 0 0 14px; line-height: 1.5; }
+    .online-hint code { background: rgba(0,0,0,.35); padding: 2px 6px; border-radius: 6px; }
+    .online-form { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+    .online-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #9fb4d8; font-weight: 600; }
+    .online-join-row { display: flex; gap: 10px; }
+    .code-input { flex: 1; max-width: 150px; text-align: center; font-size: 22px; letter-spacing: 8px; font-weight: 800; text-transform: uppercase; background: rgba(6,10,22,.8); color: #eaf6ff; border: 1px solid rgba(88,232,255,.35); border-radius: 10px; padding: 10px 12px; }
+    .code-input:focus { outline: none; border-color: #58e8ff; box-shadow: 0 0 12px rgba(88,232,255,.3); }
+    .online-divider { display: flex; align-items: center; gap: 10px; color: #5d6f92; font-size: 12px; }
+    .online-divider::before, .online-divider::after { content: ''; flex: 1; height: 1px; background: rgba(88,232,255,.18); }
+    .online-btn { padding: 12px 18px; font-size: 15px; }
+    .lobby-status { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+    .lobby-caption { margin: 0; color: #9fb4d8; font-weight: 600; }
+    .room-code { font-size: 52px; font-weight: 900; letter-spacing: 14px; color: #58e8ff; text-shadow: 0 0 24px rgba(88,232,255,.6); margin: 4px 0; line-height: 1.1; }
+    .lobby-players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .lobby-players li { display: flex; align-items: center; gap: 10px; color: #eaf6ff; font-weight: 600; }
+    .lobby-players em { color: #9fb4d8; font-style: normal; font-size: 12px; }
+    .lobby-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
+    .lobby-message { margin: 0; color: #9fb4d8; font-size: 14px; }
+    .lobby-error { color: #ff8fa3; }
+    .net-status { margin: 0 0 6px; font-size: 12px; color: #9fb4d8; letter-spacing: .3px; }
   </style>
 </head>
 <body>
@@ -398,17 +626,42 @@
         <p class="hero-lead">Проложите маршрут сквозь четыре эпохи, заряжайте DeLorean плутонием и вернитесь домой точным броском.</p>
       </header>
       <div class="setup-content">
-        <div class="setup-heading">
-          <h2>Настройте путешественников</h2>
-          <span>Игра на одном экране</span>
+        <div class="mode-tabs" role="tablist" aria-label="Режим игры">
+          <button class="mode-tab active" data-mtab="local" type="button">На одном экране</button>
+          <button class="mode-tab" data-mtab="online" type="button">Онлайн · комната</button>
         </div>
-        <div class="player-counts" aria-label="Количество игроков">
-          <button class="count-btn active" data-count="2" type="button">2</button>
-          <button class="count-btn" data-count="3" type="button">3</button>
-          <button class="count-btn" data-count="4" type="button">4</button>
+        <div id="localSetup" class="setup-tab">
+          <div class="setup-heading">
+            <h2>Настройте путешественников</h2>
+            <span>Игра на одном экране</span>
+          </div>
+          <div class="player-counts" aria-label="Количество игроков">
+            <button class="count-btn active" data-count="2" type="button">2</button>
+            <button class="count-btn" data-count="3" type="button">3</button>
+            <button class="count-btn" data-count="4" type="button">4</button>
+          </div>
+          <div id="playerConfigs" class="player-configs"></div>
+          <button id="startGameBtn" class="start-btn" type="button">Запустить временную цепь ⚡</button>
         </div>
-        <div id="playerConfigs" class="player-configs"></div>
-        <button id="startGameBtn" class="start-btn" type="button">Запустить временную цепь ⚡</button>
+        <div id="onlineSetup" class="setup-tab hidden">
+          <div class="setup-heading">
+            <h2>Онлайн-игра</h2>
+            <span>Комната · 2–4 игрока на разных устройствах</span>
+          </div>
+          <p class="online-hint" id="onlineUnavailable" hidden>Онлайн-режим работает, когда игра открыта через сервер: запустите <code>node server.js</code> рядом с файлом игры и откройте адрес из консоли в браузерах всех игроков.</p>
+          <div class="online-form" id="onlineForm">
+            <label class="online-field">Ваше имя
+              <input id="netNameInput" class="name-input" maxlength="20" value="Марти" aria-label="Ваше имя в онлайн-игре">
+            </label>
+            <button id="createRoomBtn" class="start-btn online-btn" type="button">Создать комнату</button>
+            <div class="online-divider"><span>или войти по коду</span></div>
+            <div class="online-join-row">
+              <input id="roomCodeInput" class="code-input" maxlength="4" placeholder="КОД" aria-label="Код комнаты" autocomplete="off">
+              <button id="joinRoomBtn" class="start-btn online-btn" type="button">Войти</button>
+            </div>
+          </div>
+          <div id="lobbyStatus" class="lobby-status hidden"></div>
+        </div>
       </div>
     </section>
   </main>
@@ -423,10 +676,11 @@
         </div>
       </div>
       <div class="timeline" aria-label="Временные зоны"><span>1985</span><i class="tline"></i><span>1955</span><i class="tline"></i><span>2015</span><i class="tline"></i><span>1885</span></div>
+      <p id="netStatus" class="net-status" hidden></p>
     </header>
 
     <div class="main-layout">
-      <section class="board-shell" aria-label="Игровое поле из 50 клеток">
+      <section class="board-shell" aria-label="Игровое поле: извилистая трасса из 50 объёмных клеток">
         <div class="board-top">
           <div><h2>Маршрут DeLorean</h2><span class="board-hint">Доберитесь до клетки 50 точным броском</span></div>
           <div class="epoch-legend" aria-label="Легенда эпох">
@@ -437,9 +691,13 @@
           </div>
         </div>
         <div class="board-wrap">
-          <div id="routeStage" class="route-stage">
-            <div id="gameBoard" class="game-board"></div>
-            <svg id="moveTrail" class="move-trail" aria-hidden="true"></svg>
+          <div id="routeViewport" class="route-viewport">
+            <div id="routePlane" class="route-plane">
+              <div id="gameBoard" class="game-board"></div>
+              <div class="trail-layer" aria-hidden="true">
+                <svg id="moveTrail" class="move-trail"></svg>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -452,9 +710,16 @@
         </section>
         <section class="players-panel"><div id="playerList" class="player-list"></div></section>
         <section class="controls-panel">
-          <div class="dice-area">
-            <div id="dice" class="dice" aria-label="Результат броска">?</div>
-            <div class="roll-info"><p id="rollLabel" class="roll-label">Кубик ждёт хода</p><p id="rollDetail" class="roll-detail">Каждый игрок начинает с одной ячейкой плутония.</p></div>
+          <div class="gen-area">
+            <div id="generator" class="generator" aria-label="Квантовый генератор хода">
+              <div class="gen-tube" aria-hidden="true">
+                <span class="gen-ghost"><i>6</i><i>5</i><i>4</i><i>3</i><i>2</i><i>1</i></span>
+                <span id="genDisplay" class="gen-display">–</span>
+              </div>
+              <div class="gen-base" aria-hidden="true"><span class="gen-led"></span><span class="gen-name">КГХ·88</span></div>
+              <button id="genButton" class="gen-button" type="button" aria-label="ПУСК: удерживайте кнопку, чтобы зарядить генератор хода">ПУСК</button>
+            </div>
+            <div class="roll-info"><p id="rollLabel" class="roll-label">Генератор готов</p><p id="rollDetail" class="roll-detail">Жмите и держите «ПУСК» — табло раскрутится, а на отпускании плавно остановится на цифре хода.</p></div>
           </div>
           <div id="controlActions" class="control-actions"></div>
         </section>
@@ -543,12 +808,15 @@
       counts: [...document.querySelectorAll('.count-btn')],
       start: document.getElementById('startGameBtn'),
       board: document.getElementById('gameBoard'),
-      routeStage: document.getElementById('routeStage'),
+      routeViewport: document.getElementById('routeViewport'),
+      routePlane: document.getElementById('routePlane'),
       moveTrail: document.getElementById('moveTrail'),
       playerList: document.getElementById('playerList'),
       turnTitle: document.getElementById('turnTitle'),
       turnSubtitle: document.getElementById('turnSubtitle'),
-      dice: document.getElementById('dice'),
+      generator: document.getElementById('generator'),
+      genDisplay: document.getElementById('genDisplay'),
+      genButton: document.getElementById('genButton'),
       rollLabel: document.getElementById('rollLabel'),
       rollDetail: document.getElementById('rollDetail'),
       controls: document.getElementById('controlActions'),
@@ -565,6 +833,160 @@
     let extraTurnAwarded = false;
     // Kept separately from state so a visual trace can be redrawn on resizing.
     let lastMoveTrail = null;
+    // The board skeleton is static, so it is assembled once and never rebuilt.
+    let boardBuilt = false;
+
+    /* ================= Извилистая 3D-трасса =================
+     * Поле строится в «дизайн-пространстве» 1000x560 px и затем
+     * масштабируется целиком. Путь — 4 извилистые дорожки, связанные
+     * S-образными переходами; 50 клеток размещены по дуге с равными
+     * интервалами, каждая повёрнута по касательной к трассе. */
+    const ROUTE_W = 1000;
+    const ROUTE_H = 560;
+
+    function buildRoute() {
+      const LANES = [
+        { y: 482, from: 85,  to: 915, phase: 0.0 },
+        { y: 362, from: 915, to: 85,  phase: 2.2 },
+        { y: 242, from: 85,  to: 915, phase: 4.3 },
+        { y: 122, from: 915, to: 85,  phase: 1.3 }
+      ];
+      const AMP = 11;
+      const WAVES = 1.6;
+      const X0 = 85;
+      const X1 = 915;
+      const LEN = X1 - X0;
+      const laneY = (x, lane) => lane.y + AMP * Math.sin((Math.abs(x - X0) / LEN) * Math.PI * 2 * WAVES + lane.phase);
+
+      const pts = [];
+      for (let k = 0; k < LANES.length; k++) {
+        const lane = LANES[k];
+        for (let i = 0; i <= 96; i++) {
+          const x = lane.from + (lane.to - lane.from) * (i / 96);
+          pts.push({ x, y: laneY(x, lane) });
+        }
+        if (k < LANES.length - 1) {
+          const next = LANES[k + 1];
+          const side = lane.to > lane.from ? 1 : -1;
+          const sx = lane.to, sy = laneY(lane.to, lane);
+          const ex = next.from, ey = laneY(next.from, next);
+          const cx = ex + 54 * side;
+          const c1y = sy + (ey - sy) * 0.28;
+          const c2y = ey - (ey - sy) * 0.28;
+          for (let i = 1; i <= 30; i++) {
+            const t = i / 30, u = 1 - t;
+            pts.push({
+              x: u*u*u*sx + 3*u*u*t*cx + 3*u*t*t*cx + t*t*t*ex,
+              y: u*u*u*sy + 3*u*u*t*c1y + 3*u*t*t*c2y + t*t*t*ey
+            });
+          }
+        }
+      }
+
+      // Длинна дуги для равномерного размещения клеток.
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) {
+        cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+      }
+      const total = cum[cum.length - 1];
+      const pointAt = d => {
+        d = Math.max(0, Math.min(total, d));
+        let lo = 0, hi = cum.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (cum[mid] < d) lo = mid + 1; else hi = mid;
+        }
+        const a = Math.max(0, lo - 1);
+        const span = (cum[a + 1] - cum[a]) || 1;
+        const t = (d - cum[a]) / span;
+        return {
+          x: pts[a].x + (pts[a + 1].x - pts[a].x) * t,
+          y: pts[a].y + (pts[a + 1].y - pts[a].y) * t
+        };
+      };
+
+      const cells = [];
+      for (let i = 0; i < 50; i++) cells.push(pointAt((i / 49) * total));
+      cells.forEach((c, i) => {
+        const a = cells[Math.max(0, i - 1)];
+        const b = cells[Math.min(49, i + 1)];
+        c.angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+      });
+
+      // Дорога чуть дальше самого старта и самого финиша.
+      const leadIn = 48;
+      const leadOut = 54;
+      const sTan = { x: pts[3].x - pts[0].x, y: pts[3].y - pts[0].y };
+      const sLen = Math.hypot(sTan.x, sTan.y) || 1;
+      const eTan = { x: pts[pts.length - 1].x - pts[pts.length - 4].x, y: pts[pts.length - 1].y - pts[pts.length - 4].y };
+      const eLen = Math.hypot(eTan.x, eTan.y) || 1;
+      const roadPts = [
+        { x: pts[0].x - (sTan.x / sLen) * leadIn, y: pts[0].y - (sTan.y / sLen) * leadIn },
+        ...pts,
+        { x: pts[pts.length - 1].x + (eTan.x / eLen) * leadOut, y: pts[pts.length - 1].y + (eTan.y / eLen) * leadOut }
+      ];
+      const roadCum = [0];
+      for (let i = 1; i < roadPts.length; i++) {
+        roadCum.push(roadCum[i - 1] + Math.hypot(roadPts[i].x - roadPts[i - 1].x, roadPts[i].y - roadPts[i - 1].y));
+      }
+      const roadTotal = roadCum[roadCum.length - 1];
+
+      const toPath = list => list.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+      // Эпохи (1–10, 11–25, 26–40, 41–50) окрашивают дорогу по секторам.
+      const cellDist = i => leadIn + (i / 49) * total; // расстояние клетки в координатах всей дороги
+      const eraRanges = [[0, 9], [10, 24], [25, 39], [40, 49]];
+      const eraPaths = eraRanges.map(([a, b], idx) => {
+        const d0 = idx === 0 ? 0 : Math.max(0, cellDist(a) - 14);
+        const d1 = idx === eraRanges.length - 1 ? roadTotal : Math.min(roadTotal, cellDist(b) + 14);
+        const list = [];
+        for (let i = 0; i < roadPts.length; i++) {
+          if (roadCum[i] >= d0 && roadCum[i] <= d1) list.push(roadPts[i]);
+          else if (roadCum[i] > d1) break;
+        }
+        return toPath(list);
+      });
+
+      // Точки для декораций: клетка старта, полоса «СТАРТ», портал финиша.
+      const startBar = {
+        x: pts[0].x - (sTan.x / sLen) * 20,
+        y: pts[0].y - (sTan.y / sLen) * 20,
+        angle: Math.atan2(sTan.y, sTan.x) * 180 / Math.PI + 90
+      };
+      const portal = {
+        x: pts[pts.length - 1].x + (eTan.x / eLen) * 38,
+        y: pts[pts.length - 1].y + (eTan.y / eLen) * 38
+      };
+
+      return {
+        cells,
+        roadD: toPath(roadPts),
+        eraPaths,
+        startBar,
+        portal
+      };
+    }
+
+    const ROUTE = buildRoute();
+
+    function renderRouteDecor() {
+      const eraNames = ['1985', '1955', '2015', '1885'];
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = `
+        <svg class="road-svg" viewBox="0 0 ${ROUTE_W} ${ROUTE_H}" aria-hidden="true">
+          <path class="road-glow" d="${ROUTE.roadD}"></path>
+          <path class="road-base" d="${ROUTE.roadD}"></path>
+          ${ROUTE.eraPaths.map((d, i) => `<path class="road-era road-era-${eraNames[i]}" d="${d}"></path>`).join('')}
+          <path class="road-center" d="${ROUTE.roadD}"></path>
+        </svg>
+        <div class="deco-layer">
+          <div class="start-line" style="left:${ROUTE.startBar.x.toFixed(1)}px; top:${ROUTE.startBar.y.toFixed(1)}px; --a:${ROUTE.startBar.angle.toFixed(1)}deg"></div>
+          <div class="track-label start" style="left:${ROUTE.startBar.x.toFixed(1)}px; top:${(ROUTE.startBar.y - 45).toFixed(1)}px">СТАРТ</div>
+          <div class="portal" style="left:${ROUTE.portal.x.toFixed(1)}px; top:${ROUTE.portal.y.toFixed(1)}px"></div>
+          <div class="track-label finish" style="left:${(ROUTE.portal.x + 2).toFixed(1)}px; top:${(ROUTE.portal.y + 52).toFixed(1)}px">ФИНИШ</div>
+        </div>`;
+      els.routePlane.insertBefore(wrapper, els.board);
+    }
 
     /** Randomly shuffles a new draw pile. */
     function shuffledIds() {
@@ -602,16 +1024,6 @@
       return labels[position] || getZone(position);
     }
 
-    /** Converts a logical 1–50 route into a five-row serpentine grid. */
-    function gridPosition(position) {
-      const segment = Math.floor((position - 1) / 10);
-      const inSegment = (position - 1) % 10;
-      return {
-        row: 5 - segment,
-        column: segment % 2 === 0 ? inSegment + 1 : 10 - inSegment
-      };
-    }
-
     function renderSetup() {
       els.configs.innerHTML = '';
       for (let i = 0; i < selectedPlayerCount; i++) {
@@ -632,9 +1044,9 @@
     }
 
     function setupGame() {
-      const nameInputs = [...document.querySelectorAll('.name-input')];
-      const colors = [...document.querySelectorAll('.color-input')];
-      gameState.players = nameInputs.map((input, i) => ({
+      const nameInputs = [...document.querySelectorAll('#localSetup .name-input')];
+      const colors = [...document.querySelectorAll('#localSetup .color-input')];
+      const players = nameInputs.map((input, i) => ({
         id: i + 1,
         name: input.value.trim() || `Игрок ${i + 1}`,
         color: colors[i].value,
@@ -644,6 +1056,12 @@
         stuck1885: false,
         bonuses: { reroll: false, exactRoll: null, nextRollModifier: 0 }
       }));
+      launchGame(players);
+    }
+
+    /** Общий запуск партии (локальный и онлайн): список игроков уже готов. */
+    function launchGame(players) {
+      gameState.players = players;
       gameState.currentPlayerIndex = 0;
       gameState.decks = { marty: shuffledIds(), history: shuffledIds(), martyDiscard: [], historyDiscard: [] };
       gameState.gameLog = [];
@@ -657,6 +1075,7 @@
       logEvent('Потоковый накопитель запущен. Первый ход — у ' + currentPlayer().name + '.');
       els.setup.classList.add('hidden');
       els.game.classList.remove('hidden');
+      updateRouteScale();
       renderAll();
       prepareTurn();
     }
@@ -670,23 +1089,37 @@
       if (gameState.gameLog.length > 50) gameState.gameLog.shift();
     }
 
+    /** Собирает 50 объёмных клеток один раз: статичная геометрия трассы. */
     function renderBoard() {
+      if (boardBuilt) return;
+      boardBuilt = true;
       els.board.innerHTML = '';
       for (let position = 1; position <= 50; position++) {
         const special = CELL_INFO[position];
-        const coordinates = gridPosition(position);
+        const coord = ROUTE.cells[position - 1];
         const cell = document.createElement('div');
-        cell.className = `cell ${zoneClass(position)} ${special ? `cell-special cell-${special.type}` : ''} ${position === 50 ? 'cell-finish' : ''}`;
+        cell.className = `cell3d ${zoneClass(position)} ${special ? `cell-special cell-${special.type}` : ''} ${position === 50 ? 'cell-finish' : ''} ${position === 1 ? 'cell-start' : ''}`;
         cell.id = `cell-${position}`;
-        cell.style.gridRow = coordinates.row;
-        cell.style.gridColumn = coordinates.column;
+        cell.style.left = coord.x.toFixed(1) + 'px';
+        cell.style.top = coord.y.toFixed(1) + 'px';
+        cell.style.setProperty('--a', coord.angle.toFixed(2) + 'deg');
         cell.setAttribute('aria-label', `Клетка ${position}: ${cellTitle(position)}`);
+        cell.title = `Клетка ${position} — ${cellTitle(position)}`;
+        const icon = position === 1 ? '🚗' : position === 50 ? '🏁' : special ? special.icon : '';
         cell.innerHTML = `
-          <span class="cell-num">${position}</span>
-          ${special ? `<span class="cell-icon" aria-hidden="true">${special.icon}</span>` : ''}
-          <span class="cell-title">${cellTitle(position)}</span>
-          <div class="tokens"></div>
-        `;
+          <div class="cell-shadow" aria-hidden="true"></div>
+          <div class="cell-block">
+            <div class="face face-n" aria-hidden="true"></div>
+            <div class="face face-s" aria-hidden="true"></div>
+            <div class="face face-w" aria-hidden="true"></div>
+            <div class="face face-e" aria-hidden="true"></div>
+            <div class="face-top">
+              <span class="cell-num">${position}</span>
+              ${icon ? `<span class="cell-icon" aria-hidden="true">${icon}</span>` : ''}
+              <span class="cell-title">${cellTitle(position)}</span>
+              <div class="tokens"></div>
+            </div>
+          </div>`;
         els.board.append(cell);
       }
       renderTokens();
@@ -710,13 +1143,13 @@
         token.textContent = initials(player.name);
         cell.querySelector('.tokens').append(token);
       });
-      document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('has-active-player'));
+      document.querySelectorAll('.cell3d').forEach(cell => cell.classList.remove('has-active-player'));
       if (gameState.phase !== 'setup' && currentPlayer()) {
         document.getElementById(`cell-${currentPlayer().position}`)?.classList.add('has-active-player');
       }
     }
 
-    /** Draws a curved, player-coloured arrow from the start to the final cell of the last turn. */
+    /** Рисуёт дугу хода в дизайн-координатах трассы (1000x560). */
     function renderMoveTrail() {
       const svg = els.moveTrail;
       const trail = lastMoveTrail;
@@ -724,16 +1157,11 @@
         if (svg) svg.innerHTML = '';
         return;
       }
-      const stageRect = els.routeStage.getBoundingClientRect();
-      const fromCell = document.getElementById(`cell-${trail.from}`);
-      const toCell = document.getElementById(`cell-${trail.to}`);
-      if (!stageRect.width || !stageRect.height || !fromCell || !toCell) return;
-      const fromRect = fromCell.getBoundingClientRect();
-      const toRect = toCell.getBoundingClientRect();
-      const startX = fromRect.left - stageRect.left + fromRect.width / 2;
-      const startY = fromRect.top - stageRect.top + fromRect.height / 2;
-      const endX = toRect.left - stageRect.left + toRect.width / 2;
-      const endY = toRect.top - stageRect.top + toRect.height / 2;
+      const fromCell = ROUTE.cells[trail.from - 1];
+      const toCell = ROUTE.cells[trail.to - 1];
+      if (!fromCell || !toCell) return;
+      const startX = fromCell.x, startY = fromCell.y;
+      const endX = toCell.x, endY = toCell.y;
       const dx = endX - startX;
       const dy = endY - startY;
       const distance = Math.hypot(dx, dy) || 1;
@@ -743,7 +1171,7 @@
       const controlY = (startY + endY) / 2 + (dx / distance) * bend;
       const color = gameState.players.find(player => player.id === trail.playerId)?.color || '#fff26b';
       const markerId = 'trailArrow';
-      svg.setAttribute('viewBox', `0 0 ${stageRect.width} ${stageRect.height}`);
+      svg.setAttribute('viewBox', `0 0 ${ROUTE_W} ${ROUTE_H}`);
       svg.innerHTML = `
         <defs><marker id="${markerId}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L7,3 z" fill="${color}"></path></marker></defs>
         <path class="trail-line" style="--trail-color:${color}" d="M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}" marker-end="url(#${markerId})"></path>
@@ -801,24 +1229,34 @@
       }
     }
 
-    function renderDice() {
+    function renderRoll() {
       const player = currentPlayer();
-      els.dice.textContent = gameState.lastRoll ?? '?';
       if (gameState.phase === 'game_over') {
         els.rollLabel.textContent = 'Путешествие завершено';
         els.rollDetail.textContent = 'Победитель уже дома.';
+      } else if (QUANTUM.state === 'charging') {
+        els.rollLabel.textContent = 'Заряд набирает обороты…';
+        els.rollDetail.textContent = 'Держите кнопку — генератор раскручивается.';
+      } else if (QUANTUM.state === 'spinning') {
+        els.rollLabel.textContent = 'Разрядка лампы…';
+        els.rollDetail.textContent = 'Табло плавно замедляется до полной остановки.';
       } else if (pendingRoll) {
-        els.rollLabel.textContent = `Выпало ${pendingRoll.total}`;
-        els.rollDetail.textContent = pendingRoll.modifier ? `Кубик ${pendingRoll.base} + модификатор ${pendingRoll.modifier}. Использовать переброс?` : 'Использовать результат или перебросить кубик?';
+        els.rollLabel.textContent = `Генератор дал ${pendingRoll.total}`;
+        els.rollDetail.textContent = pendingRoll.modifier
+          ? `База ${pendingRoll.base} + модификатор ${pendingRoll.modifier}. Принять результат или ещё раз?`
+          : 'Принять результат или запустить генератор ещё раз?';
+      } else if (QUANTUM.isRerollSpin) {
+        els.rollLabel.textContent = 'Переброс: ещё один запуск';
+        els.rollDetail.textContent = 'Жмите и держите «ПУСК» для нового раскручивания.';
       } else if (player?.stuck1885) {
         els.rollLabel.textContent = 'Нужна шестёрка';
-        els.rollDetail.textContent = 'Бросьте кубик, чтобы выбраться из 1885 года.';
+        els.rollDetail.textContent = 'Жмите и держите «ПУСК», чтобы выбраться из 1885 года.';
       } else if (gameState.lastRoll !== null) {
-        els.rollLabel.textContent = `Последний бросок: ${gameState.lastRoll}`;
+        els.rollLabel.textContent = `Последний результат: ${gameState.lastRoll}`;
         els.rollDetail.textContent = 'Продолжайте путешествие по временной линии.';
       } else {
-        els.rollLabel.textContent = 'Кубик ждёт хода';
-        els.rollDetail.textContent = 'Выберите бросок, когда будете готовы.';
+        els.rollLabel.textContent = 'Генератор готов';
+        els.rollDetail.textContent = 'Жмите и держите «ПУСК», чтобы раскрутить генератор хода.';
       }
     }
 
@@ -834,19 +1272,32 @@
 
     function renderControls() {
       els.controls.innerHTML = '';
-      const disabled = gameState.phase !== 'playing' || isResolving;
       const player = currentPlayer();
       if (gameState.phase === 'game_over') {
+        if (net.mode === 'guest') {
+          const waitHint = document.createElement('p');
+          waitHint.className = 'exact-prompt';
+          waitHint.textContent = 'Игра завершена — новую партию запускает хозяин комнаты.';
+          els.controls.append(waitHint);
+          return;
+        }
         els.controls.append(button('Начать новую игру', 'primary-btn', resetToSetup));
         return;
       }
+      if (net.mode === 'guest' && player && player.id !== net.myPlayerId) {
+        const waitHint = document.createElement('p');
+        waitHint.className = 'exact-prompt';
+        waitHint.textContent = `Сейчас ходит ${player.name} — ваша очередь придёт на этом устройстве.`;
+        els.controls.append(waitHint);
+        return;
+      }
       if (pendingRoll) {
-        els.controls.append(button(`Идти на ${pendingRoll.total}`, 'primary-btn', () => usePendingRoll(false), false));
-        els.controls.append(button('↻ Перебросить кубик', 'secondary-btn', () => usePendingRoll(true), false));
+        els.controls.append(button(`Идти на ${pendingRoll.total}`, 'primary-btn', () => net.guardedRollDecision(false), false));
+        els.controls.append(button('↻ Генератор ещё раз', 'secondary-btn', () => net.guardedRollDecision(true), false));
         return;
       }
       if (isResolving) {
-        els.controls.append(button('Временная линия обновляется…', 'secondary-btn', () => {}, true));
+        els.controls.append(button(QUANTUM.state !== 'idle' ? 'Квантовый генератор работает…' : 'Временная линия обновляется…', 'secondary-btn', () => {}, true));
         return;
       }
       if (player.bonuses.exactRoll && !player.stuck1885) {
@@ -855,16 +1306,21 @@
         prompt.textContent = 'Спортивный альманах — выберите результат:';
         const grid = document.createElement('div');
         grid.className = 'number-choices';
-        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => rollForPlayer(number)));
+        for (let number = 1; number <= 6; number++) grid.append(button(String(number), 'mini-btn', () => net.guardedExactPick(number)));
         els.controls.append(prompt, grid);
-      } else {
-        els.controls.append(button(player.stuck1885 ? 'Бросить кубик спасения' : 'Бросить кубик', 'primary-btn', () => rollForPlayer()));
-        if (player.bonuses.reroll && player.stuck1885) {
-          const hint = document.createElement('p');
-          hint.className = 'exact-prompt';
-          hint.textContent = 'Переброс доступен после обычного броска.';
-          els.controls.append(hint);
-        }
+        return;
+      }
+      const hint = document.createElement('p');
+      hint.className = 'exact-prompt';
+      hint.textContent = player.stuck1885
+        ? 'Генератор спасения: удерживайте «ПУСК». Нужна ровно шестёрка.'
+        : 'Жмите и держите «ПУСК», отпускайте — табло остановится на цифре хода.';
+      els.controls.append(hint);
+      if (player.bonuses.reroll && player.stuck1885) {
+        const extra = document.createElement('p');
+        extra.className = 'exact-prompt';
+        extra.textContent = 'Переброс доступен после обычного броска.';
+        els.controls.append(extra);
       }
     }
 
@@ -878,23 +1334,212 @@
       if (movingPlayerId) renderTokens(movingPlayerId);
       renderPlayers();
       renderTurn();
-      renderDice();
+      renderRoll();
       renderControls();
+      updateGeneratorState();
       renderLog();
-      els.debugMove.disabled = isResolving || gameState.phase !== 'playing' || Boolean(pendingRoll);
+      els.debugMove.disabled = isResolving || gameState.phase !== 'playing' || Boolean(pendingRoll) || QUANTUM.state !== 'idle';
+      if (net.mode === 'host') net.pushSync();
     }
 
     function sleep(ms) { return new Promise(resolve => window.setTimeout(resolve, ms)); }
 
-    function animateDice(value) {
-      els.dice.classList.remove('rolling');
-      void els.dice.offsetWidth;
-      els.dice.classList.add('rolling');
-      window.setTimeout(() => els.dice.classList.remove('rolling'), 600);
-      els.dice.textContent = value;
+    function randomDie() { return Math.floor(Math.random() * 6) + 1; }
+
+    /* ================= Квантовый генератор хода =================
+     * Вместо кубика — неоновое табло в стиле газоразрядной лампы.
+     * Удержание «ПУСК»: цифры 1–6 стремительно сменяются и набирают
+     * обороты. Отпускание: «лампа» разряжается ровно 4.5 секунды,
+     * замедляясь по геометрической прогрессии и останавливаясь на
+     * заранее выпавшей случайной цифре (справедливый бросок). */
+    const QUANTUM = {
+      state: 'idle', // 'idle' | 'charging' | 'spinning'
+      target: null,
+      isRerollSpin: false,
+      onLanded: null,
+      timer: null,
+      timers: [],
+      startedAt: 0,
+      currentInterval: 64,
+      lastDigit: 0
+    };
+    const QUANTUM_START_INTERVAL = 64; // мс — стартовая частота смены цифр при удержании
+    const QUANTUM_MIN_INTERVAL = 24;   // мс — максимальные «обороты» маховика
+    const QUANTUM_ACCEL = 0.016;       // мс сокращения интервала на каждую мс удержания
+    const QUANTUM_DECAY_MS = 4500;     // точная длительность «затухания тока»
+    const QUANTUM_DECAY_TICKS = 24;
+
+    function canCharge() {
+      const player = currentPlayer();
+      // Онлайн: каждое устройство управляет только своим игроком.
+      if (net.mode === 'host' && player && player.clientId && player.clientId !== net.myId) return false;
+      if (net.mode === 'guest' && (!player || player.id !== net.myPlayerId)) return false;
+      return gameState.phase === 'playing' && !isResolving && !pendingRoll &&
+        QUANTUM.state === 'idle' && !(player && player.bonuses.exactRoll && !player.stuck1885);
     }
 
-    function randomDie() { return Math.floor(Math.random() * 6) + 1; }
+    function setQuantumHeat(value) {
+      els.generator.style.setProperty('--heat', Math.max(0, Math.min(1, value)).toFixed(3));
+    }
+
+    function showQuantumDigit(digit) {
+      QUANTUM.lastDigit = digit;
+      els.genDisplay.textContent = digit;
+    }
+
+    function nextQuantumDigit() {
+      let digit;
+      do { digit = randomDie(); } while (digit === QUANTUM.lastDigit);
+      return digit;
+    }
+
+    /** Фаза 1+2: удержание — быстрая хаотичная смена цифр с набором оборотов. */
+    function beginCharge() {
+      if (QUANTUM.state !== 'idle') return;
+      QUANTUM.state = 'charging';
+      QUANTUM.target = randomDie();
+      QUANTUM.startedAt = performance.now();
+      QUANTUM.currentInterval = QUANTUM_START_INTERVAL;
+      setQuantumHeat(1);
+      els.generator.classList.add('charging');
+      els.generator.classList.remove('spinning', 'landed');
+      isResolving = true;
+      if (net.mode === 'host') net.broadcast({ t: 'gen', phase: 'charge' });
+      renderAll();
+      chargeTick();
+    }
+
+    function chargeTick() {
+      if (QUANTUM.state !== 'charging') return;
+      const elapsed = performance.now() - QUANTUM.startedAt;
+      QUANTUM.currentInterval = Math.max(QUANTUM_MIN_INTERVAL, QUANTUM_START_INTERVAL - elapsed * QUANTUM_ACCEL);
+      showQuantumDigit(nextQuantumDigit());
+      QUANTUM.timer = window.setTimeout(chargeTick, QUANTUM.currentInterval);
+    }
+
+    /** Коэффициент замедления: решает прогрессию так, чтобы разрядка
+     *  от текущей скорости заняла ровно QUANTUM_DECAY_MS. */
+    function decayRatio(startInterval) {
+      let lo = 1.0001, hi = 1.6;
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        const sum = startInterval * (Math.pow(mid, QUANTUM_DECAY_TICKS) - 1) / (mid - 1);
+        if (sum < QUANTUM_DECAY_MS) lo = mid;
+        else hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    /** Фаза 3: отпускание — плавное замедление ровно до остановки (4.5 c). */
+    function releaseCharge() {
+      if (QUANTUM.state !== 'charging') return;
+      window.clearTimeout(QUANTUM.timer);
+      QUANTUM.state = 'spinning';
+      if (net.mode === 'host') net.broadcast({ t: 'gen', phase: 'spin' });
+      els.generator.classList.remove('charging');
+      els.generator.classList.add('spinning');
+      renderAll();
+      // Расписание замедления: геометрическая прогрессия интервалов,
+      // стартующая с текущей скорости «маховика» и суммарно равная
+      // QUANTUM_DECAY_MS (затухание тока в лампе).
+      const ratio = decayRatio(QUANTUM.currentInterval);
+      const raw = [];
+      let sum = 0;
+      for (let i = 0; i < QUANTUM_DECAY_TICKS; i++) {
+        const iv = QUANTUM.currentInterval * Math.pow(ratio, i);
+        raw.push(iv);
+        sum += iv;
+      }
+      // Корректировка последнего такта, чтобы суммарно было ровно 4.5 c.
+      const tail = QUANTUM_DECAY_MS - (sum - raw[QUANTUM_DECAY_TICKS - 1]);
+      raw[QUANTUM_DECAY_TICKS - 1] = Math.max(raw[QUANTUM_DECAY_TICKS - 2], tail);
+      let acc = 0;
+      raw.forEach((iv, i) => {
+        acc += iv;
+        const isLast = i === QUANTUM_DECAY_TICKS - 1;
+        const timer = window.setTimeout(() => {
+          if (isLast) {
+            showQuantumDigit(QUANTUM.target);
+            setQuantumHeat(0);
+            QUANTUM.state = 'idle';
+            QUANTUM.isRerollSpin = false;
+            els.generator.classList.remove('spinning');
+            els.generator.classList.add('landed');
+            window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+            if (net.mode === 'host') net.broadcast({ t: 'gen', phase: 'land', value: QUANTUM.target });
+            const callback = QUANTUM.onLanded;
+            QUANTUM.onLanded = null;
+            if (callback) {
+              callback(QUANTUM.target);
+            } else {
+              isResolving = false;
+              renderAll();
+              executeRoll(QUANTUM.target);
+            }
+          } else {
+            showQuantumDigit(nextQuantumDigit());
+            setQuantumHeat(1 - acc / QUANTUM_DECAY_MS);
+          }
+        }, acc);
+        QUANTUM.timers.push(timer);
+      });
+    }
+
+    /** Автоматический прогон табло (карта «Временной парадокс»). */
+    function autoSpinGenerator() {
+      return new Promise(resolve => {
+        if (QUANTUM.state !== 'idle') { resolve(randomDie()); return; }
+        QUANTUM.onLanded = resolve;
+        beginCharge();
+        QUANTUM.timers.push(window.setTimeout(() => releaseCharge(), 900));
+      });
+    }
+
+    function bindGenerator() {
+      const btn = els.genButton;
+      let holding = false;
+      const press = (e) => {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (holding) return;
+        if (!canCharge()) return;
+        holding = true;
+        btn.classList.add('pressed');
+        if (net.mode === 'guest') {
+          net.sendToHost({ t: 'gen-press' });
+          net.guestChargeStart();
+          return;
+        }
+        beginCharge();
+      };
+      const release = () => {
+        if (!holding) return;
+        holding = false;
+        btn.classList.remove('pressed');
+        if (net.mode === 'guest') {
+          net.sendToHost({ t: 'gen-release' });
+          net.guestSpinStart();
+          return;
+        }
+        releaseCharge();
+      };
+      btn.addEventListener('pointerdown', press);
+      // Отпускание ловим глобально: сработает, даже если палец ушёл с кнопки.
+      window.addEventListener('pointerup', release);
+      window.addEventListener('pointercancel', release);
+      window.addEventListener('blur', release);
+      btn.addEventListener('keydown', (e) => {
+        if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) press(e);
+      });
+      btn.addEventListener('keyup', (e) => {
+        if (e.key === ' ' || e.key === 'Enter') release();
+      });
+    }
+
+    function updateGeneratorState() {
+      const inCharge = QUANTUM.state === 'charging';
+      els.genButton.disabled = inCharge ? false : !canCharge();
+      els.genButton.textContent = QUANTUM.isRerollSpin ? 'ЕЩЁ РАЗ' : 'ПУСК';
+    }
 
     /** Checks compulsory skipped turns before the active player can roll. */
     async function prepareTurn() {
@@ -913,25 +1558,26 @@
       renderAll();
     }
 
-    /** Performs a regular, selected, or escape roll. */
-    async function rollForPlayer(forcedValue = null, isReroll = false) {
+    /**
+     * Applies the result of the generator (or an exact pick from the
+     * "Sports Almanac" card): modifiers, escape from 1885, reroll, and movement.
+     */
+    async function executeRoll(base, isExact = false) {
+      if (net.mode === 'guest') return;
       if (gameState.phase !== 'playing' || isResolving || pendingRoll) return;
       const player = currentPlayer();
       isResolving = true;
-      const base = forcedValue ?? randomDie();
       const modifier = player.stuck1885 ? 0 : player.bonuses.nextRollModifier;
       if (!player.stuck1885) {
         player.bonuses.nextRollModifier = 0;
-        if (forcedValue !== null) player.bonuses.exactRoll = null;
+        if (isExact) player.bonuses.exactRoll = null;
       }
       const total = base + modifier;
       gameState.lastRoll = total;
-      animateDice(total);
       renderAll();
-      await sleep(450);
 
       if (player.stuck1885) {
-        logEvent(`${player.name} бросает кубик спасения: ${base}.`);
+        logEvent(`${player.name} запускает генератор спасения: ${base}.`);
         if (base === 6) {
           const turnStart = player.position;
           player.stuck1885 = false;
@@ -948,26 +1594,28 @@
         return;
       }
 
-      if (player.bonuses.reroll && !isReroll) {
+      if (player.bonuses.reroll) {
         pendingRoll = { base, modifier, total };
         isResolving = false;
         renderAll();
         return;
       }
-      logEvent(`${player.name} выбрасывает ${total}${modifier ? ` (${base} + ${modifier})` : ''}.`);
+      logEvent(`${player.name}: квантовый генератор дал ${total}${modifier ? ` (${base} + ${modifier})` : ''}.`);
       await applyRoll(total);
     }
 
     async function usePendingRoll(wantsReroll) {
+      if (net.mode === 'guest') return;
       if (!pendingRoll || isResolving) return;
       const saved = pendingRoll;
       pendingRoll = null;
       const player = currentPlayer();
       if (wantsReroll) {
         player.bonuses.reroll = false;
-        logEvent(`${player.name} использует переброс.`);
+        QUANTUM.isRerollSpin = true;
+        logEvent(`${player.name} использует переброс: ещё один запуск генератора.`);
         renderAll();
-        await rollForPlayer(null, true);
+        return;
       } else {
         isResolving = true;
         gameState.lastRoll = saved.total;
@@ -1015,7 +1663,7 @@
       for (const position of path) {
         player.position = position;
         if (position >= 41 && position <= 48) gameState.history1885Visited[player.id] = true;
-        renderBoard();
+        renderTokens();
         renderPlayers();
         if (animate) await sleep(105);
       }
@@ -1030,7 +1678,7 @@
       for (let i = 0; i < distance; i++) {
         player.position += step;
         if (player.position >= 41 && player.position <= 48) gameState.history1885Visited[player.id] = true;
-        renderBoard();
+        renderTokens();
         renderPlayers();
         if (animate) await sleep(distance > 15 ? 48 : 105);
       }
@@ -1090,7 +1738,7 @@
       if (discard.length > 8) discard.shift();
       const card = (deckName === 'marty' ? MARTY_CARDS : HISTORY_CARDS)[id];
       logEvent(`${player.name} берёт карту «${card.title}».`);
-      await showCard(deckName, card);
+      await showCard(deckName, card, id);
       if (gameState.phase === 'game_over') return;
       await applyCardEffect(deckName, id, player, depth);
     }
@@ -1108,10 +1756,10 @@
       if (gameState.phase === 'modal_active') gameState.phase = 'playing';
     }
 
-    function showCard(deckName, card) {
-      return new Promise(resolve => {
-        const isHistory = deckName === 'history';
-        openModal(`
+    /** Разметка модалки карты — общая для устройства хоста и устройств гостей. */
+    function cardModalHtml(deckName, card) {
+      const isHistory = deckName === 'history';
+      return `
           <div class="modal-band ${isHistory ? 'history' : ''}">
             <p class="modal-kicker">${isHistory ? 'Проблемы с альтернативной историей' : 'Вам письмо от Marty'}</p>
             <h2>${escapeHTML(card.title)}</h2>
@@ -1120,34 +1768,97 @@
             <p class="card-quote">${escapeHTML(card.quote)}</p>
             <p class="card-description">${escapeHTML(card.description)}</p>
             <div class="modal-actions"><button id="applyCardBtn" class="primary-btn" type="button">Применить эффект</button></div>
-          </div>`);
-        document.getElementById('applyCardBtn').addEventListener('click', () => {
-          closeModal();
-          renderAll();
-          resolve();
-        }, { once: true });
-      });
+          </div>`;
     }
 
-    function chooseFromModal(title, description, choices) {
-      return new Promise(resolve => {
-        openModal(`
+    /**
+     * Показывает карту. В онлайн-режиме подтверждение делает игрок, вытянувший
+     * карту, — на том устройстве, где он находится: все устройства видят одну
+     * и ту же модалку, но активна кнопка только у него (nonce связывает ответ).
+     */
+    function showCard(deckName, card, cardId) {
+      const chooser = currentPlayer();
+      const online = net.mode === 'host' && net.roster.length > 1;
+      const nonce = online ? ++net.nonceSeq : null;
+      const chooserClient = online ? chooser.clientId : null;
+      const iAmChooser = chooserClient === null || chooserClient === net.myId;
+      let resolvePromise;
+      const promise = new Promise(r => { resolvePromise = r; });
+      openModal(cardModalHtml(deckName, card));
+      const btn = document.getElementById('applyCardBtn');
+      if (iAmChooser) {
+        btn.addEventListener('click', () => {
+          closeModal();
+          renderAll();
+          if (nonce && net.mode === 'guest') net.sendToHost({ t: 'modal-response', nonce, value: null });
+          else if (nonce) netBroadcast({ t: 'modal-close', nonce, value: null });
+          resolvePromise(null);
+        }, { once: true });
+      } else {
+        btn.disabled = true;
+        btn.textContent = `Ожидание: ${chooser.name}…`;
+        net.openNonces.add(nonce);
+        net.pendingModals.set(nonce, { resolve: resolvePromise, chooserClient, name: chooser.name, fallback: null });
+      }
+      if (online && net.mode === 'host') {
+        net.broadcast({ t: 'modal-card', nonce, chooserId: chooser.id, chooserClient, deckName, card, cardId });
+      }
+      return promise;
+    }
+
+    function choiceModalHtml(title, description) {
+      return `
           <div class="modal-band"><p class="modal-kicker">Временная развилка</p><h2>${escapeHTML(title)}</h2></div>
-          <div class="modal-body"><p class="choice-intro">${escapeHTML(description)}</p><div id="choiceGrid" class="choice-grid"></div></div>`);
-        const grid = document.getElementById('choiceGrid');
-        choices.forEach(choice => {
-          const btn = document.createElement('button');
-          btn.type = 'button'; btn.className = 'choice-btn';
-          if (choice.color) btn.innerHTML = `<span class="choice-dot" style="--player-color:${choice.color}"></span><span>${escapeHTML(choice.label)}</span>`;
-          else btn.textContent = choice.label;
+          <div class="modal-body"><p class="choice-intro">${escapeHTML(description)}</p><div id="choiceGrid" class="choice-grid"></div></div>`;
+    }
+
+    function makeChoiceButton(choice) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-btn';
+      if (choice.color) btn.innerHTML = `<span class="choice-dot" style="--player-color:${choice.color}"></span><span>${escapeHTML(choice.label)}</span>`;
+      else btn.textContent = choice.label;
+      return btn;
+    }
+
+    /**
+     * Выбор из вариантов (карты, 1885-побег и т.п.). В онлайн-режиме вариант
+     * выбирает игрок-участник на своём устройстве; остальные видят модалку
+     * с неактивными кнопками, пока не придёт ответ (modal-close).
+     */
+    function chooseFromModal(title, description, choices) {
+      const chooser = currentPlayer();
+      const online = net.mode === 'host' && net.roster.length > 1;
+      const nonce = online ? ++net.nonceSeq : null;
+      const chooserClient = online ? chooser.clientId : null;
+      const iAmChooser = chooserClient === null || chooserClient === net.myId;
+      let resolvePromise;
+      const promise = new Promise(r => { resolvePromise = r; });
+      openModal(choiceModalHtml(title, description));
+      const grid = document.getElementById('choiceGrid');
+      choices.forEach(choice => {
+        const btn = makeChoiceButton(choice);
+        if (iAmChooser) {
           btn.addEventListener('click', () => {
             closeModal();
             renderAll();
-            resolve(choice.value);
+            if (nonce && net.mode === 'guest') net.sendToHost({ t: 'modal-response', nonce, value: choice.value });
+            else if (nonce) netBroadcast({ t: 'modal-close', nonce, value: choice.value });
+            resolvePromise(choice.value);
           }, { once: true });
-          grid.append(btn);
-        });
+        } else {
+          btn.disabled = true;
+        }
+        grid.append(btn);
       });
+      if (!iAmChooser) {
+        net.openNonces.add(nonce);
+        net.pendingModals.set(nonce, { resolve: resolvePromise, chooserClient, name: chooser.name, fallback: choices[0] ? choices[0].value : null });
+      }
+      if (online && net.mode === 'host') {
+        net.broadcast({ t: 'modal-choice', nonce, chooserId: chooser.id, chooserClient, title, description, choices });
+      }
+      return promise;
     }
 
     async function chooseOpponent(player, title, description) {
@@ -1213,7 +1924,7 @@
             if (player.position >= 41 && player.position <= 48) gameState.history1885Visited[player.id] = true;
             if (opponent.position >= 41 && opponent.position <= 48) gameState.history1885Visited[opponent.id] = true;
             logEvent(`${player.name} и ${opponent.name} меняются местами.`);
-            renderBoard(); renderPlayers();
+            renderTokens(); renderPlayers();
             await sleep(350);
             if (gameState.phase === 'playing') await resolveLanding(player, depth + 1);
             if (gameState.phase === 'playing') await resolveLanding(opponent, depth + 1);
@@ -1256,12 +1967,10 @@
             logEvent(`${player.name} чистит навоз и пропустит ход.`);
             break;
           case 8: {
-            const paradoxRoll = randomDie();
-            // It is a real automatic roll, so its face stays visible just like a normal one.
+            // A real automatic spin of the generator, so the face stays visible like a normal one.
+            const paradoxRoll = await autoSpinGenerator();
             gameState.lastRoll = paradoxRoll;
-            animateDice(paradoxRoll);
-            await sleep(450);
-            logEvent(`Временной парадокс: выпало ${paradoxRoll}.`);
+            logEvent(`Временной парадокс: генератор дал ${paradoxRoll}.`);
             if (paradoxRoll % 2 === 0) {
               await movePlayerBy(player, -5, true, 'чётный парадокс');
             } else {
@@ -1311,10 +2020,10 @@
         <div class="modal-body">
           <p class="card-quote"><span class="winner-name">${escapeHTML(player.name)}</span> первым добрался до клетки №50.</p>
           <p class="card-description">DeLorean остановился у ТЦ «Одинокий дуб». Временная линия спасена — по крайней мере, до следующей партии.</p>
-          <div class="modal-actions"><button id="newGameBtn" class="primary-btn" type="button">Новая игра</button></div>
+          <div class="modal-actions"><button id="newGameBtn" class="primary-btn" type="button"${net.mode === 'guest' ? ' disabled' : ''}>${net.mode === 'guest' ? 'Новую игру запускает хозяин…' : 'Новая игра'}</button></div>
         </div>`;
       els.modalBackdrop.classList.remove('hidden');
-      document.getElementById('newGameBtn').addEventListener('click', resetToSetup, { once: true });
+      if (net.mode !== 'guest') document.getElementById('newGameBtn').addEventListener('click', resetToSetup, { once: true });
     }
 
     async function debugMove() {
@@ -1341,9 +2050,38 @@
       isResolving = false;
       pendingRoll = null;
       lastMoveTrail = null;
+      // Полный сброс генератора: гасим раскрутку и «разряд» лампы.
+      QUANTUM.timers.forEach(timer => window.clearTimeout(timer));
+      QUANTUM.timers = [];
+      window.clearTimeout(QUANTUM.timer);
+      QUANTUM.state = 'idle';
+      QUANTUM.isRerollSpin = false;
+      QUANTUM.onLanded = null;
+      QUANTUM.target = null;
+      setQuantumHeat(0);
+      els.generator.classList.remove('charging', 'spinning', 'landed');
       els.game.classList.add('hidden');
       els.setup.classList.remove('hidden');
       renderSetup();
+      if (net.mode !== 'local') {
+        net.pendingModals.clear();
+        net.openNonces.clear();
+        net.sawGameOver = false;
+        if (net.mode === 'host') net.broadcast({ t: 'reset' });
+        net.toLobby();
+      }
+    }
+
+    /**
+     * Масштаб трассы: дизайн-пространство 1000px подгоняется под ширину
+     * вьюпорта. Клетки и следы уже в дизайн-координатах, поэтому при
+     * изменении размера перерисовывать ничего не нужно.
+     */
+    function updateRouteScale() {
+      const width = els.routeViewport.clientWidth;
+      if (width > 0) {
+        els.routePlane.style.setProperty('--route-scale', (width / ROUTE_W).toFixed(4));
+      }
     }
 
     // UI events
@@ -1354,8 +2092,635 @@
     }));
     els.start.addEventListener('click', setupGame);
     els.debugMove.addEventListener('click', debugMove);
-    window.addEventListener('resize', () => window.requestAnimationFrame(renderMoveTrail));
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(() => window.requestAnimationFrame(updateRouteScale)).observe(els.routeViewport);
+    }
+    window.addEventListener('resize', () => window.requestAnimationFrame(updateRouteScale));
+    bindGenerator();
+    renderRouteDecor();
     renderSetup();
+
+    /* ================= Режим онлайн: комнаты поверх WebSocket =================
+     * Модель «хост-авторитетен»: браузер хоста запускает движок и после
+     * каждого renderAll рассылает снимок состояния (sync). Гости зеркалят
+     * состояние, играют на своих устройствах и отправляют хосту действия:
+     * gen-press / gen-release / decision / modal-response. Сервер лишь
+     * ретранслирует сообщения, хранит последний снимок и повышает гостя
+     * в хосты, если хост покинул комнату. */
+    const net = {
+      mode: 'local',            // 'local' | 'host' | 'guest'
+      ws: null,
+      room: null,
+      myId: null,               // мой clientId, выданный сервером
+      myPlayerId: null,         // мой id игрока (вычисляется из снимков)
+      roster: [],               // лобби: [{clientId, name}]
+      myName: '',
+      pendingModals: new Map(), // nonce -> {resolve, chooserClient, name, fallback}
+      openNonces: new Set(),
+      nonceSeq: 0,
+      sawGameOver: false,
+      walkSeq: 0
+    };
+    window.net = net;
+
+    const netEls = {
+      tabs: [...document.querySelectorAll('.mode-tab')],
+      local: document.getElementById('localSetup'),
+      online: document.getElementById('onlineSetup'),
+      form: document.getElementById('onlineForm'),
+      nameInput: document.getElementById('netNameInput'),
+      codeInput: document.getElementById('roomCodeInput'),
+      createBtn: document.getElementById('createRoomBtn'),
+      joinBtn: document.getElementById('joinRoomBtn'),
+      lobby: document.getElementById('lobbyStatus'),
+      unavailable: document.getElementById('onlineUnavailable'),
+      status: document.getElementById('netStatus'),
+      debugPanel: document.querySelector('.debug-panel')
+    };
+
+    function netWsUrl() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      return proto + '://' + location.host + '/ws';
+    }
+    function netIsFileProtocol() { return location.protocol === 'file:'; }
+
+    function netSetTab(which) {
+      netEls.tabs.forEach(t => t.classList.toggle('active', t.dataset.mtab === which));
+      netEls.local.classList.toggle('hidden', which !== 'local');
+      netEls.online.classList.toggle('hidden', which !== 'online');
+    }
+
+    function netUpdateStatus(text) {
+      if (!text) { netEls.status.hidden = true; netEls.status.textContent = ''; return; }
+      netEls.status.hidden = false;
+      netEls.status.textContent = text;
+    }
+
+    function netPushSync() {
+      if (net.mode !== 'host' || !net.ws || net.ws.readyState !== 1) return;
+      net.ws.send(JSON.stringify({
+        t: 'relay', to: 'all',
+        payload: {
+          t: 'sync',
+          state: JSON.parse(JSON.stringify(gameState)),
+          pendingRoll,
+          isResolving,
+          trail: lastMoveTrail,
+          isRerollSpin: QUANTUM.isRerollSpin
+        }
+      }));
+    }
+    net.pushSync = netPushSync;
+
+    function netBroadcast(obj) {
+      if (net.mode === 'host' && net.ws && net.ws.readyState === 1) {
+        net.ws.send(JSON.stringify({ t: 'relay', to: 'all', payload: obj }));
+      }
+    }
+    net.broadcast = netBroadcast;
+
+    function netSendToHost(obj) {
+      if (net.mode === 'guest' && net.ws && net.ws.readyState === 1) {
+        net.ws.send(JSON.stringify({ t: 'relay', to: 'host', payload: obj }));
+      }
+    }
+    net.sendToHost = netSendToHost;
+
+    /** Кнопки хода: локально — движок напрямую, онлайн гость — запрос к хосту. */
+    net.guardedRollDecision = function (wantsReroll) {
+      if (net.mode === 'guest') {
+        const player = currentPlayer();
+        if (!player || player.id !== net.myPlayerId) return;
+        netSendToHost({ t: 'decision', kind: 'roll', action: wantsReroll ? 'reroll' : 'accept' });
+        return;
+      }
+      usePendingRoll(wantsReroll);
+    };
+    net.guardedExactPick = function (value) {
+      if (net.mode === 'guest') {
+        const player = currentPlayer();
+        if (!player || player.id !== net.myPlayerId) return;
+        netSendToHost({ t: 'decision', kind: 'exact', value });
+        return;
+      }
+      executeRoll(value, true);
+    };
+
+    function netConnect() {
+      // Разрешается, когда сокет открыт; ответы сервера (ok/error) обрабатывает netOnEnvelope.
+      return new Promise((resolve, reject) => {
+        if (net.ws) { try { net.ws.close(); } catch (_) { /* уже закрыт */ } }
+        const ws = new WebSocket(netWsUrl());
+        net.ws = ws;
+        let settled = false;
+        ws.onopen = () => { if (!settled) { settled = true; resolve(); } };
+        ws.onmessage = (event) => {
+          let env;
+          try { env = JSON.parse(event.data); } catch (_) { return; }
+          netOnEnvelope(env);
+        };
+        ws.onerror = () => {
+          if (!settled) {
+            settled = true;
+            try { ws.close(); } catch (_) {}
+            net.ws = null;
+            netLobbyError('Не удалось подключиться к серверу. Запущен ли node server.js?');
+            reject({ reason: 'network' });
+          }
+        };
+        ws.onclose = () => { netOnConnectionLost(); };
+      });
+    }
+
+    function netOnEnvelope(env) {
+      if (env.t === 'ok') {
+        net.room = env.room;
+        net.myId = env.clientId;
+        net.mode = env.role === 'host' ? 'host' : 'guest';
+        if (net.mode === 'host') net.roster = [{ clientId: env.clientId, name: net.myName }];
+        if (netEls.debugPanel) netEls.debugPanel.classList.toggle('hidden', net.mode === 'guest');
+        netUpdateStatus(`Онлайн · комната ${env.room} · вы: ${net.myName}${net.mode === 'host' ? ' (хозяин)' : ''}`);
+        if (env.snapshot) netAdoptSnapshot(env.snapshot);
+        else netShowLobby();
+      } else if (env.t === 'error') {
+        const messages = {
+          'not-found': 'Комната не найдена. Проверьте код: его показывает экран создателя комнаты.',
+          'full': 'Комната заполнена — максимум 4 игрока.',
+          'network': 'Не удалось подключиться к серверу. Запущен ли node server.js?',
+          'no-code': 'Сервер не смог выделить код комнаты. Попробуйте ещё раз.'
+        };
+        netLobbyError(messages[env.reason] || 'Не удалось войти в комнату.');
+      } else if (env.t === 'player-joined') {
+        if (net.mode === 'host') {
+          if (!net.roster.some(p => p.clientId === env.clientId)) {
+            net.roster.push({ clientId: env.clientId, name: env.name });
+          }
+          if (gameState.phase === 'playing') netPushSync(); // новичок получает поле сразу
+          else netShowLobby();
+        }
+      } else if (env.t === 'player-left') {
+        if (net.mode === 'host') {
+          net.roster = net.roster.filter(p => p.clientId !== env.clientId);
+          netHostPlayerLeft(env.clientId);
+          if (gameState.phase !== 'playing') netShowLobby();
+        }
+      } else if (env.t === 'relay') {
+        if (env.from === 'host') netOnHostMessage(env.payload);
+        else netOnGuestMessage(env.payload, env.fromId);
+      } else if (env.t === 'host-promoted') {
+        net.mode = 'host';
+        if (netEls.debugPanel) netEls.debugPanel.classList.remove('hidden');
+        net.roster = (env.roster || []).map(p => ({ clientId: p.clientId, name: p.name }));
+        netUpdateStatus(`Онлайн · комната ${net.room} · вы: ${net.myName} (хозяин)`);
+        if (env.snapshot) netAdoptSnapshot(env.snapshot);
+        else netShowLobby();
+      } else if (env.t === 'host-lost') {
+        netShowLobby('Хозяин комнаты отключился. Партия завершена — кто-то из игроков стал новым хозяином и может запустить новую игру.');
+      }
+    }
+
+    function netOnConnectionLost() {
+      if (net.mode === 'local' || !net.ws) return;
+      const wasHost = net.mode === 'host';
+      net.mode = 'local';
+      net.ws = null;
+      net.roster = [];
+      net.pendingModals.clear();
+      net.openNonces.clear();
+      netUpdateStatus('');
+      if (netEls.debugPanel) netEls.debugPanel.classList.remove('hidden');
+      gameState.phase = 'setup';
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      netSetTab('online');
+      netLobbyError(wasHost
+        ? 'Соединение с сервером потеряно — комната закрыта. Создайте новую.'
+        : 'Соединение с сервером потеряно. Можно войти снова по коду комнаты.');
+    }
+
+    /** Сообщения гостей (только хост их получает). */
+    function netOnGuestMessage(msg, fromId) {
+      if (net.mode !== 'host' || !msg || typeof msg !== 'object') return;
+      const player = gameState.players.find(p => p.clientId === fromId);
+      if (!player) return;
+      const active = currentPlayer();
+      if (msg.t === 'gen-press') {
+        if (active.id !== player.id) return;
+        if (gameState.phase !== 'playing' || isResolving || pendingRoll) return;
+        if (QUANTUM.state !== 'idle') return;
+        if (active.bonuses.exactRoll && !active.stuck1885) return;
+        beginCharge();
+      } else if (msg.t === 'gen-release') {
+        if (active.id !== player.id) return;
+        if (QUANTUM.state !== 'charging') return;
+        releaseCharge();
+      } else if (msg.t === 'decision' && msg.kind === 'roll') {
+        if (active.id !== player.id || !pendingRoll) return;
+        usePendingRoll(msg.action === 'reroll');
+      } else if (msg.t === 'decision' && msg.kind === 'exact') {
+        if (active.id !== player.id) return;
+        if (!active.bonuses.exactRoll || active.stuck1885) return;
+        if (!Number.isInteger(msg.value) || msg.value < 1 || msg.value > 6) return;
+        executeRoll(msg.value, true);
+      } else if (msg.t === 'modal-response') {
+        const pending = net.pendingModals.get(msg.nonce);
+        if (!pending || pending.chooserClient !== fromId) return;
+        net.pendingModals.delete(msg.nonce);
+        net.openNonces.delete(msg.nonce);
+        closeModal();
+        netBroadcast({ t: 'modal-close', nonce: msg.nonce, value: msg.value });
+        renderAll();
+        pending.resolve(msg.value);
+      }
+    }
+
+    /** Сообщения хоста (получают гости). */
+    function netOnHostMessage(msg) {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.t === 'sync') { netAdoptSnapshot(msg); return; }
+      if (msg.t === 'gen') {
+        if (msg.phase === 'charge') net.guestChargeStart();
+        else if (msg.phase === 'spin') net.guestSpinStart();
+        else if (msg.phase === 'land') net.guestLand(msg.value);
+        return;
+      }
+      if (msg.t === 'modal-card') { netGuestShowCard(msg); return; }
+      if (msg.t === 'modal-choice') { netGuestShowChoice(msg); return; }
+      if (msg.t === 'modal-close') {
+        if (net.openNonces.has(msg.nonce)) {
+          net.openNonces.delete(msg.nonce);
+          closeModal();
+          renderAll();
+        }
+        return;
+      }
+      if (msg.t === 'reset') { netGuestReset(); }
+    }
+
+    /** Гость зеркалит снимок состояния: позиции, очередь, карты, журнал. */
+    function netAdoptSnapshot(snap) {
+      if (!snap || !snap.state || !Array.isArray(snap.state.players)) return;
+      const finalPos = {};
+      snap.state.players.forEach(p => { finalPos[p.id] = p.position; });
+      const oldPos = {};
+      gameState.players.forEach(p => { oldPos[p.id] = p.position; });
+      const wasOver = gameState.phase === 'game_over';
+      Object.assign(gameState, snap.state);
+      pendingRoll = snap.pendingRoll || null;
+      isResolving = !!snap.isResolving;
+      lastMoveTrail = snap.trail || null;
+      QUANTUM.isRerollSpin = !!snap.isRerollSpin;
+      if (gameState.phase === 'playing') net.sawGameOver = false;
+      const me = gameState.players.find(p => p.clientId === net.myId);
+      if (me) net.myPlayerId = me.id;
+      if (gameState.phase !== 'setup') {
+        els.setup.classList.add('hidden');
+        els.game.classList.remove('hidden');
+        updateRouteScale();
+      }
+      renderAll();
+      if (gameState.phase === 'game_over' && !wasOver) {
+        const winner = gameState.players.find(p => p.position === 50) || currentPlayer();
+        openWinModal(winner);
+      }
+      const movers = [];
+      for (const p of gameState.players) {
+        const from = oldPos[p.id];
+        const to = finalPos[p.id];
+        if (from !== undefined && to !== undefined && from !== to) movers.push({ id: p.id, from, to });
+      }
+      netWalkTokens(movers);
+    }
+
+    /** Анимация перемещения фишек гостя от старого снимка к новому. */
+    async function netWalkTokens(movers) {
+      if (!movers.length) return;
+      const seq = ++net.walkSeq;
+      for (const m of movers) {
+        const p = gameState.players.find(x => x.id === m.id);
+        if (!p) continue;
+        p.position = m.from;
+        renderTokens();
+        const step = m.to > m.from ? 1 : -1;
+        while (p.position !== m.to) {
+          await sleep(90);
+          if (net.walkSeq !== seq) return;
+          p.position += step;
+          renderTokens();
+        }
+      }
+    }
+
+    /* --- Локальная анимация генератора на устройстве гостя --- */
+    net.guestChargeStart = function () {
+      window.clearTimeout(QUANTUM.guestTimer);
+      (QUANTUM.guestTimers || []).forEach(t => window.clearTimeout(t));
+      QUANTUM.guestTimers = [];
+      QUANTUM.guestLandValue = null;
+      if (QUANTUM.state !== 'idle') {
+        window.clearTimeout(QUANTUM.timer);
+        (QUANTUM.timers || []).forEach(t => window.clearTimeout(t));
+        QUANTUM.timers = [];
+        els.generator.classList.remove('spinning');
+      }
+      QUANTUM.state = 'charging';
+      setQuantumHeat(1);
+      els.generator.classList.add('charging');
+      els.generator.classList.remove('spinning', 'landed');
+      const tick = () => {
+        if (QUANTUM.state !== 'charging') return;
+        showQuantumDigit(nextQuantumDigit());
+        QUANTUM.guestTimer = window.setTimeout(tick, 42);
+      };
+      tick();
+      renderAll();
+    };
+
+    net.guestSpinStart = function () {
+      if (QUANTUM.state !== 'charging') return;
+      window.clearTimeout(QUANTUM.guestTimer);
+      QUANTUM.state = 'spinning';
+      els.generator.classList.remove('charging');
+      els.generator.classList.add('spinning');
+      // Та же разрядка, что и у хоста: 24 такта ровно за 4.5 секунды.
+      const startInterval = 40;
+      const ratio = decayRatio(startInterval);
+      const raw = [];
+      let sum = 0;
+      for (let i = 0; i < QUANTUM_DECAY_TICKS; i++) {
+        const iv = startInterval * Math.pow(ratio, i);
+        raw.push(iv);
+        sum += iv;
+      }
+      const tail = QUANTUM_DECAY_MS - (sum - raw[QUANTUM_DECAY_TICKS - 1]);
+      raw[QUANTUM_DECAY_TICKS - 1] = Math.max(raw[QUANTUM_DECAY_TICKS - 2], tail);
+      let acc = 0;
+      raw.forEach((iv, i) => {
+        acc += iv;
+        const isLast = i === QUANTUM_DECAY_TICKS - 1;
+        const timer = window.setTimeout(() => {
+          if (isLast) {
+            const value = QUANTUM.guestLandValue != null ? QUANTUM.guestLandValue : randomDie();
+            QUANTUM.guestLandValue = null;
+            showQuantumDigit(value);
+            setQuantumHeat(0);
+            QUANTUM.state = 'idle';
+            els.generator.classList.remove('spinning');
+            els.generator.classList.add('landed');
+            window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+            renderAll();
+          } else {
+            showQuantumDigit(nextQuantumDigit());
+            setQuantumHeat(1 - acc / QUANTUM_DECAY_MS);
+          }
+        }, acc);
+        QUANTUM.guestTimers.push(timer);
+      });
+      renderAll();
+    };
+
+    net.guestLand = function (value) {
+      if (!Number.isInteger(value)) return;
+      if (QUANTUM.state === 'spinning') {
+        QUANTUM.guestLandValue = value; // итог появится в последний такт
+        return;
+      }
+      if (QUANTUM.state === 'charging') {
+        QUANTUM.guestLandValue = value;
+        net.guestSpinStart();
+        return;
+      }
+      if (QUANTUM.state === 'idle') {
+        showQuantumDigit(value);
+        setQuantumHeat(0);
+        els.generator.classList.add('landed');
+        window.setTimeout(() => els.generator.classList.remove('landed'), 850);
+      }
+    };
+
+    /* --- Модалки на устройствах гостей --- */
+    function netGuestShowCard(msg) {
+      if (net.openNonces.has(msg.nonce)) return;
+      const chooser = gameState.players.find(p => p.id === msg.chooserId);
+      const iAmChooser = msg.chooserClient === net.myId;
+      openModal(cardModalHtml(msg.deckName, msg.card));
+      const btn = document.getElementById('applyCardBtn');
+      if (iAmChooser) {
+        btn.addEventListener('click', () => {
+          netSendToHost({ t: 'modal-response', nonce: msg.nonce, value: null });
+        }, { once: true });
+      } else {
+        btn.disabled = true;
+        btn.textContent = `Ожидание: ${chooser ? chooser.name : 'игрок'}…`;
+      }
+      net.openNonces.add(msg.nonce);
+    }
+
+    function netGuestShowChoice(msg) {
+      if (net.openNonces.has(msg.nonce)) return;
+      const chooser = gameState.players.find(p => p.id === msg.chooserId);
+      const iAmChooser = msg.chooserClient === net.myId;
+      openModal(choiceModalHtml(msg.title, msg.description));
+      const grid = document.getElementById('choiceGrid');
+      msg.choices.forEach(choice => {
+        const btn = makeChoiceButton(choice);
+        if (iAmChooser) {
+          btn.addEventListener('click', () => {
+            netSendToHost({ t: 'modal-response', nonce: msg.nonce, value: choice.value });
+          }, { once: true });
+        } else {
+          btn.disabled = true;
+        }
+        grid.append(btn);
+      });
+      if (!iAmChooser) {
+        const note = document.createElement('p');
+        note.className = 'choice-intro';
+        note.textContent = `Выбирает ${chooser ? chooser.name : 'игрок'}…`;
+        grid.append(note);
+      }
+      net.openNonces.add(msg.nonce);
+    }
+
+    /** Хост: игрок отключился во время партии — не даём игре зависнуть. */
+    function netHostPlayerLeft(clientId) {
+      for (const [nonce, pending] of net.pendingModals) {
+        if (pending.chooserClient === clientId) {
+          net.pendingModals.delete(nonce);
+          net.openNonces.delete(nonce);
+          logEvent(`${pending.name} отключился — выбор сделан автоматически.`);
+          closeModal();
+          netBroadcast({ t: 'modal-close', nonce, value: pending.fallback });
+          renderAll();
+          pending.resolve(pending.fallback);
+          break;
+        }
+      }
+      const active = gameState.players[gameState.currentPlayerIndex];
+      if (active && active.clientId === clientId && QUANTUM.state === 'charging') {
+        logEvent(`${active.name} отключился во время заряда — генератор отпущен автоматически.`);
+        window.setTimeout(() => { if (QUANTUM.state === 'charging') releaseCharge(); }, 1200);
+      }
+    }
+
+    /* --- Лобби комнаты --- */
+    function netShowLobby(message = null) {
+      if (net.mode === 'local') return;
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      netSetTab('online');
+      netEls.form.classList.add('hidden');
+      netEls.lobby.classList.remove('hidden');
+      const isHost = net.mode === 'host';
+      let html = '';
+      if (message) html += `<p class="lobby-message lobby-error">${escapeHTML(message)}</p>`;
+      if (isHost) {
+        const full = net.roster.length >= 4;
+        html += `
+          <p class="lobby-caption">Код комнаты — назовите его остальным:</p>
+          <div class="room-code">${escapeHTML(net.room || '????')}</div>
+          <ul class="lobby-players">
+            ${net.roster.map((p, i) => `<li><span class="lobby-dot" style="background:${PLAYER_COLORS[i]}"></span>${escapeHTML(p.name)}${p.clientId === net.myId ? ' <em>(вы)</em>' : ''}</li>`).join('')}
+          </ul>
+          ${full
+            ? '<p class="lobby-message">Комната заполнена — можно запускать.</p>'
+            : `<p class="lobby-message">Игроков: ${net.roster.length}/4${net.roster.length < 2 ? ' — нужно минимум два' : ''}.</p>`}
+          <button id="lobbyStartBtn" class="start-btn" type="button" ${net.roster.length < 2 ? 'disabled' : ''}>Запустить временную цепь ⚡</button>
+          <button id="lobbyLeaveBtn" class="secondary-btn" type="button">Выйти из комнаты</button>`;
+      } else {
+        html += `
+          <p class="lobby-caption">Вы в комнате:</p>
+          <div class="room-code">${escapeHTML(net.room || '????')}</div>
+          <p class="lobby-message">Ожидаем, пока хозяин запустит игру…</p>
+          <button id="lobbyLeaveBtn" class="secondary-btn" type="button">Выйти из комнаты</button>`;
+      }
+      netEls.lobby.innerHTML = html;
+      const startBtn = document.getElementById('lobbyStartBtn');
+      if (startBtn) startBtn.addEventListener('click', netStartOnlineGame);
+      const leaveBtn = document.getElementById('lobbyLeaveBtn');
+      if (leaveBtn) leaveBtn.addEventListener('click', netLeave);
+    }
+    net.toLobby = () => netShowLobby();
+
+    function netLobbyBusy(text) {
+      els.game.classList.add('hidden');
+      els.setup.classList.remove('hidden');
+      netSetTab('online');
+      netEls.form.classList.add('hidden');
+      netEls.lobby.classList.remove('hidden');
+      netEls.lobby.innerHTML = `<p class="lobby-message">${escapeHTML(text)}</p>`;
+    }
+
+    function netLobbyError(text) {
+      netLobbyBusy('');
+      netEls.lobby.innerHTML = `
+        <p class="lobby-message lobby-error">${escapeHTML(text)}</p>
+        <button id="lobbyBackBtn" class="secondary-btn" type="button">Назад к настройкам</button>`;
+      document.getElementById('lobbyBackBtn').addEventListener('click', () => {
+        netEls.lobby.classList.add('hidden');
+        netEls.form.classList.remove('hidden');
+      });
+    }
+
+    async function netCreateRoom() {
+      if (netIsFileProtocol()) return;
+      net.myName = (netEls.nameInput.value.trim() || 'Марти').slice(0, 20);
+      netLobbyBusy('Создаём комнату…');
+      try {
+        await netConnect();
+        net.ws.send(JSON.stringify({ t: 'join', room: null, name: net.myName, mode: 'host' }));
+      } catch (_) { /* ошибка уже показана в лобби */ }
+    }
+
+    async function netJoinRoom() {
+      if (netIsFileProtocol()) return;
+      net.myName = (netEls.nameInput.value.trim() || 'Док').slice(0, 20);
+      const code = netEls.codeInput.value.trim().toUpperCase();
+      if (!/^[A-Z2-9]{4}$/.test(code)) {
+        netLobbyError('Введите 4-значный код комнаты, например 7K4M.');
+        return;
+      }
+      netLobbyBusy('Входим в комнату ' + code + '…');
+      try {
+        await netConnect();
+        net.ws.send(JSON.stringify({ t: 'join', room: code, name: net.myName, mode: 'guest' }));
+      } catch (_) { /* ошибка уже показана в лобби */ }
+    }
+
+    function netLeave() {
+      if (net.ws) { try { net.ws.close(); } catch (_) {} }
+      net.ws = null;
+      net.mode = 'local';
+      net.room = null;
+      net.myId = null;
+      net.myPlayerId = null;
+      net.roster = [];
+      net.pendingModals.clear();
+      net.openNonces.clear();
+      net.sawGameOver = false;
+      netUpdateStatus('');
+      if (netEls.debugPanel) netEls.debugPanel.classList.remove('hidden');
+      gameState.phase = 'setup';
+      netEls.lobby.classList.add('hidden');
+      netEls.form.classList.remove('hidden');
+    }
+
+    function netStartOnlineGame() {
+      if (net.mode !== 'host' || net.roster.length < 2) return;
+      const players = net.roster.slice(0, 4).map((r, i) => ({
+        id: i + 1,
+        name: r.name,
+        color: PLAYER_COLORS[i],
+        clientId: r.clientId,
+        position: 1,
+        plutonium: 1,
+        skipTurns: 0,
+        stuck1885: false,
+        bonuses: { reroll: false, exactRoll: null, nextRollModifier: 0 }
+      }));
+      launchGame(players);
+    }
+
+    /** Гость: хозяин начал подготовку новой игры. */
+    function netGuestReset() {
+      net.pendingModals.clear();
+      net.openNonces.clear();
+      net.sawGameOver = false;
+      net.myPlayerId = null;
+      els.modalBackdrop.classList.add('hidden');
+      gameState.phase = 'setup';
+      QUANTUM.timers.forEach(t => window.clearTimeout(t));
+      QUANTUM.timers = [];
+      window.clearTimeout(QUANTUM.timer);
+      window.clearTimeout(QUANTUM.guestTimer);
+      (QUANTUM.guestTimers || []).forEach(t => window.clearTimeout(t));
+      QUANTUM.guestTimers = [];
+      QUANTUM.state = 'idle';
+      QUANTUM.isRerollSpin = false;
+      QUANTUM.onLanded = null;
+      QUANTUM.guestLandValue = null;
+      setQuantumHeat(0);
+      els.generator.classList.remove('charging', 'spinning', 'landed');
+      netShowLobby('Хозяин готовит новую игру…');
+    }
+
+    function initNet() {
+      const isFile = netIsFileProtocol();
+      netEls.tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const which = tab.dataset.mtab;
+          netSetTab(which);
+          if (which === 'online' && isFile) netEls.unavailable.hidden = false;
+        });
+      });
+      netEls.createBtn.addEventListener('click', netCreateRoom);
+      netEls.joinBtn.addEventListener('click', netJoinRoom);
+      netEls.codeInput.addEventListener('input', () => {
+        netEls.codeInput.value = netEls.codeInput.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
+      });
+      if (isFile) netEls.unavailable.hidden = false;
+    }
+    initNet();
   </script>
 </body>
 </html>
