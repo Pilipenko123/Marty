@@ -126,6 +126,10 @@
         <button class="ghost" id="btn-theme" type="button" aria-pressed="false" title="Светлое или тёмное оформление">🌙 Тёмная</button>
         <button class="ghost" id="btn-compact" type="button" aria-pressed="false" title="Плотность ленты сообщений">☰ Компактно</button>
       </div>
+      <label class="notify-toggle" title="Проигрывать звук при новом чужом сообщении, когда вкладка неактивна">
+        <input type="checkbox" id="notify-sound" checked>
+        <span>Звук уведомлений</span>
+      </label>
       <div class="rail-actions">
         <button class="ghost" id="btn-profile">Профиль</button>
         <button class="ghost hidden" id="btn-admin">Управление</button>
@@ -167,6 +171,7 @@
         <label class="icon attach" title="Прикрепить картинку">
           <input type="file" id="file-input" accept="image/*" hidden>📎
         </label>
+        <button class="icon emoji-btn" id="btn-emoji" type="button" title="Эмодзи">😊</button>
         <div class="input-wrap">
           <div id="mention-pop" class="hidden"></div>
           <textarea id="input" rows="1" placeholder="Написать сообщение…" maxlength="4000"></textarea>
@@ -188,6 +193,7 @@
         <label class="icon attach" title="Прикрепить картинку">
           <input type="file" id="thread-file" accept="image/*" hidden>📎
         </label>
+        <button class="icon emoji-btn" id="thread-emoji" type="button" title="Эмодзи">😊</button>
         <div class="input-wrap">
           <div id="thread-mention-pop" class="hidden"></div>
           <textarea id="thread-input" rows="1" placeholder="Комментировать…" maxlength="4000"></textarea>
@@ -206,6 +212,7 @@
   </div>
 </div>
 
+<div id="emoji-pop" class="emoji-pop hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
 <script src="app.js"></script>
