@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# Поселить «Alt-Джентельменов» в Yandex Cloud одной командой.
+# Поселить «SEGA-CHAT» в Yandex Cloud одной командой.
 #
 # Проще всего запускать из Yandex Cloud Shell (кнопка в консоли облака):
 # там уже установлены yc, zip и git, ничего ставить на свой компьютер не нужно.
 #
-#   git clone <адрес репозитория> && cd Marty/alt-gentlemen
+#   git clone <адрес репозитория> && cd Marty/sega-chat
 #   ./cloud/deploy.sh
 #
 # Повторный запуск обновляет мессенджер, не трогая переписку.
 #
 set -euo pipefail
 
-NAME="${NAME:-alt-gentlemen}"
+NAME="${NAME:-sega-chat}"
 DB_NAME="${DB_NAME:-$NAME-db}"
 SA_NAME="${SA_NAME:-$NAME-sa}"
 FUNC_NAME="${FUNC_NAME:-$NAME}"
-TABLE="${YDB_TABLE:-alt_chat}"
+TABLE="${YDB_TABLE:-sega_chat}"
 RUNTIME="${RUNTIME:-nodejs18}"
 MEMORY="${MEMORY:-256m}"
 TIMEOUT="${TIMEOUT:-30s}"
@@ -41,7 +41,7 @@ jget() {
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
-[ -f cloud/index.js ] && [ -d public ] || die "скрипт нужно запускать из папки alt-gentlemen"
+[ -f cloud/index.js ] && [ -d public ] || die "скрипт нужно запускать из папки sega-chat"
 
 FOLDER_ID="$(yc config get folder-id 2>/dev/null || true)"
 [ -n "$FOLDER_ID" ] || die "не выбран каталог. Выполните: yc init"
@@ -86,7 +86,7 @@ info "права на базу выданы ($SA_ID)"
 
 # ---------------------------------------------------------------- сборка
 say "Шаг 3 из 5. Собираю архив с мессенджером"
-ZIP="$(mktemp -d)/alt-gentlemen.zip"
+ZIP="$(mktemp -d)/sega-chat.zip"
 zip -qr "$ZIP" index.js package.json cloud lib public \
   -x '*/node_modules/*' '*/data/*' '*.zip'
 info "$(du -h "$ZIP" | cut -f1) — лимит загрузки через CLI: 3,5 МБ"
@@ -97,7 +97,7 @@ if yc serverless function get "$FUNC_NAME" >/dev/null 2>&1; then
   info "уже существует — выкладываю новую версию"
 else
   yc serverless function create --name "$FUNC_NAME" \
-    --description "Приватный мессенджер Alt-Джентельмены" >/dev/null
+    --description "Приватный мессенджер SEGA-CHAT" >/dev/null
   info "создана"
 fi
 
@@ -122,9 +122,9 @@ rm -f "$ZIP"
 
 cat <<EOF
 
-  ╔══════════════════════════════════════════════╗
-  ║           A L T - Д Ж Е Н Т Е Л Ь М Е Н Ы    ║
-  ╚══════════════════════════════════════════════╝
+  ╔════════════════════════════════╗
+  ║        S E G A - C H A T       ║
+  ╚════════════════════════════════╝
 
   Мессенджер живёт в облаке. Адрес для друзей:
 

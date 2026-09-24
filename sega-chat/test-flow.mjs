@@ -105,6 +105,19 @@ const friend = await register('Джеймс', 'friend-pass-2');
 const third = await register('Оскар', 'third-pass-3');
 const outsider = await register('Чужак', 'outsider-pass-4');
 
+// ── страница и логотип: в облаке картинка едет отдельным ответом через base64
+{
+  const page = await fetch(B + '/');
+  const html = await page.text();
+  ok(page.ok && html.includes('SEGA-CHAT') && html.includes('logo.png'),
+     'страница мессенджера называется SEGA-CHAT и ссылается на логотип');
+  const img = await fetch(B + '/logo.png');
+  const buf = Buffer.from(await img.arrayBuffer());
+  ok(img.ok && (img.headers.get('content-type') || '').includes('image/png')
+     && buf.length > 4000 && buf.slice(1, 4).toString('ascii') === 'PNG',
+     `логотип SEGA отдаётся целой картинкой (${buf.length} байт)`);
+}
+
 // ── нет никакого общего чата по умолчанию
 {
   const s = await syncOf(admin);

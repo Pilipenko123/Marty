@@ -29,7 +29,7 @@ const msgSk = (m) => pad(m.seq) + '|' + m.id;
 const K = (pk, sk) => ({ pk: S(pk), sk: S(sk) });
 
 function createYdbStore(opts = {}) {
-  const table = opts.table || process.env.YDB_TABLE || 'alt_chat';
+  const table = opts.table || process.env.YDB_TABLE || 'sega_chat';
   const ydb = opts.client || new Ydb(opts);
   const presenceEvery = Number(opts.presenceEvery || process.env.PRESENCE_EVERY || 60000);
 

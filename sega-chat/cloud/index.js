@@ -10,7 +10,7 @@
  * Обязательные переменные окружения функции:
  *   YDB_ENDPOINT — адрес Document API базы
  * Необязательные:
- *   YDB_TABLE (по умолчанию alt_chat), STORAGE_LIMIT, MAX_MEMBERS, PRESENCE_EVERY
+ *   YDB_TABLE (по умолчанию sega_chat), STORAGE_LIMIT, MAX_MEMBERS, PRESENCE_EVERY
  *   YDB_DEBUG=1 — подробности работы с базой в журнал функции
  */
 

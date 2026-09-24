@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Alt-Джентельмены — вся логика мессенджера.
+ * SEGA-CHAT — вся логика мессенджера.
  *
  * Файл не знает, где лежат данные и кто принёс запрос: он получает разобранный
  * запрос и возвращает готовый ответ. Благодаря этому один и тот же код работает
@@ -180,7 +180,7 @@ function createApi(store, opts = {}) {
 
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
-        app: 'Alt-Джентельмены',
+        app: 'SEGA-CHAT',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -434,7 +434,7 @@ function createApi(store, opts = {}) {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         const file = `archive-${chat.id}-${stamp}.json`;
         const payload = {
-          app: 'Alt-Джентельмены',
+          app: 'SEGA-CHAT',
           format: 'encrypted-archive-v2',
           createdAt: Date.now(),
           note: 'Сообщения зашифрованы ключом чата (AES-256-GCM). Открывается только участниками этого чата.',
@@ -617,14 +617,14 @@ function createApi(store, opts = {}) {
       await store.loadChats(list.map(c => c.id));
       const mine = new Set(list.map(c => c.id));
       const payload = {
-        app: 'Alt-Джентельмены',
+        app: 'SEGA-CHAT',
         format: 'encrypted-archive-v2',
         createdAt: Date.now(),
         chats: myChats(me.id).map(c => publicChat(c, me.id)),
         users: db.users.map(u => ({ id: u.id, name: u.name })),
         messages: db.messages.filter(m => mine.has(m.chat))
       };
-      return FILE(JSON.stringify(payload), `alt-gentlemen-export-${new Date().toISOString().slice(0, 10)}.json`);
+      return FILE(JSON.stringify(payload), `sega-chat-export-${new Date().toISOString().slice(0, 10)}.json`);
     }
 
     if (pathname.startsWith('/api/archives/') && method === 'GET') {

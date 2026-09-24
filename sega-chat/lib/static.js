@@ -39,11 +39,13 @@ function serveStatic(pathname, base) {
   if (ext === '.html' && base) {
     body = Buffer.from(body.toString('utf8')
       .replace('<base href="/">', `<base href="${base}/">`)
-      .replace('window.ALTG_BASE = ""', `window.ALTG_BASE = ${JSON.stringify(base)}`));
+      .replace('window.SEGA_BASE = ""', `window.SEGA_BASE = ${JSON.stringify(base)}`));
   }
+  // картинки не меняются между выпусками — пусть браузер держит их у себя
+  const cacheHeader = (ext === '.png' || ext === '.ico') ? 'public, max-age=604800' : 'no-cache';
   return {
     status: 200,
-    headers: { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' },
+    headers: { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cacheHeader },
     body
   };
 }

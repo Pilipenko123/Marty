@@ -79,7 +79,7 @@ function startFunctionEmulator(handler, functionId) {
   let failed = 0;
 
   // ── 1. файловое хранилище
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'altg-file-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-file-'));
   const srv1 = spawn(process.execPath, ['server.js'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
     env: Object.assign({}, process.env, { PORT: '8791', HOST: '127.0.0.1', DATA_DIR: dir, STORE: 'file', HTTPS: '' })
@@ -92,7 +92,7 @@ function startFunctionEmulator(handler, functionId) {
   // ── 2. сервер + облачная база
   const mock = await startMock();
   const ydbEnv = {
-    STORE: 'ydb', YDB_ENDPOINT: mock.endpoint, YDB_TABLE: 'alt_chat',
+    STORE: 'ydb', YDB_ENDPOINT: mock.endpoint, YDB_TABLE: 'sega_chat',
     YDB_ACCESS_KEY_ID: mock.accessKeyId, YDB_SECRET_ACCESS_KEY: mock.secretAccessKey,
     PRESENCE_EVERY: '0'
   };
@@ -105,7 +105,7 @@ function startFunctionEmulator(handler, functionId) {
   failed += await runFlow('http://127.0.0.1:8792', 'Режим 2: данные в Yandex Database (подпись, куски, счётчики)',
     { STORE_CHECKED_ELSEWHERE: '1' });
   {
-    const rows = [...(mock.tables.get('alt_chat') || new Map()).values()];
+    const rows = [...(mock.tables.get('sega_chat') || new Map()).values()];
     const text = JSON.stringify(rows);
     const okEnc = rows.length > 0 && !text.includes('пингвин') && !text.includes('Партия в бридж');
     console.log('  ' + (okEnc ? '✓' : '✗ ПРОВАЛ:') + ` в облачной базе только шифротекст (${rows.length} записей)`);
@@ -117,7 +117,7 @@ function startFunctionEmulator(handler, functionId) {
 
   // ── 3. облачная функция целиком
   const mock2 = await startMock();
-  Object.assign(process.env, ydbEnv, { YDB_ENDPOINT: mock2.endpoint, YDB_TABLE: 'alt_chat' });
+  Object.assign(process.env, ydbEnv, { YDB_ENDPOINT: mock2.endpoint, YDB_TABLE: 'sega_chat' });
   const fn = require(path.join(ROOT, 'cloud', 'index.js'));
   const FID = 'd4e0alt0gentlemen0000';
   const emu = await startFunctionEmulator(fn.handler, FID);
@@ -126,7 +126,7 @@ function startFunctionEmulator(handler, functionId) {
 
   // страница должна приезжать с правильной приставкой в адресе
   const page = await (await fetch(base + '/')).text();
-  const okBase = page.includes(`<base href="/${FID}/">`) && page.includes(`window.ALTG_BASE = "/${FID}"`);
+  const okBase = page.includes(`<base href="/${FID}/">`) && page.includes(`window.SEGA_BASE = "/${FID}"`);
   console.log('\n  ' + (okBase ? '✓' : '✗ ПРОВАЛ:') + ' страница чата знает свой адрес в облаке');
   if (!okBase) failed++;
   const css = await fetch(base + '/styles.css');

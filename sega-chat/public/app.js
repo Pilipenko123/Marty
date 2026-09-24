@@ -1,4 +1,4 @@
-/* Alt-Джентельмены — клиент (оформление в духе Bitrix24).
+/* SEGA-CHAT — клиент (оформление в духе Bitrix24).
    Любой участник создаёт свои групповые чаты и пишет личные сообщения.
    Всё шифруется в браузере: у каждого чата свой ключ AES-256-GCM,
    который передаётся участникам «завёрнутым» в ключ пары (ECDH P-256). */
@@ -121,24 +121,24 @@ const curChat = () => chatById(S.view);
 
 function store() { return S.remember ? localStorage : sessionStorage; }
 function saveSession() {
-  store().setItem('altg.session', JSON.stringify({
+  store().setItem('sega.session', JSON.stringify({
     token: S.token, key: toB64(S.roomKeyRaw), priv: S.privRaw ? toB64(S.privRaw) : null,
     saltAuth: S.saltAuth, saltWrap: S.saltWrap
   }));
 }
 function loadSessionRaw() {
-  const a = localStorage.getItem('altg.session');
+  const a = localStorage.getItem('sega.session');
   if (a) { S.remember = true; return JSON.parse(a); }
-  const b = sessionStorage.getItem('altg.session');
+  const b = sessionStorage.getItem('sega.session');
   if (b) { S.remember = false; return JSON.parse(b); }
   return null;
 }
-function clearSession() { localStorage.removeItem('altg.session'); sessionStorage.removeItem('altg.session'); }
+function clearSession() { localStorage.removeItem('sega.session'); sessionStorage.removeItem('sega.session'); }
 
 // ─────────────────────────────────────────── сеть
 // В облаке страница может жить по адресу вида https://…/<код-функции>/ —
 // тогда сервер подставляет сюда эту приставку, и запросы находят дорогу.
-const BASE = (typeof window !== 'undefined' && window.ALTG_BASE) || '';
+const BASE = (typeof window !== 'undefined' && window.SEGA_BASE) || '';
 async function api(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   if (opts.body !== undefined && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
@@ -163,7 +163,7 @@ const screen = name => ['loading', 'setup', 'auth', 'app']
 async function boot() {
   if (!subtle) {
     screen('setup');
-    $('#form-setup').innerHTML = `<div class="brand"><div class="hat">🎩</div><h1>Alt-Джентельмены</h1></div>
+    $('#form-setup').innerHTML = `<div class="brand"><h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1></div>
       <p class="hint">Браузер не даёт доступ к шифрованию, потому что страница открыта по незащищённому адресу.
       Откройте чат по адресу <b>http://localhost:8080</b> на этом компьютере или запустите сервер по HTTPS
       (README, раздел «Как открыть чат с телефона»).</p>`;
@@ -295,7 +295,7 @@ function doLogout(silent) {
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
-  document.title = 'Alt-Джентельмены';
+  document.title = 'SEGA-CHAT';
   screen('auth');
 }
 
@@ -468,7 +468,7 @@ function initials(name) {
   return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase();
 }
 function avColor(id) {
-  const palette = ['#2067b0', '#2fa8a0', '#c1682b', '#7a55b5', '#3f8f3f', '#b1425e', '#4a6fa5', '#9a7a1f'];
+  const palette = ['#2353a2', '#2fa8a0', '#c1682b', '#7a55b5', '#3f8f3f', '#b1425e', '#4a6fa5', '#9a7a1f'];
   let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) % 9973;
   return palette[h % palette.length];
 }
@@ -485,7 +485,7 @@ function avatarHtml(user, cls, withStatus) {
   return `<span class="av-wrap">${inner}${withStatus ? `<i class="status ${isOnline(u) ? 'on' : ''}"></i>` : ''}</span>`;
 }
 function chatAvatarHtml(c, cls) {
-  if (!c) return `<span class="av-wrap"><span class="avatar ${cls || ''}" style="background:#12323f">🎩</span></span>`;
+  if (!c) return `<span class="av-wrap"><span class="avatar ${cls || ''}" style="background:#2353a2"><img class="av-logo" src="logo.png" alt=""></span></span>`;
   if (c.kind === 'dm') return avatarHtml(userById(dmPeer(c)), cls, true);
   const title = chatTitle(c);
   return `<span class="av-wrap"><span class="avatar group ${cls || ''}" style="background:${avColor(c.id)}">${escapeHtml(initials(title))}</span></span>`;
@@ -596,7 +596,7 @@ function renderTopbar() {
   $('#btn-chat-menu').classList.toggle('hidden', !hasChat);
   if (!hasChat) {
     $('#chat-avatar').innerHTML = chatAvatarHtml(null);
-    $('#chat-title').textContent = 'Alt-Джентельмены';
+    $('#chat-title').textContent = 'SEGA-CHAT';
     $('#chat-sub').textContent = 'выберите чат слева или создайте новый';
     $('#input').placeholder = 'Написать сообщение…';
     return;
@@ -688,8 +688,8 @@ function renderMessages(force) {
   const box = $('#messages');
   if (!S.view) {
     box.innerHTML = `<div class="empty">
-      <div class="empty-hat">🎩</div>
-      <h3>Добро пожаловать в Alt-Джентельмены</h3>
+      <img class="empty-logo" src="logo.png" alt="SEGA">
+      <h3>Добро пожаловать в SEGA-CHAT</h3>
       <p class="muted">Здесь пока нет открытого чата. Создайте групповой чат или напишите кому-нибудь лично —<br>список участников в колонке слева.</p>
       <div class="empty-actions">
         <button class="primary" id="empty-new">＋ Создать групповой чат</button>
@@ -769,7 +769,7 @@ function renderQuoteBar() {
 function updateTitle() {
   let total = 0;
   for (const c of S.chats) total += unreadIn(c.id).total;
-  document.title = (total ? `(${total}) ` : '') + 'Alt-Джентельмены';
+  document.title = (total ? `(${total}) ` : '') + 'SEGA-CHAT';
   $('#rail-badge').classList.toggle('hidden', !total);
 }
 
@@ -1380,7 +1380,7 @@ $('#btn-export').addEventListener('click', () => {
   $('#ex-enc').addEventListener('click', async () => {
     try {
       const res = await fetch(BASE + '/api/export', { headers: { Authorization: 'Bearer ' + S.token } });
-      saveBlob(await res.blob(), 'alt-gentlemen-encrypted-' + new Date().toISOString().slice(0, 10) + '.json');
+      saveBlob(await res.blob(), 'sega-chat-encrypted-' + new Date().toISOString().slice(0, 10) + '.json');
     } catch (ex) { toast('Не удалось выгрузить', true); }
   });
 });
@@ -1397,7 +1397,7 @@ function plainList(chat) {
   });
 }
 function exportJson(chat) {
-  const name = 'alt-gentelmeny-' + (chat ? cut(chatTitle(chat), 20).replace(/[^\wА-Яа-яЁё-]+/g, '_') + '-' : '') + new Date().toISOString().slice(0, 10) + '.json';
+  const name = 'sega-chat-' + (chat ? cut(chatTitle(chat), 20).replace(/[^\wА-Яа-яЁё-]+/g, '_') + '-' : '') + new Date().toISOString().slice(0, 10) + '.json';
   saveBlob(new Blob([JSON.stringify({ chat: chat ? chatTitle(chat) : 'Все мои чаты', exportedAt: new Date().toISOString(), messages: plainList(chat) }, null, 2)],
     { type: 'application/json' }), name);
 }
@@ -1412,22 +1412,23 @@ function exportHtml(chat) {
   }).join('\n');
   const title = chat ? chatTitle(chat) : 'Все мои чаты';
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Alt-Джентельмены — ${escapeHtml(title)}</title><style>
+<title>SEGA-CHAT — ${escapeHtml(title)}</title><style>
 body{background:#eef2f4;color:#1f2b33;font-family:Helvetica,Arial,sans-serif;margin:0;padding:24px}
-.wrap{max-width:860px;margin:0 auto}h1{color:#2067b0}
+.wrap{max-width:860px;margin:0 auto}h1{color:#1f2b33;margin:2px 0 0}
+.brand{font-weight:800;letter-spacing:.2em;color:#2353a2;font-size:12px}
 #q{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #d7dfe5;margin:12px 0 18px}
 .m{background:#fff;border-radius:10px;padding:10px 13px;margin-bottom:8px;box-shadow:0 1px 2px rgba(20,50,70,.09)}
 .m.c{margin-left:36px;border-left:3px solid #2fc6f6}
 .m:target{box-shadow:0 0 0 3px #ffd98a}
-.h b{color:#2067b0}.h span{color:#8b98a4;font-size:12px;margin-left:8px}.h i{color:#8b98a4;font-size:11px;margin-left:8px}
+.h b{color:#2353a2}.h span{color:#8b98a4;font-size:12px;margin-left:8px}.h i{color:#8b98a4;font-size:11px;margin-left:8px}
 .q{display:block;border-left:3px solid #2fc6f6;background:#f2f8fd;border-radius:6px;padding:5px 9px;margin:5px 0;
    font-size:12.5px;color:#41525e;text-decoration:none}
 .t{white-space:pre-wrap;margin-top:4px}img{max-width:min(420px,90%);border-radius:8px;margin-top:8px;display:block}
-a{color:#2067b0}.muted{color:#8b98a4}</style></head><body><div class="wrap">
-<h1>🎩 ${escapeHtml(title)}</h1><div class="muted">Архив · ${new Date().toLocaleString('ru-RU')} · ${list.length} сообщений</div>
+a{color:#2353a2}.muted{color:#8b98a4}</style></head><body><div class="wrap">
+<div class="brand">SEGA-CHAT</div><h1>${escapeHtml(title)}</h1><div class="muted">Архив · ${new Date().toLocaleString('ru-RU')} · ${list.length} сообщений</div>
 <input id="q" placeholder="Поиск по архиву…" oninput="(function(v){document.querySelectorAll('.m').forEach(function(e){e.style.display=e.innerText.toLowerCase().includes(v.toLowerCase())?'':'none'})})(this.value)">
 ${rows}</div></body></html>`;
-  const name = 'alt-gentelmeny-' + (chat ? cut(chatTitle(chat), 20).replace(/[^\wА-Яа-яЁё-]+/g, '_') + '-' : '') + new Date().toISOString().slice(0, 10) + '.html';
+  const name = 'sega-chat-' + (chat ? cut(chatTitle(chat), 20).replace(/[^\wА-Яа-яЁё-]+/g, '_') + '-' : '') + new Date().toISOString().slice(0, 10) + '.html';
   saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), name);
 }
 

@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#12323f">
-<title>Alt-Джентельмены</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎩</text></svg>">
+<meta name="theme-color" content="#2353A2">
+<title>SEGA-CHAT</title>
+<link rel="icon" href="favicon.png">
 <base href="/">
-<script>window.ALTG_BASE = ""</script>
+<script>window.SEGA_BASE = ""</script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -15,8 +15,7 @@
 <!-- ───────────────────────────── загрузка ───────────────────────────── -->
 <div id="screen-loading" class="screen center">
   <div class="brand">
-    <div class="hat">🎩</div>
-    <h1>Alt-Джентельмены</h1>
+    <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
     <p class="muted">Соединяемся…</p>
   </div>
 </div>
@@ -25,8 +24,7 @@
 <div id="screen-setup" class="screen center hidden">
   <form class="card" id="form-setup" autocomplete="off">
     <div class="brand">
-      <div class="hat">🎩</div>
-      <h1>Alt-Джентельмены</h1>
+      <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
       <p class="muted">Первый запуск. Вы становитесь администратором мессенджера.</p>
     </div>
     <label>Ваше имя
@@ -55,8 +53,7 @@
 <div id="screen-auth" class="screen center hidden">
   <div class="card">
     <div class="brand">
-      <div class="hat">🎩</div>
-      <h1>Alt-Джентельмены</h1>
+      <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
       <p class="muted">Закрытый мессенджер. Только для своих.</p>
     </div>
     <div class="tabs">
@@ -87,6 +84,7 @@
 
   <!-- левая колонка: список чатов -->
   <aside id="rail">
+    <div class="rail-brand"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></div>
     <div class="rail-top">
       <div class="me" id="me-box">
         <span id="me-avatar"></span>
@@ -127,7 +125,7 @@
       <button class="icon only-mobile" id="btn-open-rail" title="Чаты"><span id="rail-badge" class="badge-dot hidden"></span>☰</button>
       <span id="chat-avatar"></span>
       <div class="top-title">
-        <h2 id="chat-title">Alt-Джентельмены</h2>
+        <h2 id="chat-title">SEGA-CHAT</h2>
         <div class="tiny muted" id="chat-sub"></div>
       </div>
       <div class="search-wrap">

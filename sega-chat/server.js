@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Alt-Джентельмены — запуск мессенджера на своём компьютере.
+ * SEGA-CHAT — запуск мессенджера на своём компьютере.
  * Без внешних зависимостей: нужен только Node.js 18 или новее.
  *
  * Обычный запуск (данные в папке data):        node server.js
@@ -94,7 +94,7 @@ function httpsOptions() {
     console.log('  Создаю самоподписанный сертификат…');
     const { execFileSync } = require('child_process');
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650',
-      '-keyout', key, '-out', cert, '-subj', '/CN=alt-gentlemen'], { stdio: 'ignore' });
+      '-keyout', key, '-out', cert, '-subj', '/CN=sega-chat'], { stdio: 'ignore' });
   }
   return { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
 }
@@ -118,9 +118,9 @@ function httpsOptions() {
     const limit = app.config.STORAGE_LIMIT;
     const used = db.stats.bytes + db.users.reduce((a, u) => a + (u.avatarLen || 0), 0);
     console.log('');
-    console.log('  ╔══════════════════════════════════════════════╗');
-    console.log('  ║           A L T - Д Ж Е Н Т Е Л Ь М Е Н Ы    ║');
-    console.log('  ╚══════════════════════════════════════════════╝');
+    console.log('  ╔════════════════════════════════╗');
+    console.log('  ║        S E G A - C H A T       ║');
+    console.log('  ╚════════════════════════════════╝');
     console.log('');
     console.log('  Мессенджер запущен. Открывайте в браузере:');
     console.log('    • на этом компьютере: ' + scheme + '://localhost:' + PORT);

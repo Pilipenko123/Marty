@@ -10,12 +10,12 @@
 ## Как применить:
 ##   1. Подставьте вместо ВАШ_ID_ФУНКЦИИ и ВАШ_ID_УЧЁТНОЙ_ЗАПИСИ значения,
 ##      которые напечатал скрипт cloud/deploy.sh.
-##   2. yc serverless api-gateway create --name alt-gentlemen --spec=cloud/api-gateway.yaml
-##   3. Адрес шлюза: yc serverless api-gateway get alt-gentlemen --format json
+##   2. yc serverless api-gateway create --name sega-chat --spec=cloud/api-gateway.yaml
+##   3. Адрес шлюза: yc serverless api-gateway get sega-chat --format json
 
 openapi: 3.0.0
 info:
-  title: Alt-Джентельмены
+  title: SEGA-CHAT
   version: 1.0.0
 
 x-yc-apigateway:

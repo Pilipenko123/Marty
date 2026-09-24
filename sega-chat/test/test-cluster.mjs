@@ -41,7 +41,7 @@ async function waitReady(base) {
 
 const mock = await startMock();
 const env = {
-  STORE: 'ydb', YDB_ENDPOINT: mock.endpoint, YDB_TABLE: 'alt_chat',
+  STORE: 'ydb', YDB_ENDPOINT: mock.endpoint, YDB_TABLE: 'sega_chat',
   YDB_ACCESS_KEY_ID: mock.accessKeyId, YDB_SECRET_ACCESS_KEY: mock.secretAccessKey,
   HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0'
 };
