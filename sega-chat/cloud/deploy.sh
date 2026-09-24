@@ -20,7 +20,7 @@ TABLE="${YDB_TABLE:-sega_chat}"
 RUNTIME="${RUNTIME:-nodejs18}"
 MEMORY="${MEMORY:-256m}"
 TIMEOUT="${TIMEOUT:-30s}"
-STORAGE_LIMIT="${STORAGE_LIMIT:-26214400}"
+STORAGE_LIMIT="${STORAGE_LIMIT:-262144000}"
 
 say()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -55,17 +55,25 @@ else
   info "создаю бессерверную базу (тариф: платите только за запросы)…"
   yc ydb database create "$DB_NAME" --serverless >/dev/null
 fi
-# база создаётся не мгновенно — дождёмся, пока она заработает
+# База создаётся не мгновенно, а в Yandex Cloud Shell адрес Document API
+# нередко появляется на несколько секунд позже статуса RUNNING. Поэтому в
+# одном цикле ждём и готовности базы, и появления адреса. Ошибки отдельных
+# вызовов yc глушим, чтобы `set -euo pipefail` не прерывал ожидание.
+ENDPOINT=""
 for _ in $(seq 1 60); do
-  STATUS="$(yc ydb database get "$DB_NAME" --format json | jget status)"
-  [ "$STATUS" = "RUNNING" ] && break
-  info "жду готовности базы (сейчас: ${STATUS:-неизвестно})…"
+  DB_JSON="$(yc ydb database get "$DB_NAME" --format json 2>/dev/null || true)"
+  STATUS="$(printf '%s' "$DB_JSON" | jget status || true)"
+  ENDPOINT="$(printf '%s' "$DB_JSON" | jget document_api_endpoint || true)"
+  [ "$STATUS" = "RUNNING" ] && [ -n "$ENDPOINT" ] && break
+  if [ "$STATUS" = "RUNNING" ]; then
+    info "база готова, жду появления адреса Document API…"
+  else
+    info "жду готовности базы (сейчас: ${STATUS:-неизвестно})…"
+  fi
   sleep 5
 done
 
-DB_JSON="$(yc ydb database get "$DB_NAME" --format json)"
-ENDPOINT="$(printf '%s' "$DB_JSON" | jget document_api_endpoint)"
-[ -n "$ENDPOINT" ] || die "не удалось узнать адрес Document API. Проверьте, что база создана в бессерверном режиме."
+[ -n "$ENDPOINT" ] || die "не удалось узнать адрес Document API. Проверьте, что база создана в бессерверном режиме, и повторите запуск скрипта."
 info "адрес Document API: $ENDPOINT"
 
 # ---------------------------------------------------------------- сервисный аккаунт

@@ -22,6 +22,8 @@ function toast(msg, isErr) {
   t._t = setTimeout(() => hide(t), 3800);
 }
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// иконка-корзина для кнопки удаления сообщения
+const ICON_TRASH = '<svg class="ic" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7m4 4v6m4-6v6"/></svg>';
 const linkify = h => h.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
 function fmtBytes(b) {
   if (b < 1024) return b + ' Б';
@@ -679,7 +681,7 @@ function messageHtml(m, opts = {}) {
     <div class="tools">
       <button class="tool" data-quote="${m.id}" title="Ответить ссылкой на это сообщение">↩</button>
       ${opts.noThread ? '' : `<button class="tool" data-thread="${m.id}" title="Комментировать внутри сообщения">💬</button>`}
-      ${canDel ? `<button class="tool" data-del="${m.id}" title="Удалить">🗑</button>` : ''}
+      ${canDel ? `<button class="tool" data-del="${m.id}" title="Удалить">${ICON_TRASH}</button>` : ''}
     </div>
   </div>`;
 }
@@ -1433,5 +1435,35 @@ ${rows}</div></body></html>`;
 }
 
 $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из мессенджера на этом устройстве?')) doLogout(); });
+
+// ─────────────────────────────────────────── оформление: тёмная тема и компактная лента
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : '';
+  try { localStorage.setItem('sega.theme', dark ? 'dark' : 'light'); } catch (e) {}
+  const btn = $('#btn-theme');
+  if (btn) { btn.textContent = dark ? '☀️ Светлая' : '🌙 Тёмная'; btn.setAttribute('aria-pressed', String(dark)); }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#0b171d' : '#2353A2');
+}
+function applyDensity(mode) {
+  const compact = mode === 'compact';
+  if (compact) document.documentElement.dataset.density = 'compact';
+  else delete document.documentElement.dataset.density;
+  try {
+    if (compact) localStorage.setItem('sega.density', 'compact');
+    else localStorage.removeItem('sega.density');
+  } catch (e) {}
+  const btn = $('#btn-compact');
+  if (btn) { btn.textContent = compact ? '▤ Просторно' : '☰ Компактно'; btn.setAttribute('aria-pressed', String(compact)); }
+}
+(function initAppearance() {
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  applyDensity(document.documentElement.dataset.density === 'compact' ? 'compact' : 'cozy');
+  $('#btn-theme').addEventListener('click', () =>
+    applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+  $('#btn-compact').addEventListener('click', () =>
+    applyDensity(document.documentElement.dataset.density === 'compact' ? 'cozy' : 'compact'));
+})();
 
 boot();
