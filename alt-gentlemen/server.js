@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * Alt-Джентельмены — приватный чат со сквозным шифрованием.
+ * Alt-Джентельмены — приватный мессенджер со сквозным шифрованием.
  * Сервер без внешних зависимостей (только стандартная библиотека Node.js >= 18).
  *
- * Сервер НИКОГДА не видит: пароли, кодовую фразу чата, тексты сообщений,
+ * Сервер НИКОГДА не видит: пароли, кодовую фразу, названия чатов, тексты сообщений,
  * вложения и аватары. Всё шифруется в браузере (AES-256-GCM),
  * на диск попадают только зашифрованные блобы.
+ *
+ * Чаты: любой участник создаёт свои групповые чаты и пишет личные сообщения.
+ * Ключ группового чата случайный; каждому участнику он передаётся «завёрнутым»
+ * в ключ пары (ECDH P-256) — сервер ключей не знает.
  */
 
 'use strict';
@@ -22,26 +26,63 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const ARCHIVE_DIR = path.join(DATA_DIR, 'archives');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-// Лимит «памяти» чата (объём переписки). Меняется переменной окружения.
+
 const STORAGE_LIMIT = Number(process.env.STORAGE_LIMIT || 25 * 1024 * 1024); // 25 МБ
 const MAX_BODY = 12 * 1024 * 1024; // максимум 12 МБ на один запрос (вложения)
 const SESSION_TTL = 60 * 24 * 60 * 60 * 1000; // 60 дней
+const MAX_MEMBERS = 200;
 
 // ---------------------------------------------------------------- хранилище
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
 
 let db = {
-  version: 1,
+  version: 2,
   createdAt: null,
-  room: null, // { codeProofSalt, codeProofHash, codeSalt, wrappedKeyByCode, rotatedAt }
-  users: [],  // { id, name, nameLower, isAdmin, saltAuth, saltWrap, authHash, wrappedKeyByPass, avatar, createdAt, lastSeen }
-  messages: [], // { id, seq, uid, ts, blob, bytes, edited }
+  room: null,   // { codeProofSalt, codeProofHash, codeSalt, wrappedKeyByCode, rotatedAt }
+  users: [],    // { id, name, nameLower, isAdmin, saltAuth, saltWrap, authHash, wrappedKeyByPass, pub, wrappedPriv, avatar, reads, ... }
+  chats: [],    // { id, kind:'group'|'dm', titleBlob, ownerId, members:[uid], keys:{uid:{by,blob}}, createdAt }
+  messages: [], // { id, seq, uid, ts, blob, bytes, chat, parent, quote }
   sessions: {}, // token -> { uid, exp }
   seq: 0,
   serverSecret: null,
-  archives: [] // { file, createdAt, count, bytes }
+  archives: []  // { file, createdAt, count, bytes, chat }
 };
+
+function migrate() {
+  // Раньше был один общий чат ('group') и личные каналы 'dm:a|b'.
+  // Превращаем их в обычные чаты новой модели, чтобы история не потерялась.
+  if (!db.chats) db.chats = [];
+  const needs = db.messages.some(m => m.ch !== undefined && m.chat === undefined);
+  if (!needs) return;
+  const legacyId = 'legacy-group';
+  for (const m of db.messages) {
+    if (m.chat !== undefined) continue;
+    const ch = m.ch || 'group';
+    if (ch === 'group') {
+      m.chat = legacyId;
+    } else {
+      m.chat = ch; // 'dm:a|b' остаётся идентификатором личного чата
+      if (!db.chats.some(c => c.id === ch)) {
+        db.chats.push({ id: ch, kind: 'dm', members: ch.slice(3).split('|'), keys: {}, createdAt: m.ts });
+      }
+    }
+    delete m.ch;
+  }
+  if (db.messages.some(m => m.chat === legacyId) && !db.chats.some(c => c.id === legacyId)) {
+    db.chats.unshift({
+      id: legacyId, kind: 'group', titleBlob: null, titlePlain: 'Общий чат (прежний)',
+      ownerId: (db.users.find(u => u.isAdmin) || db.users[0] || {}).id || null,
+      members: db.users.map(u => u.id), keys: {}, legacyRoomKey: true, createdAt: db.createdAt || Date.now()
+    });
+  }
+  for (const u of db.users) {
+    if (!u.reads) continue;
+    if (u.reads.group !== undefined) { u.reads[legacyId] = u.reads.group; delete u.reads.group; }
+  }
+  for (const a of db.archives || []) if (!a.chat) a.chat = legacyId;
+  db.version = 2;
+}
 
 function loadDb() {
   if (fs.existsSync(DB_FILE)) {
@@ -56,6 +97,8 @@ function loadDb() {
   }
   if (!db.serverSecret) db.serverSecret = crypto.randomBytes(32).toString('hex');
   if (!db.createdAt) db.createdAt = Date.now();
+  if (!db.chats) db.chats = [];
+  migrate();
   saveNow();
 }
 
@@ -123,15 +166,32 @@ function publicUser(u) {
   };
 }
 
-// канал сообщения: 'group' — общий чат, 'dm:<id>|<id>' — личная переписка двоих
-const dmChannel = (a, b) => 'dm:' + [a, b].sort().join('|');
-function channelMembers(ch) {
-  if (!ch || ch === 'group') return null;
-  return String(ch).slice(3).split('|');
+// ---------------------------------------------------------------- чаты
+const dmId = (a, b) => 'dm:' + [a, b].sort().join('|');
+const chatById = (id) => db.chats.find(c => c.id === id) || null;
+const isMember = (chat, userId) => !!chat && chat.members.includes(userId);
+const myChats = (userId) => db.chats.filter(c => c.members.includes(userId));
+
+function publicChat(c, meId) {
+  const msgs = db.messages.filter(m => m.chat === c.id);
+  return {
+    id: c.id, kind: c.kind, titleBlob: c.titleBlob || null, titlePlain: c.titlePlain || null,
+    legacyRoomKey: !!c.legacyRoomKey, ownerId: c.ownerId || null, members: c.members,
+    createdAt: c.createdAt, key: (c.keys && c.keys[meId]) || null,
+    count: msgs.length, bytes: msgs.reduce((a, m) => a + (m.bytes || 0), 0),
+    lastTs: msgs.length ? msgs[msgs.length - 1].ts : (c.createdAt || 0)
+  };
 }
-function canSee(ch, userId) {
-  const m = channelMembers(ch);
-  return !m || m.includes(userId);
+
+function ensureDm(a, b) {
+  const id = dmId(a, b);
+  let c = chatById(id);
+  if (!c) {
+    c = { id, kind: 'dm', members: [a, b].sort(), keys: {}, createdAt: Date.now() };
+    db.chats.push(c);
+    save();
+  }
+  return c;
 }
 
 // простейшая защита от перебора
@@ -177,13 +237,13 @@ function readBody(req) {
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? '/index.html' : pathname;
-  const file = path.join(PUBLIC_DIR, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
-  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+  const full = path.join(PUBLIC_DIR, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
+  if (!full.startsWith(PUBLIC_DIR) || !fs.existsSync(full) || fs.statSync(full).isDirectory()) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end('404');
+    return res.end('Не найдено');
   }
-  const body = fs.readFileSync(file);
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
+  const body = fs.readFileSync(full);
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
   res.end(body);
 }
 
@@ -192,24 +252,24 @@ async function api(req, res, pathname, query) {
   const method = req.method;
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 
-  // --- публичное состояние
   if (pathname === '/api/state' && method === 'GET') {
     return json(res, 200, {
-      setupRequired: !db.room,
-      title: 'Alt-Джентельмены',
+      app: 'Alt-Джентельмены',
+      setupRequired: db.users.length === 0,
       codeProofSalt: db.room ? db.room.codeProofSalt : null,
-      usage: usage()
+      limit: STORAGE_LIMIT
     });
   }
 
-  // --- первичная настройка (создаётся администратор и ключ комнаты)
+  // --- первичная настройка: создаётся администратор и кодовая фраза
   if (pathname === '/api/setup' && method === 'POST') {
-    if (db.room) return bad(res, 409, 'Чат уже настроен');
+    if (db.users.length) return bad(res, 409, 'Чат уже настроен');
     const b = await readBody(req);
     const name = normName(b.name);
-    if (!name) return bad(res, 400, 'Нужно имя');
-    const need = ['saltAuth', 'saltWrap', 'authKey', 'wrappedKeyByPass', 'codeProofSalt', 'codeProof', 'codeSalt', 'wrappedKeyByCode'];
-    for (const k of need) if (!b[k]) return bad(res, 400, 'Не хватает поля ' + k);
+    if (name.length < 2 || name.length > 32) return bad(res, 400, 'Имя: от 2 до 32 символов');
+    for (const k of ['saltAuth', 'authKey', 'saltWrap', 'wrappedKeyByPass', 'codeProofSalt', 'codeProof', 'codeSalt', 'wrappedKeyByCode']) {
+      if (!b[k]) return bad(res, 400, 'Не хватает поля ' + k);
+    }
     db.room = {
       codeProofSalt: b.codeProofSalt,
       codeProofHash: hashSecret(b.codeProof, b.codeProofSalt),
@@ -219,8 +279,8 @@ async function api(req, res, pathname, query) {
     };
     const user = {
       id: uid(), name, nameLower: name.toLowerCase(), isAdmin: true,
-      saltAuth: b.saltAuth, saltWrap: b.saltWrap,
-      authHash: hashSecret(b.authKey, b.saltAuth),
+      saltAuth: b.saltAuth, authHash: hashSecret(b.authKey, b.saltAuth),
+      saltWrap: b.saltWrap,
       wrappedKeyByPass: b.wrappedKeyByPass, avatar: null,
       pub: b.pub || null, wrappedPriv: b.wrappedPriv || null, reads: {},
       createdAt: Date.now(), lastSeen: Date.now(), activeAt: Date.now()
@@ -232,26 +292,21 @@ async function api(req, res, pathname, query) {
     return json(res, 200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
   }
 
-  // --- соль для вывода ключей по имени (нужна и для входа, и для регистрации)
+  // --- соль для вывода ключей по имени
   if (pathname === '/api/salt' && method === 'POST') {
     const b = await readBody(req);
-    const name = normName(b.name);
-    if (!name) return bad(res, 400, 'Нужно имя');
-    const u = db.users.find(x => x.nameLower === name.toLowerCase());
-    return json(res, 200, {
-      saltAuth: u ? u.saltAuth : stableSalt('auth:' + name.toLowerCase()),
-      saltWrap: u ? u.saltWrap : stableSalt('wrap:' + name.toLowerCase())
-    });
+    const name = normName(b.name).toLowerCase();
+    const u = db.users.find(x => x.nameLower === name);
+    return json(res, 200, { saltAuth: u ? u.saltAuth : stableSalt(name) });
   }
 
-  // --- вход
   if (pathname === '/api/login' && method === 'POST') {
     if (throttle('login:' + ip)) return bad(res, 429, 'Слишком много попыток. Подождите 10 минут.');
     const b = await readBody(req);
-    const name = normName(b.name);
-    const u = db.users.find(x => x.nameLower === String(name).toLowerCase());
+    const name = normName(b.name).toLowerCase();
+    const u = db.users.find(x => x.nameLower === name);
     if (!u || !b.authKey || !timingEqual(hashSecret(b.authKey, u.saltAuth), u.authHash)) {
-      return bad(res, 401, 'Неверное имя или пароль');
+      return bad(res, 403, 'Неверное имя или пароль');
     }
     const token = crypto.randomBytes(24).toString('hex');
     db.sessions[token] = { uid: u.id, exp: Date.now() + SESSION_TTL };
@@ -260,33 +315,32 @@ async function api(req, res, pathname, query) {
     return json(res, 200, { token, user: publicUser(u), saltWrap: u.saltWrap, wrappedKeyByPass: u.wrappedKeyByPass, wrappedPriv: u.wrappedPriv || null });
   }
 
-  // --- получить «завёрнутый» ключ комнаты по кодовой фразе (для регистрации)
+  // --- получить «завёрнутый» ключ каталога по кодовой фразе (для регистрации)
   if (pathname === '/api/invite' && method === 'POST') {
     if (throttle('invite:' + ip)) return bad(res, 429, 'Слишком много попыток. Подождите 10 минут.');
-    if (!db.room) return bad(res, 409, 'Чат не настроен');
     const b = await readBody(req);
+    if (!db.room) return bad(res, 409, 'Чат ещё не настроен');
     if (!b.codeProof || !timingEqual(hashSecret(b.codeProof, db.room.codeProofSalt), db.room.codeProofHash)) {
       return bad(res, 403, 'Неверная кодовая фраза чата');
     }
     return json(res, 200, { codeSalt: db.room.codeSalt, wrappedKeyByCode: db.room.wrappedKeyByCode });
   }
 
-  // --- регистрация
   if (pathname === '/api/register' && method === 'POST') {
-    if (throttle('reg:' + ip)) return bad(res, 429, 'Слишком много попыток. Подождите 10 минут.');
-    if (!db.room) return bad(res, 409, 'Чат не настроен');
+    if (throttle('register:' + ip)) return bad(res, 429, 'Слишком много попыток. Подождите 10 минут.');
     const b = await readBody(req);
-    const name = normName(b.name);
-    if (name.length < 2 || name.length > 32) return bad(res, 400, 'Имя: от 2 до 32 символов');
-    if (db.users.some(x => x.nameLower === name.toLowerCase())) return bad(res, 409, 'Такое имя уже занято');
+    if (!db.room) return bad(res, 409, 'Чат ещё не настроен');
     if (!b.codeProof || !timingEqual(hashSecret(b.codeProof, db.room.codeProofSalt), db.room.codeProofHash)) {
       return bad(res, 403, 'Неверная кодовая фраза чата');
     }
-    for (const k of ['saltAuth', 'saltWrap', 'authKey', 'wrappedKeyByPass']) if (!b[k]) return bad(res, 400, 'Не хватает поля ' + k);
+    const name = normName(b.name);
+    if (name.length < 2 || name.length > 32) return bad(res, 400, 'Имя: от 2 до 32 символов');
+    if (db.users.some(x => x.nameLower === name.toLowerCase())) return bad(res, 409, 'Такое имя уже занято');
+    for (const k of ['saltAuth', 'authKey', 'saltWrap', 'wrappedKeyByPass']) if (!b[k]) return bad(res, 400, 'Не хватает поля ' + k);
     const user = {
       id: uid(), name, nameLower: name.toLowerCase(), isAdmin: false,
-      saltAuth: b.saltAuth, saltWrap: b.saltWrap,
-      authHash: hashSecret(b.authKey, b.saltAuth),
+      saltAuth: b.saltAuth, authHash: hashSecret(b.authKey, b.saltAuth),
+      saltWrap: b.saltWrap,
       wrappedKeyByPass: b.wrappedKeyByPass, avatar: null,
       pub: b.pub || null, wrappedPriv: b.wrappedPriv || null, reads: {},
       createdAt: Date.now(), lastSeen: Date.now(), activeAt: Date.now()
@@ -311,10 +365,11 @@ async function api(req, res, pathname, query) {
   if (pathname === '/api/sync' && method === 'GET') {
     const since = Number(query.get('since') || 0);
     if (query.get('active') === '1') me.activeAt = Date.now();
-    // личные переписки видят только их участники
-    const msgs = db.messages.filter(m => m.seq > since && canSee(m.ch, me.id));
+    const mine = new Set(myChats(me.id).map(c => c.id));
+    const msgs = db.messages.filter(m => m.seq > since && mine.has(m.chat));
     return json(res, 200, {
       messages: msgs,
+      chats: myChats(me.id).map(c => publicChat(c, me.id)),
       seq: db.seq,
       users: db.users.map(publicUser),
       usage: usage(),
@@ -323,18 +378,147 @@ async function api(req, res, pathname, query) {
     });
   }
 
-  // --- отметка «прочитано» (bucket: group | thr:<id> | dm:<a>|<b>)
+  // --- отметка «прочитано» (bucket: <chatId> | thr:<messageId>)
   if (pathname === '/api/read' && method === 'POST') {
     const b = await readBody(req);
     const bucket = String(b.bucket || '');
     const seq = Number(b.seq || 0);
     if (!bucket || !seq) return bad(res, 400, 'Нужны bucket и seq');
-    if (bucket.startsWith('dm:') && !canSee(bucket, me.id)) return bad(res, 403, 'Чужая переписка');
+    if (!bucket.startsWith('thr:') && !isMember(chatById(bucket), me.id)) return bad(res, 403, 'Это не ваш чат');
     me.reads = me.reads || {};
     if ((me.reads[bucket] || 0) < seq) { me.reads[bucket] = seq; save(); }
     return json(res, 200, { ok: true });
   }
 
+  // ------------------------------------------------ чаты
+  if (pathname === '/api/chats' && method === 'POST') {
+    const b = await readBody(req);
+    const members = [...new Set([me.id, ...(Array.isArray(b.members) ? b.members : [])])];
+    if (members.length > MAX_MEMBERS) return bad(res, 400, 'Слишком много участников');
+    for (const id of members) if (!db.users.some(u => u.id === id)) return bad(res, 404, 'Участник не найден');
+    if (!b.titleBlob || typeof b.titleBlob !== 'string' || b.titleBlob.length > 8192) return bad(res, 400, 'Нужно название чата');
+    const keys = {};
+    for (const id of members) {
+      const k = (b.keys || {})[id];
+      if (!k || !k.blob) return bad(res, 400, 'Нет ключа для участника ' + id);
+      keys[id] = { by: me.id, blob: String(k.blob).slice(0, 4096) };
+    }
+    const chat = {
+      id: uid(), kind: 'group', titleBlob: b.titleBlob, ownerId: me.id,
+      members, keys, createdAt: Date.now()
+    };
+    db.chats.push(chat);
+    db.seq++;
+    saveNow();
+    return json(res, 200, { chat: publicChat(chat, me.id) });
+  }
+
+  if (pathname === '/api/dm' && method === 'POST') {
+    const b = await readBody(req);
+    const peer = db.users.find(u => u.id === b.peer);
+    if (!peer) return bad(res, 404, 'Участник не найден');
+    if (peer.id === me.id) return bad(res, 400, 'Нельзя писать самому себе');
+    const chat = ensureDm(me.id, peer.id);
+    return json(res, 200, { chat: publicChat(chat, me.id) });
+  }
+
+  if (pathname.startsWith('/api/chats/')) {
+    const parts = pathname.split('/'); // '', api, chats, :id, action?
+    const chat = chatById(decodeURIComponent(parts[3] || ''));
+    const action = parts[4];
+    if (!chat) return bad(res, 404, 'Чат не найден');
+    if (!isMember(chat, me.id)) return bad(res, 403, 'Вы не участник этого чата');
+    const isOwner = chat.kind === 'group' && chat.ownerId === me.id;
+
+    if (action === 'title' && method === 'POST') {
+      if (chat.kind !== 'group') return bad(res, 400, 'У личной переписки нет названия');
+      const b = await readBody(req);
+      if (!b.titleBlob || b.titleBlob.length > 8192) return bad(res, 400, 'Нужно название');
+      chat.titleBlob = b.titleBlob; chat.titlePlain = null;
+      db.seq++; saveNow();
+      return json(res, 200, { chat: publicChat(chat, me.id) });
+    }
+
+    if (action === 'members' && method === 'POST') {
+      if (chat.kind !== 'group') return bad(res, 400, 'Состав личной переписки менять нельзя');
+      const b = await readBody(req);
+      for (const a of (b.add || [])) {
+        const u = db.users.find(x => x.id === a.id);
+        if (!u) return bad(res, 404, 'Участник не найден');
+        if (!a.blob) return bad(res, 400, 'Нет ключа для нового участника');
+        if (chat.members.length >= MAX_MEMBERS) return bad(res, 400, 'Слишком много участников');
+        if (!chat.members.includes(u.id)) chat.members.push(u.id);
+        chat.keys[u.id] = { by: me.id, blob: String(a.blob).slice(0, 4096) };
+      }
+      for (const id of (b.remove || [])) {
+        if (!isOwner) return bad(res, 403, 'Исключать может только создатель чата');
+        if (id === chat.ownerId) return bad(res, 400, 'Нельзя исключить создателя чата');
+        chat.members = chat.members.filter(x => x !== id);
+        delete chat.keys[id];
+      }
+      db.seq++; saveNow();
+      return json(res, 200, { chat: publicChat(chat, me.id) });
+    }
+
+    if (action === 'leave' && method === 'POST') {
+      if (chat.kind !== 'group') return bad(res, 400, 'Из личной переписки выйти нельзя');
+      if (isOwner && chat.members.length > 1) return bad(res, 400, 'Сначала передайте чат другому участнику или исключите всех');
+      chat.members = chat.members.filter(x => x !== me.id);
+      delete chat.keys[me.id];
+      if (!chat.members.length) {
+        db.chats = db.chats.filter(c => c.id !== chat.id);
+        db.messages = db.messages.filter(m => m.chat !== chat.id);
+      }
+      db.seq++; saveNow();
+      return json(res, 200, { ok: true, usage: usage() });
+    }
+
+    if (action === 'owner' && method === 'POST') {
+      if (!isOwner) return bad(res, 403, 'Только создатель чата');
+      const b = await readBody(req);
+      if (!chat.members.includes(b.id)) return bad(res, 400, 'Новый владелец должен быть участником чата');
+      chat.ownerId = b.id;
+      db.seq++; saveNow();
+      return json(res, 200, { chat: publicChat(chat, me.id) });
+    }
+
+    if (action === 'archive' && method === 'POST') {
+      if (chat.kind === 'group' && !isOwner) return bad(res, 403, 'Архивировать чат может создатель');
+      const b = await readBody(req);
+      const msgs = db.messages.filter(m => m.chat === chat.id);
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = `archive-${chat.id}-${stamp}.json`;
+      const payload = {
+        app: 'Alt-Джентельмены',
+        format: 'encrypted-archive-v2',
+        createdAt: Date.now(),
+        note: 'Сообщения зашифрованы ключом чата (AES-256-GCM). Открывается только участниками этого чата.',
+        chat: { id: chat.id, kind: chat.kind, titleBlob: chat.titleBlob || null, titlePlain: chat.titlePlain || null, members: chat.members },
+        users: db.users.map(u => ({ id: u.id, name: u.name })),
+        messages: msgs
+      };
+      try {
+        fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+        fs.writeFileSync(path.join(ARCHIVE_DIR, file), JSON.stringify(payload));
+      } catch (e) {
+        return bad(res, 500, 'Не удалось сохранить архив на сервере: ' + e.message);
+      }
+      const rec = { file, createdAt: Date.now(), count: msgs.length, bytes: msgs.reduce((a, m) => a + (m.bytes || 0), 0), chat: chat.id };
+      db.archives.push(rec);
+      if (b.reset) {
+        db.messages = db.messages.filter(m => m.chat !== chat.id);
+        db.seq++;
+      }
+      saveNow();
+      return json(res, 200, { archive: rec, usage: usage(), cleared: !!b.reset });
+    }
+
+    if (action === 'archives' && method === 'GET') {
+      return json(res, 200, { archives: db.archives.filter(a => a.chat === chat.id).reverse() });
+    }
+  }
+
+  // ------------------------------------------------ сообщения
   if (pathname === '/api/messages' && method === 'POST') {
     const b = await readBody(req);
     if (!b.blob || typeof b.blob !== 'string') return bad(res, 400, 'Пустое сообщение');
@@ -342,38 +526,43 @@ async function api(req, res, pathname, query) {
     if (u.bytes + b.blob.length > STORAGE_LIMIT) {
       return bad(res, 507, 'Память чата заполнена. Заархивируйте историю, чтобы продолжить.');
     }
-    const ch = b.ch && b.ch !== 'group' ? String(b.ch) : 'group';
-    if (ch !== 'group') {
-      const members = channelMembers(ch);
-      if (!members || members.length !== 2 || !members.includes(me.id)) return bad(res, 403, 'Нельзя писать в этот канал');
-      const peer = members.find(x => x !== me.id);
-      if (!db.users.some(u => u.id === peer)) return bad(res, 404, 'Собеседник не найден');
-    }
+    const chat = chatById(b.chat);
+    if (!chat) return bad(res, 404, 'Чат не найден');
+    if (!isMember(chat, me.id)) return bad(res, 403, 'Вы не участник этого чата');
+
     let parent = null;
     if (b.parent) {
       const p = db.messages.find(x => x.id === b.parent);
       if (!p) return bad(res, 404, 'Исходное сообщение не найдено');
-      if ((p.ch || 'group') !== ch) return bad(res, 400, 'Комментарий не из того чата');
+      if (p.chat !== chat.id) return bad(res, 400, 'Комментарий не из того чата');
       if (p.parent) return bad(res, 400, 'Комментировать можно только исходное сообщение');
       parent = p.id;
     }
-    const m = { id: uid(), seq: ++db.seq, uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, ch, parent };
+    let quote = null;
+    if (b.quote) {
+      const q = db.messages.find(x => x.id === b.quote);
+      if (!q) return bad(res, 404, 'Сообщение-ссылка не найдено');
+      if (q.chat !== chat.id) return bad(res, 400, 'Ссылаться можно только на сообщение этого чата');
+      quote = q.id;
+    }
+    const m = { id: uid(), seq: ++db.seq, uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote };
     db.messages.push(m);
     me.reads = me.reads || {};
-    me.reads[parent ? 'thr:' + parent : ch] = m.seq;
+    me.reads[parent ? 'thr:' + parent : chat.id] = m.seq;
     save();
     return json(res, 200, { message: m, usage: usage() });
   }
 
   if (pathname.startsWith('/api/messages/') && method === 'DELETE') {
     const id = pathname.split('/')[3];
-    const i = db.messages.findIndex(m => m.id === id);
-    if (i < 0) return bad(res, 404, 'Сообщение не найдено');
-    const victim = db.messages[i];
-    if (!canSee(victim.ch, me.id)) return bad(res, 403, 'Чужая переписка');
-    const isDm = victim.ch && victim.ch !== 'group';
-    if (victim.uid !== me.id && (!me.isAdmin || isDm)) return bad(res, 403, 'Можно удалять только свои сообщения');
+    const victim = db.messages.find(m => m.id === id);
+    if (!victim) return bad(res, 404, 'Сообщение не найдено');
+    const chat = chatById(victim.chat);
+    if (!isMember(chat, me.id)) return bad(res, 403, 'Это не ваш чат');
+    const canDelete = victim.uid === me.id || (chat.kind === 'group' && chat.ownerId === me.id);
+    if (!canDelete) return bad(res, 403, 'Удалять может автор или создатель чата');
     db.messages = db.messages.filter(m => m.id !== id && m.parent !== id);
+    for (const m of db.messages) if (m.quote === id) m.quote = null;
     db.seq++;
     save();
     return json(res, 200, { ok: true, usage: usage() });
@@ -397,7 +586,7 @@ async function api(req, res, pathname, query) {
       me.pub = b.keys.pub; me.wrappedPriv = b.keys.wrappedPriv;
     }
     if (b.password) {
-      const p = b.password; // { saltAuth, authKey, saltWrap, wrappedKeyByPass, oldAuthKey }
+      const p = b.password; // { saltAuth, authKey, saltWrap, wrappedKeyByPass, oldAuthKey, wrappedPriv }
       if (!p.oldAuthKey || !timingEqual(hashSecret(p.oldAuthKey, me.saltAuth), me.authHash)) {
         return bad(res, 403, 'Текущий пароль неверен');
       }
@@ -414,7 +603,7 @@ async function api(req, res, pathname, query) {
     return json(res, 200, { user: publicUser(me), wrappedPriv: me.wrappedPriv || null });
   }
 
-  // ------------------------------------------------ администратор
+  // ------------------------------------------------ администратор мессенджера
   if (pathname.startsWith('/api/admin/')) {
     if (!me.isAdmin) return bad(res, 403, 'Только для администратора');
 
@@ -441,6 +630,16 @@ async function api(req, res, pathname, query) {
         if (u.id === me.id) return bad(res, 400, 'Нельзя удалить самого себя');
         db.users = db.users.filter(x => x.id !== id);
         for (const [t, s] of Object.entries(db.sessions)) if (s.uid === id) delete db.sessions[t];
+        // выводим из всех чатов; чаты, где он был единственным, удаляем вместе с историей
+        for (const c of db.chats) {
+          c.members = c.members.filter(x => x !== id);
+          if (c.keys) delete c.keys[id];
+          if (c.ownerId === id) c.ownerId = c.members[0] || null;
+        }
+        const dead = db.chats.filter(c => !c.members.length).map(c => c.id);
+        db.chats = db.chats.filter(c => c.members.length);
+        db.messages = db.messages.filter(m => !dead.includes(m.chat));
+        db.seq++;
         saveNow();
         return json(res, 200, { ok: true });
       }
@@ -453,42 +652,21 @@ async function api(req, res, pathname, query) {
       }
     }
 
-    if (pathname === '/api/admin/archive' && method === 'POST') {
-      const b = await readBody(req);
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const file = `archive-${stamp}.json`;
-      const payload = {
-        app: 'Alt-Джентельмены',
-        format: 'encrypted-archive-v1',
-        createdAt: Date.now(),
-        note: 'Сообщения зашифрованы ключом комнаты (AES-256-GCM). Для чтения нужна кодовая фраза чата.',
-        room: { codeSalt: db.room.codeSalt },
-        users: db.users.map(u => ({ id: u.id, name: u.name, avatar: u.avatar || null })),
-        messages: db.messages
-      };
-      fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
-      fs.writeFileSync(path.join(ARCHIVE_DIR, file), JSON.stringify(payload));
-      const rec = { file, createdAt: Date.now(), count: db.messages.length, bytes: usage().bytes };
-      db.archives.push(rec);
-      if (b.reset) { db.messages = []; db.seq++; }
-      saveNow();
-      return json(res, 200, { archive: rec, usage: usage(), cleared: !!b.reset });
-    }
-
     if (pathname === '/api/admin/archives' && method === 'GET') {
       return json(res, 200, { archives: db.archives.slice().reverse() });
     }
   }
 
-  // --- скачать архив / выгрузку (доступно любому участнику: данные всё равно шифрованные)
+  // --- выгрузка своих чатов (данные всё равно зашифрованы)
   if (pathname === '/api/export' && method === 'GET') {
+    const mine = new Set(myChats(me.id).map(c => c.id));
     const payload = {
       app: 'Alt-Джентельмены',
-      format: 'encrypted-archive-v1',
+      format: 'encrypted-archive-v2',
       createdAt: Date.now(),
-      room: { codeSalt: db.room.codeSalt },
-      users: db.users.map(u => ({ id: u.id, name: u.name, avatar: u.avatar || null })),
-      messages: db.messages.filter(m => canSee(m.ch, me.id))
+      chats: myChats(me.id).map(c => publicChat(c, me.id)),
+      users: db.users.map(u => ({ id: u.id, name: u.name })),
+      messages: db.messages.filter(m => mine.has(m.chat))
     };
     const body = Buffer.from(JSON.stringify(payload));
     res.writeHead(200, {
@@ -501,14 +679,17 @@ async function api(req, res, pathname, query) {
 
   if (pathname.startsWith('/api/archives/') && method === 'GET') {
     const file = path.basename(decodeURIComponent(pathname.split('/')[3] || ''));
+    const rec = db.archives.find(a => a.file === file);
     const full = path.join(ARCHIVE_DIR, file);
-    if (!full.startsWith(ARCHIVE_DIR) || !fs.existsSync(full)) return bad(res, 404, 'Архив не найден');
-    let body = fs.readFileSync(full);
-    try { // из скачиваемой копии убираем чужие личные переписки
-      const data = JSON.parse(body.toString('utf8'));
-      data.messages = (data.messages || []).filter(m => canSee(m.ch, me.id));
-      body = Buffer.from(JSON.stringify(data));
-    } catch (e) {}
+    if (!rec || !full.startsWith(ARCHIVE_DIR) || !fs.existsSync(full)) return bad(res, 404, 'Архив не найден');
+    const chat = chatById(rec.chat);
+    // архив скачивают только те, кто состоит(ял) в этом чате
+    let allowed = isMember(chat, me.id);
+    if (!allowed) {
+      try { allowed = (JSON.parse(fs.readFileSync(full, 'utf8')).chat.members || []).includes(me.id); } catch (e) {}
+    }
+    if (!allowed) return bad(res, 403, 'Это архив чужого чата');
+    const body = fs.readFileSync(full);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Disposition': `attachment; filename="${file}"`,
@@ -570,12 +751,13 @@ server.listen(PORT, HOST, () => {
   console.log('  ║           A L T - Д Ж Е Н Т Е Л Ь М Е Н Ы    ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
-  console.log('  Чат запущен. Открывайте в браузере:');
+  console.log('  Мессенджер запущен. Открывайте в браузере:');
   console.log('    • на этом компьютере: ' + scheme + '://localhost:' + PORT);
   lan.forEach(a => console.log('    • в этой Wi-Fi сети:  ' + scheme + '://' + a + ':' + PORT));
   if (!tls) console.log('      (с телефона по сети — запустите с HTTPS=1, см. README)');
   console.log('');
-  console.log('  Память чата: лимит ' + (STORAGE_LIMIT / 1024 / 1024).toFixed(0) + ' МБ, занято ' + (usage().bytes / 1024 / 1024).toFixed(2) + ' МБ');
+  console.log('  Память: лимит ' + (STORAGE_LIMIT / 1024 / 1024).toFixed(0) + ' МБ, занято ' + (usage().bytes / 1024 / 1024).toFixed(2) + ' МБ'
+    + ' · чатов: ' + db.chats.length);
   console.log('  Данные: ' + DB_FILE);
   console.log('  Остановить: Ctrl + C');
   console.log('');
