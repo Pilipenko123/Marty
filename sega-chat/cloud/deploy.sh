@@ -20,7 +20,7 @@ TABLE="${YDB_TABLE:-sega_chat}"
 RUNTIME="${RUNTIME:-nodejs18}"
 MEMORY="${MEMORY:-256m}"
 TIMEOUT="${TIMEOUT:-30s}"
-STORAGE_LIMIT="${STORAGE_LIMIT:-26214400}"
+STORAGE_LIMIT="${STORAGE_LIMIT:-262144000}"
 
 say()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }

@@ -8,6 +8,18 @@
 <link rel="icon" href="favicon.png">
 <base href="/">
 <script>window.SEGA_BASE = ""</script>
+<script>
+/* Оформление применяем до отрисовки, чтобы не мигало светлым при перезагрузке. */
+(function () {
+  try {
+    var d = document.documentElement;
+    var t = localStorage.getItem('sega.theme');
+    if (!t && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
+    if (t === 'dark') d.dataset.theme = 'dark';
+    if (localStorage.getItem('sega.density') === 'compact') d.dataset.density = 'compact';
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -109,6 +121,10 @@
         <div class="bar"><div class="bar-fill" id="mem-fill"></div></div>
         <div class="tiny muted" id="mem-text">—</div>
         <div id="mem-warn" class="warn hidden">Память почти заполнена — пора архивировать историю.</div>
+      </div>
+      <div class="rail-appearance">
+        <button class="ghost" id="btn-theme" type="button" aria-pressed="false" title="Светлое или тёмное оформление">🌙 Тёмная</button>
+        <button class="ghost" id="btn-compact" type="button" aria-pressed="false" title="Плотность ленты сообщений">☰ Компактно</button>
       </div>
       <div class="rail-actions">
         <button class="ghost" id="btn-profile">Профиль</button>

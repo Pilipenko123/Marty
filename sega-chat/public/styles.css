@@ -288,3 +288,73 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
   .msg .bubble-wrap{max-width:86%}
   #scroll-bottom{bottom:100px;right:14px}
 }
+
+/* ═════════════════════ тёмная тема ═════════════════════
+   Включается через <html data-theme="dark"> (кнопка в левой колонке
+   или системная настройка prefers-color-scheme). Переопределяем
+   только переменные и те места, где цвета заданы явно. */
+:root[data-theme="dark"]{
+  --bg:#0f1b21;
+  --panel:#16252d;
+  --panel-2:#1b2d36;
+  --line:#263944;
+  --line-2:#20323b;
+  --text:#e6eef2;
+  --muted:#8ba0ac;
+  --accent:#4a97dd;
+  --accent-2:#2fc6f6;
+  --accent-soft:#193243;
+  --dark:#0b171d;
+  --dark-2:#12323f;
+  --own:#1d3a4d;
+  --mention:#3b3218;
+  --red:#ff6b66;
+}
+:root[data-theme="dark"] body{color:var(--text)}
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .modal-box,
+:root[data-theme="dark"] .modal-head,
+:root[data-theme="dark"] .tab.active,
+:root[data-theme="dark"] .mini{background:var(--panel);color:var(--text)}
+:root[data-theme="dark"] input[type=text],
+:root[data-theme="dark"] input[type=password],
+:root[data-theme="dark"] input[type=search],
+:root[data-theme="dark"] textarea{background:var(--panel-2);border-color:var(--line);color:var(--text)}
+:root[data-theme="dark"] .composer-row textarea,
+:root[data-theme="dark"] .rail-search input,
+:root[data-theme="dark"] .search-wrap input{background:var(--panel-2)}
+:root[data-theme="dark"] .bar{background:#0c171d}
+:root[data-theme="dark"] button.ghost:hover{background:#22343d}
+:root[data-theme="dark"] .day span{background:#22343d;color:#aebcc6}
+:root[data-theme="dark"] .bubble{box-shadow:0 1px 2px rgba(0,0,0,.35)}
+:root[data-theme="dark"] .msg.mine .who{color:#6fce93}
+:root[data-theme="dark"] .bubble .m-at{background:#1d3a4d}
+:root[data-theme="dark"] .file-btn{border-color:#3a4c57}
+:root[data-theme="dark"] .warn{color:#ffcf8f;background:#3a2c14;border-color:#5c451f}
+:root[data-theme="dark"] mark{background:#6a5410;color:#ffe9a8}
+:root[data-theme="dark"] ::selection{background:#2a4c66}
+:root[data-theme="dark"] .tag-admin{border-color:#2e5f86}
+:root[data-theme="dark"] .quote-card.gone{background:#1a2830;border-color:#33454f;color:var(--muted)}
+:root[data-theme="dark"] .toast{background:#04121a}
+
+/* кнопки переключения оформления в левой колонке */
+.rail-appearance{display:flex;gap:4px;margin-bottom:8px}
+.rail-appearance button{flex:1}
+.rail-appearance button[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
+
+/* иконка-корзина внутри инструментов сообщения */
+.tool .ic{display:block;pointer-events:none}
+.tool:has(.ic){padding:3px 6px}
+
+/* ═════════════════════ компактная лента ═════════════════════
+   Включается через <html data-density="compact"> — плотнее лента,
+   меньше отступы и аватары, чтобы больше сообщений помещалось на экран. */
+:root[data-density="compact"] #messages{padding:8px 14px 6px}
+:root[data-density="compact"] .msg{margin-bottom:3px}
+:root[data-density="compact"] .msg .head{margin-bottom:1px}
+:root[data-density="compact"] .msg .bubble-wrap{max-width:86%}
+:root[data-density="compact"] .bubble{padding:5px 10px;font-size:13px;border-radius:4px 10px 10px 10px}
+:root[data-density="compact"] .msg.mine .bubble{border-radius:10px 4px 10px 10px}
+:root[data-density="compact"] .avatar{width:28px;height:28px;font-size:12px}
+:root[data-density="compact"] .day{margin:8px 0 6px}
+:root[data-density="compact"] .meta{margin-top:2px}

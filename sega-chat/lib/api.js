@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const MB = 1024 * 1024;
 
 function createApi(store, opts = {}) {
-  const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 25 * MB);
+  const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 250 * MB);
   const SESSION_TTL = Number(opts.sessionTtl || 60 * 24 * 60 * 60 * 1000); // 60 дней
   const MAX_MEMBERS = Number(opts.maxMembers || process.env.MAX_MEMBERS || 200);
   const MAX_UPLOAD = Number(opts.maxUpload || process.env.MAX_UPLOAD || 1.8 * MB);
