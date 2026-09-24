@@ -136,12 +136,15 @@ function loadSessionRaw() {
 function clearSession() { localStorage.removeItem('altg.session'); sessionStorage.removeItem('altg.session'); }
 
 // ─────────────────────────────────────────── сеть
+// В облаке страница может жить по адресу вида https://…/<код-функции>/ —
+// тогда сервер подставляет сюда эту приставку, и запросы находят дорогу.
+const BASE = (typeof window !== 'undefined' && window.ALTG_BASE) || '';
 async function api(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   if (opts.body !== undefined && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
   if (opts.body) headers['Content-Type'] = 'application/json';
   if (S.token) headers['Authorization'] = 'Bearer ' + S.token;
-  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  const res = await fetch(BASE + path, Object.assign({}, opts, { headers }));
   if (res.status === 401 && S.token) { doLogout(true); throw new Error('Сессия истекла, войдите заново'); }
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('application/json')) {
@@ -343,25 +346,43 @@ async function prepareChats() {
 // ─────────────────────────────────────────── цикл синхронизации
 async function startApp() {
   screen('app');
-  S.seq = 0; S.messages = []; S.plain = new Map(); S.sig = '';
+  S.seq = 0; S.gen = -1; S.messages = []; S.plain = new Map(); S.sig = '';
   await sync(true);
   if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
   S.sig = ''; renderAll(); renderMessages(true);
   loop();
   if (!S.priv) toast('Войдите заново (Выйти → Вход), чтобы включить шифрование чатов', true);
 }
+// Опрашиваем сервер тем реже, чем дольше человек ничего не делает.
+// На домашнем сервере это незаметно, а в облаке заметно экономит бесплатный лимит.
+let lastTouch = Date.now();
+const noteTouch = () => { lastTouch = Date.now(); };
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+  document.addEventListener(ev, noteTouch, { passive: true });
+}
+function pollDelay() {
+  if (document.hidden) return 45000;
+  const idle = Date.now() - lastTouch;
+  if (idle < 90000) return 2500;      // человек только что что-то делал
+  if (idle < 15 * 60000) return 10000;
+  return 30000;                        // вкладка открыта, но о ней забыли
+}
 function loop() {
   clearTimeout(S.timer);
   S.timer = setTimeout(async () => {
-    if (!document.hidden && S.token) { try { await sync(); } catch (e) {} }
+    if (S.token && (!document.hidden || Date.now() - lastTouch < 60 * 60000)) {
+      try { await sync(); } catch (e) {}
+    }
     loop();
-  }, document.hidden ? 9000 : 2000);
+  }, pollDelay());
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && S.token) sync().catch(() => {}); });
-window.addEventListener('focus', () => { if (S.token) markRead(); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && S.token) { noteTouch(); sync().catch(() => {}); loop(); }
+});
+window.addEventListener('focus', () => { if (S.token) { noteTouch(); markRead(); } });
 
 async function sync(initial) {
-  const data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
+  let data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
   S.users = data.users;
   S.me = data.me;
   S.usage = data.usage;
@@ -371,13 +392,25 @@ async function sync(initial) {
     S.messages.push(...data.messages);
     S.messages.sort((a, b) => a.seq - b.seq);
     await decryptAll(data.messages);
-  } else if (data.seq !== S.seq && !initial) {
-    const full = await api('/api/sync?since=0');
-    S.messages = full.messages; S.plain = new Map();
-    S.chats = full.chats; await prepareChats();
+  } else if (data.gen !== S.gen && !initial) {
+    // что-то удалили — перечитываем историю целиком
+    S.messages = []; S.plain = new Map(); S.seq = 0;
+    data = await api('/api/sync?since=0');
+    S.messages = data.messages.slice();
+    S.chats = data.chats; await prepareChats();
     await decryptAll(S.messages);
   }
   S.seq = data.seq;
+  S.gen = data.gen;
+  // историю сервер отдаёт порциями — дочитываем остаток
+  let guard = 0;
+  while (data.more && guard++ < 50) {
+    data = await api('/api/sync?since=' + S.seq);
+    S.messages.push(...data.messages);
+    S.messages.sort((a, b) => a.seq - b.seq);
+    await decryptAll(data.messages);
+    S.seq = data.seq; S.gen = data.gen;
+  }
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
   if (!document.hidden) markRead();
@@ -443,8 +476,8 @@ function avatarHtml(user, cls, withStatus) {
   const u = user || {};
   let inner;
   if (u.avatar) {
-    const src = avatarCache.get(u.id);
-    if (src) inner = `<img class="avatar ${cls || ''}" src="${src}" alt="">`;
+    const hit = avatarCache.get(u.id);
+    if (hit && hit.rev === u.avatar) inner = `<img class="avatar ${cls || ''}" src="${hit.src}" alt="">`;
     else { decodeAvatar(u); inner = `<span class="avatar ${cls || ''}" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`; }
   } else {
     inner = `<span class="avatar ${cls || ''}" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`;
@@ -458,11 +491,19 @@ function chatAvatarHtml(c, cls) {
   return `<span class="av-wrap"><span class="avatar group ${cls || ''}" style="background:${avColor(c.id)}">${escapeHtml(initials(title))}</span></span>`;
 }
 async function decodeAvatar(user) {
-  if (avatarPending.has(user.id) || !user.avatar) return;
-  avatarPending.add(user.id);
-  try { avatarCache.set(user.id, (await decryptJSON(S.roomKey, user.avatar)).data); S.sig = ''; renderAll(); }
-  catch (e) {}
-  avatarPending.delete(user.id);
+  // user.avatar — это короткий отпечаток; сама картинка лежит отдельно,
+  // чтобы не гонять её при каждом опросе сервера
+  const tag = user.id + ':' + user.avatar;
+  if (avatarPending.has(tag) || !user.avatar) return;
+  avatarPending.add(tag);
+  try {
+    const r = await api('/api/avatar/' + encodeURIComponent(user.id));
+    if (r && r.avatar) {
+      avatarCache.set(user.id, { rev: user.avatar, src: (await decryptJSON(S.roomKey, r.avatar)).data });
+      S.sig = ''; renderAll();
+    }
+  } catch (e) {}
+  avatarPending.delete(tag);
 }
 
 // ─────────────────────────────────────────── отрисовка
@@ -1213,8 +1254,8 @@ $('#btn-profile').addEventListener('click', () => {
     const f = e.target.files[0]; if (!f) return;
     try {
       const data = await cropSquare(f, 160);
-      await api('/api/profile', { method: 'POST', body: { avatar: await encryptJSON(S.roomKey, { data }) } });
-      avatarCache.set(S.me.id, data);
+      const saved = await api('/api/profile', { method: 'POST', body: { avatar: await encryptJSON(S.roomKey, { data }) } });
+      avatarCache.set(S.me.id, { rev: saved.user.avatar, src: data });
       $('#pf-avatar').innerHTML = `<img class="avatar lg" src="${data}" alt="">`;
       S.sig = ''; await sync(); toast('Аватар обновлён');
     } catch (ex) { toast(ex.message, true); }
@@ -1311,7 +1352,7 @@ function renderAdminUsers() {
 
 // ─────────────────────────────────────────── архивы
 async function downloadArchive(file) {
-  const res = await fetch('/api/archives/' + encodeURIComponent(file), { headers: { Authorization: 'Bearer ' + S.token } });
+  const res = await fetch(BASE + '/api/archives/' + encodeURIComponent(file), { headers: { Authorization: 'Bearer ' + S.token } });
   if (!res.ok) throw new Error('Не удалось скачать архив');
   saveBlob(await res.blob(), file);
 }
@@ -1338,7 +1379,7 @@ $('#btn-export').addEventListener('click', () => {
   $('#ex-json').addEventListener('click', () => { exportJson(null); hide($('#modal')); });
   $('#ex-enc').addEventListener('click', async () => {
     try {
-      const res = await fetch('/api/export', { headers: { Authorization: 'Bearer ' + S.token } });
+      const res = await fetch(BASE + '/api/export', { headers: { Authorization: 'Bearer ' + S.token } });
       saveBlob(await res.blob(), 'alt-gentlemen-encrypted-' + new Date().toISOString().slice(0, 10) + '.json');
     } catch (ex) { toast('Не удалось выгрузить', true); }
   });

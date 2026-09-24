@@ -1,7 +1,7 @@
 // Проверка серверного API и схемы шифрования (повторяет логику браузера).
 // Запускать при поднятом сервере и на пустой базе: node test-flow.mjs
 import fs from 'node:fs';
-const B = 'http://127.0.0.1:8080';
+const B = process.env.BASE || 'http://127.0.0.1:8080';
 const subtle = globalThis.crypto.subtle;
 const getRandomValues = (a) => globalThis.crypto.getRandomValues(a);
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -98,7 +98,7 @@ const syncOf = (u, since = 0) => call('/api/sync?since=' + since + '&active=1', 
 
 // ─────────────────────────────────────────────────────────────── сценарий
 const st0 = (await call('/api/state')).d;
-if (!st0.setupRequired) { console.log('База не пустая — удалите data/db.json и перезапустите сервер.'); process.exit(1); }
+if (!st0.setupRequired) { console.log('База не пустая — очистите хранилище и перезапустите сервер.'); process.exit(1); }
 
 const admin = await createAdmin();
 const friend = await register('Джеймс', 'friend-pass-2');
@@ -165,7 +165,9 @@ let first = null;
   const texts = [];
   for (const m of s.messages.filter(m => m.chat === chat1)) texts.push((await decJ(third.k1, m.blob)).text);
   ok(texts.length === 3 && texts.some(t => t.includes('пингвин')), 'все участники чата читают его историю');
-  ok(!fs.readFileSync('./data/db.json', 'utf8').includes('пингвин'), 'в файле базы нет открытого текста');
+  const dump = process.env.DATA_FILE || './data/db.json';
+  if (fs.existsSync(dump)) ok(!fs.readFileSync(dump, 'utf8').includes('пингвин'), 'в файле базы нет открытого текста');
+  else ok(!!process.env.STORE_CHECKED_ELSEWHERE, 'содержимое хранилища проверяется снаружи (облачный режим)');
   const s2 = await syncOf(outsider);
   ok(!s2.messages.some(m => m.chat === chat1), 'посторонний не получает сообщений чужого чата');
 }
@@ -324,5 +326,30 @@ let quoteMsg = null;
   ok((await call('/api/invite', { method: 'POST', body: { codeProof: hex(await pbkdf2(CODE, st2.codeProofSalt)) } })).status === 403, 'старая фраза больше не работает');
   const u = (await syncOf(admin)).usage;
   ok(u.bytes >= 0 && u.limit > 0, `шкала памяти: ${u.percent}% (${u.bytes} Б из ${u.limit})`);
+}
+// ── аватар: клиенту уходит только отпечаток, картинка скачивается отдельно
+{
+  const roomKey = await importAes(admin.roomRaw);
+  const pic = 'data:image/png;base64,' + 'A'.repeat(4000);
+  const saved = await call('/api/profile', { method: 'POST', body: { avatar: await encJ(roomKey, { data: pic }) } }, admin.token);
+  ok(saved.status === 200, 'аватар сохранён');
+  const rev = saved.d.user.avatar;
+  ok(typeof rev === 'string' && rev.length <= 16, 'в списке участников вместо картинки короткий отпечаток');
+  const inSync = (await syncOf(friend)).users.find(u => u.id === admin.id);
+  ok(inSync.avatar === rev && inSync.avatar.length <= 16, 'опрос сервера не тащит картинку с собой');
+  const got = await call('/api/avatar/' + admin.id, {}, friend.token);
+  ok(got.status === 200 && (await decJ(roomKey, got.d.avatar)).data === pic, 'аватар скачивается отдельным запросом и расшифровывается');
+  ok((await call('/api/avatar/' + admin.id, {})).status === 401, 'чужому без входа аватар не отдают');
+  const u2 = (await syncOf(admin)).usage;
+  ok(u2.bytes > 4000, 'аватар учтён в шкале памяти');
+}
+
+// ── история отдаётся порциями
+{
+  const before = await syncOf(admin);
+  const page = await call('/api/sync?since=0', {}, admin.token);
+  ok(page.d.messages.length === before.messages.length && page.d.more === false,
+    `история целиком помещается в один ответ (${page.d.messages.length} шт.)`);
+  ok(typeof page.d.gen === 'number', 'сервер сообщает «поколение» базы для перечитывания после удалений');
 }
 console.log('\nГотово.');

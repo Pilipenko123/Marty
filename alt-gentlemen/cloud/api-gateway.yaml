@@ -1,0 +1,50 @@
+## Необязательный шаг: красивый адрес вместо functions.yandexcloud.net/<длинный код>.
+##
+## Мессенджер прекрасно работает и без этого файла. API-шлюз нужен, только если
+## хочется адрес вида https://d5dxxxxxxxxx.apigw.yandexcloud.net/ — короче и опрятнее.
+##
+## Важно про деньги: у функций бесплатны первые 1 000 000 вызовов в месяц,
+## а у шлюза — только первые 100 000. Для компании друзей этого обычно хватает,
+## но если переписка очень живая, дешевле остаться на прямом адресе функции.
+##
+## Как применить:
+##   1. Подставьте вместо ВАШ_ID_ФУНКЦИИ и ВАШ_ID_УЧЁТНОЙ_ЗАПИСИ значения,
+##      которые напечатал скрипт cloud/deploy.sh.
+##   2. yc serverless api-gateway create --name alt-gentlemen --spec=cloud/api-gateway.yaml
+##   3. Адрес шлюза: yc serverless api-gateway get alt-gentlemen --format json
+
+openapi: 3.0.0
+info:
+  title: Alt-Джентельмены
+  version: 1.0.0
+
+x-yc-apigateway:
+  cors:
+    origin: '*'
+    methods: '*'
+    allowedHeaders: '*'
+
+paths:
+  /:
+    x-yc-apigateway-any-method:
+      summary: Страница мессенджера
+      x-yc-apigateway-integration:
+        type: cloud_functions
+        function_id: ВАШ_ID_ФУНКЦИИ
+        tag: $latest
+        service_account_id: ВАШ_ID_УЧЁТНОЙ_ЗАПИСИ
+
+  /{proxy+}:
+    x-yc-apigateway-any-method:
+      summary: Всё остальное — страница, оформление и запросы чата
+      parameters:
+        - name: proxy
+          in: path
+          required: false
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: cloud_functions
+        function_id: ВАШ_ID_ФУНКЦИИ
+        tag: $latest
+        service_account_id: ВАШ_ID_УЧЁТНОЙ_ЗАПИСИ
