@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#2353A2">
+<title>SEGA-CHAT</title>
+<link rel="icon" href="favicon.png">
+<base href="/">
+<script>window.SEGA_BASE = ""</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ───────────────────────────── загрузка ───────────────────────────── -->
+<div id="screen-loading" class="screen center">
+  <div class="brand">
+    <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
+    <p class="muted">Соединяемся…</p>
+  </div>
+</div>
+
+<!-- ───────────────────────── первичная настройка ────────────────────── -->
+<div id="screen-setup" class="screen center hidden">
+  <form class="card" id="form-setup" autocomplete="off">
+    <div class="brand">
+      <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
+      <p class="muted">Первый запуск. Вы становитесь администратором мессенджера.</p>
+    </div>
+    <label>Ваше имя
+      <input name="name" type="text" placeholder="Например, Мартин" required minlength="2" maxlength="32" autocomplete="username">
+    </label>
+    <label>Ваш пароль
+      <input name="pass" type="password" placeholder="минимум 6 символов" required minlength="6" autocomplete="new-password">
+    </label>
+    <label>Повторите пароль
+      <input name="pass2" type="password" required minlength="6" autocomplete="new-password">
+    </label>
+    <div class="divider"><span>Кодовая фраза</span></div>
+    <p class="hint">Общий «ключ от двери»: вы придумываете его и передаёте друзьям. Без него нельзя зарегистрироваться в мессенджере.</p>
+    <label>Кодовая фраза
+      <input name="code" type="text" placeholder="например: cigar-club-1894" required minlength="6" autocomplete="off">
+    </label>
+    <label>Повторите кодовую фразу
+      <input name="code2" type="text" required minlength="6" autocomplete="off">
+    </label>
+    <div class="err" id="setup-err"></div>
+    <button class="primary" type="submit">Создать мессенджер</button>
+  </form>
+</div>
+
+<!-- ───────────────────────────── вход/регистрация ───────────────────── -->
+<div id="screen-auth" class="screen center hidden">
+  <div class="card">
+    <div class="brand">
+      <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
+      <p class="muted">Закрытый мессенджер. Только для своих.</p>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="login">Вход</button>
+      <button class="tab" data-tab="register">Регистрация</button>
+    </div>
+    <form id="form-login" autocomplete="on">
+      <label>Имя<input name="name" type="text" required autocomplete="username"></label>
+      <label>Пароль<input name="pass" type="password" required autocomplete="current-password"></label>
+      <label class="row-check"><input type="checkbox" name="remember" checked> <span>Запомнить меня на этом устройстве</span></label>
+      <div class="err" id="login-err"></div>
+      <button class="primary" type="submit">Войти</button>
+    </form>
+    <form id="form-register" class="hidden" autocomplete="off">
+      <label>Кодовая фраза<input name="code" type="text" required placeholder="выдаёт администратор" autocomplete="off"></label>
+      <label>Придумайте имя<input name="name" type="text" required minlength="2" maxlength="32" autocomplete="username"></label>
+      <label>Придумайте пароль<input name="pass" type="password" required minlength="6" placeholder="минимум 6 символов" autocomplete="new-password"></label>
+      <label>Повторите пароль<input name="pass2" type="password" required minlength="6" autocomplete="new-password"></label>
+      <label class="row-check"><input type="checkbox" name="remember" checked> <span>Запомнить меня на этом устройстве</span></label>
+      <div class="err" id="reg-err"></div>
+      <button class="primary" type="submit">Присоединиться</button>
+    </form>
+  </div>
+</div>
+
+<!-- ───────────────────────────── мессенджер ─────────────────────────── -->
+<div id="screen-app" class="screen hidden">
+
+  <!-- левая колонка: список чатов -->
+  <aside id="rail">
+    <div class="rail-brand"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></div>
+    <div class="rail-top">
+      <div class="me" id="me-box">
+        <span id="me-avatar"></span>
+        <div class="me-info">
+          <div class="me-name" id="me-name"></div>
+          <div class="me-sub" id="me-sub">в сети</div>
+        </div>
+      </div>
+      <button class="icon only-mobile" id="btn-close-rail" title="Закрыть">✕</button>
+    </div>
+
+    <div class="rail-search">
+      <input id="chat-filter" type="search" placeholder="Найти чат или участника…" autocomplete="off">
+      <button class="new-chat" id="btn-new-chat" title="Создать групповой чат">＋ Новый чат</button>
+    </div>
+
+    <div class="rail-list" id="chat-list"></div>
+
+    <div class="rail-bottom">
+      <div class="memory">
+        <div class="memory-top"><span>Память сервера</span><span id="mem-pct">0%</span></div>
+        <div class="bar"><div class="bar-fill" id="mem-fill"></div></div>
+        <div class="tiny muted" id="mem-text">—</div>
+        <div id="mem-warn" class="warn hidden">Память почти заполнена — пора архивировать историю.</div>
+      </div>
+      <div class="rail-actions">
+        <button class="ghost" id="btn-profile">Профиль</button>
+        <button class="ghost hidden" id="btn-admin">Управление</button>
+        <button class="ghost" id="btn-export">Архивы</button>
+        <button class="ghost danger" id="btn-logout">Выйти</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- центр: лента сообщений -->
+  <main id="main">
+    <header id="topbar">
+      <button class="icon only-mobile" id="btn-open-rail" title="Чаты"><span id="rail-badge" class="badge-dot hidden"></span>☰</button>
+      <span id="chat-avatar"></span>
+      <div class="top-title">
+        <h2 id="chat-title">SEGA-CHAT</h2>
+        <div class="tiny muted" id="chat-sub"></div>
+      </div>
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="Поиск по всем чатам…" autocomplete="off">
+        <button class="icon" id="btn-search-clear" title="Очистить">✕</button>
+      </div>
+      <button class="icon" id="btn-members" title="Участники чата">👥</button>
+      <button class="icon" id="btn-chat-menu" title="Действия с чатом">⋯</button>
+    </header>
+
+    <div id="search-results" class="hidden"></div>
+    <div id="messages"></div>
+    <div id="scroll-bottom" class="hidden" title="Вниз">↓</div>
+
+    <footer id="composer">
+      <div id="quote-bar" class="hidden">
+        <div class="qb-line"></div>
+        <div class="qb-text"><b id="quote-who"></b><span id="quote-preview"></span></div>
+        <button class="icon" id="quote-cancel" title="Не ссылаться">✕</button>
+      </div>
+      <div id="attach-preview" class="hidden"><img id="attach-img" alt=""><button class="icon" id="attach-remove">✕</button></div>
+      <div class="composer-row">
+        <label class="icon attach" title="Прикрепить картинку">
+          <input type="file" id="file-input" accept="image/*" hidden>📎
+        </label>
+        <div class="input-wrap">
+          <div id="mention-pop" class="hidden"></div>
+          <textarea id="input" rows="1" placeholder="Написать сообщение…" maxlength="4000"></textarea>
+        </div>
+        <button class="send" id="btn-send" title="Отправить">➤</button>
+      </div>
+    </footer>
+  </main>
+
+  <!-- правая панель: комментарии внутри сообщения -->
+  <section id="thread" class="hidden">
+    <header class="thread-head">
+      <div><h3>Комментарии</h3><div class="tiny muted" id="thread-sub"></div></div>
+      <button class="icon" id="thread-close" title="Закрыть">✕</button>
+    </header>
+    <div id="thread-body"></div>
+    <footer id="thread-composer">
+      <div class="composer-row">
+        <label class="icon attach" title="Прикрепить картинку">
+          <input type="file" id="thread-file" accept="image/*" hidden>📎
+        </label>
+        <div class="input-wrap">
+          <div id="thread-mention-pop" class="hidden"></div>
+          <textarea id="thread-input" rows="1" placeholder="Комментировать…" maxlength="4000"></textarea>
+        </div>
+        <button class="send" id="thread-send" title="Отправить">➤</button>
+      </div>
+      <div id="thread-attach" class="hidden"><img id="thread-attach-img" alt=""><button class="icon" id="thread-attach-remove">✕</button></div>
+    </footer>
+  </section>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="icon" id="modal-close">✕</button></div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

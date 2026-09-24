@@ -1,0 +1,13 @@
+{
+  "name": "sega-chat",
+  "version": "3.0.0",
+  "description": "Приватный мессенджер со сквозным шифрованием: на своём компьютере или в Yandex Cloud",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/run-all.mjs && node test/test-cluster.mjs"
+  },
+  "engines": { "node": ">=16" },
+  "dependencies": {}
+}
