@@ -19,7 +19,7 @@ function createApi(store, opts = {}) {
   const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 250 * MB);
   const SESSION_TTL = Number(opts.sessionTtl || 60 * 24 * 60 * 60 * 1000); // 60 дней
   const MAX_MEMBERS = Number(opts.maxMembers || process.env.MAX_MEMBERS || 200);
-  const MAX_UPLOAD = Number(opts.maxUpload || process.env.MAX_UPLOAD || 1.8 * MB);
+  const MAX_UPLOAD = Number(opts.maxUpload || process.env.MAX_UPLOAD || 3.1 * MB);
   const SYNC_MAX_COUNT = Number(opts.syncMaxCount || 400);
   const SYNC_MAX_BYTES = Number(opts.syncMaxBytes || process.env.SYNC_MAX_BYTES || 1.2 * MB);
 
@@ -467,7 +467,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/messages' && method === 'POST') {
       const b = req.body;
       if (!b.blob || typeof b.blob !== 'string') return E(400, 'Пустое сообщение');
-      if (b.blob.length > MAX_UPLOAD) return E(413, 'Вложение слишком большое, попробуйте файл поменьше');
+      if (b.blob.length > MAX_UPLOAD) return E(413, 'Вложение слишком большое после шифрования, попробуйте фото поменьше');
       const u = usage();
       if (u.bytes + b.blob.length > STORAGE_LIMIT) {
         return E(507, 'Память чата заполнена. Заархивируйте историю, чтобы продолжить.');

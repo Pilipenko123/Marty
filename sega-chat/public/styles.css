@@ -85,7 +85,7 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 .av-wrap .status{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:#c4ced6;
   border:2px solid #fff;box-sizing:content-box}
 .av-wrap .status.on{background:var(--green)}
-.avatar.sm{width:26px;height:26px;font-size:11px}
+.avatar.sm{width:24px;height:24px;font-size:10.5px}
 .avatar.xs{width:20px;height:20px;font-size:9px}
 .avatar.lg{width:64px;height:64px;font-size:22px}
 
@@ -149,16 +149,20 @@ button.ghost.danger{color:var(--red)}
 .search-wrap{display:flex;align-items:center;gap:2px;margin-left:auto;max-width:330px;flex:1}
 .search-wrap input{margin:0;background:var(--panel-2);padding:7px 11px;font-size:13px}
 
-#messages{flex:1;overflow-y:auto;padding:16px 18px 10px;scroll-behavior:smooth}
-.day{display:flex;justify-content:center;margin:14px 0 12px}
+#messages{flex:1;overflow-y:auto;padding:12px 18px 8px;scroll-behavior:smooth}
+.day{display:flex;justify-content:center;margin:10px 0 8px}
 .day span{background:#dde6ec;color:#5e6e7a;font-size:11.5px;border-radius:99px;padding:3px 12px}
-.msg{display:flex;gap:10px;margin:0 auto 10px;max-width:900px;position:relative}
-.msg .bubble-wrap{min-width:0;max-width:78%}
-.msg .head{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
-.msg .who{font-size:13px;font-weight:600;color:var(--accent)}
-.msg .time{font-size:11px;color:var(--muted)}
-.bubble{background:var(--panel);border-radius:4px 12px 12px 12px;padding:9px 12px;box-shadow:0 1px 2px rgba(20,50,70,.09);
-  word-wrap:break-word;overflow-wrap:anywhere;white-space:pre-wrap;font-size:14px;position:relative}
+.msg{display:flex;gap:8px;margin:0 auto 7px;max-width:900px;position:relative}
+.msg.continues{margin-bottom:3px}
+.msg.grouped{margin-top:-1px}
+.msg.grouped>.av-wrap{visibility:hidden}
+.msg .bubble-wrap{min-width:0;max-width:min(86%,760px);display:flex;flex-direction:column;align-items:flex-start}
+.msg.mine .bubble-wrap{align-items:flex-end}
+.msg .head{display:flex;align-items:baseline;gap:6px;margin-bottom:1px;line-height:1.12}
+.msg .who{font-size:12.5px;font-weight:600;color:var(--accent)}
+.msg .time{font-size:10.5px;color:var(--muted)}
+.bubble{background:var(--panel);border-radius:4px 12px 12px 12px;padding:6px 10px;box-shadow:0 1px 2px rgba(20,50,70,.09);
+  word-wrap:break-word;overflow-wrap:anywhere;font-size:14px;line-height:1.32;position:relative;display:inline-block;max-width:100%}
 .msg.mine{flex-direction:row-reverse}
 .msg.mine .head{flex-direction:row-reverse}
 .msg.mine .bubble{background:var(--own);border-radius:12px 4px 12px 12px}
@@ -178,19 +182,19 @@ button.ghost.danger{color:var(--red)}
 #quote-bar b{color:var(--accent)}
 .bubble a{color:var(--accent)}
 .bubble .m-at{color:var(--accent);background:#e6f2fd;border-radius:4px;padding:0 3px;font-weight:600}
-.bubble img.att{max-width:min(320px,60vw);border-radius:8px;margin-top:6px;display:block;cursor:zoom-in}
+.bubble img.att{max-width:min(360px,70vw);border-radius:8px;margin-top:5px;display:block;cursor:zoom-in}
 .msg .tools{display:flex;gap:2px;align-self:center;opacity:0;transition:opacity .12s}
 .msg:hover .tools{opacity:1}
 .tool{font-size:11.5px;color:var(--muted);padding:3px 7px;border-radius:6px;background:var(--panel)}
 .tool:hover{color:var(--accent);box-shadow:0 1px 3px rgba(20,50,70,.14)}
-.meta{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+.meta{display:inline-flex;align-items:center;gap:5px;margin-top:2px;font-size:10.8px;color:var(--muted);flex-wrap:wrap}
 .msg.mine .meta{justify-content:flex-end}
 .readers{display:flex;align-items:center}
 .readers .avatar{margin-left:-6px;border:2px solid var(--bg);box-sizing:content-box}
 .readers .avatar:first-child{margin-left:0}
 .check{color:var(--accent);font-size:12px}
-.thread-btn{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
-  border-radius:99px;padding:3px 10px;font-size:12px;color:var(--accent);cursor:pointer;margin-top:5px}
+.thread-btn{display:inline-flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--line);
+  border-radius:99px;padding:2px 8px;font-size:11px;color:var(--accent);cursor:pointer}
 .thread-btn:hover{background:var(--accent-soft)}
 .thread-btn .dot-new{width:7px;height:7px;border-radius:50%;background:var(--red)}
 .sys{text-align:center;color:var(--muted);font-size:13px;padding:30px 10px}
@@ -341,6 +345,20 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 .rail-appearance{display:flex;gap:4px;margin-bottom:8px}
 .rail-appearance button{flex:1}
 .rail-appearance button[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
+
+.notify-toggle{display:flex;align-items:center;gap:8px;margin:0 0 8px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:9px;padding:8px 10px;color:var(--text);font-size:12.5px;cursor:pointer;user-select:none}
+.notify-toggle input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.menu-switch{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:10px 0 0;color:var(--text)}
+.mute-mark{font-size:11px;margin-left:5px;opacity:.65;vertical-align:1px}
+
+.emoji-pop{position:fixed;z-index:85;width:286px;max-width:calc(100vw - 16px);background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 18px 50px rgba(20,50,70,.24);padding:8px;display:grid;grid-template-columns:repeat(8,1fr);gap:3px}
+.emoji-pop button{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:19px}
+.emoji-pop button:hover{background:var(--accent-soft)}
+.composer-row label.icon{width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;
+  color:var(--muted);flex:none;transition:background .15s,color .15s;position:relative;margin:0;padding:0}
+.composer-row label.icon:hover,.composer-row button.emoji-btn:hover{background:var(--line-2);color:var(--text)}
 
 /* иконка-корзина внутри инструментов сообщения */
 .tool .ic{display:block;pointer-events:none}
