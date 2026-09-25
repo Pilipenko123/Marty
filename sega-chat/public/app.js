@@ -692,7 +692,7 @@ function renderAll() {
   if (!S.me) return;
   const sig = JSON.stringify([
     S.seq, S.messages.length, S.view, S.threadId, S.quote, S.highlight, S.usage.bytes, S.railFilter,
-    S.chats.map(c => [c.id, c.members.length, chatTitle(c), c.lastTs]),
+    S.chats.map(c => [c.id, c.members.length, chatTitle(c), c.lastTs, c.archivedByName, c.archivedAt]),
     S.users.map(u => [u.id, u.name, u.isAdmin, !!u.avatar, isOnline(u), u.reads])
   ]);
   if (sig === S.sig) return;
@@ -878,6 +878,19 @@ function messageHtml(m, opts = {}) {
   </div>`;
 }
 
+function archiveBannerHtml(c) {
+  if (!c || !c.archivedByName) return '';
+  const dateStr = c.archivedAt ? `${fmtDay(c.archivedAt)}, ${fmtTime(c.archivedAt)}` : '';
+  const countStr = (c.archivedCount !== null && c.archivedCount !== undefined)
+    ? ` · удалено ${plural(c.archivedCount, 'сообщение', 'сообщения', 'сообщений')}`
+    : '';
+  const sub = (dateStr || countStr) ? `<div class="archive-banner-sub tiny muted">${dateStr}${countStr}</div>` : '';
+  return `<div class="archive-banner">
+    <div class="archive-banner-title">Пользователь <b>${escapeHtml(c.archivedByName)}</b> заархивировал(а) этот чат. История удалена из облака.</div>
+    ${sub}
+  </div>`;
+}
+
 function renderMessages(force) {
   const box = $('#messages');
   if (!S.view) {
@@ -895,14 +908,16 @@ function renderMessages(force) {
   const list = S.messages.filter(m => m.chat === S.view && !m.parent);
   const prevTop = box.scrollTop, prevHeight = box.scrollHeight;
   const nearBottom = prevHeight - prevTop - box.clientHeight < 160;
+  const c = curChat();
+  const banner = archiveBannerHtml(c);
   if (!list.length) {
-    const c = curChat();
-    box.innerHTML = `<div class="sys">${c && c.kind === 'dm'
+    const emptyHint = `<div class="sys">${c && c.kind === 'dm'
       ? 'Личная переписка. Никто, кроме вас двоих, её не увидит.'
       : 'Сообщений пока нет. Напишите первое 👋'}</div>`;
+    box.innerHTML = banner ? (banner + emptyHint) : emptyHint;
     return;
   }
-  let html = '', lastDay = '';
+  let html = banner, lastDay = '';
   for (let i = 0; i < list.length; i++) {
     const m = list[i];
     const day = new Date(m.ts).toDateString();
@@ -1164,6 +1179,23 @@ $('#btn-chat-menu').addEventListener('click', async () => {
   let archives = [];
   try { archives = (await api('/api/chats/' + c.id + '/archives')).archives; } catch (e) {}
   const owner = isOwner(c);
+
+  let managementHtml = '';
+  if (c.kind === 'group') {
+    managementHtml = `
+      <div class="divider"><span>Управление чатом</span></div>
+      ${owner ? `<label>Название чата<input type="text" id="cm-title" value="${escapeHtml(chatTitle(c))}" maxlength="60"></label>
+        <button class="primary soft" id="cm-rename">Переименовать</button>
+        <button class="primary soft" id="cm-archive" style="margin-top:8px">Заархивировать на сервере и очистить чат</button>` : ''}
+      <button class="primary soft danger" id="cm-leave" style="margin-top:8px">Покинуть чат</button>
+    `;
+  } else if (c.kind === 'dm') {
+    managementHtml = `
+      <div class="divider"><span>Управление перепиской</span></div>
+      <button class="primary soft" id="cm-archive">Заархивировать на сервере и очистить чат</button>
+    `;
+  }
+
   modal('Чат «' + chatTitle(c) + '»', `
     <div class="tiny muted">${plural(c.count, 'сообщение', 'сообщения', 'сообщений')} · ${fmtBytes(c.bytes)}</div>
     <label class="row-check menu-switch"><input type="checkbox" id="cm-mute" ${isChatMuted(c.id) ? 'checked' : ''}> <span>Без звука для этого чата</span></label>
@@ -1171,12 +1203,7 @@ $('#btn-chat-menu').addEventListener('click', async () => {
     <p class="hint">Копия скачивается на ваше устройство в расшифрованном виде. Это может сделать любой участник чата.</p>
     <button class="primary" id="cm-html">Читаемая копия (HTML)</button>
     <button class="primary soft" id="cm-json">Читаемая копия (JSON)</button>
-    ${c.kind === 'group' ? `
-      <div class="divider"><span>Управление чатом</span></div>
-      ${owner ? `<label>Название чата<input type="text" id="cm-title" value="${escapeHtml(chatTitle(c))}" maxlength="60"></label>
-        <button class="primary soft" id="cm-rename">Переименовать</button>
-        <button class="primary soft" id="cm-archive" style="margin-top:8px">Заархивировать на сервере и очистить чат</button>`
-      : `<button class="primary soft danger" id="cm-leave">Покинуть чат</button>`}` : ''}
+    ${managementHtml}
     ${archives.length ? `<div class="divider"><span>Архивы на сервере</span></div>` + archives.map(a => `
       <div class="archive-row"><span style="flex:1">${new Date(a.createdAt).toLocaleString('ru-RU')} · ${a.count} сообщ. · ${fmtBytes(a.bytes)}</span>
       <button class="mini" data-arch="${a.file}">скачать</button></div>`).join('') : ''}`);
@@ -1201,17 +1228,23 @@ $('#btn-chat-menu').addEventListener('click', async () => {
   });
   const arch = $('#cm-archive');
   if (arch) arch.addEventListener('click', async () => {
-    if (!confirm('Сохранить архив чата на сервере и очистить переписку? Сначала лучше скачать читаемую копию.')) return;
+    const confirmMsg = c.kind === 'dm'
+      ? 'Сохранить архив переписки на сервере и очистить историю в облаке? Сначала лучше скачать читаемую копию.'
+      : 'Сохранить архив чата на сервере и очистить переписку? Сначала лучше скачать читаемую копию.';
+    if (!confirm(confirmMsg)) return;
     try {
       const r = await api('/api/chats/' + c.id + '/archive', { method: 'POST', body: { reset: true } });
       try { await downloadArchive(r.archive.file); }
       catch (e) { toast('Архив на сервере сохранён, но скачать не удалось: ' + e.message, true); }
-      hide($('#modal')); S.sig = ''; await sync(); toast('Архив создан, чат очищен');
+      hide($('#modal')); S.sig = ''; await sync(); renderMessages(true); toast('Архив создан, чат очищен');
     } catch (ex) { toast(ex.message, true); }
   });
   const leave = $('#cm-leave');
   if (leave) leave.addEventListener('click', async () => {
-    if (!confirm('Покинуть чат? Вы перестанете видеть его сообщения.')) return;
+    const confirmLeave = (owner && c.members.length > 1)
+      ? 'Покинуть чат? Вы перестанете видеть его сообщения, а права создателя перейдут другому участнику.'
+      : 'Покинуть чат? Вы перестанете видеть его сообщения.';
+    if (!confirm(confirmLeave)) return;
     try {
       await api('/api/chats/' + c.id + '/leave', { method: 'POST', body: {} });
       hide($('#modal')); S.view = null; S.sig = ''; await sync(); renderMessages(true); toast('Вы покинули чат');

@@ -89,7 +89,11 @@ function createApi(store, opts = {}) {
       id: c.id, kind: c.kind, titleBlob: c.titleBlob || null, titlePlain: c.titlePlain || null,
       legacyRoomKey: !!c.legacyRoomKey, ownerId: c.ownerId || null, members: c.members,
       createdAt: c.createdAt, key: (c.keys && c.keys[meId]) || null,
-      count: st.n, bytes: st.b, lastTs: st.t || c.createdAt || 0
+      count: st.n, bytes: st.b, lastTs: st.t || c.createdAt || 0,
+      archivedByName: c.archivedByName || (c.lastArchive ? c.lastArchive.byName : null) || null,
+      archivedAt: c.archivedAt || (c.lastArchive ? (c.lastArchive.at || c.lastArchive.createdAt) : null) || null,
+      archivedCount: c.archivedCount !== undefined ? c.archivedCount : (c.lastArchive ? c.lastArchive.count : null),
+      lastArchive: c.lastArchive || null
     };
   }
 
@@ -406,10 +410,13 @@ function createApi(store, opts = {}) {
 
       if (action === 'leave' && method === 'POST') {
         if (chat.kind !== 'group') return E(400, 'Из личной переписки выйти нельзя');
-        if (isOwner && chat.members.length > 1) return E(400, 'Сначала передайте чат другому участнику или исключите всех');
         chat.members = chat.members.filter(x => x !== me.id);
-        delete chat.keys[me.id];
-        if (!chat.members.length) {
+        if (chat.keys) delete chat.keys[me.id];
+        if (chat.members.length > 0) {
+          if (chat.ownerId === me.id) {
+            chat.ownerId = chat.members[0];
+          }
+        } else {
           db.chats = db.chats.filter(c => c.id !== chat.id);
           dropChat(chat.id);
         }
@@ -428,7 +435,7 @@ function createApi(store, opts = {}) {
 
       if (action === 'archive' && method === 'POST') {
         if (chat.kind === 'group' && !isOwner) return E(403, 'Архивировать чат может создатель');
-        const b = req.body;
+        const b = req.body || {};
         await store.loadChats([chat.id]);
         const msgs = db.messages.filter(m => m.chat === chat.id);
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -449,13 +456,23 @@ function createApi(store, opts = {}) {
         }
         const rec = { file, createdAt: Date.now(), count: msgs.length, bytes: msgs.reduce((a, m) => a + (m.bytes || 0), 0), chat: chat.id };
         db.archives.push(rec);
-        if (b.reset) {
-          dropChat(chat.id);
-          db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt || Date.now() };
-          db.seq++;
-        }
+        dropChat(chat.id);
+        db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt || Date.now() };
+        db.seq++;
+
+        chat.archivedByName = me.name;
+        chat.archivedAt = rec.createdAt;
+        chat.archivedCount = rec.count;
+        chat.lastArchive = {
+          file,
+          createdAt: rec.createdAt,
+          count: rec.count,
+          bytes: rec.bytes,
+          byName: me.name,
+          byId: me.id
+        };
         save();
-        return J(200, { archive: rec, usage: usage(), cleared: !!b.reset });
+        return J(200, { archive: rec, usage: usage(), cleared: true, chat: publicChat(chat, me.id) });
       }
 
       if (action === 'archives' && method === 'GET') {

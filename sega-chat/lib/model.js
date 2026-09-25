@@ -15,7 +15,8 @@ function emptyDb() {
     room: null,     // { codeProofSalt, codeProofHash, codeSalt, wrappedKeyByCode, rotatedAt }
     users: [],      // { id, name, nameLower, isAdmin, saltAuth, authHash, saltWrap, wrappedKeyByPass,
                     //   pub, wrappedPriv, avatar, avatarRev, avatarLen, reads, lastSeen, activeAt }
-    chats: [],      // { id, kind:'group'|'dm', titleBlob, ownerId, members:[uid], keys:{uid:{by,blob}}, createdAt }
+    chats: [],      // { id, kind:'group'|'dm', titleBlob, ownerId, members:[uid], keys:{uid:{by,blob}}, createdAt,
+                    //   archivedByName, archivedAt, archivedCount, lastArchive }
     messages: [],   // { id, seq, uid, ts, blob, bytes, chat, parent, quote }
     sessions: {},   // token -> { uid, exp }
     archives: [],   // { file, createdAt, count, bytes, chat }
