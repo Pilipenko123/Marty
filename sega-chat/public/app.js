@@ -13,6 +13,11 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 const ITER = 150000;
 const ONLINE_MS = 65000;
+const MB = 1024 * 1024;
+const DEFAULT_MAX_UPLOAD = 3.1 * MB;
+const UPLOAD_PLAIN_HEADROOM = 0.70; // AES-GCM + base64 + JSON должны уложиться в лимит Cloud Functions
+const GROUP_GAP_MS = 5 * 60 * 1000;
+const EMOJIS = '😀 😃 😄 😁 😆 😊 🙂 😉 😍 🥰 😘 😎 🤔 😅 😂 🤣 🙃 😇 😌 😍 😜 🤗 🤝 👍 👎 👌 🙌 👏 🤞 💪 🙏 ❤️ 🧡 💛 💚 💙 💜 🤍 🔥 ✨ 🎉 ✅ ☕ 🍻 🥂 🍷 🎲 🚀 📌'.split(' ');
 
 function toast(msg, isErr) {
   const t = $('#toast');
@@ -97,13 +102,14 @@ const importPriv = pkcs8 => subtle.importKey('pkcs8', pkcs8, EC, true, ['deriveK
 const S = {
   token: null, me: null, roomKey: null, roomKeyRaw: null, priv: null, privRaw: null, pub: null,
   saltAuth: null, saltWrap: null,
-  users: [], chats: [], messages: [], plain: new Map(),
+  users: [], chats: [], messages: [], messageIds: new Set(), plain: new Map(),
   pairKeys: new Map(),   // userId -> CryptoKey
   chatKeys: new Map(),   // chatId -> { key, raw }
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {},
-  seq: 0, usage: { bytes: 0, limit: 1, percent: 0, messages: 0 },
+  seq: 0, usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
   attach: null, threadAttach: null, remember: true, timer: null, atBottom: true,
+  notify: { sound: true, muted: {}, desktop: false },
   sig: '', railFilter: ''
 };
 
@@ -136,6 +142,36 @@ function loadSessionRaw() {
   return null;
 }
 function clearSession() { localStorage.removeItem('sega.session'); sessionStorage.removeItem('sega.session'); }
+
+function loadNotifySettings() {
+  try {
+    const raw = localStorage.getItem('sega.notify');
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    S.notify = {
+      sound: saved.sound !== false,
+      muted: saved.muted && typeof saved.muted === 'object' ? saved.muted : {},
+      desktop: !!saved.desktop
+    };
+  } catch (e) {}
+}
+function saveNotifySettings() {
+  try { localStorage.setItem('sega.notify', JSON.stringify(S.notify)); } catch (e) {}
+}
+function isChatMuted(chatId) { return !!(chatId && S.notify && S.notify.muted && S.notify.muted[chatId]); }
+function setChatMuted(chatId, muted) {
+  if (!chatId) return;
+  if (muted) S.notify.muted[chatId] = true;
+  else delete S.notify.muted[chatId];
+  saveNotifySettings();
+}
+function renderNotifyControls() {
+  const box = $('#notify-sound');
+  if (!box) return;
+  box.checked = S.notify.sound !== false;
+  box.setAttribute('aria-checked', String(box.checked));
+}
+loadNotifySettings();
 
 // ─────────────────────────────────────────── сеть
 // В облаке страница может жить по адресу вида https://…/<код-функции>/ —
@@ -173,6 +209,7 @@ async function boot() {
   }
   let st;
   try { st = await api('/api/state'); } catch (e) { toast('Сервер недоступен: ' + e.message, true); return; }
+  S.maxUpload = Number(st.maxUpload || DEFAULT_MAX_UPLOAD);
   if (st.setupRequired) return screen('setup');
 
   const sess = loadSessionRaw();
@@ -293,7 +330,7 @@ function doLogout(silent) {
   clearSession();
   Object.assign(S, {
     token: null, me: null, roomKey: null, roomKeyRaw: null, priv: null, privRaw: null,
-    messages: [], chats: [], plain: new Map(), pairKeys: new Map(), chatKeys: new Map(), chatTitles: new Map(),
+    messages: [], messageIds: new Set(), chats: [], plain: new Map(), pairKeys: new Map(), chatKeys: new Map(), chatTitles: new Map(),
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -348,7 +385,8 @@ async function prepareChats() {
 // ─────────────────────────────────────────── цикл синхронизации
 async function startApp() {
   screen('app');
-  S.seq = 0; S.gen = -1; S.messages = []; S.plain = new Map(); S.sig = '';
+  S.seq = 0; S.gen = -1; S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
+  syncPromise = null; syncQueued = false;
   await sync(true);
   if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
   S.sig = ''; renderAll(); renderMessages(true);
@@ -358,7 +396,7 @@ async function startApp() {
 // Опрашиваем сервер тем реже, чем дольше человек ничего не делает.
 // На домашнем сервере это незаметно, а в облаке заметно экономит бесплатный лимит.
 let lastTouch = Date.now();
-const noteTouch = () => { lastTouch = Date.now(); };
+const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); };
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
@@ -383,36 +421,103 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('focus', () => { if (S.token) { noteTouch(); markRead(); } });
 
-async function sync(initial) {
-  let data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
+let syncPromise = null;
+let syncQueued = false;
+
+function rebuildMessageIndex() {
+  const seen = new Set(), unique = [];
+  for (const m of S.messages.slice().sort((a, b) => a.seq - b.seq)) {
+    if (!m || seen.has(m.id)) continue;
+    seen.add(m.id); unique.push(m);
+  }
+  S.messages = unique;
+  S.messageIds = seen;
+}
+function resetMessageStore() {
+  S.messages = [];
+  S.messageIds = new Set();
+  S.plain = new Map();
+}
+function addMessages(list) {
+  if (!S.messageIds || S.messageIds.size !== S.messages.length) rebuildMessageIndex();
+  const fresh = [];
+  for (const m of (list || [])) {
+    if (!m || !m.id || S.messageIds.has(m.id)) continue;
+    S.messageIds.add(m.id);
+    S.messages.push(m);
+    fresh.push(m);
+  }
+  if (fresh.length) S.messages.sort((a, b) => a.seq - b.seq);
+  return fresh;
+}
+async function applySyncMeta(data) {
   S.users = data.users;
   S.me = data.me;
   S.usage = data.usage;
   S.chats = data.chats;
   await prepareChats();
-  if (data.messages.length) {
-    S.messages.push(...data.messages);
-    S.messages.sort((a, b) => a.seq - b.seq);
-    await decryptAll(data.messages);
-  } else if (data.gen !== S.gen && !initial) {
-    // что-то удалили — перечитываем историю целиком
-    S.messages = []; S.plain = new Map(); S.seq = 0;
-    data = await api('/api/sync?since=0');
-    S.messages = data.messages.slice();
-    S.chats = data.chats; await prepareChats();
-    await decryptAll(S.messages);
+}
+
+async function sync(initial) {
+  if (syncPromise) {
+    // Несколько источников (таймер, отправка, focus/visibility) могут попросить
+    // синхронизацию одновременно. Не запускаем второй запрос с тем же since,
+    // а дочитываем ещё раз сразу после текущего прохода.
+    syncQueued = true;
+    return syncPromise;
+  }
+  syncPromise = (async () => {
+    let first = true;
+    try {
+      do {
+        syncQueued = false;
+        await syncOnce(first && !!initial);
+        first = false;
+      } while (syncQueued && S.token);
+    } finally {
+      syncPromise = null;
+    }
+  })();
+  return syncPromise;
+}
+
+async function syncOnce(initial) {
+  let data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
+  await applySyncMeta(data);
+
+  let suppressNotify = false;
+  const freshAll = [];
+  if (!initial && data.gen !== S.gen) {
+    // История могла измениться не только добавлением (удаление/архивация):
+    // перечитываем её целиком, чтобы локально исчезли удалённые сообщения.
+    resetMessageStore();
+    suppressNotify = true;
+    data = await api('/api/sync?since=0' + (document.hidden ? '' : '&active=1'));
+    await applySyncMeta(data);
+  }
+
+  let fresh = addMessages(data.messages);
+  if (fresh.length) {
+    await decryptAll(fresh);
+    freshAll.push(...fresh);
   }
   S.seq = data.seq;
   S.gen = data.gen;
+
   // историю сервер отдаёт порциями — дочитываем остаток
   let guard = 0;
   while (data.more && guard++ < 50) {
-    data = await api('/api/sync?since=' + S.seq);
-    S.messages.push(...data.messages);
-    S.messages.sort((a, b) => a.seq - b.seq);
-    await decryptAll(data.messages);
+    data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
+    await applySyncMeta(data);
+    fresh = addMessages(data.messages);
+    if (fresh.length) {
+      await decryptAll(fresh);
+      freshAll.push(...fresh);
+    }
     S.seq = data.seq; S.gen = data.gen;
   }
+
+  if (freshAll.length && !initial && !suppressNotify) notifyNewMessages(freshAll);
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
   if (!document.hidden) markRead();
@@ -427,6 +532,80 @@ async function decryptAll(list) {
     try { S.plain.set(m.id, await decryptJSON(k.key, m.blob)); }
     catch (e) { S.plain.set(m.id, { text: '🔒 не удалось расшифровать', broken: true }); }
   }
+}
+
+// ─────────────────────────────────────────── уведомления
+let notifyAudio = null;
+let notifySoundPrimed = false;
+function primeNotifySound() {
+  if (notifySoundPrimed || S.notify.sound === false) return;
+  unlockNotifySound().then(ok => { notifySoundPrimed = !!ok; }).catch(() => {});
+}
+async function unlockNotifySound() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  if (!notifyAudio) notifyAudio = new AC();
+  if (notifyAudio.state === 'suspended') await notifyAudio.resume();
+  return notifyAudio.state === 'running';
+}
+function playNotifySound() {
+  if (S.notify.sound === false) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    if (!notifyAudio) notifyAudio = new AC();
+    const ctx = notifyAudio;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    gain.connect(ctx.destination);
+    for (const [i, hz] of [880, 1175].entries()) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(hz, now + i * 0.07);
+      osc.connect(gain);
+      osc.start(now + i * 0.07);
+      osc.stop(now + 0.20 + i * 0.07);
+    }
+    setTimeout(() => gain.disconnect(), 420);
+  } catch (e) {}
+}
+async function requestDesktopNotifications() {
+  if (!('Notification' in window) || !window.isSecureContext) return;
+  try {
+    if (Notification.permission === 'default') {
+      S.notify.desktop = (await Notification.requestPermission()) === 'granted';
+      saveNotifySettings();
+    } else {
+      S.notify.desktop = Notification.permission === 'granted';
+      saveNotifySettings();
+    }
+  } catch (e) {}
+}
+function showDesktopNotification(m) {
+  if (!S.notify.desktop || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const c = chatById(m.chat), p = S.plain.get(m.id) || {};
+  const author = userById(m.uid) || { name: p.author || 'Сообщение' };
+  const body = p.text ? `${author.name}: ${cut(p.text, 120)}` : `${author.name}: 📷 изображение`;
+  try {
+    const n = new Notification(chatTitle(c) || 'SEGA-CHAT', {
+      body, tag: 'sega-chat-' + m.chat, icon: (BASE || '') + '/favicon.png', silent: true
+    });
+    n.onclick = () => { window.focus(); openChat(m.chat); n.close(); };
+    setTimeout(() => n.close(), 8000);
+  } catch (e) {}
+}
+function notifyNewMessages(list) {
+  if (!S.me) return;
+  const inactive = document.hidden || (document.hasFocus && !document.hasFocus());
+  if (!inactive) return;
+  const incoming = list.filter(m => m.uid !== S.me.id && !isChatMuted(m.chat));
+  if (!incoming.length || S.notify.sound === false) return;
+  playNotifySound();
+  showDesktopNotification(incoming[incoming.length - 1]);
 }
 
 // ─────────────────────────────────────────── непрочитанное
@@ -526,6 +705,7 @@ function renderMe() {
   $('#me-name').textContent = S.me.name;
   $('#me-sub').textContent = S.me.isAdmin ? 'администратор · в сети' : 'в сети';
   $('#btn-admin').classList.toggle('hidden', !S.me.isAdmin);
+  renderNotifyControls();
 }
 
 const lastMessageIn = chatId => {
@@ -563,7 +743,7 @@ function renderRail() {
       html += `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
         ${chatAvatarHtml(c)}
         <div class="ci-main">
-          <div class="ci-name">${escapeHtml(chatTitle(c))}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}</div>
+          <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}</div>
           <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
         </div>
         ${un.mentions ? `<span class="badge at" title="обращения к вам">@${un.mentions}</span>` : ''}
@@ -655,6 +835,15 @@ function quoteCardHtml(id) {
   </div>`;
 }
 
+function canGroup(prev, m) {
+  if (!prev || !m) return false;
+  return prev.uid === m.uid
+    && prev.chat === m.chat
+    && (prev.parent || null) === (m.parent || null)
+    && new Date(prev.ts).toDateString() === new Date(m.ts).toDateString()
+    && Math.abs(m.ts - prev.ts) <= GROUP_GAP_MS;
+}
+
 function messageHtml(m, opts = {}) {
   const p = S.plain.get(m.id) || { text: '…' };
   const author = userById(m.uid) || { id: m.uid, name: p.author || 'Бывший участник' };
@@ -664,19 +853,22 @@ function messageHtml(m, opts = {}) {
   const unreadKids = kids.length ? threadUnread(m.id) : 0;
   const chat = chatById(m.chat);
   const canDel = mine || isOwner(chat);
-  return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
+  const continued = !!opts.continued;
+  const continues = !!opts.continues;
+  const metaParts = [];
+  if (!continues) metaParts.push(readersHtml(m));
+  if (kids.length) metaParts.push(`<span class="thread-btn" data-thread="${m.id}">💬 ${plural(kids.length, 'комментарий', 'комментария', 'комментариев')}${unreadKids ? `<span class="dot-new"></span>` : ''}</span>`);
+  const meta = metaParts.filter(Boolean).join('');
+  return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
     ${avatarHtml(author, 'sm', true)}
     <div class="bubble-wrap">
-      <div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>
+      ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
         ${p.text ? `<div class="btext">${mentionize(p.text)}</div>` : ''}
         ${p.att ? `<img class="att" src="${p.att}" alt="вложение">` : ''}
       </div>
-      <div class="meta">
-        ${readersHtml(m)}
-        ${kids.length ? `<span class="thread-btn" data-thread="${m.id}">💬 ${plural(kids.length, 'комментарий', 'комментария', 'комментариев')}${unreadKids ? `<span class="dot-new"></span>` : ''}</span>` : ''}
-      </div>
+      ${meta ? `<div class="meta">${meta}</div>` : ''}
     </div>
     <div class="tools">
       <button class="tool" data-quote="${m.id}" title="Ответить ссылкой на это сообщение">↩</button>
@@ -713,10 +905,10 @@ function renderMessages(force) {
     if (b) b.addEventListener('click', openCreateChat);
     return;
   }
-  const c = curChat();
   const list = S.messages.filter(m => m.chat === S.view && !m.parent);
   const prevTop = box.scrollTop, prevHeight = box.scrollHeight;
   const nearBottom = prevHeight - prevTop - box.clientHeight < 160;
+  const c = curChat();
   const banner = archiveBannerHtml(c);
   if (!list.length) {
     const emptyHint = `<div class="sys">${c && c.kind === 'dm'
@@ -726,10 +918,11 @@ function renderMessages(force) {
     return;
   }
   let html = banner, lastDay = '';
-  for (const m of list) {
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i];
     const day = new Date(m.ts).toDateString();
     if (day !== lastDay) { html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`; lastDay = day; }
-    html += messageHtml(m);
+    html += messageHtml(m, { continued: canGroup(list[i - 1], m), continues: canGroup(m, list[i + 1]) });
   }
   box.innerHTML = html;
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
@@ -754,7 +947,7 @@ function renderThread() {
         <div><div class="who">${escapeHtml(author.name)}</div><div class="tiny muted">${fmtDay(parent.ts)}, ${fmtTime(parent.ts)}</div></div></div>
       ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}
       ${p.att ? `<img src="${p.att}" alt="">` : ''}
-    </div>` + kids.map(k => messageHtml(k, { noThread: true })).join('');
+    </div>` + kids.map((k, i) => messageHtml(k, { noThread: true, continued: canGroup(kids[i - 1], k), continues: canGroup(k, kids[i + 1]) })).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
 }
@@ -1005,6 +1198,7 @@ $('#btn-chat-menu').addEventListener('click', async () => {
 
   modal('Чат «' + chatTitle(c) + '»', `
     <div class="tiny muted">${plural(c.count, 'сообщение', 'сообщения', 'сообщений')} · ${fmtBytes(c.bytes)}</div>
+    <label class="row-check menu-switch"><input type="checkbox" id="cm-mute" ${isChatMuted(c.id) ? 'checked' : ''}> <span>Без звука для этого чата</span></label>
     <div class="divider"><span>Сохранить себе архив</span></div>
     <p class="hint">Копия скачивается на ваше устройство в расшифрованном виде. Это может сделать любой участник чата.</p>
     <button class="primary" id="cm-html">Читаемая копия (HTML)</button>
@@ -1016,6 +1210,11 @@ $('#btn-chat-menu').addEventListener('click', async () => {
 
   $('#cm-html').addEventListener('click', () => { exportHtml(c); hide($('#modal')); });
   $('#cm-json').addEventListener('click', () => { exportJson(c); hide($('#modal')); });
+  $('#cm-mute').addEventListener('change', e => {
+    setChatMuted(c.id, e.target.checked);
+    S.sig = ''; renderAll();
+    toast(e.target.checked ? 'Этот чат теперь без звука' : 'Звук для этого чата включён');
+  });
   const ren = $('#cm-rename');
   if (ren) ren.addEventListener('click', async () => {
     const title = $('#cm-title').value.trim();
@@ -1111,6 +1310,61 @@ $('#thread-input').addEventListener('keydown', e => composerKeydown(e, () => sen
 $('#input').addEventListener('input', e => { autoGrow(e.target); mentionInput(e.target, $('#mention-pop')); });
 $('#thread-input').addEventListener('input', e => { autoGrow(e.target); mentionInput(e.target, $('#thread-mention-pop')); });
 
+// ─────────────────────────────────────────── эмодзи и звук уведомлений
+function insertAtCursor(textarea, text) {
+  const start = textarea.selectionStart || 0, end = textarea.selectionEnd || start;
+  textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+  const pos = start + text.length;
+  textarea.focus();
+  textarea.setSelectionRange(pos, pos);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function placeEmojiPanel(btn) {
+  const pop = $('#emoji-pop');
+  pop.innerHTML = EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}">${e}</button>`).join('');
+  const r = btn.getBoundingClientRect();
+  show(pop);
+  const w = pop.offsetWidth || 280, h = pop.offsetHeight || 220;
+  pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + 'px';
+  pop.style.top = Math.max(8, r.top - h - 8) + 'px';
+}
+let emojiTarget = null, emojiButton = null;
+function toggleEmoji(btn, textarea) {
+  const pop = $('#emoji-pop');
+  if (!pop.classList.contains('hidden') && emojiButton === btn) return closeEmoji();
+  emojiTarget = textarea;
+  emojiButton = btn;
+  placeEmojiPanel(btn);
+}
+function closeEmoji() { hide($('#emoji-pop')); emojiTarget = null; emojiButton = null; }
+$('#btn-emoji').addEventListener('click', e => { e.stopPropagation(); toggleEmoji(e.currentTarget, $('#input')); });
+$('#thread-emoji').addEventListener('click', e => { e.stopPropagation(); toggleEmoji(e.currentTarget, $('#thread-input')); });
+$('#emoji-pop').addEventListener('mousedown', e => {
+  const b = e.target.closest('[data-emoji]');
+  if (!b || !emojiTarget) return;
+  e.preventDefault();
+  insertAtCursor(emojiTarget, b.dataset.emoji);
+});
+document.addEventListener('mousedown', e => {
+  if (!e.target.closest('#emoji-pop,.emoji-btn')) closeEmoji();
+});
+window.addEventListener('resize', closeEmoji);
+
+$('#notify-sound').addEventListener('change', async e => {
+  S.notify.sound = e.target.checked;
+  if (!S.notify.sound) notifySoundPrimed = false;
+  saveNotifySettings();
+  renderNotifyControls();
+  if (S.notify.sound) {
+    primeNotifySound();
+    requestDesktopNotifications();
+    toast('Звук уведомлений включён');
+  } else {
+    toast('Звук уведомлений выключен');
+  }
+});
+renderNotifyControls();
+
 // ─────────────────────────────────────────── обращения через @
 let mention = { pop: null, target: null, items: [], sel: 0, start: -1 };
 function mentionInput(textarea, pop) {
@@ -1168,50 +1422,148 @@ async function pickImage(e, key) {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  try { const data = await resizeImage(file, 1400, 0.82); S[key] = data; showAttach(key, data); }
-  catch (ex) { toast('Не удалось обработать картинку', true); }
+  try {
+    toast('Готовим фото…');
+    const data = await resizeImage(file, 1800, 0.82);
+    S[key] = data; showAttach(key, data);
+    toast('Фото готово к отправке');
+  }
+  catch (ex) { toast(ex && ex.message ? ex.message : 'Не удалось обработать картинку', true); }
 }
 $('#file-input').addEventListener('change', e => pickImage(e, 'attach'));
 $('#thread-file').addEventListener('change', e => pickImage(e, 'threadAttach'));
 $('#attach-remove').addEventListener('click', () => clearAttach('attach'));
 $('#thread-attach-remove').addEventListener('click', () => clearAttach('threadAttach'));
 
-function resizeImage(file, max, quality) {
+function isHeic(file) {
+  return /image\/(heic|heif)/i.test(file.type || '') || /\.(heic|heif)$/i.test(file.name || '');
+}
+function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
-    fr.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        let { width: w, height: h } = img;
-        const k = Math.min(1, max / Math.max(w, h));
-        w = Math.round(w * k); h = Math.round(h * k);
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        c.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(c.toDataURL('image/jpeg', quality));
-      };
-      img.onerror = reject; img.src = fr.result;
-    };
-    fr.onerror = reject; fr.readAsDataURL(file);
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error || new Error('Не удалось прочитать файл'));
+    fr.readAsDataURL(blob);
   });
 }
-function cropSquare(file, size) {
+function loadImageFromUrl(url) {
   return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const s = Math.min(img.width, img.height);
-        const c = document.createElement('canvas');
-        c.width = c.height = size;
-        c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
-        resolve(c.toDataURL('image/jpeg', 0.85));
-      };
-      img.onerror = reject; img.src = fr.result;
-    };
-    fr.onerror = reject; fr.readAsDataURL(file);
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Браузер не смог открыть изображение'));
+    img.src = url;
   });
 }
+async function decodeImageFile(file) {
+  if (!file || (!String(file.type || '').startsWith('image/') && !isHeic(file))) {
+    throw new Error('Выберите файл изображения');
+  }
+  let bitmapError = null;
+  if (window.createImageBitmap) {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      if (bmp && bmp.width && bmp.height) {
+        return { source: bmp, width: bmp.width, height: bmp.height, close: () => bmp.close && bmp.close() };
+      }
+    } catch (e) { bitmapError = e; }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImageFromUrl(url);
+    const width = img.naturalWidth || img.width;
+    const height = img.naturalHeight || img.height;
+    if (!width || !height) throw new Error('Не удалось определить размер изображения');
+    return { source: img, width, height, close: () => URL.revokeObjectURL(url) };
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    if (isHeic(file)) {
+      throw new Error('Не удалось открыть HEIC/HEIF. На iPhone включите «Настройки → Камера → Форматы → Наиболее совместимый» или отправьте JPEG/PNG.');
+    }
+    throw new Error(bitmapError ? 'Браузер не смог декодировать это фото. Попробуйте сохранить его как JPEG/PNG.' : e.message);
+  }
+}
+function targetImageSize(w, h, max) {
+  const k = Math.min(1, max / Math.max(w, h));
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+}
+function drawImageToCanvas(source, w, h, crop) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { alpha: false });
+  if (!ctx) throw new Error('Браузер не дал доступ к canvas для сжатия фото');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  if (crop) ctx.drawImage(source, crop.x, crop.y, crop.size, crop.size, 0, 0, w, h);
+  else ctx.drawImage(source, 0, 0, w, h);
+  return c;
+}
+function downscaleCanvas(src, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { alpha: false });
+  if (!ctx) throw new Error('Браузер не смог уменьшить фото');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, w, h);
+  return c;
+}
+async function canvasToDataURL(canvas, type, quality) {
+  if (canvas.toBlob) {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, type, quality));
+    if (blob) return blobToDataURL(blob);
+  }
+  try { return canvas.toDataURL(type, quality); }
+  catch (e) { throw new Error('Не удалось сжать фото в браузере'); }
+}
+function estimatedEncryptedUploadChars(dataUrl) {
+  // encryptJSON добавит служебные поля JSON, IV/тег AES-GCM и ещё раз base64.
+  const plain = String(dataUrl || '').length + 5500;
+  return Math.ceil((plain + 32) / 3) * 4;
+}
+async function encodeImageUnderLimit(canvas, quality) {
+  const limit = Number(S.maxUpload || DEFAULT_MAX_UPLOAD);
+  const plainLimit = Math.floor(limit * UPLOAD_PLAIN_HEADROOM);
+  let q = quality, cur = canvas;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const data = await canvasToDataURL(cur, 'image/jpeg', q);
+    if (data.length <= plainLimit && estimatedEncryptedUploadChars(data) <= limit) return data;
+    if (q > 0.58) { q = Math.max(0.58, q - 0.10); continue; }
+    const w = Math.max(1, Math.round(cur.width * 0.82));
+    const h = Math.max(1, Math.round(cur.height * 0.82));
+    if ((w >= cur.width && h >= cur.height) || Math.max(w, h) < 360) break;
+    cur = downscaleCanvas(cur, w, h);
+    q = 0.76;
+  }
+  throw new Error('Фото слишком большое даже после сжатия. Попробуйте кадрировать его или выбрать снимок поменьше.');
+}
+async function resizeImage(file, max, quality) {
+  const decoded = await decodeImageFile(file);
+  try {
+    const size = targetImageSize(decoded.width, decoded.height, max);
+    const canvas = drawImageToCanvas(decoded.source, size.w, size.h);
+    return await encodeImageUnderLimit(canvas, quality);
+  } catch (e) {
+    throw new Error(e && e.message ? e.message : 'Не удалось обработать картинку');
+  } finally {
+    try { decoded.close(); } catch (e) {}
+  }
+}
+async function cropSquare(file, size) {
+  const decoded = await decodeImageFile(file);
+  try {
+    const s = Math.min(decoded.width, decoded.height);
+    const canvas = drawImageToCanvas(decoded.source, size, size, {
+      x: Math.max(0, (decoded.width - s) / 2),
+      y: Math.max(0, (decoded.height - s) / 2),
+      size: s
+    });
+    return await canvasToDataURL(canvas, 'image/jpeg', 0.85);
+  } finally {
+    try { decoded.close(); } catch (e) {}
+  }
+}
+
 
 // ─────────────────────────────────────────── поиск по всем чатам
 let searchTimer = null;
