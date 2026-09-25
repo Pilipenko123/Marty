@@ -16,6 +16,7 @@ NAME="${NAME:-sega-chat}"
 DB_NAME="${DB_NAME:-$NAME-db}"
 SA_NAME="${SA_NAME:-$NAME-sa}"
 FUNC_NAME="${FUNC_NAME:-$NAME}"
+GW_NAME="${GW_NAME:-$NAME}"
 TABLE="${YDB_TABLE:-sega_chat}"
 RUNTIME="${RUNTIME:-nodejs18}"
 MEMORY="${MEMORY:-256m}"
@@ -86,11 +87,11 @@ else
 fi
 SA_ID="$(yc iam service-account get "$SA_NAME" --format json | jget id)"
 [ -n "$SA_ID" ] || die "не удалось получить идентификатор учётной записи"
-for role in ydb.editor; do
+for role in ydb.editor serverless.functions.invoker; do
   yc resource-manager folder add-access-binding "$FOLDER_ID" \
     --role "$role" --subject "serviceAccount:$SA_ID" >/dev/null 2>&1 || true
 done
-info "права на базу выданы ($SA_ID)"
+info "права на базу и вызов функций выданы ($SA_ID)"
 
 # ---------------------------------------------------------------- сборка
 say "Шаг 3 из 5. Собираю архив с мессенджером"
@@ -121,11 +122,41 @@ yc serverless function version create \
   >/dev/null
 info "версия выложена (среда: $RUNTIME, память: $MEMORY)"
 
-say "Шаг 5 из 5. Открываю доступ из браузера"
+# ---------------------------------------------------------------- API Gateway
+say "Шаг 5 из 5. API-шлюз «$GW_NAME» и доступ из браузера"
 yc serverless function allow-unauthenticated-invoke "$FUNC_NAME" >/dev/null
 FUNC_ID="$(yc serverless function get "$FUNC_NAME" --format json | jget id)"
-URL="https://functions.yandexcloud.net/$FUNC_ID"
+FUNC_URL="https://functions.yandexcloud.net/$FUNC_ID"
 
+GW_SPEC_DIR="$(mktemp -d)"
+GW_SPEC="$GW_SPEC_DIR/api-gateway.yaml"
+sed -e "s/ВАШ_ID_ФУНКЦИИ/$FUNC_ID/g" \
+    -e "s/ВАШ_ID_УЧЁТНОЙ_ЗАПИСИ/$SA_ID/g" \
+    -e "s/\${FUNCTION_ID}/$FUNC_ID/g" \
+    -e "s/\${SERVICE_ACCOUNT_ID}/$SA_ID/g" \
+    cloud/api-gateway.yaml > "$GW_SPEC"
+
+if yc serverless api-gateway get "$GW_NAME" >/dev/null 2>&1; then
+  info "API Gateway «$GW_NAME» уже существует — обновляю спецификацию…"
+  yc serverless api-gateway update "$GW_NAME" --spec "$GW_SPEC" >/dev/null
+elif yc serverless api-gateway get "${GW_NAME}-gw" >/dev/null 2>&1; then
+  GW_NAME="${GW_NAME}-gw"
+  info "API Gateway «$GW_NAME» уже существует — обновляю спецификацию…"
+  yc serverless api-gateway update "$GW_NAME" --spec "$GW_SPEC" >/dev/null
+else
+  info "создаю API Gateway «$GW_NAME»…"
+  yc serverless api-gateway create --name "$GW_NAME" --spec "$GW_SPEC" >/dev/null
+fi
+
+GW_JSON="$(yc serverless api-gateway get "$GW_NAME" --format json 2>/dev/null || true)"
+GW_DOMAIN="$(printf '%s' "$GW_JSON" | jget domain || true)"
+if [ -z "$GW_DOMAIN" ]; then
+  GW_ID="$(printf '%s' "$GW_JSON" | jget id || true)"
+  [ -n "$GW_ID" ] && GW_DOMAIN="${GW_ID}.apigw.yandexcloud.net"
+fi
+GW_URL="https://${GW_DOMAIN:-$FUNC_ID.apigw.yandexcloud.net}"
+
+rm -rf "$GW_SPEC_DIR"
 rm -f "$ZIP"
 
 cat <<EOF
@@ -134,12 +165,15 @@ cat <<EOF
   ║        S E G A - C H A T       ║
   ╚════════════════════════════════╝
 
-  Мессенджер живёт в облаке. Адрес для друзей:
+  Мессенджер живёт в облаке. Основной адрес для входа и друзей:
 
-      $URL
+      $GW_URL
+
+  (Технический адрес функции: $FUNC_URL — используйте основной адрес
+   API Gateway выше, чтобы стили, скрипты и логотип загружались корректно)
 
   Что дальше:
-    1. Откройте адрес в браузере — увидите экран «Создать мессенджер».
+    1. Откройте адрес $GW_URL в браузере — увидите экран «Создать мессенджер».
     2. Придумайте своё имя, пароль и кодовую фразу — вы станете администратором.
     3. Разошлите друзьям адрес и кодовую фразу, каждый заведёт себе имя и пароль.
 
@@ -147,7 +181,8 @@ cat <<EOF
     • обновить мессенджер после правок     ./cloud/deploy.sh
     • посмотреть записи в журнале          yc serverless function logs $FUNC_NAME
     • расход бесплатного лимита            консоль облака -> Биллинг -> Детализация
-    • удалить всё вместе с перепиской      yc serverless function delete $FUNC_NAME
+    • удалить всё вместе с перепиской      yc serverless api-gateway delete $GW_NAME
+                                           yc serverless function delete $FUNC_NAME
                                            yc ydb database delete $DB_NAME
 
 EOF

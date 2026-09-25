@@ -194,6 +194,9 @@ button.ghost.danger{color:var(--red)}
 .thread-btn:hover{background:var(--accent-soft)}
 .thread-btn .dot-new{width:7px;height:7px;border-radius:50%;background:var(--red)}
 .sys{text-align:center;color:var(--muted);font-size:13px;padding:30px 10px}
+.archive-banner{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 18px;margin:16px auto;max-width:540px;text-align:center;box-shadow:0 1px 3px rgba(20,50,70,.06)}
+.archive-banner-title{font-weight:600;color:var(--text);font-size:13.5px;line-height:1.4}
+.archive-banner-sub{margin-top:4px;font-size:12px;color:var(--muted)}
 .empty{max-width:520px;margin:8vh auto 0;text-align:center;padding:0 16px}
 .empty-logo{height:40px;width:auto;opacity:.9}
 .avatar .av-logo{width:74%;height:auto;filter:brightness(0) invert(1);display:block}
@@ -335,6 +338,7 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 :root[data-theme="dark"] ::selection{background:#2a4c66}
 :root[data-theme="dark"] .tag-admin{border-color:#2e5f86}
 :root[data-theme="dark"] .quote-card.gone{background:#1a2830;border-color:#33454f;color:var(--muted)}
+:root[data-theme="dark"] .archive-banner{background:var(--panel);border-color:var(--line);box-shadow:0 1px 4px rgba(0,0,0,.3)}
 :root[data-theme="dark"] .toast{background:#04121a}
 
 /* кнопки переключения оформления в левой колонке */
@@ -350,6 +354,7 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
    Включается через <html data-density="compact"> — плотнее лента,
    меньше отступы и аватары, чтобы больше сообщений помещалось на экран. */
 :root[data-density="compact"] #messages{padding:8px 14px 6px}
+:root[data-density="compact"] .archive-banner{padding:8px 12px;margin:8px auto}
 :root[data-density="compact"] .msg{margin-bottom:3px}
 :root[data-density="compact"] .msg .head{margin-bottom:1px}
 :root[data-density="compact"] .msg .bubble-wrap{max-width:86%}
