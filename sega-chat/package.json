@@ -9,5 +9,5 @@
     "test": "node test/run-all.mjs && node test/test-cluster.mjs"
   },
   "engines": { "node": ">=16" },
-  "dependencies": {}
+  "dependencies": { "web-push": "^3.6.7" }
 }

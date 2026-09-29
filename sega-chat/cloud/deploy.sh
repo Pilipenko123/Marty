@@ -95,9 +95,12 @@ info "права на базу и вызов функций выданы ($SA_ID
 
 # ---------------------------------------------------------------- сборка
 say "Шаг 3 из 5. Собираю архив с мессенджером"
+# web-push нужен функции для шифрования payload; не затрагивает YDB и ставится
+# в каталог проекта перед упаковкой (повторный запуск безопасен).
+npm install --omit=dev --no-audit --no-fund >/dev/null
 ZIP="$(mktemp -d)/sega-chat.zip"
-zip -qr "$ZIP" index.js package.json cloud lib public \
-  -x '*/node_modules/*' '*/data/*' '*.zip'
+zip -qr "$ZIP" index.js package.json cloud lib public node_modules \
+  -x '*/data/*' '*.zip'
 info "$(du -h "$ZIP" | cut -f1) — лимит загрузки через CLI: 3,5 МБ"
 
 # ---------------------------------------------------------------- функция
