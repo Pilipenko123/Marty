@@ -173,6 +173,20 @@ function createApi(store, opts = {}) {
 
   let dirty = false;
   function save() { dirty = true; }
+  async function notifyPush(chat, sender) {
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+    try {
+      const webpush = require('web-push');
+      webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+      const jobs = [];
+      for (const u of db.users) if (u.id !== sender.id && chat.members.includes(u.id)) for (const sub of (u.pushSubs || [])) {
+        jobs.push(webpush.sendNotification(sub, JSON.stringify({ title: 'SEGA-CHAT', body: 'Новое сообщение', tag: chat.id })).catch(e => {
+          if (e.statusCode === 404 || e.statusCode === 410) u.pushSubs = (u.pushSubs || []).filter(x => x.endpoint !== sub.endpoint);
+        }));
+      }
+      await Promise.all(jobs); if (jobs.length) save();
+    } catch (e) { if (process.env.PUSH_DEBUG) console.error('[push]', e.message); }
+  }
 
   // ------------------------------------------------------------- маршруты
   async function api(req) {
@@ -285,6 +299,27 @@ function createApi(store, opts = {}) {
 
     if (pathname === '/api/logout' && method === 'POST') {
       delete db.sessions[session.token]; save();
+      return J(200, { ok: true });
+    }
+
+    // Web Push subscriptions contain no message content. They are kept per user
+    // so a browser can be replaced without invalidating other devices.
+    if (pathname === '/api/push/config' && method === 'GET') {
+      return J(200, { enabled: !!process.env.VAPID_PUBLIC_KEY, publicKey: process.env.VAPID_PUBLIC_KEY || null });
+    }
+    if (pathname === '/api/push/subscribe' && method === 'POST') {
+      const sub = req.body && req.body.subscription;
+      if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) return E(400, 'Некорректная подписка');
+      if (sub.endpoint.length > 2048) return E(400, 'Слишком длинный адрес подписки');
+      me.pushSubs = Array.isArray(me.pushSubs) ? me.pushSubs : [];
+      me.pushSubs = me.pushSubs.filter(x => x.endpoint !== sub.endpoint);
+      me.pushSubs.push({ endpoint: sub.endpoint, keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) }, createdAt: Date.now() });
+      me.pushSubs = me.pushSubs.slice(-5); save();
+      return J(200, { ok: true });
+    }
+    if (pathname === '/api/push/subscribe' && method === 'DELETE') {
+      const endpoint = String((req.body || {}).endpoint || '');
+      me.pushSubs = (me.pushSubs || []).filter(x => x.endpoint !== endpoint); save();
       return J(200, { ok: true });
     }
 
@@ -497,6 +532,8 @@ function createApi(store, opts = {}) {
       me.reads = me.reads || {};
       me.reads[parent ? 'thr:' + parent : chat.id] = m.seq;
       save();
+      // Не блокируем отправку сообщения ожиданием внешнего push-сервиса.
+      notifyPush(chat, me).catch(() => {});
       return J(200, { message: m, usage: usage() });
     }
 

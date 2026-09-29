@@ -79,6 +79,9 @@ function migrate(db) {
     for (const a of db.archives) if (!a.chat) a.chat = legacyId;
   }
 
+  // Push-подписки добавлены без изменения старых ключей и сообщений.
+  for (const u of db.users) if (!Array.isArray(u.pushSubs)) u.pushSubs = [];
+
   // аватар: теперь клиенту отдаётся только отпечаток, картинка скачивается отдельно
   for (const u of db.users) {
     if (u.avatar && !u.avatarRev) {

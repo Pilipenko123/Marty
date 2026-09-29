@@ -1229,6 +1229,23 @@ $('#modal-close').addEventListener('click', () => hide($('#modal')));
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') hide($('#modal')); });
 
 // профиль
+async function togglePush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !window.isSecureContext) return toast('Web Push доступен только по HTTPS в современном браузере', true);
+  try {
+    const cfg = await api('/api/push/config');
+    if (!cfg.enabled) return toast('Уведомления не настроены администратором', true);
+    const reg = await navigator.serviceWorker.register(BASE + '/sw.js');
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) { await sub.unsubscribe(); await api('/api/push/subscribe', { method: 'DELETE', body: { endpoint: sub.endpoint } }); toast('Уведомления выключены'); return; }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return toast('Разрешение на уведомления не выдано', true);
+    const raw = Uint8Array.from(atob(cfg.publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
+    await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+    toast('Уведомления включены');
+  } catch (e) { toast(e.message || 'Не удалось включить уведомления', true); }
+}
+$('#btn-push').addEventListener('click', togglePush);
 $('#btn-profile').addEventListener('click', () => {
   $('#rail').classList.remove('open');
   const me = userById(S.me.id) || S.me;
