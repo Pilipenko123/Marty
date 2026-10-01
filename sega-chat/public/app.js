@@ -277,6 +277,7 @@ async function boot() {
   let st;
   try { st = await api('/api/state'); } catch (e) { toast('Сервер недоступен: ' + e.message, true); return; }
   S.maxUpload = Number(st.maxUpload || DEFAULT_MAX_UPLOAD);
+  S.codeProofSalt = st.codeProofSalt || null;   // для проверки кодового слова архивов
   if (st.setupRequired) return screen('setup');
 
   const sess = loadSessionRaw();
@@ -956,7 +957,7 @@ function archiveBannerHtml(c) {
     : '';
   const sub = (dateStr || countStr) ? `<div class="archive-banner-sub tiny muted">${dateStr}${countStr}</div>` : '';
   return `<div class="archive-banner">
-    <div class="archive-banner-title">Пользователь <b>${escapeHtml(c.archivedByName)}</b> заархивировал(а) этот чат. История удалена из облака.</div>
+    <div class="archive-banner-title">Пользователь <b>${escapeHtml(c.archivedByName)}</b> заархивировал(а) этот чат. История сохранена в архив в облаке.</div>
     ${sub}
   </div>`;
 }
@@ -1012,6 +1013,13 @@ function renderMessages(force) {
   paintIcons(box);
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
+  // фокус при открытии чата: первое непрочитанное (повторяем после перерисовок,
+  // пока дочитываются ключи и картинки), иначе — последнее сообщение
+  if (!S.focusApplied) {
+    S.focusApplied = true;
+    const mk = $('#unread-mark');
+    if (mk) mk.scrollIntoView({ block: 'start', behavior: 'auto' });
+  }
 }
 
 function renderThread() {
@@ -1045,6 +1053,7 @@ function renderMemory() {
   fill.classList.toggle('hot', pct >= 80);
   const c = curChat();
   $('#mem-text').textContent = `${fmtBytes(u.bytes)} из ${fmtBytes(u.limit)} · ${u.messages} сообщ.`
+    + (u.archives ? ` · ${plural(u.archives, 'архив', 'архива', 'архивов')}` : '')
     + (c ? ` · этот чат ${fmtBytes(c.bytes)}` : '');
   $('#mem-warn').classList.toggle('hidden', pct < 80);
 }
@@ -1116,10 +1125,9 @@ function openChat(id) {
   // фокус при открытии: первое непрочитанное сообщение, а если их нет — последнее
   const un = unreadIn(id);
   S.openMark = un.total ? firstUnreadMark(id, un.total) : null;
+  S.focusApplied = false;
   renderAll();
-  renderMessages(true);
-  const mark = $('#unread-mark');
-  if (mark) mark.scrollIntoView({ block: 'start', behavior: 'auto' });
+  renderMessages(!S.openMark);   // с непрочитанными не прыгаем вниз — фокус ставит renderMessages
   markRead();
   if (window.matchMedia('(min-width: 901px)').matches) $('#input').focus();
 }
@@ -1298,43 +1306,42 @@ $('#btn-members').addEventListener('click', () => {
 });
 
 // ─────────────────────────────────────────── меню чата (⋯)
-$('#btn-chat-menu').addEventListener('click', async () => {
+// ─────────────────────────────────────────── меню чата «⋯»: выпадающий список, как в макете
+function closeDrop() { hide($('#drop')); }
+$('#btn-chat-menu').addEventListener('click', e => {
+  e.stopPropagation();
   const c = curChat();
   if (!c) return;
-  let archives = [];
-  try { archives = (await api('/api/chats/' + c.id + '/archives')).archives; } catch (e) {}
+  const d = $('#drop');
+  const willOpen = d.classList.contains('hidden');
+  d.classList.toggle('hidden');
+  if (willOpen) d.querySelector('[data-act="leave"]').classList.toggle('hidden', c.kind !== 'group');
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#drop, #btn-chat-menu')) closeDrop();
+});
+$('#drop').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  closeDrop();
+  const c = curChat();
+  if (!c) return;
+  if (b.dataset.act === 'info') return openChatInfo(c);
+  if (b.dataset.act === 'copy') { exportHtml(c); return; }
+  if (b.dataset.act === 'archive') return archiveCreateFlow(c);
+  if (b.dataset.act === 'archives') return archivesFlow(c);
+  if (b.dataset.act === 'leave') return leaveChatFlow(c);
+});
+
+function openChatInfo(c) {
   const owner = isOwner(c);
-
-  let managementHtml = '';
-  if (c.kind === 'group') {
-    managementHtml = `
-      <div class="divider"><span>Управление чатом</span></div>
-      ${owner ? `<label>Название чата<input type="text" id="cm-title" value="${escapeHtml(chatTitle(c))}" maxlength="60"></label>
-        <button class="primary soft" id="cm-rename">Переименовать</button>
-        <button class="primary soft" id="cm-archive" style="margin-top:8px">Заархивировать на сервере и очистить чат</button>` : ''}
-      <button class="primary soft danger" id="cm-leave" style="margin-top:8px">Покинуть чат</button>
-    `;
-  } else if (c.kind === 'dm') {
-    managementHtml = `
-      <div class="divider"><span>Управление перепиской</span></div>
-      <button class="primary soft" id="cm-archive">Заархивировать на сервере и очистить чат</button>
-    `;
-  }
-
   modal('Чат «' + chatTitle(c) + '»', `
     <div class="tiny muted">${plural(c.count, 'сообщение', 'сообщения', 'сообщений')} · ${fmtBytes(c.bytes)}</div>
     <label class="row-check menu-switch"><input type="checkbox" id="cm-mute" ${isChatMuted(c.id) ? 'checked' : ''}> <span>Без звука для этого чата</span></label>
-    <div class="divider"><span>Сохранить себе архив</span></div>
-    <p class="hint">Копия скачивается на ваше устройство в расшифрованном виде. Это может сделать любой участник чата.</p>
-    <button class="primary" id="cm-html">Читаемая копия (HTML)</button>
-    <button class="primary soft" id="cm-json">Читаемая копия (JSON)</button>
-    ${managementHtml}
-    ${archives.length ? `<div class="divider"><span>Архивы на сервере</span></div>` + archives.map(a => `
-      <div class="archive-row"><span style="flex:1">${new Date(a.createdAt).toLocaleString('ru-RU')} · ${a.count} сообщ. · ${fmtBytes(a.bytes)}</span>
-      <button class="mini" data-arch="${a.file}">скачать</button></div>`).join('') : ''}`);
-
-  $('#cm-html').addEventListener('click', () => { exportHtml(c); hide($('#modal')); });
-  $('#cm-json').addEventListener('click', () => { exportJson(c); hide($('#modal')); });
+    ${owner ? `<div class="divider"><span>Название чата</span></div>
+      <label>Как называть чат<input type="text" id="cm-title" value="${escapeHtml(chatTitle(c))}" maxlength="60"></label>
+      <button class="primary soft" id="cm-rename">Переименовать</button>` : ''}
+    <p class="hint">Название и переписка шифруются ключом этого чата. Менять название может создатель чата.</p>`);
   $('#cm-mute').addEventListener('change', e => {
     setChatMuted(c.id, e.target.checked);
     S.sig = ''; renderAll();
@@ -1351,34 +1358,166 @@ $('#btn-chat-menu').addEventListener('click', async () => {
       hide($('#modal')); await sync(); toast('Чат переименован');
     } catch (ex) { toast(ex.message, true); }
   });
-  const arch = $('#cm-archive');
-  if (arch) arch.addEventListener('click', async () => {
-    const confirmMsg = c.kind === 'dm'
-      ? 'Сохранить архив переписки на сервере и очистить историю в облаке? Сначала лучше скачать читаемую копию.'
-      : 'Сохранить архив чата на сервере и очистить переписку? Сначала лучше скачать читаемую копию.';
-    if (!confirm(confirmMsg)) return;
-    try {
-      const r = await api('/api/chats/' + c.id + '/archive', { method: 'POST', body: { reset: true } });
-      try { await downloadArchive(r.archive.file); }
-      catch (e) { toast('Архив на сервере сохранён, но скачать не удалось: ' + e.message, true); }
-      hide($('#modal')); S.sig = ''; await sync(); renderMessages(true); toast('Архив создан, чат очищен');
-    } catch (ex) { toast(ex.message, true); }
+}
+
+async function leaveChatFlow(c) {
+  const owner = isOwner(c);
+  const confirmLeave = (owner && c.members.length > 1)
+    ? 'Покинуть чат? Вы перестанете видеть его сообщения, а права создателя перейдут другому участнику.'
+    : 'Покинуть чат? Вы перестанете видеть его сообщения.';
+  if (!confirm(confirmLeave)) return;
+  try {
+    await api('/api/chats/' + c.id + '/leave', { method: 'POST', body: {} });
+    hide($('#modal')); S.view = null; S.sig = ''; await sync(); renderMessages(true); toast('Вы покинули чат');
+  } catch (ex) { toast(ex.message, true); }
+}
+
+// ─────────────────────────────────────────── кодовое слово мессенджера
+const codeProofOf = async word => {
+  // соль комнаты могла не подтянуться на самом первом запуске (до создания мессенджера)
+  if (!S.codeProofSalt) {
+    try { S.codeProofSalt = (await api('/api/state')).codeProofSalt || null; } catch (e) {}
+  }
+  return toHex(await pbkdf2(word, S.codeProofSalt));
+};
+/** Просит кодовое слово и проверяет его на сервере; неверное — красная ошибка в окне. */
+function askCodeword(title, subtitle, repeat) {
+  return new Promise((resolve, reject) => {
+    modal(title, `
+      <p class="hint">${subtitle}</p>
+      <label>Кодовое слово<input type="password" id="cw1" autocomplete="off" placeholder="то же, что при регистрации"></label>
+      ${repeat ? '<label>Повторите кодовое слово<input type="password" id="cw2" autocomplete="off"></label>' : ''}
+      <div class="err" id="cw-err"></div>
+      <button class="primary" id="cw-go">Продолжить</button>`);
+    $('#cw1').focus();
+    $('#cw-go').addEventListener('click', async () => {
+      const err = $('#cw-err');
+      err.textContent = '';
+      const w = $('#cw1').value;
+      if (w.length < 6) { err.textContent = 'Кодовое слово короче 6 символов'; return; }
+      if (repeat && w !== $('#cw2').value) { err.textContent = 'Кодовые слова не совпадают'; return; }
+      try {
+        await api('/api/code/check', { method: 'POST', body: { codeProof: await codeProofOf(w) } });
+      } catch (ex) { err.textContent = ex.message || 'Неверное кодовое слово'; return; }
+      hide($('#modal'));
+      resolve(w);
+    });
   });
-  const leave = $('#cm-leave');
-  if (leave) leave.addEventListener('click', async () => {
-    const confirmLeave = (owner && c.members.length > 1)
-      ? 'Покинуть чат? Вы перестанете видеть его сообщения, а права создателя перейдут другому участнику.'
-      : 'Покинуть чат? Вы перестанете видеть его сообщения.';
-    if (!confirm(confirmLeave)) return;
-    try {
-      await api('/api/chats/' + c.id + '/leave', { method: 'POST', body: {} });
-      hide($('#modal')); S.view = null; S.sig = ''; await sync(); renderMessages(true); toast('Вы покинули чат');
-    } catch (ex) { toast(ex.message, true); }
+}
+
+// ─────────────────────────────────────────── архивы на сервере
+async function archiveCreateFlow(c) {
+  const word = await askCodeword('Архив на сервере…',
+    'Архив ляжет в облако в зашифрованном виде, а доступ к нему получит только тот, кто знает кодовое слово мессенджера. Слово одно на все архивы; если администратор сменит его, новые архивы будут открываться новым словом.',
+    true).catch(() => null);
+  if (!word) return;
+  const confirmMsg = c.kind === 'dm'
+    ? 'Сохранить архив переписки на сервере и очистить историю в облаке?'
+    : 'Сохранить архив чата на сервере и очистить переписку в облаке?';
+  if (!confirm(confirmMsg)) return;
+  try {
+    const r = await api('/api/chats/' + c.id + '/archive', { method: 'POST', body: { reset: true, codeProof: await codeProofOf(word) } });
+    hide($('#modal')); S.sig = ''; await sync(); renderMessages(true);
+    toast('Архив создан: ' + plural(r.archive.count, 'сообщение', 'сообщения', 'сообщений') + ' сохранено в облаке');
+  } catch (ex) { toast(ex.message, true); }
+}
+
+async function fetchArchiveEnv(rec, word) {
+  const res = await fetch(BASE + '/api/archives/' + encodeURIComponent(rec.file), {
+    headers: { Authorization: 'Bearer ' + S.token, 'X-Code-Proof': await codeProofOf(word) }
   });
-  $('#modal-body').addEventListener('click', e => {
-    const b = e.target.closest('[data-arch]');
-    if (b) downloadArchive(b.dataset.arch).catch(ex => toast(ex.message, true));
-  });
+  if (res.status === 403) throw new Error('Неверное кодовое слово');
+  if (!res.ok) throw new Error('Не удалось скачать архив');
+  return JSON.parse(await res.text());
+}
+
+/** Расшифровывает сообщения архива ключом чата и приводит их к виду списка для HTML-страницы. */
+async function archiveRows(payload) {
+  const meta = payload.chat || {};
+  const c = chatById(meta.id) || { id: meta.id, kind: meta.kind, members: meta.members || [] };
+  const { key } = await chatKeyOf(c);
+  const names = new Map((payload.users || []).map(u => [u.id, u.name]));
+  const label = c.kind === 'dm'
+    ? 'Лично: ' + ((names.get((meta.members || []).find(x => x !== S.me.id)) || 'Личная переписка'))
+    : (S.chatTitles.get(c.id) || meta.titlePlain || 'Групповой чат');
+  const rows = [];
+  for (const m of payload.messages || []) {
+    let p = {};
+    try { p = await decryptJSON(key, m.blob); } catch (e) { p = { text: '…' }; }
+    rows.push({
+      id: m.id, parent: m.parent || null, quote: m.quote || null, ts: m.ts,
+      time: new Date(m.ts).toLocaleString('ru-RU'),
+      chat: label + (m.parent ? ' · комментарий' : ''),
+      author: names.get(m.uid) || (userById(m.uid) || {}).name || p.author || 'Бывший участник',
+      text: p.text || '', image: p.att || null
+    });
+  }
+  rows.sort((a, b) => a.ts - b.ts);
+  return rows;
+}
+
+async function archivesFlow(c) {
+  let list = [];
+  try { list = (await api('/api/chats/' + c.id + '/archives')).archives; } catch (e) { toast(e.message, true); return; }
+  S.arcList = list;
+  modal('Архивы · ' + chatTitle(c), list.length ? list.map(a => `
+    <div class="archive-row">
+      <div style="flex:1;min-width:0">
+        <div>${new Date(a.createdAt).toLocaleString('ru-RU')}</div>
+        <div class="tiny muted">${plural(a.count, 'сообщение', 'сообщения', 'сообщений')} · ${fmtBytes(a.bytes)} · зашифрован</div>
+      </div>
+      <button class="mini" data-arc-view="${a.file}" title="Открыть HTML-страницу с поиском">${SV(ICONS.search)}</button>
+      <button class="mini" data-arc-dl="${a.file}" title="Скачать HTML-страницу с поиском">${SV(ICONS.download)}</button>
+      <button class="mini" data-arc-restore="${a.file}" title="Вернуть сообщения в чат">${SV(ICONS.restore)}</button>
+      <button class="mini danger" data-arc-del="${a.file}" title="Удалить архив с сервера и освободить место">${SV(ICONS.trash)}</button>
+    </div>`).join('')
+    : '<p class="hint">Архивов пока нет. Создать: меню «⋯» → «Архив на сервере…».</p>');
+}
+
+/** Единая обработка кнопок архивов (вешается один раз). */
+$('#modal-body').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-arc-view],[data-arc-dl],[data-arc-restore],[data-arc-del]');
+  if (!btn) return;
+  const rec = (S.arcList || []).find(a => a.file === (btn.dataset.arcView || btn.dataset.arcDl || btn.dataset.arcRestore || btn.dataset.arcDel));
+  if (!rec) return;
+  const c = chatById(rec.chat);
+  try {
+    if (btn.dataset.arcDel) {
+      if (!confirm('Удалить архив с сервера безвозвратно? Место в базе освободится.')) return;
+      const res = await fetch(BASE + '/api/archives/' + encodeURIComponent(rec.file), { method: 'DELETE', headers: { Authorization: 'Bearer ' + S.token } });
+      if (!res.ok) throw new Error((await res.json()).error || 'Не удалось удалить');
+      S.sig = ''; await sync();
+      toast('Архив удалён, место освобождено');
+      if (c) return archivesFlow(c);
+      hide($('#modal'));
+      return;
+    }
+    if (btn.dataset.arcRestore) {
+      const word = await askCodeword('Восстановить архив', 'Введите кодовое слово мессенджера — сообщения вернутся в чат.', false).catch(() => null);
+      if (!word) return;
+      const r = await api('/api/chats/' + rec.chat + '/restore', { method: 'POST', body: { file: rec.file, codeProof: await codeProofOf(word) } });
+      hide($('#modal')); S.sig = ''; await sync(); renderMessages(true);
+      toast('Восстановлено сообщений: ' + r.restored);
+      return;
+    }
+    // просмотр или скачивание HTML-страницы с поиском
+    const word = await askCodeword('Открыть архив', 'Архив зашифрован кодовым словом мессенджера.', false).catch(() => null);
+    if (!word) return;
+    const env = await fetchArchiveEnv(rec, word);
+    const rows = await archiveRows(env);
+    const html = archivePageHtml((c ? chatTitle(c) : 'Архив'), rows);
+    if (btn.dataset.arcDl) {
+      saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), 'sega-archive-' + rec.file.replace(/^archive-/, '').replace(/\.json$/, '') + '.html');
+      toast('Страница архива скачана — поиск работает без интернета');
+      return;
+    }
+    modal('Архив · ' + (c ? chatTitle(c) : ''), `<iframe class="arc-frame" id="arc-frame"></iframe>
+      <button class="primary soft" id="arc-dl">${SV(ICONS.download)} Скачать эту страницу</button>`);
+    $('#arc-frame').srcdoc = html;
+    $('#arc-dl').addEventListener('click', () => {
+      saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), 'sega-archive-' + rec.file.replace(/^archive-/, '').replace(/\.json$/, '') + '.html');
+    });
+  } catch (ex) { toast(ex.message, true); }
 });
 
 // ─────────────────────────────────────────── отправка сообщений
@@ -1975,6 +2114,17 @@ function exportJson(chat) {
 }
 function exportHtml(chat) {
   const list = plainList(chat);
+  const title = chat ? chatTitle(chat) : 'Все мои чаты';
+  const html = archivePageHtml(title, list);
+  const name = 'sega-chat-' + (chat ? cut(chatTitle(chat), 20).replace(/[^\wА-Яа-яЁё-]+/g, '_') + '-' : '') + new Date().toISOString().slice(0, 10) + '.html';
+  saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), name);
+}
+
+/**
+ * Самодостаточная HTML-страница переписки с живым поиском по странице.
+ * Используется и для копии чата, и для архивов с сервера: поиск работает без интернета.
+ */
+function archivePageHtml(title, list) {
   const rows = list.map(m => {
     const q = m.quote ? list.find(x => x.id === m.quote) : null;
     return `<div class="m${m.parent ? ' c' : ''}" id="m-${m.id}"><div class="h"><b>${escapeHtml(m.author)}</b>
@@ -1982,13 +2132,14 @@ function exportHtml(chat) {
     ${q ? `<a class="q" href="#m-${q.id}"><b>${escapeHtml(q.author)}</b>: ${escapeHtml(cut(q.text, 80))}</a>` : ''}
     ${m.text ? `<div class="t">${linkify(escapeHtml(m.text))}</div>` : ''}${m.image ? `<img src="${m.image}">` : ''}</div>`;
   }).join('\n');
-  const title = chat ? chatTitle(chat) : 'Все мои чаты';
-  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SEGA-CHAT — ${escapeHtml(title)}</title><style>
 body{background:#eef2f4;color:#1f2b33;font-family:Helvetica,Arial,sans-serif;margin:0;padding:24px}
 .wrap{max-width:860px;margin:0 auto}h1{color:#1f2b33;margin:2px 0 0}
 .brand{font-weight:800;letter-spacing:.2em;color:#2353a2;font-size:12px}
-#q{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #d7dfe5;margin:12px 0 18px}
+#bar{position:sticky;top:0;background:#eef2f4;padding:12px 0;margin:12px 0 18px;display:flex;gap:10px;align-items:center}
+#q{flex:1;padding:10px 12px;border-radius:8px;border:1px solid #d7dfe5;font-size:14px}
+#n{font-size:12px;color:#8b98a4;white-space:nowrap}
 .m{background:#fff;border-radius:10px;padding:10px 13px;margin-bottom:8px;box-shadow:0 1px 2px rgba(20,50,70,.09)}
 .m.c{margin-left:36px;border-left:3px solid #2fc6f6}
 .m:target{box-shadow:0 0 0 3px #ffd98a}
@@ -1996,12 +2147,23 @@ body{background:#eef2f4;color:#1f2b33;font-family:Helvetica,Arial,sans-serif;mar
 .q{display:block;border-left:3px solid #2fc6f6;background:#f2f8fd;border-radius:6px;padding:5px 9px;margin:5px 0;
    font-size:12.5px;color:#41525e;text-decoration:none}
 .t{white-space:pre-wrap;margin-top:4px}img{max-width:min(420px,90%);border-radius:8px;margin-top:8px;display:block}
-a{color:#2353a2}.muted{color:#8b98a4}</style></head><body><div class="wrap">
+a{color:#2353a2}.muted{color:#8b98a4}mark{background:#ffe9a8;border-radius:3px;padding:0 1px}</style></head><body><div class="wrap">
 <div class="brand">SEGA-CHAT</div><h1>${escapeHtml(title)}</h1><div class="muted">Архив · ${new Date().toLocaleString('ru-RU')} · ${list.length} сообщений</div>
-<input id="q" placeholder="Поиск по архиву…" oninput="(function(v){document.querySelectorAll('.m').forEach(function(e){e.style.display=e.innerText.toLowerCase().includes(v.toLowerCase())?'':'none'})})(this.value)">
-${rows}</div></body></html>`;
-  const name = 'sega-chat-' + (chat ? cut(chatTitle(chat), 20).replace(/[^\wА-Яа-яЁё-]+/g, '_') + '-' : '') + new Date().toISOString().slice(0, 10) + '.html';
-  saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), name);
+<div id="bar"><input id="q" placeholder="Поиск по странице…" autocomplete="off"><span id="n"></span></div>
+<div id="c">${rows}</div></div><script>
+(function(){
+  var q=document.getElementById('q'),n=document.getElementById('n'),cards=[].slice.call(document.querySelectorAll('.m'));
+  function run(){
+    var v=q.value.trim().toLowerCase(),hits=0;
+    cards.forEach(function(el){
+      var ok=!v||el.innerText.toLowerCase().indexOf(v)!==-1;
+      el.style.display=ok?'':'none'; if(ok&&v)hits++;
+    });
+    n.textContent=v?('найдено: '+hits):'';
+  }
+  q.addEventListener('input',run);
+})();
+</script></body></html>`;
 }
 
 $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из мессенджера на этом устройстве?')) doLogout(); });
