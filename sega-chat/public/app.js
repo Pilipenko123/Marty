@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-6';
+const BUILD = 'pkg3-7';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -860,26 +860,27 @@ function renderRail() {
     });
 
   let html = '';
-  if (chats.length) {
-    html += `<div class="rail-group">Чаты</div>`;
-    for (const c of chats) {
-      const un = unreadIn(c.id);
-      const last = lastMessageIn(c.id);
-      const peer = c.kind === 'dm' ? userById(dmPeer(c)) : null;
-      const sub = last ? preview(last)
-        : (c.kind === 'dm' ? (isOnline(peer) ? 'в сети' : fmtAgo(peer && peer.lastSeen))
-          : plural(c.members.length, 'участник', 'участника', 'участников'));
-      html += `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
-        ${chatAvatarHtml(c)}
-        <div class="ci-main">
-          <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}</div>
-          <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
-        </div>
-        ${un.mentions ? `<span class="badge at" title="обращения к вам">@${un.mentions}</span>` : ''}
-        ${un.total ? `<span class="badge">${un.total}</span>` : ''}
-      </div>`;
-    }
-  }
+  const groups = chats.filter(c => c.kind === 'group');
+  const dms = chats.filter(c => c.kind === 'dm');
+  const chatRow = (c) => {
+    const un = unreadIn(c.id);
+    const last = lastMessageIn(c.id);
+    const peer = c.kind === 'dm' ? userById(dmPeer(c)) : null;
+    const sub = last ? preview(last)
+      : (c.kind === 'dm' ? (isOnline(peer) ? 'в сети' : fmtAgo(peer && peer.lastSeen))
+        : plural(c.members.length, 'участник', 'участника', 'участников'));
+    return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
+      ${chatAvatarHtml(c)}
+      <div class="ci-main">
+        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}</div>
+        <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
+      </div>
+      ${un.mentions ? `<span class="badge at" title="обращения к вам">@${un.mentions}</span>` : ''}
+      ${un.total ? `<span class="badge">${un.total}</span>` : ''}
+    </div>`;
+  };
+  if (groups.length) html += `<div class="rail-group">Групповые чаты</div>` + groups.map(chatRow).join('');
+  if (dms.length) html += `<div class="rail-group">Личные чаты</div>` + dms.map(chatRow).join('');
 
   const known = new Set(S.chats.filter(c => c.kind === 'dm').map(c => dmPeer(c)));
   const others = S.users.filter(u => u.id !== S.me.id && !known.has(u.id) && (!flt || u.name.toLowerCase().includes(flt)))
@@ -909,7 +910,7 @@ function renderTopbar() {
     $('#chat-avatar').innerHTML = chatAvatarHtml(null);
     $('#chat-title').textContent = 'SEGA-CHAT';
     $('#chat-sub').textContent = 'выберите чат слева или создайте новый';
-    $('#input').placeholder = 'Написать сообщение…';
+    $('#input').placeholder = 'ну пиши, чё?';
     return;
   }
   $('#chat-avatar').innerHTML = chatAvatarHtml(c);
@@ -919,11 +920,11 @@ function renderTopbar() {
     $('#chat-sub').innerHTML = isOnline(u)
       ? '<span style="color:#5c9c1e">в сети, смотрит чат</span> · личная переписка'
       : 'был(а) ' + escapeHtml(fmtAgo(u && u.lastSeen)) + ' · личная переписка';
-    $('#input').placeholder = 'Личное сообщение для ' + chatTitle(c) + '…';
+    $('#input').placeholder = 'ну пиши, чё?';
   } else {
     const online = c.members.map(userById).filter(isOnline).length;
     $('#chat-sub').innerHTML = `${plural(c.members.length, 'участник', 'участника', 'участников')} · <span style="color:#5c9c1e">${online} в сети</span>`;
-    $('#input').placeholder = 'Написать в «' + chatTitle(c) + '»…  (@ — обратиться к участнику)';
+    $('#input').placeholder = 'ну пиши, чё?  (@ — обратиться к участнику)';
   }
 }
 
@@ -2072,7 +2073,7 @@ async function uploadChunked(file, c, att) {
     await api('/api/upload/chunk', { method: 'POST', body: { upId: init.upId, i, data: enc.slice(i * CH, (i + 1) * CH) } });
     toast('Загружено ' + Math.round((i + 1) / parts * 100) + '%');
   }
-  await api('/api/upload/fin', { method: 'POST', body: { upId: init.upId } });
+  await api('/api/upload/fin', { method: 'POST', body: { upId: init.upId, stored: enc.length } });
   return { kind: att.kind, upId: init.upId, parts, name: att.name, size: file.size, mime: att.mime };
 }
 async function loadUpload(el) {
