@@ -111,6 +111,7 @@ function createApi(store, opts = {}) {
       clearedByName: c.clearedByName || null,
       clearedAt: c.clearedAt || null,
       clearedCount: c.clearedCount !== undefined && c.clearedCount !== null ? c.clearedCount : null,
+      wall: c.wall || null, wallRev: c.wallRev || null, iconRev: c.iconRev || null,
       lastArchive: c.lastArchive || null
     };
   }
@@ -217,7 +218,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-1',
+        build: 'pkg3-2',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -483,6 +484,42 @@ function createApi(store, opts = {}) {
         const b = req.body;
         if (!chat.members.includes(b.id)) return E(400, 'Новый владелец должен быть участником чата');
         chat.ownerId = b.id;
+        db.seq++; save();
+        return J(200, { chat: publicChat(chat, me.id) });
+      }
+
+      if (action === 'wall' && method === 'POST') {
+        // фон чата — общий объект: видеть и менять может любой участник
+        const w = (req.body || {}).wall || {};
+        if (!['grad', 'pat', 'photo', 'none'].includes(w.type)) return E(400, 'Непонятный тип фона');
+        const hex = v => /^#[0-9a-fA-F]{6}$/.test(v || '');
+        chat.wall = {
+          type: w.type,
+          c1: hex(w.c1) ? w.c1 : '#eef2f4',
+          c2: hex(w.c2) ? w.c2 : '#e8f4fe',
+          a: Math.max(0, Math.min(360, Number(w.a) || 165)),
+          pat: ['dots', 'diag', 'grid', 'waves'].includes(w.pat) ? w.pat : 'dots'
+        };
+        db.seq++; save();
+        return J(200, { chat: publicChat(chat, me.id) });
+      }
+
+      if (action === 'wallphoto' && method === 'POST') {
+        const b = req.body || {};
+        if (b.data && b.data.length > 350 * 1024) return E(413, 'Фото фона слишком большое (до ~350 КБ в шифрованном виде)');
+        chat.wallRev = b.data ? crypto.randomBytes(4).toString('hex') : null;
+        await store.putWall(chat.id, b.data || '');
+        if (b.data) chat.wall = Object.assign({}, chat.wall, { type: 'photo' });
+        db.seq++; save();
+        return J(200, { chat: publicChat(chat, me.id) });
+      }
+
+      if (action === 'icon' && method === 'POST') {
+        if (chat.kind !== 'group') return E(400, 'Иконка есть только у групповых чатов');
+        const b = req.body || {};
+        if (b.data && b.data.length > 350 * 1024) return E(413, 'Иконка слишком большая (до ~350 КБ в шифрованном виде)');
+        chat.iconRev = b.data ? crypto.randomBytes(4).toString('hex') : null;
+        await store.putIcon(chat.id, b.data || '');
         db.seq++; save();
         return J(200, { chat: publicChat(chat, me.id) });
       }
@@ -881,6 +918,20 @@ function createApi(store, opts = {}) {
     }
 
     // --- аватар участника (зашифрован; скачивается один раз и кэшируется браузером)
+    if (pathname.startsWith('/api/wall/') && method === 'GET') {
+      const id = decodeURIComponent(pathname.split('/')[3] || '');
+      const c = chatById(id);
+      if (!c || !isMember(c, me.id)) return E(403, 'Это не ваш чат');
+      const w = await store.getWall(id);
+      return J(200, { wall: w || null, rev: c.wallRev || null }, { 'Cache-Control': 'private, max-age=3600' });
+    }
+    if (pathname.startsWith('/api/chaticon/') && method === 'GET') {
+      const id = decodeURIComponent(pathname.split('/')[3] || '');
+      const c = chatById(id);
+      if (!c || !isMember(c, me.id)) return E(403, 'Это не ваш чат');
+      const ic = await store.getIcon(id);
+      return J(200, { icon: ic || null, rev: c.iconRev || null }, { 'Cache-Control': 'private, max-age=3600' });
+    }
     if (pathname.startsWith('/api/avatar/') && method === 'GET') {
       const who = db.users.find(x => x.id === decodeURIComponent(pathname.split('/')[3] || ''));
       if (!who) return E(404, 'Участник не найден');

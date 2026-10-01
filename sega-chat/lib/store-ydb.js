@@ -438,6 +438,24 @@ function createYdbStore(opts = {}) {
 
     async putArchive(file, text) { await putDoc('arc', file, { t: text }); },
     async delArchive(file) { await delByPrefix('arc', file); },   // chunkK на холодном старте пуст, поэтому по префиксу
+    // фон и иконка чата хранятся отдельными документами (как аватары),
+    // чтобы не раздувать запись чата и синхронизацию
+    async putWall(id, data) { await putDoc('wall', id, { w: data }); },
+    async getWall(id) {
+      const d = parseDocs(await ydb.queryAll(table, {
+        KeyConditionExpression: 'pk = :p AND sk = :s',
+        ExpressionAttributeValues: { ':p': S('wall'), ':s': S(id) }
+      }), 'wall');
+      return d.length ? (d[0].value.w || null) : null;
+    },
+    async putIcon(id, data) { await putDoc('cicon', id, { w: data }); },
+    async getIcon(id) {
+      const d = parseDocs(await ydb.queryAll(table, {
+        KeyConditionExpression: 'pk = :p AND sk = :s',
+        ExpressionAttributeValues: { ':p': S('cicon'), ':s': S(id) }
+      }), 'cicon');
+      return d.length ? (d[0].value.w || null) : null;
+    },
     // «тёплый» экземпляр функции мог загрузить список архивов при старте раньше,
     // чем архивы появились: перед любым обращением к архивам перечитываем индекс
     async loadArchives() {

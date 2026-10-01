@@ -70,6 +70,16 @@ function createFileStore(opts = {}) {
       fs.writeFileSync(path.join(archiveDir, file), text);
     },
     async loadArchives() {},   // в файловом режиме список всегда актуален в памяти
+    async putWall(id, data) { fs.writeFileSync(path.join(dataDir, 'wall-' + id + '.txt'), data || ''); },
+    async getWall(id) {
+      const f = path.join(dataDir, 'wall-' + id + '.txt');
+      try { return fs.readFileSync(f, 'utf8') || null; } catch (e) { return null; }
+    },
+    async putIcon(id, data) { fs.writeFileSync(path.join(dataDir, 'cicon-' + id + '.txt'), data || ''); },
+    async getIcon(id) {
+      const f = path.join(dataDir, 'cicon-' + id + '.txt');
+      try { return fs.readFileSync(f, 'utf8') || null; } catch (e) { return null; }
+    },
     async delArchive(file) {
       const full = path.join(archiveDir, file);
       if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });
