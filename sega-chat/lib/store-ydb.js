@@ -435,13 +435,30 @@ function createYdbStore(opts = {}) {
 
     async putArchive(file, text) { await putDoc('arc', file, { t: text }); },
     async delArchive(file) { await delByPrefix('arc', file); },   // chunkK на холодном старте пуст, поэтому по префиксу
-    async countArchiveParts(file) {
-      const items = await ydb.queryAll(table, {
-        KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)',
-        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(file) },
-        ProjectionExpression: 'pk, sk'
+    /** Читает документ архива ТОЛЬКО точными ключами кусков: не зависит ни от
+     *  порядка выдачи, ни от особенностей begins_with в конкретной базе. */
+    async getArchive(file) {
+      const exact = sk => ydb.queryAll(table, {
+        KeyConditionExpression: 'pk = :p AND sk = :s',
+        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(sk) }
       });
-      return items.length;
+      const head = await exact(file);
+      if (!head.length) return null;
+      const k = num(head[0].k) || 1;
+      let text = str(head[0].d) || '';
+      for (let i = 1; i < k; i++) {
+        const row = await exact(file + '#' + i);
+        text += row.length ? (str(row[0].d) || '') : '';
+      }
+      try { JSON.parse(text); } catch (e) { return null; }
+      return text;
+    },
+    async countArchiveParts(file) {
+      const head = await ydb.queryAll(table, {
+        KeyConditionExpression: 'pk = :p AND sk = :s',
+        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(file) }
+      });
+      return head.length ? (num(head[0].k) || 1) : 0;
     },
     async getArchive(file) {
       const docs = parseDocs(await ydb.queryAll(table, {
