@@ -29,7 +29,12 @@ die()  { printf '\n\033[1;31mОшибка: %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- проверки
 command -v yc  >/dev/null 2>&1 || die "не найден yc. Запустите скрипт в Yandex Cloud Shell или установите Yandex Cloud CLI."
-command -v zip >/dev/null 2>&1 || die "не найден zip. Установите его: sudo apt install zip"
+# zip есть не во всех окружениях (например, в новом Cloud Shell) — умеем паковать и через python3
+HAVE_ZIP=0
+if command -v zip >/dev/null 2>&1; then HAVE_ZIP=1; fi
+if [ "$HAVE_ZIP" != 1 ]; then
+  command -v python3 >/dev/null 2>&1 || die "не найдены ни zip, ни python3. Установите zip: sudo apt install zip"
+fi
 
 # читалка JSON без лишних требований
 jget() {
@@ -97,11 +102,38 @@ info "права на базу и вызов функций выданы ($SA_ID
 say "Шаг 3 из 5. Собираю архив с мессенджером"
 # web-push нужен функции для шифрования payload; не затрагивает YDB и ставится
 # в каталог проекта перед упаковкой (повторный запуск безопасен).
+# В Cloud Shell домашний кэш npm порой лежит на файловой системе без поддержки
+# жёстких ссылок (npm падает с «ENOTSUP ... link») — уводим кэш в /tmp.
+export npm_config_cache="${NPM_CACHE:-/tmp/sega-npm-cache}"
+mkdir -p "$npm_config_cache"
 npm install --omit=dev --no-audit --no-fund >/dev/null
 ZIP="$(mktemp -d)/sega-chat.zip"
-zip -qr "$ZIP" index.js package.json cloud lib public node_modules \
-  -x '*/data/*' '*.zip'
-info "$(du -h "$ZIP" | cut -f1) — лимит загрузки через CLI: 3,5 МБ"
+if [ "$HAVE_ZIP" = 1 ]; then
+  zip -qr "$ZIP" index.js package.json cloud lib public node_modules \
+    -x '*/data/*' '*.zip'
+else
+  # в окружении нет утилиты zip (бывает в свежем Cloud Shell) — пакуем через python3,
+  # содержимое архива ровно то же: код и зависимости, без папок data и без *.zip
+  info "упаковываю через python3 (утилита zip в окружении не найдена)"
+  python3 - "$ZIP" <<'PY'
+import os, sys, zipfile
+out = sys.argv[1]
+roots = ['index.js', 'package.json', 'cloud', 'lib', 'public', 'node_modules']
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+    for r in roots:
+        if os.path.isfile(r):
+            z.write(r, r)
+            continue
+        for base, dirs, files in os.walk(r):
+            dirs[:] = [d for d in dirs if d != 'data' and not d.startswith('.')]
+            for f in files:
+                if f.endswith('.zip'):
+                    continue
+                p = os.path.join(base, f)
+                z.write(p, p)
+PY
+fi
+info "($(du -h "$ZIP" | cut -f1) — лимит загрузки через CLI: 3,5 МБ)"
 
 # ---------------------------------------------------------------- функция
 say "Шаг 4 из 5. Функция «$FUNC_NAME»"
