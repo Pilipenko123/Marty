@@ -213,7 +213,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg2-6',
+        build: 'pkg2-8',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -506,6 +506,13 @@ function createApi(store, opts = {}) {
         } catch (e) {
           return E(500, 'Не удалось сохранить архив: ' + e.message);
         }
+        // страховка от «призраков»: сразу читаем записанное обратно
+        const back = await store.getArchive(file);
+        if (back == null) {
+          console.error('[arc] запись не читается после создания:', file);
+          await store.delArchive(file);
+          return E(500, 'Архив не записался в базу (запись не читается). Повторите попытку и пришлите журнал, если повторится');
+        }
         const rec = { file, createdAt: Date.now(), count: msgs.length, bytes: msgs.reduce((a, m) => a + (m.bytes || 0), 0), chat: chat.id };
         db.archives.push(rec);
         dropChat(chat.id);
@@ -530,9 +537,15 @@ function createApi(store, opts = {}) {
       if (action === 'archives' && method === 'GET') {
         await store.loadArchives();
         const list = db.archives.filter(a => a.chat === chat.id).reverse();
-        // помечаем «призраков»: запись в индексе есть, а тела архива в базе нет
-        for (const a of list) a.hasContent = (await store.countArchiveParts(a.file)) > 0;
-        return J(200, { archives: list });
+        // правда о списке = наличие тела в базе: призраков убираем сразу,
+        // заодно удалённые архивы не задерживаются в списке из-за задержки индекса
+        const alive = [];
+        for (const a of list) {
+          if ((await store.countArchiveParts(a.file)) > 0) { a.hasContent = true; alive.push(a); }
+          else db.archives = db.archives.filter(x => x.file !== a.file);
+        }
+        if (alive.length !== list.length) { db.seq++; save(); }
+        return J(200, { archives: alive });
       }
 
       // --- восстановление заархивированной истории обратно в чат
