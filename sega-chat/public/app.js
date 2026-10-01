@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-5';
+const BUILD = 'pkg3-6';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -94,6 +94,38 @@ const palById = id => PALS.find(p => p.id === id) || PALS[0];
 // Картинки подтягиваются с CDN; если сети нет — onerror возвращает системный символ.
 const TW_URL = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/';
 const EMO_RE = /(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu;
+// ─────────────────────────────────────────── локальный кэш медиа (IndexedDB)
+// Раз загруженное видео/фото/файл живёт в памяти устройства: открываться будет
+// мгновенно, без повторной загрузки из облака. Управляется в меню «⋯» → «Медиа на устройстве».
+const idb = {
+  db: null,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('sega-media', 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('media')) r.result.createObjectStore('media'); };
+      r.onsuccess = () => { this.db = r.result; res(this.db); };
+      r.onerror = () => rej(r.error || new Error('IndexedDB недоступна'));
+    });
+  },
+  async get(id) { try { const d = await this.open(); return await new Promise(res => { const t = d.transaction('media').objectStore('media').get(id); t.onsuccess = () => res(t.result || null); t.onerror = () => res(null); }); } catch (e) { return null; } },
+  async put(id, v) { try { const d = await this.open(); await new Promise((res, rej) => { const t = d.transaction('media', 'readwrite'); t.objectStore('media').put(v, id); t.oncomplete = res; t.onerror = () => rej(t.error); }); } catch (e) {} },
+  async del(id) { try { const d = await this.open(); await new Promise(res => { const t = d.transaction('media', 'readwrite'); t.objectStore('media').delete(id); t.oncomplete = res; t.onerror = res; }); } catch (e) {} },
+  async all() { try { const d = await this.open(); return await new Promise(res => { const t = d.transaction('media').objectStore('media').openCursor(); const out = []; t.onsuccess = () => { const c = t.result; if (c) { out.push([c.key, c.value]); c.continue(); } else res(out); }; t.onerror = () => res(out); }); } catch (e) { return []; } }
+};
+const mediaUrls = new Map();
+function mediaUrl(id, blob) {
+  let u = mediaUrls.get(id);
+  if (!u) { u = URL.createObjectURL(blob); mediaUrls.set(id, u); }
+  return u;
+}
+function mediaPlayerHtml(rec, id) {
+  const url = mediaUrl(id, rec.blob);
+  if (rec.kind === 'video' || (rec.mime || '').startsWith('video/')) return `<video class="att att-vid" controls preload="metadata" src="${url}"></video>`;
+  if (rec.kind === 'audio' || (rec.mime || '').startsWith('audio/')) return `<audio controls src="${url}" style="max-width:min(360px,70vw);margin-top:5px"></audio>`;
+  if ((rec.mime || '').startsWith('image/')) return `<img class="att" src="${url}" alt="вложение">`;
+  return `<a class="att-file" href="${url}" download="${escapeHtml(rec.name || 'file')}">${SV(ICONS.download)}<span>${escapeHtml(rec.name || 'файл')}</span><span class="tiny muted">${fmtBytes(rec.size || rec.blob.size || 0)} · из памяти устройства</span></a>`;
+}
 function twEmo(html) {
   return String(html).replace(EMO_RE, seq => {
     const cp = [...seq].map(c => c.codePointAt(0).toString(16)).join('-');
@@ -1059,6 +1091,7 @@ function renderMessages(force) {
   renderedIds = new Set(list.map(m => m.id));
   paintIcons(box);
   applyWallBackground();
+  upgradeMedia(box);
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
   // фокус при открытии чата: первое непрочитанное (повторяем после перерисовок,
@@ -1612,6 +1645,54 @@ function iconEditor(c) {
   });
 }
 
+// ─────────────────────────────────────────── медиа на устройстве (меню «⋯»)
+async function openMediaManager() {
+  const list = await idb.all();
+  const total = list.reduce((a, [, v]) => a + (v.size || (v.blob && v.blob.size) || 0), 0);
+  modal('Медиа на устройстве', `
+    <div class="tiny muted">Здесь лежат уже загруженные видео, фото и файлы: открываются мгновенно,
+    без обращения к облаку. Занимают на этом устройстве: ${fmtBytes(total)}.</div>
+    ${list.length ? list.map(([id, v]) => `
+      <div class="archive-row">
+        <div style="flex:1;min-width:0">
+          <div>${escapeHtml(v.name || id)}</div>
+          <div class="tiny muted">${fmtBytes(v.size || (v.blob && v.blob.size) || 0)} · ${(v.mime || '').split('/')[0] || 'файл'} · ${new Date(v.ts || Date.now()).toLocaleDateString('ru-RU')}</div>
+        </div>
+        <button class="mini" data-media-open="${escapeHtml(id)}" title="Открыть">${SV(ICONS.play)}</button>
+        <button class="mini danger" data-media-del="${escapeHtml(id)}" title="Удалить из памяти устройства">${SV(ICONS.trash)}</button>
+      </div>`).join('') : '<p class="hint">Пока пусто: откройте видео или файл в чате — и они появятся здесь.</p>'}
+    ${list.length ? '<button class="primary soft danger" id="media-clear" style="margin-top:10px">Очистить всё</button>' : ''}`);
+  void 0;
+}
+document.addEventListener('click', async e => {
+    const op = e.target.closest('[data-media-open]');
+    if (op) {
+      const rec = await idb.get(op.dataset.mediaOpen);
+      if (!rec) return;
+      const url = mediaUrl(op.dataset.mediaOpen, rec.blob);
+      if ((rec.mime || '').startsWith('image/')) {
+        const lb = document.createElement('div'); lb.className = 'lightbox';
+        lb.innerHTML = `<img src="${url}" alt="">`; lb.onclick = () => lb.remove();
+        document.body.appendChild(lb);
+      } else window.open(url, '_blank');
+      return;
+    }
+    const dl = e.target.closest('[data-media-del]');
+    if (dl) {
+      const id = dl.dataset.mediaDel;
+      await idb.del(id);
+      const u = mediaUrls.get(id); if (u) { URL.revokeObjectURL(u); mediaUrls.delete(id); }
+      hide($('#modal')); openMediaManager();
+      return;
+    }
+    if (e.target.closest('#media-clear')) {
+      if (!confirm('Удалить все закэшированные медиа с этого устройства?')) return;
+      for (const [id] of await idb.all()) await idb.del(id);
+      for (const u of mediaUrls.values()) URL.revokeObjectURL(u);
+      mediaUrls.clear();
+      hide($('#modal')); openMediaManager();
+    }
+});
 // ─────────────────────────────────────────── создание группового чата
 function openCreateChat() {
   $('#rail').classList.remove('open');
@@ -1731,6 +1812,7 @@ $('#drop').addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   closeDrop();
+  if (b.dataset.act === 'media') { openMediaManager(); return; }
   const c = curChat();
   if (!c) return;
   if (b.dataset.act === 'info') return openChatInfo(c);
@@ -1995,22 +2077,34 @@ async function uploadChunked(file, c, att) {
 }
 async function loadUpload(el) {
   const upId = el.dataset.upl, parts = Math.max(1, Number(el.dataset.parts) || 1);
-  const c = curChat();
-  const k = await chatKeyOf(c);
-  let enc = '';
-  for (let i = 0; i < parts; i++) {
-    const r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
-    enc += r.data;
-    const pr = el.querySelector('.tiny');
-    if (pr) pr.textContent = 'загружено ' + Math.round((i + 1) / parts * 100) + '%';
+  let rec = await idb.get(upId);
+  if (!rec) {
+    const c = curChat();
+    const k = await chatKeyOf(c);
+    let enc = '';
+    for (let i = 0; i < parts; i++) {
+      const r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
+      enc += r.data;
+      const pr = el.querySelector('.tiny');
+      if (pr) pr.textContent = 'загружено ' + Math.round((i + 1) / parts * 100) + '%';
+    }
+    const bytes = await aesDecryptBytes(k.key, enc);
+    rec = {
+      blob: new Blob([bytes], { type: el.dataset.mime || 'application/octet-stream' }),
+      kind: el.dataset.kind, name: el.dataset.name || 'file',
+      size: Number(el.dataset.size) || 0, mime: el.dataset.mime || '', ts: Date.now()
+    };
+    await idb.put(upId, rec);
   }
-  const bytes = await aesDecryptBytes(k.key, enc);
-  const blob = new Blob([bytes], { type: el.dataset.mime || 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const kind = el.dataset.kind, name = el.dataset.name || 'file', size = Number(el.dataset.size) || 0;
-  if (kind === 'video') el.outerHTML = `<video class="att att-vid" controls src="${url}"></video>`;
-  else if (kind === 'audio') el.outerHTML = `<audio controls src="${url}" style="max-width:min(360px,70vw);margin-top:5px"></audio>`;
-  else el.outerHTML = `<a class="att-file" href="${url}" download="${escapeHtml(name)}">${SV(ICONS.download)}<span>${escapeHtml(name)}</span><span class="tiny muted">${fmtBytes(size)}</span></a>`;
+  el.outerHTML = mediaPlayerHtml(rec, upId);
+}
+/** После перерисовки ленты уже закэшированные медиа подставляются сами, без клика. */
+async function upgradeMedia(box) {
+  const nodes = [...box.querySelectorAll('[data-upl]')];
+  for (const el of nodes) {
+    const rec = await idb.get(el.dataset.upl);
+    if (rec && document.contains(el)) el.outerHTML = mediaPlayerHtml(rec, el.dataset.upl);
+  }
 }
 async function send({ textarea, parent, attachKey }) {
   const text = textarea.value.trim();

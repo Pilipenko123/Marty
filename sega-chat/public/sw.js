@@ -15,3 +15,25 @@ self.addEventListener('notificationclick', event => {
     return clients.openWindow(event.notification.data.url);
   }));
 });
+
+/* Кэш статики для быстрого холодного старта: страница, стили, скрипт, иконки.
+   Стратегия «кэш сразу + обновление в фоне»: открытие чата не ждёт сеть,
+   а свежая версия прилетает к следующему запуску. */
+const STATIC_CACHE = 'sega-static-v1';
+const STATIC_RE = /(\.css|\.js|\.png|\.svg|\.webmanifest|\.ico)$|^\/$|index\.html$/;
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;      // CDN-эмодзи не кэшируем здесь
+  if (!STATIC_RE.test(url.pathname)) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(STATIC_CACHE);
+    const hit = await cache.match(req, { ignoreSearch: true });
+    const fresh = fetch(req).then(res => {
+      if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+      return res;
+    }).catch(() => null);
+    return hit || (await fresh) || Response.error();
+  })());
+});
