@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-4';
+const BUILD = 'pkg3-5';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1262,6 +1262,19 @@ function goToMessage(id) {
 }
 
 function handleMsgClick(e) {
+  // на телефоне инструменты сообщения открываются тапом по сообщению,
+  // чтобы панель кнопок не распирала ленту по горизонтали
+  if (window.matchMedia('(max-width:900px)').matches) {
+    const msgEl = e.target.closest('.msg');
+    if (msgEl && !e.target.closest('button, a, img, video, audio, [data-upl]')) {
+      const was = msgEl.classList.contains('show-tools');
+      $$('#messages .msg.show-tools').forEach(x => x.classList.remove('show-tools'));
+      if (!was) msgEl.classList.add('show-tools');
+      return;
+    }
+  }
+  const upl = e.target.closest('[data-upl]');
+  if (upl) { loadUpload(upl).catch(ex => toast(ex.message, true)); return; }
   const goto = e.target.closest('[data-goto]');
   if (goto) return goToMessage(goto.dataset.goto);
   const rxb = e.target.closest('[data-rx]');
@@ -1363,6 +1376,7 @@ function openEditor(mid) {
   if (!m || m.uid !== S.me.id) return;
   const el = document.getElementById('m-' + mid);
   if (!el || el.dataset.editing) return;
+  el.classList.add('editing');
   const p = S.plain.get(mid) || {};
   const bubble = el.querySelector('.bubble');
   if (!bubble) return;
@@ -1383,6 +1397,7 @@ function openEditor(mid) {
     const box = ta.closest('.edit-box');
     if (box) box.outerHTML = old;
     delete el.dataset.editing;
+    el.classList.remove('editing');
   });
   $('#eds-' + mid).addEventListener('click', async () => {
     const text = ta.value.trim();
@@ -1962,6 +1977,41 @@ function findMentions(text) {
   }
   return ids;
 }
+async function uploadChunked(file, c, att) {
+  const k = await chatKeyOf(c);
+  if (!k) throw new Error('Нет ключа чата для шифрования вложения');
+  toast('Шифруем «' + (att.name || '') + '»…');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const enc = await aesEncryptBytes(k.key, bytes);
+  const CH = 900000;
+  const parts = Math.max(1, Math.ceil(enc.length / CH));
+  const init = await api('/api/upload/init', { method: 'POST', body: { chat: c.id, name: att.name, size: file.size, mime: att.mime, parts } });
+  for (let i = 0; i < parts; i++) {
+    await api('/api/upload/chunk', { method: 'POST', body: { upId: init.upId, i, data: enc.slice(i * CH, (i + 1) * CH) } });
+    toast('Загружено ' + Math.round((i + 1) / parts * 100) + '%');
+  }
+  await api('/api/upload/fin', { method: 'POST', body: { upId: init.upId } });
+  return { kind: att.kind, upId: init.upId, parts, name: att.name, size: file.size, mime: att.mime };
+}
+async function loadUpload(el) {
+  const upId = el.dataset.upl, parts = Math.max(1, Number(el.dataset.parts) || 1);
+  const c = curChat();
+  const k = await chatKeyOf(c);
+  let enc = '';
+  for (let i = 0; i < parts; i++) {
+    const r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
+    enc += r.data;
+    const pr = el.querySelector('.tiny');
+    if (pr) pr.textContent = 'загружено ' + Math.round((i + 1) / parts * 100) + '%';
+  }
+  const bytes = await aesDecryptBytes(k.key, enc);
+  const blob = new Blob([bytes], { type: el.dataset.mime || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const kind = el.dataset.kind, name = el.dataset.name || 'file', size = Number(el.dataset.size) || 0;
+  if (kind === 'video') el.outerHTML = `<video class="att att-vid" controls src="${url}"></video>`;
+  else if (kind === 'audio') el.outerHTML = `<audio controls src="${url}" style="max-width:min(360px,70vw);margin-top:5px"></audio>`;
+  else el.outerHTML = `<a class="att-file" href="${url}" download="${escapeHtml(name)}">${SV(ICONS.download)}<span>${escapeHtml(name)}</span><span class="tiny muted">${fmtBytes(size)}</span></a>`;
+}
 async function send({ textarea, parent, attachKey }) {
   const text = textarea.value.trim();
   const att = S[attachKey];
@@ -1971,8 +2021,13 @@ async function send({ textarea, parent, attachKey }) {
   const k = await chatKeyOf(c);
   if (!k) return toast('Не удалось получить ключ шифрования для этого чата', true);
   const quote = parent ? null : S.quote;
+  let attRef = att;
+  if (att && att.pending) {
+    try { attRef = await uploadChunked(att.file, c, att); }
+    catch (ex) { toast(ex.message, true); textarea.value = text; return; }
+  }
   const payload = { v: 1, text, author: S.me.name, mentions: findMentions(text) };
-  if (att) payload.att = att;
+  if (attRef) payload.att = attRef;
   textarea.value = ''; autoGrow(textarea);
   clearAttach(attachKey);
   if (!parent) { S.quote = null; renderQuoteBar(); }
@@ -1985,7 +2040,7 @@ async function send({ textarea, parent, attachKey }) {
   } catch (ex) {
     toast(ex.message, true);
     textarea.value = text; S[attachKey] = att;
-    if (att) showAttach(attachKey, att);
+    if (att && !att.pending) showAttach(attachKey, att);
     if (quote) { S.quote = quote; renderQuoteBar(); }
   }
 }
@@ -2138,15 +2193,11 @@ async function pickAttach(e, key) {
       toast('Фото готово к отправке');
       return;
     }
-    const isVideo = /^video\//.test(mime);
-    if (file.size > 1.6 * 1024 * 1024) {
-      return toast((isVideo ? 'Видео' : 'Файл') + ' больше 1,6 МБ — лимит облачной функции для одного вложения', true);
-    }
-    toast(isVideo ? 'Готовим видео…' : 'Готовим файл…');
-    const data = await blobToDataURL(file);
-    S[key] = { kind: isVideo ? 'video' : 'file', data, name: file.name || (isVideo ? 'видео' : 'файл'), size: file.size, mime };
+    const kind = /^video\//.test(mime) ? 'video' : /^audio\//.test(mime) ? 'audio' : 'file';
+    if (file.size > 25 * 1024 * 1024) return toast('Файл больше 25 МБ — предел облачного хранилища', true);
+    S[key] = { kind, pending: true, file, name: file.name || kind, size: file.size, mime };
     showAttach(key, S[key]);
-    toast((isVideo ? 'Видео' : 'Файл') + ' готово к отправке');
+    toast('Вложение прикреплено: зашифруется и загрузится кусками при отправке');
   }
   catch (ex) { toast(ex && ex.message ? ex.message : 'Не удалось обработать вложение', true); }
 }
@@ -2155,6 +2206,7 @@ function attHtml(a) {
   if (!a) return '';
   if (typeof a === 'string') return `<img class="att" src="${a}" alt="вложение">`;
   if (a.kind === 'image') return `<img class="att" src="${a.data}" alt="вложение">`;
+  if (a.upId) return `<span class="att-file" role="button" data-upl="${a.upId}" data-parts="${a.parts || 1}" data-kind="${a.kind}" data-name="${escapeHtml(a.name || 'файл')}" data-size="${a.size || 0}" data-mime="${escapeHtml(a.mime || '')}">${SV(ICONS[a.kind === 'video' ? 'play' : a.kind === 'audio' ? 'volume' : 'file'])}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)} · нажать для загрузки</span></span>`;
   if (a.kind === 'video') return `<video class="att att-vid" controls preload="metadata" src="${a.data}"></video>`;
   return `<a class="att-file" href="${a.data}" download="${escapeHtml(a.name || 'file')}">${SV(ICONS.file)}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)}</span></a>`;
 }
