@@ -72,9 +72,11 @@ function createApi(store, opts = {}) {
     return db.users.reduce((a, u) => a + (u.avatarLen || 0), 0);
   }
   function usage() {
-    // архивы тоже занимают место в базе — учитываем их в плашке «Память сервера»
+    // плашка показывает РЕАЛЬНО занятый объём: зашифрованные тела сообщений, аватары,
+    // конверты архивов, куски загрузок и фото фона/иконок чатов
     const arcBytes = db.archives.reduce((a, r) => a + (r.bytes || 0), 0);
-    const bytes = db.stats.bytes + avatarBytes() + arcBytes + (db.upBytes || 0);
+    const chatAssets = db.chats.reduce((a, c) => a + (c.wallLen || 0) + (c.iconLen || 0), 0);
+    const bytes = db.stats.bytes + avatarBytes() + arcBytes + (db.upBytes || 0) + chatAssets;
     return {
       bytes, limit: STORAGE_LIMIT,
       percent: Math.min(100, Math.round(bytes / STORAGE_LIMIT * 1000) / 10),
@@ -237,7 +239,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-6',
+        build: 'pkg3-7',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -527,6 +529,7 @@ function createApi(store, opts = {}) {
         const b = req.body || {};
         if (b.data && b.data.length > 350 * 1024) return E(413, 'Фото фона слишком большое (до ~350 КБ в шифрованном виде)');
         chat.wallRev = b.data ? crypto.randomBytes(4).toString('hex') : null;
+        chat.wallLen = b.data ? b.data.length : 0;
         await store.putWall(chat.id, b.data || '');
         if (b.data) chat.wall = Object.assign({ type: 'grad', c1: '#eef2f4', c2: '#e8f4fe', a: 165, pat: 'dots' }, chat.wall || {}, { type: 'photo' });
         db.seq++; save();
@@ -538,6 +541,7 @@ function createApi(store, opts = {}) {
         const b = req.body || {};
         if (b.data && b.data.length > 350 * 1024) return E(413, 'Иконка слишком большая (до ~350 КБ в шифрованном виде)');
         chat.iconRev = b.data ? crypto.randomBytes(4).toString('hex') : null;
+        chat.iconLen = b.data ? b.data.length : 0;
         await store.putIcon(chat.id, b.data || '');
         db.seq++; save();
         return J(200, { chat: publicChat(chat, me.id) });
@@ -589,7 +593,7 @@ function createApi(store, opts = {}) {
           await store.delArchive(file);
           return E(500, 'Архив не записался в базу (запись не читается). Повторите попытку и пришлите журнал, если повторится');
         }
-        const rec = { file, createdAt: Date.now(), count: msgs.length, bytes: msgs.reduce((a, m) => a + (m.bytes || 0), 0), chat: chat.id };
+        const rec = { file, createdAt: Date.now(), count: msgs.length, bytes: JSON.stringify(payload).length, chat: chat.id };
         db.archives.push(rec);
         dropChat(chat.id);
         db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt || Date.now() };
@@ -776,7 +780,7 @@ function createApi(store, opts = {}) {
         const meta = await store.getUpMeta(up);
         if (meta && !db.messages.some(m => m.upId === up)) {
           await store.delUp(up);
-          db.upBytes = Math.max(0, (db.upBytes || 0) - (meta.size || 0));
+          db.upBytes = Math.max(0, (db.upBytes || 0) - (meta.stored || meta.size || 0));
         }
       }
       for (const m of db.messages) if (m.quote === id) m.quote = null;
@@ -919,7 +923,10 @@ function createApi(store, opts = {}) {
       if (!isMember(chatById(meta.chat), me.id)) return E(403, 'Это не ваш чат');
       const u = usage();
       if (u.bytes + meta.size > STORAGE_LIMIT) return E(507, 'Память чата заполнена — освободите место');
-      db.upBytes = (db.upBytes || 0) + meta.size;
+      const stored = Number(b.stored) || meta.size;
+      meta.stored = stored;
+      await store.putUpMeta(b.upId, meta);
+      db.upBytes = (db.upBytes || 0) + stored;
       db.seq++; save();
       return J(200, { ok: true, meta });
     }

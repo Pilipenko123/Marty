@@ -221,6 +221,7 @@ function createYdbStore(opts = {}) {
     db.createdAt = core.createdAt || Date.now();
     db.room = core.room || null;
     db.serverSecret = core.serverSecret || crypto.randomBytes(32).toString('hex');
+    db.upBytes = Number(core.upBytes) || 0;   // занятый объём загрузок переживает холодный старт
     db.seq = num(m.seq);
     db.gen = num(m.gen);
     presence = JSON.parse(str(m.pres) || '{}');
@@ -384,7 +385,7 @@ function createYdbStore(opts = {}) {
     adds.push('#rev :one'); names['#rev'] = 'rev'; values[':one'] = N(1);
     if (coreFp() !== snap.core) {
       sets.push('#d = :d'); names['#d'] = 'd';
-      values[':d'] = S(JSON.stringify({ version: db.version, createdAt: db.createdAt, room: db.room, serverSecret: db.serverSecret }));
+      values[':d'] = S(JSON.stringify({ version: db.version, createdAt: db.createdAt, room: db.room, serverSecret: db.serverSecret, upBytes: db.upBytes || 0 }));
     }
     if (db.seq !== snap.seq) { adds.push('#seq :dseq'); names['#seq'] = 'seq'; values[':dseq'] = N(db.seq - snap.seq); }
     if (db.gen !== snap.gen) { adds.push('#gen :dgen'); names['#gen'] = 'gen'; values[':dgen'] = N(db.gen - snap.gen); }
