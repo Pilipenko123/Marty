@@ -491,3 +491,5 @@ label.icon.attach .ic{width:19px;height:19px}
 #drop button.danger [data-ic] .ic{color:var(--red)}
 /* страница архива внутри окна */
 iframe.arc-frame{width:100%;height:62dvh;border:1px solid var(--line);border-radius:12px;background:#fff}
+.archive-row.ghost{opacity:.6}
+.archive-row.ghost .tiny{color:#a45b12}

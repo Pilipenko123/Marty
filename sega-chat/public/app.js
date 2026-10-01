@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg2-5';
+const BUILD = 'pkg2-6';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1471,15 +1471,16 @@ async function archivesFlow(c) {
   try { list = (await api('/api/chats/' + c.id + '/archives')).archives; } catch (e) { toast(e.message, true); return; }
   S.arcList = list;
   modal('Архивы · ' + chatTitle(c), list.length ? list.map(a => `
-    <div class="archive-row">
+    <div class="archive-row${a.hasContent === false ? ' ghost' : ''}">
       <div style="flex:1;min-width:0">
         <div>${new Date(a.createdAt).toLocaleString('ru-RU')}</div>
-        <div class="tiny muted">${plural(a.count, 'сообщение', 'сообщения', 'сообщений')} · ${fmtBytes(a.bytes)} · зашифрован</div>
+        <div class="tiny muted">${plural(a.count, 'сообщение', 'сообщения', 'сообщений')} · ${fmtBytes(a.bytes)} · ${a.hasContent === false ? 'тело отсутствует (удалено старым кодом) — можно только удалить запись' : 'зашифрован'}</div>
       </div>
+      ${a.hasContent === false ? '' : `
       <button class="mini" data-arc-view="${a.file}" title="Открыть HTML-страницу с поиском">${SV(ICONS.search)}</button>
       <button class="mini" data-arc-dl="${a.file}" title="Скачать HTML-страницу с поиском">${SV(ICONS.download)}</button>
-      <button class="mini" data-arc-restore="${a.file}" title="Вернуть сообщения в чат">${SV(ICONS.restore)}</button>
-      <button class="mini danger" data-arc-del="${a.file}" title="Удалить архив с сервера и освободить место">${SV(ICONS.trash)}</button>
+      <button class="mini" data-arc-restore="${a.file}" title="Вернуть сообщения в чат">${SV(ICONS.restore)}</button>`}
+      <button class="mini danger" data-arc-del="${a.file}" title="Удалить запись с сервера">${SV(ICONS.trash)}</button>
     </div>`).join('')
     : '<p class="hint">Архивов пока нет. Создать: меню «⋯» → «Архив на сервере…».</p>');
 }
