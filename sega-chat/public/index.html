@@ -116,7 +116,7 @@
     </div>
 
     <div class="rail-search">
-      <input id="chat-filter" type="search" placeholder="Найти чат или участника…" autocomplete="off">
+      <input id="chat-filter" type="search" placeholder="Найти чат или участника…" autocomplete="sega-nofill" name="sega-filter">
       <button class="new-chat" id="btn-new-chat" title="Создать групповой чат"><span data-ic="plus"></span> Новый чат</button>
     </div>
 
@@ -143,7 +143,7 @@
         <div class="tiny muted" id="chat-sub"></div>
       </div>
       <div class="search-wrap">
-        <input id="search" type="search" placeholder="Поиск по всем чатам…" autocomplete="off">
+        <input id="search" type="search" placeholder="Поиск по всем чатам…" autocomplete="sega-nofill" name="sega-search">
         <button class="icon" id="btn-search-clear" title="Очистить"><span data-ic="x"></span></button>
       </div>
       <button class="icon" id="btn-members" title="Участники чата"><span data-ic="users" data-ic-size="big"></span></button>
@@ -175,7 +175,7 @@
         <button class="icon emoji-btn" id="btn-emoji" type="button" title="Эмодзи"><span data-ic="smile" data-ic-size="big"></span></button>
         <div class="input-wrap">
           <div id="mention-pop" class="hidden"></div>
-          <textarea id="input" rows="1" placeholder="Написать сообщение…" maxlength="4000"></textarea>
+          <textarea id="input" rows="1" placeholder="Написать сообщение…" maxlength="4000" autocomplete="sega-nofill" name="sega-input"></textarea>
         </div>
         <button class="send" id="btn-send" title="Отправить"><span data-ic="send" data-ic-size="big"></span></button>
       </div>
@@ -197,7 +197,7 @@
         <button class="icon emoji-btn" id="thread-emoji" type="button" title="Эмодзи"><span data-ic="smile" data-ic-size="big"></span></button>
         <div class="input-wrap">
           <div id="thread-mention-pop" class="hidden"></div>
-          <textarea id="thread-input" rows="1" placeholder="Комментировать…" maxlength="4000"></textarea>
+          <textarea id="thread-input" rows="1" placeholder="Комментировать…" maxlength="4000" autocomplete="sega-nofill" name="sega-thread"></textarea>
         </div>
         <button class="send" id="thread-send" title="Отправить"><span data-ic="send" data-ic-size="big"></span></button>
       </div>

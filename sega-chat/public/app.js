@@ -1426,8 +1426,15 @@ async function fetchArchiveEnv(rec, word) {
   const res = await fetch(BASE + '/api/archives/' + encodeURIComponent(rec.file), {
     headers: { Authorization: 'Bearer ' + S.token, 'X-Code-Proof': await codeProofOf(word) }
   });
-  if (res.status === 403) throw new Error('Неверное кодовое слово');
-  if (!res.ok) throw new Error('Не удалось скачать архив');
+  if (!res.ok) {
+    let msg = 'Не удалось скачать архив (HTTP ' + res.status + ')';
+    try {
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('json')) { const j = await res.json(); if (j && j.error) msg = j.error; }
+    } catch (e) {}
+    if (res.status === 403 && msg.indexOf('кодовое слово') === -1) msg = 'Неверное кодовое слово';
+    throw new Error(msg);
+  }
   return JSON.parse(await res.text());
 }
 
