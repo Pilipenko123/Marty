@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg2-8';
+const BUILD = 'pkg2-9';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -953,14 +953,20 @@ function messageHtml(m, opts = {}) {
 }
 
 function archiveBannerHtml(c) {
-  if (!c || !c.archivedByName) return '';
-  const dateStr = c.archivedAt ? `${fmtDay(c.archivedAt)}, ${fmtTime(c.archivedAt)}` : '';
-  const countStr = (c.archivedCount !== null && c.archivedCount !== undefined)
-    ? ` · удалено ${plural(c.archivedCount, 'сообщение', 'сообщения', 'сообщений')}`
+  if (!c) return '';
+  const who = c.clearedByName || c.archivedByName;
+  if (!who) return '';
+  const verb = c.clearedByName ? 'очистил(а) этот чат. История удалена из облака.'
+    : 'заархивировал(а) этот чат. История сохранена в архив в облаке.';
+  const at = c.clearedAt || c.archivedAt;
+  const cnt = c.clearedByName ? c.clearedCount : c.archivedCount;
+  const dateStr = at ? `${fmtDay(at)}, ${fmtTime(at)}` : '';
+  const countStr = (cnt !== null && cnt !== undefined)
+    ? ` · удалено ${plural(cnt, 'сообщение', 'сообщения', 'сообщений')}`
     : '';
   const sub = (dateStr || countStr) ? `<div class="archive-banner-sub tiny muted">${dateStr}${countStr}</div>` : '';
   return `<div class="archive-banner">
-    <div class="archive-banner-title">Пользователь <b>${escapeHtml(c.archivedByName)}</b> заархивировал(а) этот чат. История сохранена в архив в облаке.</div>
+    <div class="archive-banner-title">Пользователь <b>${escapeHtml(who)}</b> ${verb}</div>
     ${sub}
   </div>`;
 }
@@ -1331,10 +1337,36 @@ $('#drop').addEventListener('click', e => {
   if (!c) return;
   if (b.dataset.act === 'info') return openChatInfo(c);
   if (b.dataset.act === 'copy') { exportHtml(c); return; }
-  if (b.dataset.act === 'archive') return archiveCreateFlow(c);
-  if (b.dataset.act === 'archives') return archivesFlow(c);
+  if (b.dataset.act === 'clear') return clearChatFlow(c);
   if (b.dataset.act === 'leave') return leaveChatFlow(c);
 });
+
+/** «Очистить чат»: сначала предлагаем сохранить копию, затем удаляем историю из облака. */
+function clearChatFlow(c) {
+  if (c.kind === 'group' && !isOwner(c)) return toast('Очистить групповой чат может только создатель', true);
+  modal('Очистить чат «' + chatTitle(c) + '»', `
+    <p class="hint">История этого чата будет удалена из облака безвозвратно и перестанет
+    занимать место на сервере — шкала «Память сервера» сразу покажет освобождение.
+    Участники увидят надпись, кто и когда очистил чат. Другие чаты не пострадают.</p>
+    <div class="divider"><span>Сначала сохраните копию (необязательно)</span></div>
+    <button class="primary" id="cl-html">${SV(ICONS.download)} Скачать копию (HTML с поиском)</button>
+    <button class="primary soft" id="cl-json" style="margin-top:8px">${SV(ICONS.download)} Скачать копию (JSON)</button>
+    <label class="row-check" style="margin-top:14px"><input type="checkbox" id="cl-ok">
+      <span>Я понимаю, что история этого чата удалится из облака навсегда</span></label>
+    <div class="err" id="cl-err"></div>
+    <button class="primary soft danger" id="cl-go">${SV(ICONS.trash)} Очистить чат</button>`);
+  $('#cl-html').addEventListener('click', () => exportHtml(c));
+  $('#cl-json').addEventListener('click', () => exportJson(c));
+  $('#cl-go').addEventListener('click', async () => {
+    if (!$('#cl-ok').checked) { $('#cl-err').textContent = 'Отметьте, что понимаете последствия'; return; }
+    try {
+      const r = await api('/api/chats/' + c.id + '/clear', { method: 'POST', body: {} });
+      hide($('#modal'));
+      S.sig = ''; await sync(); renderMessages(true);
+      toast('Чат очищен: удалено ' + plural(r.cleared, 'сообщение', 'сообщения', 'сообщений') + ', место освобождено');
+    } catch (ex) { toast(ex.message, true); }
+  });
+}
 
 function openChatInfo(c) {
   const owner = isOwner(c);
