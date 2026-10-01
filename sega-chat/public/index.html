@@ -151,6 +151,8 @@
       <div id="drop" class="hidden">
         <button data-act="info"><span data-ic="info"></span> Информация о чате</button>
         <button data-act="copy"><span data-ic="file"></span> Копия чата (HTML с поиском)</button>
+        <button data-act="wall"><span data-ic="palette"></span> Фон и гамма…</button>
+        <button data-act="icon" class="hidden"><span data-ic="image"></span> Иконка чата…</button>
         <button data-act="clear" class="danger"><span data-ic="trash"></span> Очистить чат</button>
         <button data-act="leave" class="danger hidden"><span data-ic="door"></span> Покинуть чат</button>
       </div>
@@ -168,8 +170,8 @@
       </div>
       <div id="attach-preview" class="hidden"><img id="attach-img" alt=""><button class="icon" id="attach-remove"><span data-ic="x"></span></button></div>
       <div class="composer-row">
-        <label class="icon attach" title="Прикрепить картинку">
-          <input type="file" id="file-input" accept="image/*" hidden><span data-ic="clip" data-ic-size="big"></span>
+        <label class="icon attach" title="Прикрепить фото, видео или файл">
+          <input type="file" id="file-input" accept="image/*,video/mp4,video/quicktime,video/webm,application/pdf,.pdf,.doc,.docx,.txt,.zip" hidden><span data-ic="clip" data-ic-size="big"></span>
         </label>
         <button class="icon emoji-btn" id="btn-emoji" type="button" title="Эмодзи"><span data-ic="smile" data-ic-size="big"></span></button>
         <div class="input-wrap">
@@ -190,8 +192,8 @@
     <div id="thread-body"></div>
     <footer id="thread-composer">
       <div class="composer-row">
-        <label class="icon attach" title="Прикрепить картинку">
-          <input type="file" id="thread-file" accept="image/*" hidden><span data-ic="clip" data-ic-size="big"></span>
+        <label class="icon attach" title="Прикрепить фото, видео или файл">
+          <input type="file" id="thread-file" accept="image/*,video/mp4,video/quicktime,video/webm,application/pdf,.pdf,.doc,.docx,.txt,.zip" hidden><span data-ic="clip" data-ic-size="big"></span>
         </label>
         <button class="icon emoji-btn" id="thread-emoji" type="button" title="Эмодзи"><span data-ic="smile" data-ic-size="big"></span></button>
         <div class="input-wrap">

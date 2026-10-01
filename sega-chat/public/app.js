@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-1';
+const BUILD = 'pkg3-2';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -742,7 +742,13 @@ function chatAvatarHtml(c, cls) {
   if (!c) return `<span class="av-wrap"><span class="avatar ${cls || ''}" style="background:#2353a2"><img class="av-logo" src="logo.png" alt=""></span></span>`;
   if (c.kind === 'dm') return avatarHtml(userById(dmPeer(c)), cls, true);
   const title = chatTitle(c);
-  return `<span class="av-wrap"><span class="avatar group ${cls || ''}" style="background:${avColor(c.id)}">${escapeHtml(initials(title))}</span></span>`;
+  let inner = escapeHtml(initials(title));
+  if (c.iconRev) {
+    const hit = iconCache.get(c.id);
+    if (hit && hit.rev === c.iconRev && hit.data) inner = `<img src="${hit.data}" alt="">`;
+    else if (!hit || hit.rev !== c.iconRev) fetchIcon(c);
+  }
+  return `<span class="av-wrap"><span class="avatar group ${cls || ''}" style="background:${avColor(c.id)}">${inner}</span></span>`;
 }
 async function decodeAvatar(user) {
   // user.avatar — это короткий отпечаток; сама картинка лежит отдельно,
@@ -796,7 +802,7 @@ function preview(m) {
   if (!m) return '';
   const p = S.plain.get(m.id) || {};
   const who = m.uid === S.me.id ? 'Вы: ' : ((userById(m.uid) || {}).name || '') + ': ';
-  const body = p.text ? p.text : (p.att ? '📷 изображение' : '');
+  const body = p.text ? p.text : attLabel(p.att);
   return who + (m.parent ? '↳ ' : '') + body;
 }
 
@@ -906,7 +912,7 @@ function quoteCardHtml(id) {
   if (!q) return `<div class="quote-card gone">сообщение удалено</div>`;
   const p = S.plain.get(q.id) || {};
   const author = userById(q.uid) || { name: p.author || 'Бывший участник' };
-  const body = p.text ? cut(p.text, 90) : (p.att ? '📷 изображение' : '');
+  const body = p.text ? cut(p.text, 90) : attLabel(p.att);
   return `<div class="quote-card" data-goto="${q.id}" title="Перейти к сообщению">
     <b>${escapeHtml(author.name)}</b>
     <span class="qc-time">${fmtDay(q.ts)}, ${fmtTime(q.ts)}</span>
@@ -950,7 +956,7 @@ function messageHtml(m, opts = {}) {
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
         ${p.text ? `<div class="btext">${mentionize(p.text)}</div>` : ''}
-        ${p.att ? `<img class="att" src="${p.att}" alt="вложение">` : ''}
+        ${p.att ? attHtml(p.att) : ''}
       </div>
       ${rxHtml}
       ${meta ? `<div class="meta">${meta}</div>` : ''}
@@ -1040,6 +1046,7 @@ function renderMessages(force) {
   box.innerHTML = html;
   renderedIds = new Set(list.map(m => m.id));
   paintIcons(box);
+  applyWallBackground();
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
   // фокус при открытии чата: первое непрочитанное (повторяем после перерисовок,
@@ -1068,7 +1075,7 @@ function renderThread() {
       <div style="display:flex;gap:9px;align-items:center">${avatarHtml(author, 'sm', true)}
         <div><div class="who">${escapeHtml(author.name)}</div><div class="tiny muted">${fmtDay(parent.ts)}, ${fmtTime(parent.ts)}</div></div></div>
       ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}
-      ${p.att ? `<img src="${p.att}" alt="">` : ''}
+      ${p.att ? attHtml(p.att) : ''}
     </div>` + kids.map((k, i) => messageHtml(k, { noThread: true, continued: canGroup(kids[i - 1], k), continues: canGroup(k, kids[i + 1]) })).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
@@ -1095,7 +1102,7 @@ function renderQuoteBar() {
   const p = S.plain.get(q.id) || {};
   const author = userById(q.uid) || { name: p.author || 'Бывший участник' };
   $('#quote-who').textContent = 'Ответ ' + author.name + ': ';
-  $('#quote-preview').textContent = cut(p.text || (p.att ? '📷 изображение' : ''), 70);
+  $('#quote-preview').textContent = cut(p.text || attLabel(p.att), 70);
   show(bar);
 }
 
@@ -1371,6 +1378,169 @@ document.addEventListener('click', e => {
   if (av.closest('#me-box')) return openAvatarView(S.me.id);
 });
 
+// ─────────────────────────────────────────── фон и иконка чата (общие для участников)
+const wallCache = new Map(), iconCache = new Map();
+async function chatKey(c) { const k = await chatKeyOf(c); return k ? k.key : null; }
+async function fetchWall(c) {
+  if (!c || !c.wallRev) return null;
+  const hit = wallCache.get(c.id);
+  if (hit && hit.rev === c.wallRev) return hit.data;
+  try {
+    const r = await api('/api/wall/' + encodeURIComponent(c.id));
+    const key = await chatKey(c);
+    const data = (r.wall && key) ? (await decryptJSON(key, r.wall)).data : null;
+    wallCache.set(c.id, { rev: c.wallRev, data });
+    return data;
+  } catch (e) { return null; }
+}
+async function fetchIcon(c) {
+  if (!c || !c.iconRev) return null;
+  const hit = iconCache.get(c.id);
+  if (hit && hit.rev === c.iconRev) return hit.data;
+  try {
+    const r = await api('/api/chaticon/' + encodeURIComponent(c.id));
+    const key = await chatKey(c);
+    const data = (r.icon && key) ? (await decryptJSON(key, r.icon)).data : null;
+    iconCache.set(c.id, { rev: c.iconRev, data });
+    S.sig = ''; renderAll();
+    return data;
+  } catch (e) { return null; }
+}
+function patSvg(kind) {
+  const s = 'rgba(255,255,255,.28)';
+  const body = {
+    dots: `<circle cx='6' cy='6' r='1.4' fill='${s}'/><circle cx='18' cy='18' r='1.4' fill='${s}'/>`,
+    diag: `<path d='M-4 8 L8 -4 M4 20 L20 4 M12 28 L28 12' stroke='${s}' stroke-width='1.4'/>`,
+    grid: `<path d='M0 8 H24 M0 16 H24 M8 0 V24 M16 0 V24' stroke='${s}' stroke-width='1'/>`,
+    waves: `<path d='M0 8 q6 -5 12 0 t12 0 M0 18 q6 -5 12 0 t12 0' stroke='${s}' stroke-width='1.4' fill='none'/>`
+  }[kind] || '';
+  return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'>${body}</svg>`)}")`;
+}
+async function applyWallBackground() {
+  const box = $('#messages'), c = curChat();
+  if (!c || !c.wall || c.wall.type === 'none') { box.style.background = ''; return; }
+  const w = c.wall;
+  const grad = `linear-gradient(${w.a}deg, ${w.c1}, ${w.c2})`;
+  if (w.type === 'grad') { box.style.background = grad; return; }
+  if (w.type === 'pat') { box.style.background = `${patSvg(w.pat)} repeat, ${grad}`; return; }
+  const data = await fetchWall(c);
+  box.style.background = data ? `linear-gradient(165deg, ${w.c1}22, ${w.c2}55), url(${data}) center/cover no-repeat` : grad;
+}
+function wallEditor(c) {
+  const w = c.wall || { type: 'grad', c1: '#eef2f4', c2: '#e8f4fe', a: 165, pat: 'dots' };
+  modal('Фон и гамма · ' + chatTitle(c), `
+    <div class="seg" id="w-tabs">
+      <button class="tab ${w.type === 'grad' || w.type === 'none' ? 'active' : ''}" data-wt="grad">Рендер</button>
+      <button class="tab ${w.type === 'pat' ? 'active' : ''}" data-wt="pat">Узор</button>
+      <button class="tab ${w.type === 'photo' ? 'active' : ''}" data-wt="photo">Фото</button>
+    </div>
+    <div id="w-grad" class="${w.type === 'pat' || w.type === 'photo' ? 'hidden' : ''}">
+      <label>Откуда<input type="color" id="w-c1" value="${w.c1}"></label>
+      <label>Куда<input type="color" id="w-c2" value="${w.c2}"></label>
+      <label>Направление · <span id="w-a-val">${w.a}°</span><input type="range" id="w-a" min="0" max="360" value="${w.a}"></label>
+    </div>
+    <div id="w-pat" class="${w.type === 'pat' ? '' : 'hidden'}">
+      <div class="pat-grid" id="w-pats">
+        ${['dots', 'diag', 'grid', 'waves'].map(p => `<button class="pat ${w.pat === p ? 'on' : ''}" data-pat="${p}" style="background:${p === 'dots' ? 'radial-gradient(rgba(255,255,255,.6) 1.5px, transparent 1.6px)' : p === 'diag' ? 'repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 2px, transparent 2px 8px)' : p === 'grid' ? 'repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px)' : 'repeating-radial-gradient(circle at 0 8px, rgba(255,255,255,.4) 0 2px, transparent 2px 8px)'};background-color:#5c6f7c"></button>`).join('')}
+      </div>
+    </div>
+    <div id="w-photo" class="${w.type === 'photo' ? '' : 'hidden'}">
+      <label class="file-btn" for="w-file">Выбрать фотографию</label>
+      <input type="file" id="w-file" accept="image/*" hidden>
+      <div class="tiny muted" style="margin-top:6px">фото хранится в зашифрованном виде и видно всем участникам</div>
+      ${c.wallRev ? '<button class="mini danger" id="w-photo-del" style="margin-top:8px">Убрать фото</button>' : ''}
+    </div>
+    <div class="divider"><span>Моя гамма на этом устройстве</span></div>
+    <div class="pals" id="w-pals">${PALS.map(p => `<span class="pal ${currentPal() === p.id ? 'on' : ''}" data-pal="${p.id}" title="${p.name}" style="background:linear-gradient(135deg,${p.c1},${p.c2})"></span>`).join('')}</div>
+    <p class="hint">Фон видят одинаково все участники чата, менять может любой. Гамма — личная настройка устройства.</p>`);
+  const state = Object.assign({}, w);
+  const rerender = async () => {
+    const box = $('#messages');
+    const grad = `linear-gradient(${state.a}deg, ${state.c1}, ${state.c2})`;
+    if (state.type === 'pat') box.style.background = `${patSvg(state.pat)} repeat, ${grad}`;
+    else if (state.type !== 'photo') box.style.background = grad;
+  };
+  $('#w-tabs').addEventListener('click', e => {
+    const t = e.target.closest('[data-wt]'); if (!t) return;
+    state.type = t.dataset.wt;
+    $$('#w-tabs .tab').forEach(x => x.classList.toggle('active', x === t));
+    $('#w-grad').classList.toggle('hidden', state.type === 'photo');
+    $('#w-pat').classList.toggle('hidden', state.type !== 'pat');
+    $('#w-photo').classList.toggle('hidden', state.type !== 'photo');
+    rerender();
+  });
+  $('#w-c1').addEventListener('input', e => { state.c1 = e.target.value; rerender(); });
+  $('#w-c2').addEventListener('input', e => { state.c2 = e.target.value; rerender(); });
+  $('#w-a').addEventListener('input', e => { state.a = Number(e.target.value); $('#w-a-val').textContent = state.a + '°'; rerender(); });
+  $('#w-pats').addEventListener('click', e => {
+    const p = e.target.closest('[data-pat]'); if (!p) return;
+    state.pat = p.dataset.pat; state.type = 'pat';
+    $$('#w-pats .pat').forEach(x => x.classList.toggle('on', x === p));
+    rerender();
+  });
+  $('#w-pals').addEventListener('click', e => {
+    const b = e.target.closest('[data-pal]'); if (!b) return;
+    applyPalette(b.dataset.pal);
+    $$('#w-pals .pal').forEach(x => x.classList.toggle('on', x === b));
+  });
+  $('#w-file').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const data = await resizeImage(f, 1600, 0.8);
+      const key = await chatKey(c);
+      await api('/api/chats/' + c.id + '/wallphoto', { method: 'POST', body: { data: await encryptJSON(key, { data }) } });
+      wallCache.delete(c.id);
+      S.sig = ''; await sync();
+      toast('Фото фона установлено для всех участников');
+    } catch (ex) { toast(ex.message, true); }
+  });
+  const del = $('#w-photo-del');
+  if (del) del.addEventListener('click', async () => {
+    await api('/api/chats/' + c.id + '/wallphoto', { method: 'POST', body: { data: null } });
+    wallCache.delete(c.id); S.sig = ''; await sync(); toast('Фото фона убрано');
+  });
+  // сохранение параметров фона при закрытии окна
+  const box = $('#modal');
+  const obs = new MutationObserver(async () => {
+    if (!box.classList.contains('hidden')) return;
+    obs.disconnect();
+    try {
+      await api('/api/chats/' + c.id + '/wall', { method: 'POST', body: { wall: state } });
+      S.sig = ''; await sync();
+    } catch (ex) { toast(ex.message, true); }
+  });
+  obs.observe(box, { attributes: true, attributeFilter: ['class'] });
+}
+function iconEditor(c) {
+  modal('Иконка чата · ' + chatTitle(c), `
+    <div class="avatar-pick">
+      <span id="ic-prev" class="avatar group lg" style="background:${avColor(c.id)}">${escapeHtml(initials(chatTitle(c)))}</span>
+      <div>
+        <label class="file-btn" for="ic-file">Загрузить фото</label>
+        <input type="file" id="ic-file" accept="image/*" hidden>
+        <div class="tiny muted" style="margin-top:6px">обрезается в квадрат, шифруется; видят все участники</div>
+        ${c.iconRev ? '<button class="mini danger" id="ic-del" style="margin-top:8px">Убрать иконку</button>' : ''}
+      </div>
+    </div>
+    <p class="hint">Иконку группового чата может поставить любой участник — как и название и фон.</p>`);
+  const prev = iconCache.get(c.id);
+  if (prev && prev.data) $('#ic-prev').innerHTML = `<img src="${prev.data}" alt="">`;
+  $('#ic-file').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const data = await cropSquare(f, 160);
+      const key = await chatKey(c);
+      await api('/api/chats/' + c.id + '/icon', { method: 'POST', body: { data: await encryptJSON(key, { data }) } });
+      iconCache.delete(c.id); S.sig = ''; await sync(); toast('Иконка чата обновлена');
+    } catch (ex) { toast(ex.message, true); }
+  });
+  const del = $('#ic-del');
+  if (del) del.addEventListener('click', async () => {
+    await api('/api/chats/' + c.id + '/icon', { method: 'POST', body: { data: null } });
+    iconCache.delete(c.id); S.sig = ''; await sync(); toast('Иконка убрана');
+  });
+}
+
 // ─────────────────────────────────────────── создание группового чата
 function openCreateChat() {
   $('#rail').classList.remove('open');
@@ -1478,7 +1648,10 @@ $('#btn-chat-menu').addEventListener('click', e => {
   const d = $('#drop');
   const willOpen = d.classList.contains('hidden');
   d.classList.toggle('hidden');
-  if (willOpen) d.querySelector('[data-act="leave"]').classList.toggle('hidden', c.kind !== 'group');
+  if (willOpen) {
+    d.querySelector('[data-act="leave"]').classList.toggle('hidden', c.kind !== 'group');
+    d.querySelector('[data-act="icon"]').classList.toggle('hidden', c.kind !== 'group');
+  }
 });
 document.addEventListener('click', e => {
   if (!e.target.closest('#drop, #btn-chat-menu')) closeDrop();
@@ -1491,6 +1664,8 @@ $('#drop').addEventListener('click', e => {
   if (!c) return;
   if (b.dataset.act === 'info') return openChatInfo(c);
   if (b.dataset.act === 'copy') { exportHtml(c); return; }
+  if (b.dataset.act === 'wall') return wallEditor(c);
+  if (b.dataset.act === 'icon') return iconEditor(c);
   if (b.dataset.act === 'clear') return clearChatFlow(c);
   if (b.dataset.act === 'leave') return leaveChatFlow(c);
 });
@@ -1645,7 +1820,7 @@ async function archiveRows(payload) {
       time: new Date(m.ts).toLocaleString('ru-RU'),
       chat: label + (m.parent ? ' · комментарий' : ''),
       author: names.get(m.uid) || (userById(m.uid) || {}).name || p.author || 'Бывший участник',
-      text: p.text || '', image: p.att || null
+      text: p.text || '', image: (typeof p.att === 'string' ? p.att : (p.att && p.att.kind === 'image' ? p.att.data : null))
     });
   }
   rows.sort((a, b) => a.ts - b.ts);
@@ -1870,31 +2045,69 @@ function mentionKeydown(e) {
 }));
 
 // ─────────────────────────────────────────── вложения
-function showAttach(key, data) {
-  if (key === 'attach') { $('#attach-img').src = data; show($('#attach-preview')); }
-  else { $('#thread-attach-img').src = data; show($('#thread-attach')); }
+function showAttach(key, a) {
+  const box = $(key === 'attach' ? '#attach-preview' : '#thread-attach');
+  if (!box) return;
+  if (!a) { box.innerHTML = ''; hide(box); return; }
+  const isImg = typeof a === 'string' || a.kind === 'image';
+  if (isImg) {
+    const data = typeof a === 'string' ? a : a.data;
+    box.innerHTML = `<img alt=""><button class="icon" data-xatt="${key}" title="Убрать">${SV(ICONS.x)}</button>`;
+    box.querySelector('img').src = data;
+  } else {
+    box.innerHTML = `<div class="file-chip">${SV(a.kind === 'video' ? ICONS.play : ICONS.file)}
+      <span class="fc-name">${escapeHtml(a.name || 'файл')}</span>
+      <span class="tiny muted">${fmtBytes(a.size || 0)}</span>
+      <button class="icon" data-xatt="${key}" title="Убрать">${SV(ICONS.x)}</button></div>`;
+  }
+  show(box);
 }
 function clearAttach(key) {
   S[key] = null;
-  if (key === 'attach') { hide($('#attach-preview')); $('#attach-img').src = ''; }
-  else { hide($('#thread-attach')); $('#thread-attach-img').src = ''; }
+  const box = $(key === 'attach' ? '#attach-preview' : '#thread-attach');
+  if (box) { box.innerHTML = ''; hide(box); }
 }
-async function pickImage(e, key) {
+async function pickAttach(e, key) {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
+  const mime = file.type || 'application/octet-stream';
   try {
-    toast('Готовим фото…');
-    const data = await resizeImage(file, 1800, 0.82);
-    S[key] = data; showAttach(key, data);
-    toast('Фото готово к отправке');
+    if (/^image\//.test(mime)) {
+      if (isHeic(file)) return toast('iPhone: сначала конвертируйте HEIC в JPG (Настройки → Камера → Форматы → наиболее совместимый)', true);
+      toast('Готовим фото…');
+      const data = await resizeImage(file, 1800, 0.82);
+      S[key] = { kind: 'image', data, name: file.name || 'фото', size: file.size, mime: 'image/jpeg' };
+      showAttach(key, S[key]);
+      toast('Фото готово к отправке');
+      return;
+    }
+    const isVideo = /^video\//.test(mime);
+    if (file.size > 1.6 * 1024 * 1024) {
+      return toast((isVideo ? 'Видео' : 'Файл') + ' больше 1,6 МБ — лимит облачной функции для одного вложения', true);
+    }
+    toast(isVideo ? 'Готовим видео…' : 'Готовим файл…');
+    const data = await blobToDataURL(file);
+    S[key] = { kind: isVideo ? 'video' : 'file', data, name: file.name || (isVideo ? 'видео' : 'файл'), size: file.size, mime };
+    showAttach(key, S[key]);
+    toast((isVideo ? 'Видео' : 'Файл') + ' готово к отправке');
   }
-  catch (ex) { toast(ex && ex.message ? ex.message : 'Не удалось обработать картинку', true); }
+  catch (ex) { toast(ex && ex.message ? ex.message : 'Не удалось обработать вложение', true); }
 }
-$('#file-input').addEventListener('change', e => pickImage(e, 'attach'));
-$('#thread-file').addEventListener('change', e => pickImage(e, 'threadAttach'));
-$('#attach-remove').addEventListener('click', () => clearAttach('attach'));
-$('#thread-attach-remove').addEventListener('click', () => clearAttach('threadAttach'));
+const attLabel = a => !a ? '' : (typeof a === 'string' || a.kind === 'image' ? '📷 изображение' : a.kind === 'video' ? '🎬 видео' : '📎 ' + (a.name || 'файл'));
+function attHtml(a) {
+  if (!a) return '';
+  if (typeof a === 'string') return `<img class="att" src="${a}" alt="вложение">`;
+  if (a.kind === 'image') return `<img class="att" src="${a.data}" alt="вложение">`;
+  if (a.kind === 'video') return `<video class="att att-vid" controls preload="metadata" src="${a.data}"></video>`;
+  return `<a class="att-file" href="${a.data}" download="${escapeHtml(a.name || 'file')}">${SV(ICONS.file)}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)}</span></a>`;
+}
+$('#file-input').addEventListener('change', e => pickAttach(e, 'attach'));
+$('#thread-file').addEventListener('change', e => pickAttach(e, 'threadAttach'));
+document.addEventListener('click', e => {
+  const x = e.target.closest('[data-xatt]');
+  if (x) clearAttach(x.dataset.xatt);
+});
 
 function isHeic(file) {
   return /image\/(heic|heif)/i.test(file.type || '') || /\.(heic|heif)$/i.test(file.name || '');
@@ -2309,7 +2522,7 @@ function plainList(chat) {
       time: new Date(m.ts).toLocaleString('ru-RU'), ts: m.ts,
       chat: chLabel(m), id: m.id, parent: m.parent || null, quote: m.quote || null,
       author: (u && u.name) || p.author || 'Бывший участник',
-      text: p.text || '', image: p.att || null
+      text: p.text || '', image: (typeof p.att === 'string' ? p.att : (p.att && p.att.kind === 'image' ? p.att.data : null))
     };
   });
 }
