@@ -323,6 +323,9 @@ function createYdbStore(opts = {}) {
     }
     // архивы
     for (const a of db.archives) if (!snap.archives.has(a.file)) { jobs.push(() => putDoc('arcidx', a.file, a)); dirChanged = true; }
+    // удалённые архивы убираем и из индекса, иначе после перечитывания они «воскреснут»
+    const aliveFiles = new Set(db.archives.map(a => a.file));
+    for (const f of snap.archives) if (!aliveFiles.has(f)) { jobs.push(() => delDoc('arcidx', f)); dirChanged = true; }
     // счётчики чатов
     for (const [id, curSt] of Object.entries(db.stats.chats)) {
       const was = snap.stats.get(id) || { n: 0, b: 0, t: 0 };
@@ -435,6 +438,11 @@ function createYdbStore(opts = {}) {
 
     async putArchive(file, text) { await putDoc('arc', file, { t: text }); },
     async delArchive(file) { await delByPrefix('arc', file); },   // chunkK на холодном старте пуст, поэтому по префиксу
+    // «тёплый» экземпляр функции мог загрузить список архивов при старте раньше,
+    // чем архивы появились: перед любым обращением к архивам перечитываем индекс
+    async loadArchives() {
+      db.archives = parseDocs(await queryPk('arcidx'), 'arcidx').map(d => d.value);
+    },
     /** Читает документ архива ТОЛЬКО точными ключами кусков: не зависит ни от
      *  порядка выдачи, ни от особенностей begins_with в конкретной базе. */
     async getArchive(file) {

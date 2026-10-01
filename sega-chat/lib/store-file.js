@@ -69,6 +69,7 @@ function createFileStore(opts = {}) {
       fs.mkdirSync(archiveDir, { recursive: true });
       fs.writeFileSync(path.join(archiveDir, file), text);
     },
+    async loadArchives() {},   // в файловом режиме список всегда актуален в памяти
     async delArchive(file) {
       const full = path.join(archiveDir, file);
       if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });
