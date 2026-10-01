@@ -741,9 +741,12 @@ function createApi(store, opts = {}) {
         try { allowed = (JSON.parse(t0).chat.members || []).includes(me.id); } catch (e) {}
       }
       if (!allowed) return E(403, 'Это архив чужого чата');
-      if (!verifyCodeProof(req.headers['x-code-proof'])) return E(403, 'Нужно кодовое слово мессенджера');
+      if (!verifyCodeProof(req.headers['x-code-proof'] || query.codeProof)) return E(403, 'Нужно кодовое слово мессенджера');
       const text = await store.getArchive(file);
-      if (text == null) return E(404, 'Архив не найден');
+      if (text == null) {
+        const parts = await store.countArchiveParts(file);
+        return E(404, 'Архив не найден в базе (кусков: ' + parts + '). Сообщите этот текст разработчику');
+      }
       return FILE(text, file);
     }
 

@@ -435,6 +435,14 @@ function createYdbStore(opts = {}) {
 
     async putArchive(file, text) { await putDoc('arc', file, { t: text }); },
     async delArchive(file) { await delByPrefix('arc', file); },   // chunkK на холодном старте пуст, поэтому по префиксу
+    async countArchiveParts(file) {
+      const items = await ydb.queryAll(table, {
+        KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)',
+        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(file) },
+        ProjectionExpression: 'pk, sk'
+      });
+      return items.length;
+    },
     async getArchive(file) {
       const docs = parseDocs(await ydb.queryAll(table, {
         KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)',

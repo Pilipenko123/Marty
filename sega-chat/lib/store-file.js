@@ -73,6 +73,9 @@ function createFileStore(opts = {}) {
       const full = path.join(archiveDir, file);
       if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });
     },
+    async countArchiveParts(file) {
+      return fs.existsSync(path.join(archiveDir, file)) ? 1 : 0;
+    },
     async getArchive(file) {
       const full = path.join(archiveDir, file);
       if (!full.startsWith(archiveDir) || !fs.existsSync(full)) return null;
