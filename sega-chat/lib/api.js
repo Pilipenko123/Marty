@@ -107,6 +107,9 @@ function createApi(store, opts = {}) {
       archivedByName: c.archivedByName || (c.lastArchive ? c.lastArchive.byName : null) || null,
       archivedAt: c.archivedAt || (c.lastArchive ? (c.lastArchive.at || c.lastArchive.createdAt) : null) || null,
       archivedCount: c.archivedCount !== undefined ? c.archivedCount : (c.lastArchive ? c.lastArchive.count : null),
+      clearedByName: c.clearedByName || null,
+      clearedAt: c.clearedAt || null,
+      clearedCount: c.clearedCount !== undefined && c.clearedCount !== null ? c.clearedCount : null,
       lastArchive: c.lastArchive || null
     };
   }
@@ -213,7 +216,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg2-8',
+        build: 'pkg2-9',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -481,6 +484,22 @@ function createApi(store, opts = {}) {
         chat.ownerId = b.id;
         db.seq++; save();
         return J(200, { chat: publicChat(chat, me.id) });
+      }
+
+      if (action === 'clear' && method === 'POST') {
+        // «Очистить чат»: история удаляется из облака и перестаёт занимать место.
+        // Для группового чата — только создатель, для личной переписки — любой из двоих.
+        if (chat.kind === 'group' && !isOwner) return E(403, 'Очистить групповой чат может создатель');
+        await store.loadChats([chat.id]);
+        const msgs = db.messages.filter(m => m.chat === chat.id);
+        const count = msgs.length;
+        dropChat(chat.id);                 // освобождает место и счётчики
+        chat.clearedByName = me.name;
+        chat.clearedAt = Date.now();
+        chat.clearedCount = count;
+        db.seq++;
+        save();
+        return J(200, { cleared: count, usage: usage(), chat: publicChat(chat, me.id) });
       }
 
       if (action === 'archive' && method === 'POST') {
