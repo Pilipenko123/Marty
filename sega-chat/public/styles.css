@@ -577,3 +577,19 @@ html,body{overflow-x:hidden}
 .msg>.av-wrap .avatar.sm{width:46px;height:46px;font-size:17px}
 .msg>.av-wrap .status{width:13px;height:13px}
 :root[data-density="compact"] .msg>.av-wrap .avatar.sm{width:34px;height:34px;font-size:13px}
+
+/* ───────── лок-ап SEGA|CHAT по центру плашки (pkg3-8) ───────── */
+.rail-brand{justify-content:center;padding-left:10px;padding-right:10px}
+.lock-box{display:flex;align-items:center;gap:8px;border:3px solid rgba(255,255,255,.96);border-radius:16px;
+  padding:7px 16px;max-width:100%}
+.lock-box .logo{height:20px;width:auto;display:block;filter:brightness(0) invert(1);opacity:1}
+.lock-box sup{color:#fff;font-size:8px;line-height:1;margin:-6px 0 0 -4px}
+.lock-box .sep{width:2.5px;height:20px;border-radius:2px;background:#fff;opacity:.9;margin:0 2px;flex:none}
+.lock-box .word{font-size:19px;line-height:20px;font-weight:800;letter-spacing:.05em;color:#fff}
+@media (max-width:900px){
+  .msg>.av-wrap .avatar.sm{width:46px;height:46px;font-size:17px}   /* на телефоне аватары те же крупные */
+  .lock-box{padding:5px 10px;gap:6px;border-width:2.5px}
+  .lock-box .logo{height:16px}
+  .lock-box .word{font-size:15px;line-height:16px}
+  .lock-box .sep{height:16px}
+}

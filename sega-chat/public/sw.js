@@ -4,7 +4,7 @@ self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) { data = { body: event.data ? event.data.text() : '' }; }
   event.waitUntil(self.registration.showNotification(data.title || 'SEGA-CHAT', {
-    body: data.body || 'Новое сообщение', icon: './logo.png', badge: './favicon.png',
+    body: data.body || 'Новое сообщение', icon: './icon-192.png', badge: './favicon.png',
     tag: data.tag || 'sega-chat', data: { url: data.url || './' }, renotify: true
   }));
 });
@@ -19,7 +19,7 @@ self.addEventListener('notificationclick', event => {
 /* Кэш статики для быстрого холодного старта: страница, стили, скрипт, иконки.
    Стратегия «кэш сразу + обновление в фоне»: открытие чата не ждёт сеть,
    а свежая версия прилетает к следующему запуску. */
-const STATIC_CACHE = 'sega-static-v1';
+const STATIC_CACHE = 'sega-static-v2';
 const STATIC_RE = /(\.css|\.js|\.png|\.svg|\.webmanifest|\.ico)$|^\/$|index\.html$/;
 self.addEventListener('fetch', event => {
   const req = event.request;

@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-7';
+const BUILD = 'pkg3-8';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -612,7 +612,7 @@ async function syncOnce(initial) {
 
   let fresh = addMessages(data.messages);
   if (fresh.length) {
-    await decryptAll(fresh);
+    await decryptSmart(fresh);
     freshAll.push(...fresh);
   }
   S.seq = data.seq;
@@ -625,7 +625,7 @@ async function syncOnce(initial) {
     await applySyncMeta(data);
     fresh = addMessages(data.messages);
     if (fresh.length) {
-      await decryptAll(fresh);
+      await decryptSmart(fresh);
       freshAll.push(...fresh);
     }
     S.seq = data.seq; S.gen = data.gen;
@@ -639,6 +639,35 @@ async function syncOnce(initial) {
   if ($('#search').value.trim()) runSearch();
 }
 
+/** Расшифровать конкретные сообщения, если ещё не расшифрованы. */
+async function ensureIds(ids) {
+  const need = [];
+  for (const id of ids) {
+    if (S.plain.has(id)) continue;
+    const m = S.messages.find(x => x.id === id);
+    if (m) need.push(m);
+  }
+  if (need.length) await decryptAll(need);
+}
+/**
+ * Быстрый первый экран: расшифровываем только последнее сообщение каждого чата
+ * (для превью в списке) и видимое окно открытого чата. Остальное — лениво,
+ * по мере раскрытия ленты, открытия комментариев, ссылок и поиска.
+ */
+async function decryptSmart(fresh) {
+  const byChat = new Map();
+  for (const m of fresh) {
+    const arr = byChat.get(m.chat);
+    if (arr) arr.push(m); else byChat.set(m.chat, [m]);
+  }
+  const need = [];
+  for (const [chatId, list] of byChat) {
+    list.sort((a, b) => a.seq - b.seq);
+    need.push(list[list.length - 1]);
+    if (chatId === S.view) need.push(...list.slice(-WIN_SIZE));
+  }
+  await decryptAll(need);
+}
 async function decryptAll(list) {
   for (const m of list) {
     if (S.plain.has(m.id)) continue;
@@ -1038,7 +1067,7 @@ function archiveBannerHtml(c) {
 // какие сообщения уже показаны в открытом чате: анимируем только новые,
 // иначе лента «мигала» бы при каждом опросе сервера
 let renderedIds = new Set(), renderedChat = null, renderedOnce = false;
-const WIN_SIZE = 80;   // сообщений в одном окне ленты
+const WIN_SIZE = 30;   // сообщений в одном окне ленты (быстрее первый экран)
 
 function renderMessages(force) {
   const box = $('#messages');
@@ -1206,10 +1235,10 @@ function notifyReactions() {
 // Значок — скруглённый квадрат с рендером текущей гаммы и белой S;
 // поверх горит красная точка, пока есть непрочитанные сообщения.
 let lastFav = '';
+const FAV_PNG = 'data:image/png;base64,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';
 function favSvg(badge) {
-  const pal = palById(currentPal());
-  const dot = badge ? `<circle cx='51' cy='13' r='11' fill='#ff3b30' stroke='white' stroke-width='4'/>` : '';
-  const s = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='${pal.c1}'/><stop offset='1' stop-color='${pal.c2}'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(#g)'/><g fill='none' stroke='white' stroke-width='5' stroke-linecap='round'><path d='M44 20c-3-3-8-4-12-4-8 0-13 4-13 9 0 12 26 8 26 19 0 5-5 9-13 9-5 0-10-2-13-5'/></g>${dot}</svg>`;
+  const dot = badge ? `<circle cx='50' cy='14' r='13' fill='#ff3b30' stroke='white' stroke-width='4'/>` : '';
+  const s = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><image href='${FAV_PNG}' width='64' height='64'/>${dot}</svg>`;
   return 'data:image/svg+xml,' + encodeURIComponent(s);
 }
 function updateFavicon(total) {
@@ -1269,8 +1298,9 @@ $('#chat-filter').addEventListener('input', e => { S.railFilter = e.target.value
 $('#btn-open-rail').addEventListener('click', () => $('#rail').classList.add('open'));
 $('#btn-close-rail').addEventListener('click', () => $('#rail').classList.remove('open'));
 
-function openThread(id) {
+async function openThread(id) {
   S.threadId = id; S.sig = '';
+  await ensureIds([id, ...S.messages.filter(m => m.parent === id).map(m => m.id)]);
   renderAll();
   markRead();
   setTimeout(() => { const b = $('#thread-body'); b.scrollTop = b.scrollHeight; $('#thread-input').focus(); }, 60);
@@ -1279,8 +1309,9 @@ $('#thread-close').addEventListener('click', () => { S.threadId = null; S.sig = 
 
 // переход к сообщению, на которое ссылаются
 let hlTimer = null;
-function goToMessage(id) {
+async function goToMessage(id) {
   const m = S.messages.find(x => x.id === id);
+  if (m) await ensureIds([id]);
   if (!m) return toast('Это сообщение удалено', true);
   if (m.chat !== S.view) openChat(m.chat);
   if (m.parent) openThread(m.parent);
@@ -1351,7 +1382,7 @@ $('#messages').addEventListener('scroll', () => {
   S.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
   $('#scroll-bottom').classList.toggle('hidden', S.atBottom);
 });
-$('#messages').addEventListener('click', e => {
+$('#messages').addEventListener('click', async e => {
   const lm = e.target.closest('#load-more');
   if (!lm) return;
   const full = S.messages.filter(m => m.chat === S.view && !m.parent);
@@ -1359,6 +1390,7 @@ $('#messages').addEventListener('click', e => {
   S.winSize = (S.winSize || WIN_SIZE) + 160;
   const newOff = Math.max(0, full.length - S.winSize);
   for (let i = newOff; i < oldOff; i++) renderedIds.add(full[i].id);   // доскрытое не анимируем
+  await ensureIds(full.slice(newOff, oldOff).map(m => m.id));
   S.sig = '';
   renderMessages();
 });
@@ -2453,8 +2485,13 @@ function chLabel(m) {
   const base = c.kind === 'dm' ? 'Лично: ' + chatTitle(c) : chatTitle(c);
   return base + (m.parent ? ' · комментарий' : '');
 }
-function runSearch() {
+async function runSearch() {
   const q = $('#search').value.trim().toLowerCase();
+  if (q && !S.searchReady) {
+    toast('Готовлю поиск по всей истории…');
+    await decryptAll(S.messages);
+    S.searchReady = true;
+  }
   const box = $('#search-results');
   if (!q) { hide(box); box.innerHTML = ''; return; }
   const words = q.split(/\s+/).filter(Boolean);
