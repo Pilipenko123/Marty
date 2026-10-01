@@ -235,7 +235,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-3',
+        build: 'pkg3-4',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -957,14 +957,14 @@ function createApi(store, opts = {}) {
       const c = chatById(id);
       if (!c || !isMember(c, me.id)) return E(403, 'Это не ваш чат');
       const w = await store.getWall(id);
-      return J(200, { wall: w || null, rev: c.wallRev || null }, { 'Cache-Control': 'private, max-age=3600' });
+      return J(200, { wall: w || null, rev: c.wallRev || null }, { 'Cache-Control': 'no-store' });
     }
     if (pathname.startsWith('/api/chaticon/') && method === 'GET') {
       const id = decodeURIComponent(pathname.split('/')[3] || '');
       const c = chatById(id);
       if (!c || !isMember(c, me.id)) return E(403, 'Это не ваш чат');
       const ic = await store.getIcon(id);
-      return J(200, { icon: ic || null, rev: c.iconRev || null }, { 'Cache-Control': 'private, max-age=3600' });
+      return J(200, { icon: ic || null, rev: c.iconRev || null }, { 'Cache-Control': 'no-store' });
     }
     if (pathname.startsWith('/api/avatar/') && method === 'GET') {
       const who = db.users.find(x => x.id === decodeURIComponent(pathname.split('/')[3] || ''));
@@ -972,7 +972,7 @@ function createApi(store, opts = {}) {
       if (!who.avatarRev) return J(200, { avatar: null, rev: null });
       await store.loadAvatar(who);
       return J(200, { avatar: who.avatar || null, rev: who.avatarRev },
-        { 'Cache-Control': 'private, max-age=604800' });
+        { 'Cache-Control': 'no-store' });
     }
 
     return E(404, 'Неизвестный метод API');
