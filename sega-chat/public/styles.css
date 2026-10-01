@@ -93,12 +93,17 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 #screen-app{display:flex;height:100dvh;overflow:hidden;background:var(--bg)}
 
 #rail{width:290px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
-.rail-brand{background:var(--dark);display:flex;align-items:center;gap:9px;padding:12px 14px 2px;
+/* Плашка с логотипом: тёмная база + диагональный рендер текущей гаммы (135°). */
+.rail-head{background:
+  linear-gradient(135deg,var(--pal-plate-a),var(--pal-plate-b)),
+  linear-gradient(150deg,var(--dark),var(--dark-2))}
+.rail-brand{display:flex;align-items:center;padding:12px 14px 2px;
   padding-top:calc(12px + env(safe-area-inset-top))}
-.rail-brand .logo{height:17px;width:auto;display:block;filter:brightness(0) invert(1);opacity:.95}
-.rail-brand span{font-size:10.5px;font-weight:800;letter-spacing:.19em;color:#9dc0d1;line-height:1;
-  padding-left:9px;margin-right:-.19em;border-left:1px solid rgba(255,255,255,.22)}
-.rail-top{background:var(--dark);color:#fff;padding:10px 14px 14px;display:flex;align-items:center;gap:10px}
+.rail-brand .logo{height:24px;width:auto;display:block;filter:brightness(0) invert(1);opacity:.97}
+/* два пробела · черта высотой как SEGA · снова два пробела */
+.rail-brand .sep{width:2.5px;height:24px;border-radius:2px;background:#fff;opacity:.85;margin:0 18px;flex:none}
+.rail-brand .word{font-size:25px;line-height:24px;font-weight:800;letter-spacing:.06em;color:#fff}
+.rail-top{color:#fff;padding:10px 14px 14px;display:flex;align-items:center;gap:10px}
 .me{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .me-info{min-width:0}
 .me-name{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -126,8 +131,13 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 .tag-grp{font-size:9.5px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:0 5px;margin-left:5px;vertical-align:1px}
 .avatar.group{border-radius:30%}
 
-.rail-bottom{border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
-.memory{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;margin-bottom:8px}
+.rail-bottom{border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  display:flex;align-items:center;gap:10px}
+.memory{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+/* круглая шестерёнка настроек */
+.gear{width:42px;height:42px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  background:var(--panel-2);border:1px solid var(--line);color:var(--muted);transition:transform .25s,color .15s,border-color .15s}
+.gear:hover{color:var(--accent);border-color:var(--accent);transform:rotate(40deg)}
 .memory-top{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)}
 #mem-pct{color:var(--accent);font-weight:600}
 .bar{height:6px;background:#e4ebf0;border-radius:99px;margin:6px 0 4px;overflow:hidden}
@@ -345,14 +355,75 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 :root[data-theme="dark"] .archive-banner{background:var(--panel);border-color:var(--line);box-shadow:0 1px 4px rgba(0,0,0,.3)}
 :root[data-theme="dark"] .toast{background:#04121a}
 
-/* кнопки переключения оформления в левой колонке */
-.rail-appearance{display:flex;gap:4px;margin-bottom:8px}
-.rail-appearance button{flex:1}
-.rail-appearance button[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
+/* ───────── окно настроек (шестерёнка): строки и тумблеры как на iPhone ───────── */
+.set-row{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line-2)}
+.set-row .ico{width:30px;display:flex;justify-content:center;color:var(--muted)}
+.set-row .ico .ic{width:20px;height:20px}
+.set-row .t{flex:1;min-width:0}
+.set-row .t b{display:block;font-weight:600;font-size:13.5px}
+.set-row .t span{font-size:11.5px;color:var(--muted)}
+.sw{position:relative;display:inline-block;width:47px;height:28px;flex:none;cursor:pointer}
+.sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.sw .track{position:absolute;inset:0;border-radius:999px;background:#cfd8dd;transition:.25s;pointer-events:none}
+:root[data-theme="dark"] .sw input:not(:checked) + .track{background:#3a4c58}
+.sw .track::after{content:'';position:absolute;left:2px;top:2px;width:24px;height:24px;border-radius:50%;background:#fff;
+  box-shadow:0 1.5px 4px rgba(0,0,0,.3);transition:.25s}
+.sw input:checked + .track{background:var(--ios-on)}
+.sw input:checked + .track::after{transform:translateX(19px)}
+.sw input:disabled + .track{opacity:.5;cursor:not-allowed}
+.set-actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.set-actions .ghost{display:flex;align-items:center;justify-content:center;gap:7px}
+.set-actions .ghost .ic{width:16px;height:16px}
+/* гаммы — квадратики с закруглёнными углами и градиентом-подсказкой */
+.pals{display:flex;gap:9px;margin-top:8px;flex-wrap:wrap}
+.pal{width:40px;height:40px;border-radius:12px;cursor:pointer;border:2px solid transparent;transition:transform .15s,border-color .15s;
+  position:relative;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+.pal:hover{transform:scale(1.08)}
+.pal.on{border-color:var(--text)}
+.pal.on::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.45)}
 
-.notify-toggle{display:flex;align-items:center;gap:8px;margin:0 0 8px;background:var(--panel-2);border:1px solid var(--line);
-  border-radius:9px;padding:8px 10px;color:var(--text);font-size:12.5px;cursor:pointer;user-select:none}
-.notify-toggle input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+/* ───────── минималистичные SVG-иконки ───────── */
+.ic{width:19px;height:19px;flex:none;vertical-align:-4px;display:block}
+[data-ic-size="big"] .ic{width:22px;height:22px}
+[data-ic]{display:inline-flex;align-items:center;justify-content:center;line-height:0}
+.msg .tools .ic{width:15px;height:15px}
+.thread-btn .ic{width:13px;height:13px}
+.new-chat{display:flex;align-items:center;justify-content:center;gap:7px}
+.new-chat .ic{width:16px;height:16px}
+.send .ic{width:17px;height:17px}
+#scroll-bottom .ic{width:18px;height:18px}
+label.icon.attach .ic{width:19px;height:19px}
+
+/* ───────── разделитель «Непрочитанные» ───────── */
+.unread-line{display:flex;align-items:center;gap:10px;margin:12px auto 10px;max-width:900px;color:var(--accent);
+  font-size:11.5px;font-weight:600;letter-spacing:.04em}
+.unread-line::before,.unread-line::after{content:"";height:1px;flex:1;
+  background:linear-gradient(90deg,transparent,var(--accent));opacity:.45}
+.unread-line::after{background:linear-gradient(90deg,var(--accent),transparent)}
+
+/* ───────── кружок «в сети» рисуем поверх и целиком ───────── */
+.av-wrap{overflow:visible}
+.av-wrap .status{z-index:1}
+.msg>.av-wrap{align-self:flex-start}   /* иначе блок растягивается и кружок уезжает вниз */
+.avatar img,.avatar>img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* ───────── лёгкие анимации ───────── */
+@keyframes msgIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes popIn{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%)}}
+.msg.fresh{animation:msgIn .28s ease both}
+.modal:not(.hidden){animation:fadeIn .18s ease both}
+.modal:not(.hidden) .modal-box{animation:popIn .22s cubic-bezier(.2,.9,.3,1.12) both}
+.toast{animation:toastIn .22s ease both}
+.emoji-pop:not(.hidden){animation:popIn .16s ease both}
+#mention-pop:not(.hidden),#thread-mention-pop:not(.hidden){animation:popIn .14s ease both}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  #messages{scroll-behavior:auto}
+}
+
 .menu-switch{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:10px 0 0;color:var(--text)}
 .mute-mark{font-size:11px;margin-left:5px;opacity:.65;vertical-align:1px}
 
@@ -381,3 +452,28 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 :root[data-density="compact"] .avatar{width:28px;height:28px;font-size:12px}
 :root[data-density="compact"] .day{margin:8px 0 6px}
 :root[data-density="compact"] .meta{margin-top:2px}
+
+/* ═════════════════════ гаммы оформления ═════════════════════
+   Личная настройка устройства: применяется только внутри мессенджера
+   (html[data-in-app]), чтобы экраны входа и регистрации оставались
+   фирменно-синими. Действует и на светлую, и на тёмную тему. */
+:root{--ios-on:#34c759;--pal-plate-a:#2353a226;--pal-plate-b:#2fc6f626}
+:root[data-theme="dark"]{--pal-plate-a:#2353a240;--pal-plate-b:#2fc6f640}
+
+:root[data-in-app][data-pal="sea"]{--accent:#0f766e;--accent-2:#2dd4bf;--accent-soft:#e0f5f1;--own:#def2ee;--dark:#0b3b36;--dark-2:#11554e;--pal-plate-a:#0f766e26;--pal-plate-b:#2dd4bf26}
+:root[data-in-app][data-pal="lavender"]{--accent:#6d5bd0;--accent-2:#a78bfa;--accent-soft:#edeafc;--own:#e9e5fa;--dark:#2b2350;--dark-2:#3b3170;--pal-plate-a:#6d5bd026;--pal-plate-b:#a78bfa26}
+:root[data-in-app][data-pal="olive"]{--accent:#5f7a2e;--accent-2:#a3c14a;--accent-soft:#eef4e0;--own:#e9f1d9;--dark:#2b3616;--dark-2:#3d4a20;--pal-plate-a:#5f7a2e26;--pal-plate-b:#a3c14a26}
+:root[data-in-app][data-pal="sunset"]{--accent:#c05038;--accent-2:#f59e6b;--accent-soft:#fbe9e4;--own:#f9e3dc;--dark:#4a1f16;--dark-2:#6b2d1f;--pal-plate-a:#c0503826;--pal-plate-b:#f59e6b26}
+:root[data-in-app][data-pal="honey"]{--accent:#a9761f;--accent-2:#e8b54a;--accent-soft:#f8efdd;--own:#f6ecd8;--dark:#3a2c10;--dark-2:#4d3a15;--pal-plate-a:#a9761f26;--pal-plate-b:#e8b54a26}
+:root[data-in-app][data-pal="rose"]{--accent:#b04a68;--accent-2:#e58aa4;--accent-soft:#f9e7ec;--own:#f7e0e7;--dark:#401c26;--dark-2:#572634;--pal-plate-a:#b04a6826;--pal-plate-b:#e58aa426}
+:root[data-in-app][data-pal="mint"]{--accent:#2f9e77;--accent-2:#7fd6b5;--accent-soft:#e2f5ec;--own:#ddf2e8;--dark:#0e2f25;--dark-2:#144032;--pal-plate-a:#2f9e7726;--pal-plate-b:#7fd6b526}
+:root[data-in-app][data-pal="graphite"]{--accent:#4b5563;--accent-2:#9aa5b1;--accent-soft:#eceff2;--own:#e6eaee;--dark:#242a31;--dark-2:#333a42;--pal-plate-a:#4b556326;--pal-plate-b:#9aa5b126}
+
+:root[data-in-app][data-theme="dark"][data-pal="sea"]{--accent:#39b8a8;--accent-soft:#123c38;--own:#123c38;--dark:#06231f;--dark-2:#0b332e;--pal-plate-a:#39b8a840;--pal-plate-b:#2dd4bf40}
+:root[data-in-app][data-theme="dark"][data-pal="lavender"]{--accent:#9d8df2;--accent-soft:#2a2450;--own:#2a2450;--dark:#191430;--dark-2:#221c43;--pal-plate-a:#9d8df240;--pal-plate-b:#a78bfa40}
+:root[data-in-app][data-theme="dark"][data-pal="olive"]{--accent:#a8c46a;--accent-soft:#2c3618;--own:#2c3618;--dark:#191f0d;--dark-2:#232c12;--pal-plate-a:#a8c46a40;--pal-plate-b:#a3c14a40}
+:root[data-in-app][data-theme="dark"][data-pal="sunset"]{--accent:#e2836c;--accent-soft:#4a241a;--own:#4a241a;--dark:#2b120c;--dark-2:#3d1a11;--pal-plate-a:#e2836c40;--pal-plate-b:#f59e6b40}
+:root[data-in-app][data-theme="dark"][data-pal="honey"]{--accent:#d9a94a;--accent-soft:#3a2f14;--own:#3a2f14;--dark:#221908;--dark-2:#2e220c;--pal-plate-a:#d9a94a40;--pal-plate-b:#e8b54a40}
+:root[data-in-app][data-theme="dark"][data-pal="rose"]{--accent:#d98aa0;--accent-soft:#40202b;--own:#40202b;--dark:#251016;--dark-2:#33161e;--pal-plate-a:#d98aa040;--pal-plate-b:#e58aa440}
+:root[data-in-app][data-theme="dark"][data-pal="mint"]{--accent:#6cc7a4;--accent-soft:#14382c;--own:#14382c;--dark:#081b15;--dark-2:#0b241c;--pal-plate-a:#6cc7a440;--pal-plate-b:#7fd6b540}
+:root[data-in-app][data-theme="dark"][data-pal="graphite"]{--accent:#aeb7c2;--accent-soft:#2b3138;--own:#2b3138;--dark:#14171b;--dark-2:#1c2126;--pal-plate-a:#aeb7c240;--pal-plate-b:#9aa5b140}

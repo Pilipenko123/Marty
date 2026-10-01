@@ -29,6 +29,65 @@ function toast(msg, isErr) {
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // иконка-корзина для кнопки удаления сообщения
 const ICON_TRASH = '<svg class="ic" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7m4 4v6m4-6v6"/></svg>';
+// ─────────────────────────────────────────── минималистичные SVG-иконки
+// Один набор тонких штриховых значков для всех кнопок и меню.
+const SV = p => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const ICONS = {
+  gear: '<circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12a7 7 0 0 0 .14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55A7 7 0 0 0 19 12Z"/>',
+  bell: '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.3 19a2 2 0 0 0 3.4 0"/>',
+  volume: '<path d="M11 5 6.5 9H3v6h3.5L11 19V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.4 5.6a9 9 0 0 1 0 12.8"/>',
+  moon: '<path d="M20 13.5A8 8 0 0 1 10.5 4 8 8 0 1 0 20 13.5Z"/>',
+  rows: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="8.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="13" r="1.1" fill="currentColor" stroke="none"/><path d="M12 21a3 3 0 0 0 0-6h-1.5a2 2 0 0 1 0-4"/>',
+  user: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.4 7-5.4s6.2 1.8 7 5.4"/>',
+  users: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.7-3.1 3-4.7 5.5-4.7s4.8 1.6 5.5 4.7"/><path d="M15.5 5.7a3.2 3.2 0 0 1 0 5.6"/><path d="M17.5 14.6c1.6.7 2.7 2.1 3 4.4"/>',
+  box: '<path d="M3.5 8 12 3.5 20.5 8v8L12 20.5 3.5 16V8Z"/><path d="M3.5 8 12 12.5 20.5 8"/><path d="M12 12.5v8"/>',
+  folder: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7Z"/>',
+  download: '<path d="M12 4v10"/><path d="m8 10.5 4 4 4-4"/><path d="M4.5 19h15"/>',
+  restore: '<path d="M12 14V4"/><path d="m8 7.5 4-4 4 4"/><path d="M4.5 19h15"/>',
+  trash: '<path d="M4.5 6.5h15"/><path d="M9 6.5V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v1.5"/><path d="M6.5 6.5 7.5 20h9l1-13.5"/><path d="M10 10.5v6M14 10.5v6"/>',
+  pencil: '<path d="m14.5 5.5 4 4L8 20H4v-4L14.5 5.5Z"/><path d="m12.5 7.5 4 4"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  send: '<path d="M20 4 4 11l6 2.5L12.5 20 20 4Z"/><path d="M10 13.5 20 4"/>',
+  smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.2s1.2 1.8 3.5 1.8 3.5-1.8 3.5-1.8"/><circle cx="9.3" cy="10" r=".9" fill="currentColor" stroke="none"/><circle cx="14.7" cy="10" r=".9" fill="currentColor" stroke="none"/>',
+  clip: '<path d="M20 11.5 12.6 19a4.7 4.7 0 0 1-6.6-6.6l7.8-7.8a3.1 3.1 0 0 1 4.4 4.4l-7.8 7.8a1.55 1.55 0 0 1-2.2-2.2l7.2-7.2"/>',
+  dots: '<circle cx="12" cy="5.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.4" fill="currentColor" stroke="none"/>',
+  menu: '<path d="M4 7h16M4 12h10M4 17h16"/>',
+  x: '<path d="m6 6 12 12M18 6 6 18"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/>',
+  image: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m5 17 5-4.5 3.5 3 3-2.5 4 4"/>',
+  door: '<path d="M13 4h5.5v16H13"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h9"/>',
+  lock: '<rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+  react: '<path d="M12 20.5s-7.5-4.6-7.5-10A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.9c0 5.4-7.5 10-7.5 10Z"/>',
+  file: '<path d="M6 3.5h8l4 4V20.5H6V3.5Z"/><path d="M14 3.5v4h4"/>',
+  play: '<circle cx="12" cy="12" r="8.5"/><path d="m10 8.5 6 3.5-6 3.5v-7Z"/>',
+  reply: '<path d="M9.5 7.5 4.5 12l5 4.5"/><path d="M4.5 12H14a5.5 5.5 0 0 1 5.5 5.5V19"/>',
+  comment: '<path d="M20.5 11.6c0 4.1-3.8 7.4-8.5 7.4-1 0-2-.15-2.9-.42L4.5 20.4l1.4-3.5c-1.2-1.3-1.9-3-1.9-4.9C4 7.9 7.8 4.5 12.5 4.5s8 3.2 8 7.1Z"/>',
+  down: '<path d="M12 5v14"/><path d="m6.5 13.5 5.5 5.5 5.5-5.5"/>'
+};
+/** Расставляет SVG-иконки по элементам с data-ic; уже готовые не трогает. */
+function paintIcons(root) {
+  (root || document).querySelectorAll('[data-ic]').forEach(el => {
+    const name = el.getAttribute('data-ic');
+    if (el.dataset.icDone === name || !ICONS[name]) return;
+    el.innerHTML = SV(ICONS[name]);
+    el.dataset.icDone = name;
+  });
+}
+// гаммы оформления: личная настройка устройства (id, название, пара цветов рендера)
+const PALS = [
+  { id: 'classic', name: 'Классика', c1: '#2353a2', c2: '#2fc6f6' },
+  { id: 'sea', name: 'Морская', c1: '#0f766e', c2: '#2dd4bf' },
+  { id: 'lavender', name: 'Лаванда', c1: '#6d5bd0', c2: '#a78bfa' },
+  { id: 'olive', name: 'Олива', c1: '#5f7a2e', c2: '#a3c14a' },
+  { id: 'sunset', name: 'Закат', c1: '#c05038', c2: '#f59e6b' },
+  { id: 'honey', name: 'Мёд', c1: '#a9761f', c2: '#e8b54a' },
+  { id: 'rose', name: 'Роза', c1: '#b04a68', c2: '#e58aa4' },
+  { id: 'mint', name: 'Мята', c1: '#2f9e77', c2: '#7fd6b5' },
+  { id: 'graphite', name: 'Графит', c1: '#4b5563', c2: '#9aa5b1' }
+];
+const palById = id => PALS.find(p => p.id === id) || PALS[0];
 const linkify = h => h.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
 function fmtBytes(b) {
   if (b < 1024) return b + ' Б';
@@ -106,7 +165,7 @@ const S = {
   pairKeys: new Map(),   // userId -> CryptoKey
   chatKeys: new Map(),   // chatId -> { key, raw }
   chatTitles: new Map(), // chatId -> строка
-  view: null, threadId: null, quote: null, highlight: null, drafts: {},
+  view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
   seq: 0, usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
   attach: null, threadAttach: null, remember: true, timer: null, atBottom: true,
   notify: { sound: true, muted: {}, desktop: false },
@@ -169,7 +228,6 @@ function renderNotifyControls() {
   const box = $('#notify-sound');
   if (!box) return;
   box.checked = S.notify.sound !== false;
-  box.setAttribute('aria-checked', String(box.checked));
 }
 loadNotifySettings();
 
@@ -194,8 +252,17 @@ async function api(path, opts = {}) {
   return data;
 }
 
-const screen = name => ['loading', 'setup', 'auth', 'app']
-  .forEach(n => document.getElementById('screen-' + n).classList.toggle('hidden', n !== name));
+const screen = name => {
+  ['loading', 'setup', 'auth', 'app']
+    .forEach(n => document.getElementById('screen-' + n).classList.toggle('hidden', n !== name));
+  // гаммы действуют только внутри мессенджера: экраны входа остаются фирменно-синими
+  const inApp = name === 'app';
+  if (inApp !== (document.documentElement.dataset.inApp === '1')) {
+    if (inApp) document.documentElement.dataset.inApp = '1';
+    else delete document.documentElement.dataset.inApp;
+    applyPalette(currentPal(), false);
+  }
+};
 
 // ─────────────────────────────────────────── запуск
 async function boot() {
@@ -639,7 +706,9 @@ async function markRead() {
     reads[bucket] = seq;
     try { await api('/api/read', { method: 'POST', body: { bucket, seq } }); } catch (e) {}
   }
-  if (buckets.size) renderAll();
+  // перерисовываем сразу, не дожидаясь следующего опроса: счётчики, значок
+  // вкладки и красная точка должны гаснуть в момент прочтения
+  if (buckets.size) { S.sig = ''; renderAll(); }
 }
 
 // ─────────────────────────────────────────── аватары
@@ -698,6 +767,7 @@ function renderAll() {
   if (sig === S.sig) return;
   S.sig = sig;
   renderMe(); renderRail(); renderTopbar(); renderMessages(); renderThread(); renderMemory(); renderQuoteBar(); updateTitle();
+  paintIcons(document);
 }
 
 function renderMe() {
@@ -857,9 +927,9 @@ function messageHtml(m, opts = {}) {
   const continues = !!opts.continues;
   const metaParts = [];
   if (!continues) metaParts.push(readersHtml(m));
-  if (kids.length) metaParts.push(`<span class="thread-btn" data-thread="${m.id}">💬 ${plural(kids.length, 'комментарий', 'комментария', 'комментариев')}${unreadKids ? `<span class="dot-new"></span>` : ''}</span>`);
+  if (kids.length) metaParts.push(`<span class="thread-btn" data-thread="${m.id}">${SV(ICONS.comment)} ${plural(kids.length, 'комментарий', 'комментария', 'комментариев')}${unreadKids ? `<span class="dot-new"></span>` : ''}</span>`);
   const meta = metaParts.filter(Boolean).join('');
-  return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
+  return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
     ${avatarHtml(author, 'sm', true)}
     <div class="bubble-wrap">
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
@@ -871,9 +941,9 @@ function messageHtml(m, opts = {}) {
       ${meta ? `<div class="meta">${meta}</div>` : ''}
     </div>
     <div class="tools">
-      <button class="tool" data-quote="${m.id}" title="Ответить ссылкой на это сообщение">↩</button>
-      ${opts.noThread ? '' : `<button class="tool" data-thread="${m.id}" title="Комментировать внутри сообщения">💬</button>`}
-      ${canDel ? `<button class="tool" data-del="${m.id}" title="Удалить">${ICON_TRASH}</button>` : ''}
+      <button class="tool" data-quote="${m.id}" title="Ответить ссылкой на это сообщение">${SV(ICONS.reply)}</button>
+      ${opts.noThread ? '' : `<button class="tool" data-thread="${m.id}" title="Комментировать внутри сообщения">${SV(ICONS.comment)}</button>`}
+      ${canDel ? `<button class="tool" data-del="${m.id}" title="Удалить">${SV(ICONS.trash)}</button>` : ''}
     </div>
   </div>`;
 }
@@ -891,8 +961,13 @@ function archiveBannerHtml(c) {
   </div>`;
 }
 
+// какие сообщения уже показаны в открытом чате: анимируем только новые,
+// иначе лента «мигала» бы при каждом опросе сервера
+let renderedIds = new Set(), renderedChat = null, renderedOnce = false;
+
 function renderMessages(force) {
   const box = $('#messages');
+  if (renderedChat !== (S.view || null)) { renderedChat = S.view || null; renderedOnce = false; renderedIds = new Set(); }
   if (!S.view) {
     box.innerHTML = `<div class="empty">
       <img class="empty-logo" src="logo.png" alt="SEGA">
@@ -918,13 +993,23 @@ function renderMessages(force) {
     return;
   }
   let html = banner, lastDay = '';
+  const firstPaint = !renderedOnce;
+  renderedOnce = true;
+  const freshIds = [];
   for (let i = 0; i < list.length; i++) {
     const m = list[i];
     const day = new Date(m.ts).toDateString();
     if (day !== lastDay) { html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`; lastDay = day; }
-    html += messageHtml(m, { continued: canGroup(list[i - 1], m), continues: canGroup(m, list[i + 1]) });
+    if (S.openMark && S.openMark.chat === S.view && S.openMark.msgId === m.id) {
+      html += `<div class="unread-line" id="unread-mark">Непрочитанные — ${S.openMark.count}</div>`;
+    }
+    const fresh = !firstPaint && !renderedIds.has(m.id);
+    if (fresh) freshIds.push(m.id);
+    html += messageHtml(m, { continued: canGroup(list[i - 1], m), continues: canGroup(m, list[i + 1]), fresh });
   }
   box.innerHTML = html;
+  renderedIds = new Set(list.map(m => m.id));
+  paintIcons(box);
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
 }
@@ -981,6 +1066,32 @@ function updateTitle() {
   for (const c of S.chats) total += unreadIn(c.id).total;
   document.title = (total ? `(${total}) ` : '') + 'SEGA-CHAT';
   $('#rail-badge').classList.toggle('hidden', !total);
+  updateFavicon(total);
+}
+
+// ─────────────────────────────────────────── значок вкладки и ярлыка
+// Значок — скруглённый квадрат с рендером текущей гаммы и белой S;
+// поверх горит красная точка, пока есть непрочитанные сообщения.
+let lastFav = '';
+function favSvg(badge) {
+  const pal = palById(currentPal());
+  const dot = badge ? `<circle cx='51' cy='13' r='11' fill='#ff3b30' stroke='white' stroke-width='4'/>` : '';
+  const s = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='${pal.c1}'/><stop offset='1' stop-color='${pal.c2}'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(#g)'/><g fill='none' stroke='white' stroke-width='5' stroke-linecap='round'><path d='M44 20c-3-3-8-4-12-4-8 0-13 4-13 9 0 12 26 8 26 19 0 5-5 9-13 9-5 0-10-2-13-5'/></g>${dot}</svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(s);
+}
+function updateFavicon(total) {
+  let n = total;
+  if (n === undefined) { n = 0; for (const c of S.chats) n += unreadIn(c.id).total; }
+  const href = favSvg(n > 0);
+  if (href === lastFav) return;
+  lastFav = href;
+  const link = document.querySelector('link[rel="icon"]');
+  if (link) link.href = href;
+  // бейдж на ярлыке установленного чата (Android/Chrome); у iPhone веб-приложениям бейдж не разрешён
+  try {
+    if (n > 0) navigator.setAppBadge && navigator.setAppBadge(n);
+    else navigator.clearAppBadge && navigator.clearAppBadge();
+  } catch (e) {}
 }
 
 // ─────────────────────────────────────────── навигация
@@ -1000,11 +1111,25 @@ function openChat(id) {
   S.view = id;
   S.threadId = null; S.quote = null;
   S.atBottom = true; S.sig = '';
+  renderedChat = null; renderedOnce = false; renderedIds = new Set();
   $('#input').value = S.drafts[id] || '';
+  // фокус при открытии: первое непрочитанное сообщение, а если их нет — последнее
+  const un = unreadIn(id);
+  S.openMark = un.total ? firstUnreadMark(id, un.total) : null;
   renderAll();
   renderMessages(true);
+  const mark = $('#unread-mark');
+  if (mark) mark.scrollIntoView({ block: 'start', behavior: 'auto' });
   markRead();
   if (window.matchMedia('(min-width: 901px)').matches) $('#input').focus();
+}
+/** Первое непрочитанное сообщение чата (сверху вниз) + сколько их всего. */
+function firstUnreadMark(chatId, count) {
+  const reads = myReads();
+  const list = S.messages
+    .filter(m => m.chat === chatId && !m.parent && m.uid !== S.me.id && m.seq > (reads[bucketOf(m)] || 0))
+    .sort((a, b) => a.seq - b.seq);
+  return list.length ? { chat: chatId, msgId: list[0].id, count } : null;
 }
 $('#chat-filter').addEventListener('input', e => { S.railFilter = e.target.value; S.sig = ''; renderAll(); });
 $('#btn-open-rail').addEventListener('click', () => $('#rail').classList.add('open'));
@@ -1608,29 +1733,72 @@ $('#search-results').addEventListener('click', e => {
 function modal(title, html) {
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = html;
+  paintIcons($('#modal'));
   show($('#modal'));
 }
 $('#modal-close').addEventListener('click', () => hide($('#modal')));
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') hide($('#modal')); });
 
-// профиль
-async function togglePush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !window.isSecureContext) return toast('Web Push доступен только по HTTPS в современном браузере', true);
+// ─────────────────────────────────────────── push-уведомления: тумблер в настройках
+async function pushState() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !window.isSecureContext) return 'unavailable';
   try {
     const cfg = await api('/api/push/config');
-    if (!cfg.enabled) return toast('Уведомления не настроены администратором', true);
-    const reg = await navigator.serviceWorker.register(BASE + '/sw.js');
-    let sub = await reg.pushManager.getSubscription();
-    if (sub) { await sub.unsubscribe(); await api('/api/push/subscribe', { method: 'DELETE', body: { endpoint: sub.endpoint } }); toast('Уведомления выключены'); return; }
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return toast('Разрешение на уведомления не выдано', true);
-    const raw = Uint8Array.from(atob(cfg.publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
-    await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
-    toast('Уведомления включены');
-  } catch (e) { toast(e.message || 'Не удалось включить уведомления', true); }
+    if (!cfg.enabled) return 'noserver';
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    return sub ? 'on' : 'off';
+  } catch (e) { return 'off'; }
 }
-$('#btn-push').addEventListener('click', togglePush);
+async function refreshPushSwitch() {
+  const sw = $('#sw-push'), hint = $('#push-hint');
+  if (!sw) return;
+  const st = await pushState();
+  sw.disabled = (st === 'unavailable' || st === 'noserver');
+  sw.checked = st === 'on';
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const android = /Android/i.test(navigator.userAgent);
+  const inAppBrowser = /Telegram|VK|Instagram|WhatsApp|Viber/i.test(navigator.userAgent);
+  if (st === 'unavailable') {
+    hint.innerHTML = inAppBrowser
+      ? '📱 Ссылка открыта во встроенном браузере мессенджера или соцсети — он не умеет пуши. Скопируйте адрес чата и откройте его в ' + (ios ? 'Safari' : 'Chrome') + '.'
+      : (ios
+        ? '📱 iPhone: пуш работает только у установленного чата. Откройте чат в Safari → «Поделиться» → «На экран “Домой”» → запускайте чат с появившейся иконки (iOS 16.4+). В обычной вкладке Safari пушей не будет — это ограничение Apple.'
+        : (android
+          ? '📱 Android: откройте чат в Chrome, меню → «Добавить на главный экран». У установленного чата пуши приходят даже с закрытым браузером.'
+          : 'Нужен современный браузер и защищённое соединение (HTTPS).'));
+    show(hint);
+  } else if (st === 'noserver') {
+    hint.textContent = 'Уведомления не настроены администратором мессенджера: на сервере не заданы ключи VAPID.';
+    show(hint);
+  } else hide(hint);
+}
+async function setPush(on) {
+  try {
+    if (on) {
+      const cfg = await api('/api/push/config');
+      if (!cfg.enabled) throw new Error('Уведомления не настроены администратором');
+      const reg = await navigator.serviceWorker.register(BASE + '/sw.js');
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Разрешение на уведомления не выдано');
+      const raw = Uint8Array.from(atob(cfg.publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
+      await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+      toast('Уведомления включены');
+    } else {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if (sub) {
+        await sub.unsubscribe();
+        await api('/api/push/subscribe', { method: 'DELETE', body: { endpoint: sub.endpoint } });
+      }
+      toast('Уведомления выключены');
+    }
+  } catch (e) { toast(e.message || 'Не удалось переключить уведомления', true); }
+  refreshPushSwitch();
+}
+
+// профиль
 $('#btn-profile').addEventListener('click', () => {
   $('#rail').classList.remove('open');
   const me = userById(S.me.id) || S.me;
@@ -1838,15 +2006,24 @@ ${rows}</div></body></html>`;
 
 $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из мессенджера на этом устройстве?')) doLogout(); });
 
-// ─────────────────────────────────────────── оформление: тёмная тема и компактная лента
+// ─────────────────────────────────────────── оформление: тема, плотность, гамма
+function currentPal() {
+  return document.documentElement.dataset.pal || 'classic';
+}
+function metaThemeColor() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const dark = document.documentElement.dataset.theme === 'dark';
+  const inApp = document.documentElement.dataset.inApp === '1';
+  meta.setAttribute('content', dark ? '#0b171d' : (inApp ? palById(currentPal()).c1 : '#2353A2'));
+}
 function applyTheme(theme) {
   const dark = theme === 'dark';
   document.documentElement.dataset.theme = dark ? 'dark' : '';
   try { localStorage.setItem('sega.theme', dark ? 'dark' : 'light'); } catch (e) {}
-  const btn = $('#btn-theme');
-  if (btn) { btn.textContent = dark ? '☀️ Светлая' : '🌙 Тёмная'; btn.setAttribute('aria-pressed', String(dark)); }
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#0b171d' : '#2353A2');
+  const sw = $('#sw-dark');
+  if (sw) sw.checked = dark;
+  metaThemeColor();
 }
 function applyDensity(mode) {
   const compact = mode === 'compact';
@@ -1856,16 +2033,58 @@ function applyDensity(mode) {
     if (compact) localStorage.setItem('sega.density', 'compact');
     else localStorage.removeItem('sega.density');
   } catch (e) {}
-  const btn = $('#btn-compact');
-  if (btn) { btn.textContent = compact ? '▤ Просторно' : '☰ Компактно'; btn.setAttribute('aria-pressed', String(compact)); }
+  const sw = $('#sw-compact');
+  if (sw) sw.checked = compact;
 }
+function applyPalette(id, save) {
+  const pal = palById(id);
+  document.documentElement.dataset.pal = pal.id;
+  if (save !== false) { try { localStorage.setItem('sega.pal', pal.id); } catch (e) {} }
+  paintPalettePickers();
+  metaThemeColor();
+  lastFav = '';
+  updateFavicon();
+}
+function paintPalettePickers() {
+  const box = $('#pals');
+  if (!box) return;
+  box.innerHTML = PALS.map(p =>
+    `<span class="pal ${currentPal() === p.id ? 'on' : ''}" data-pal="${p.id}" title="${p.name}" role="button" tabindex="0" style="background:linear-gradient(135deg,${p.c1},${p.c2})"></span>`).join('');
+}
+
+// ─────────────────────────────────────────── окно настроек (шестерёнка)
+function openSettings() {
+  $('#rail').classList.remove('open');
+  paintPalettePickers();
+  const swD = $('#sw-dark'); if (swD) swD.checked = document.documentElement.dataset.theme === 'dark';
+  const swC = $('#sw-compact'); if (swC) swC.checked = document.documentElement.dataset.density === 'compact';
+  renderNotifyControls();
+  show($('#sheet-settings'));
+  refreshPushSwitch();
+}
+function closeSettings() { hide($('#sheet-settings')); }
+$('#btn-gear').addEventListener('click', openSettings);
+$('#settings-close').addEventListener('click', closeSettings);
+$('#sheet-settings').addEventListener('click', e => { if (e.target.id === 'sheet-settings') closeSettings(); });
+// пункты «Профиль / Управление / Архивы / Выйти» открывают свои окна — сворачиваем настройки
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-close-sheet]')) closeSettings();
+}, true);
+$('#sw-dark').addEventListener('change', e => applyTheme(e.target.checked ? 'dark' : 'light'));
+$('#sw-compact').addEventListener('change', e => applyDensity(e.target.checked ? 'compact' : 'cozy'));
+$('#sw-push').addEventListener('change', e => setPush(e.target.checked));
+$('#pals').addEventListener('click', e => {
+  const b = e.target.closest('[data-pal]');
+  if (!b) return;
+  applyPalette(b.dataset.pal);
+  toast('Гамма: ' + palById(b.dataset.pal).name);
+});
+
 (function initAppearance() {
   applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   applyDensity(document.documentElement.dataset.density === 'compact' ? 'compact' : 'cozy');
-  $('#btn-theme').addEventListener('click', () =>
-    applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-  $('#btn-compact').addEventListener('click', () =>
-    applyDensity(document.documentElement.dataset.density === 'compact' ? 'cozy' : 'compact'));
+  applyPalette(currentPal(), false);
+  paintIcons(document);
 })();
 
 boot();
