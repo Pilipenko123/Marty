@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-3';
+const BUILD = 'pkg3-4';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -769,7 +769,7 @@ async function decodeAvatar(user) {
   if (avatarPending.has(tag) || !user.avatar) return;
   avatarPending.add(tag);
   try {
-    const r = await api('/api/avatar/' + encodeURIComponent(user.id));
+    const r = await api('/api/avatar/' + encodeURIComponent(user.id) + '?rev=' + encodeURIComponent(user.avatar || ''));
     if (r && r.avatar) {
       avatarCache.set(user.id, { rev: user.avatar, src: (await decryptJSON(S.roomKey, r.avatar)).data });
       S.sig = ''; renderAll();
@@ -1441,7 +1441,7 @@ async function fetchWall(c) {
   const hit = wallCache.get(c.id);
   if (hit && hit.rev === c.wallRev) return hit.data;
   try {
-    const r = await api('/api/wall/' + encodeURIComponent(c.id));
+    const r = await api('/api/wall/' + encodeURIComponent(c.id) + '?rev=' + encodeURIComponent(c.wallRev || ''));
     const key = await chatKey(c);
     const data = (r.wall && key) ? (await decryptJSON(key, r.wall)).data : null;
     wallCache.set(c.id, { rev: c.wallRev, data });
@@ -1453,7 +1453,7 @@ async function fetchIcon(c) {
   const hit = iconCache.get(c.id);
   if (hit && hit.rev === c.iconRev) return hit.data;
   try {
-    const r = await api('/api/chaticon/' + encodeURIComponent(c.id));
+    const r = await api('/api/chaticon/' + encodeURIComponent(c.id) + '?rev=' + encodeURIComponent(c.iconRev || ''));
     const key = await chatKey(c);
     const data = (r.icon && key) ? (await decryptJSON(key, r.icon)).data : null;
     iconCache.set(c.id, { rev: c.iconRev, data });
