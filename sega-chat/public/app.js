@@ -7,6 +7,8 @@
 // ─────────────────────────────────────────── помощники
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+// метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
+const BUILD = 'pkg2-3';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -278,6 +280,7 @@ async function boot() {
   try { st = await api('/api/state'); } catch (e) { toast('Сервер недоступен: ' + e.message, true); return; }
   S.maxUpload = Number(st.maxUpload || DEFAULT_MAX_UPLOAD);
   S.codeProofSalt = st.codeProofSalt || null;   // для проверки кодового слова архивов
+  S.serverBuild = st.build || 'без метки (старше pkg2-3)';
   if (st.setupRequired) return screen('setup');
 
   const sess = loadSessionRaw();
@@ -2229,6 +2232,8 @@ function openSettings() {
   const swC = $('#sw-compact'); if (swC) swC.checked = document.documentElement.dataset.density === 'compact';
   renderNotifyControls();
   show($('#sheet-settings'));
+  const bt = $('#build-tag');
+  if (bt) bt.textContent = 'Интерфейс: ' + BUILD + ' · Сервер: ' + (S.serverBuild || 'без метки');
   refreshPushSwitch();
 }
 function closeSettings() { hide($('#sheet-settings')); }
