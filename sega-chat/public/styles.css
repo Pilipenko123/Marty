@@ -493,3 +493,37 @@ label.icon.attach .ic{width:19px;height:19px}
 iframe.arc-frame{width:100%;height:62dvh;border:1px solid var(--line);border-radius:12px;background:#fff}
 .archive-row.ghost{opacity:.6}
 .archive-row.ghost .tiny{color:#a45b12}
+
+/* ───────── реакции на сообщения ───────── */
+.rx-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.msg.mine .rx-row{justify-content:flex-end}
+.rx{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:13px;
+  background:var(--panel);border:1px solid var(--line);cursor:pointer;transition:transform .12s,border-color .15s,background .15s;
+  animation:popIn .18s ease both}
+.rx:hover{transform:scale(1.07);border-color:var(--accent)}
+.rx span{font-size:11px;color:var(--muted);font-weight:600}
+.rx.mine{background:var(--accent-soft);border-color:var(--accent)}
+.rx.mine span{color:var(--accent)}
+.rx-pop{position:fixed;z-index:86;width:auto;display:flex;gap:2px;padding:6px;
+  background:var(--panel);border:1px solid var(--line);border-radius:999px;
+  box-shadow:0 6px 20px rgba(10,30,50,.16);animation:popIn .16s ease both}
+.rx-pop button{width:32px;height:32px;border-radius:50%;font-size:19px;display:flex;align-items:center;justify-content:center}
+.rx-pop button:hover{background:var(--accent-soft);transform:scale(1.12)}
+.meta .edited{font-style:italic;color:var(--muted)}
+
+/* ───────── правка своего сообщения (текст виден целиком) ───────── */
+.edit-box{width:min(560px,86%);background:var(--panel);border:1px solid var(--accent);border-radius:12px;padding:8px;
+  animation:popIn .18s ease both}
+.edit-area{width:100%;resize:none;overflow:hidden;border:none;background:var(--panel-2);border-radius:8px;
+  padding:8px 10px;font-size:14px;line-height:1.35;max-height:none;display:block}
+.edit-row{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+
+/* ───────── подгрузка истории ───────── */
+.load-more{display:block;margin:6px auto 14px;padding:7px 16px;border-radius:999px;background:var(--panel);
+  border:1px solid var(--line);color:var(--accent);font-size:12.5px;font-weight:600;transition:.15s;animation:fadeIn .3s ease both}
+.load-more:hover{border-color:var(--accent);background:var(--accent-soft)}
+
+/* ───────── крупный аватар в окне просмотра ───────── */
+.lb-ava{width:150px;height:150px;border-radius:50%;margin:6px auto 12px;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:52px;font-weight:600;box-shadow:0 10px 40px rgba(10,30,50,.25);animation:popIn .25s ease both;overflow:hidden}
+.lb-ava img{width:100%;height:100%;object-fit:cover;display:block}

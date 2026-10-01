@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg2-9';
+const BUILD = 'pkg3-1';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -736,7 +736,7 @@ function avatarHtml(user, cls, withStatus) {
   } else {
     inner = `<span class="avatar ${cls || ''}" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`;
   }
-  return `<span class="av-wrap">${inner}${withStatus ? `<i class="status ${isOnline(u) ? 'on' : ''}"></i>` : ''}</span>`;
+  return `<span class="av-wrap" data-uid="${escapeHtml(u.id || '')}">${inner}${withStatus ? `<i class="status ${isOnline(u) ? 'on' : ''}"></i>` : ''}</span>`;
 }
 function chatAvatarHtml(c, cls) {
   if (!c) return `<span class="av-wrap"><span class="avatar ${cls || ''}" style="background:#2353a2"><img class="av-logo" src="logo.png" alt=""></span></span>`;
@@ -774,10 +774,15 @@ function renderAll() {
   paintIcons(document);
 }
 
+function openProfileWithStatus() {
+  $('#btn-profile').click();
+  setTimeout(() => { const el = $('#pf-status'); if (el) el.focus(); }, 80);
+}
 function renderMe() {
   $('#me-avatar').innerHTML = avatarHtml(S.me, '', true);
   $('#me-name').textContent = S.me.name;
-  $('#me-sub').textContent = S.me.isAdmin ? 'администратор · в сети' : 'в сети';
+  const st = (S.me && S.me.status) || '';
+  $('#me-sub').textContent = (S.me.isAdmin ? 'администратор · ' : '') + (st || 'в сети');
   $('#btn-admin').classList.toggle('hidden', !S.me.isAdmin);
   renderNotifyControls();
 }
@@ -931,8 +936,13 @@ function messageHtml(m, opts = {}) {
   const continues = !!opts.continues;
   const metaParts = [];
   if (!continues) metaParts.push(readersHtml(m));
+  if (m.editedAt) metaParts.push('<span class="edited" title="сообщение изменено">изменено</span>');
   if (kids.length) metaParts.push(`<span class="thread-btn" data-thread="${m.id}">${SV(ICONS.comment)} ${plural(kids.length, 'комментарий', 'комментария', 'комментариев')}${unreadKids ? `<span class="dot-new"></span>` : ''}</span>`);
   const meta = metaParts.filter(Boolean).join('');
+  const rx = m.reactions || {};
+  const rxKeys = Object.keys(rx).filter(k => (rx[k] || []).length);
+  const rxHtml = rxKeys.length ? `<div class="rx-row">${rxKeys.map(k =>
+    `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${k}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>` : '';
   return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
     ${avatarHtml(author, 'sm', true)}
     <div class="bubble-wrap">
@@ -942,11 +952,14 @@ function messageHtml(m, opts = {}) {
         ${p.text ? `<div class="btext">${mentionize(p.text)}</div>` : ''}
         ${p.att ? `<img class="att" src="${p.att}" alt="вложение">` : ''}
       </div>
+      ${rxHtml}
       ${meta ? `<div class="meta">${meta}</div>` : ''}
     </div>
     <div class="tools">
+      <button class="tool" data-rxpick="${m.id}" title="Поставить реакцию">${SV(ICONS.react)}</button>
       <button class="tool" data-quote="${m.id}" title="Ответить ссылкой на это сообщение">${SV(ICONS.reply)}</button>
       ${opts.noThread ? '' : `<button class="tool" data-thread="${m.id}" title="Комментировать внутри сообщения">${SV(ICONS.comment)}</button>`}
+      ${mine ? `<button class="tool" data-edit="${m.id}" title="Редактировать своё сообщение">${SV(ICONS.pencil)}</button>` : ''}
       ${canDel ? `<button class="tool" data-del="${m.id}" title="Удалить">${SV(ICONS.trash)}</button>` : ''}
     </div>
   </div>`;
@@ -974,6 +987,7 @@ function archiveBannerHtml(c) {
 // какие сообщения уже показаны в открытом чате: анимируем только новые,
 // иначе лента «мигала» бы при каждом опросе сервера
 let renderedIds = new Set(), renderedChat = null, renderedOnce = false;
+const WIN_SIZE = 80;   // сообщений в одном окне ленты
 
 function renderMessages(force) {
   const box = $('#messages');
@@ -990,19 +1004,25 @@ function renderMessages(force) {
     if (b) b.addEventListener('click', openCreateChat);
     return;
   }
-  const list = S.messages.filter(m => m.chat === S.view && !m.parent);
+  const full = S.messages.filter(m => m.chat === S.view && !m.parent);
+  // лента подгружается окнами: сначала последние WIN_SIZE сообщений,
+  // старше — кнопкой «Показать более ранние», чтобы не рисовать тысячи узлов
+  const win = S.winSize || WIN_SIZE;
+  const off = Math.max(0, full.length - win);
+  const list = full.slice(off);
+  const moreBtn = off > 0 ? `<button class="load-more" id="load-more">Показать более ранние (${off})</button>` : '';
   const prevTop = box.scrollTop, prevHeight = box.scrollHeight;
   const nearBottom = prevHeight - prevTop - box.clientHeight < 160;
   const c = curChat();
   const banner = archiveBannerHtml(c);
-  if (!list.length) {
+  if (!full.length) {
     const emptyHint = `<div class="sys">${c && c.kind === 'dm'
       ? 'Личная переписка. Никто, кроме вас двоих, её не увидит.'
       : 'Сообщений пока нет. Напишите первое 👋'}</div>`;
     box.innerHTML = banner ? (banner + emptyHint) : emptyHint;
     return;
   }
-  let html = banner, lastDay = '';
+  let html = banner + moreBtn, lastDay = '';
   const firstPaint = !renderedOnce;
   renderedOnce = true;
   const freshIds = [];
@@ -1130,6 +1150,7 @@ function openChat(id) {
   S.threadId = null; S.quote = null;
   S.atBottom = true; S.sig = '';
   renderedChat = null; renderedOnce = false; renderedIds = new Set();
+  S.winSize = WIN_SIZE;
   $('#input').value = S.drafts[id] || '';
   // фокус при открытии: первое непрочитанное сообщение, а если их нет — последнее
   const un = unreadIn(id);
@@ -1181,6 +1202,12 @@ function goToMessage(id) {
 function handleMsgClick(e) {
   const goto = e.target.closest('[data-goto]');
   if (goto) return goToMessage(goto.dataset.goto);
+  const rxb = e.target.closest('[data-rx]');
+  if (rxb) return toggleReaction(rxb.dataset.mid, rxb.dataset.rx);
+  const rxp = e.target.closest('[data-rxpick]');
+  if (rxp) return openRxPicker(rxp.dataset.rxpick, rxp);
+  const ed = e.target.closest('[data-edit]');
+  if (ed) return openEditor(ed.dataset.edit);
   const q = e.target.closest('[data-quote]');
   if (q) {
     S.quote = q.dataset.quote; S.sig = '';
@@ -1215,7 +1242,134 @@ $('#messages').addEventListener('scroll', () => {
   S.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
   $('#scroll-bottom').classList.toggle('hidden', S.atBottom);
 });
+$('#messages').addEventListener('click', e => {
+  const lm = e.target.closest('#load-more');
+  if (!lm) return;
+  const full = S.messages.filter(m => m.chat === S.view && !m.parent);
+  const oldOff = Math.max(0, full.length - (S.winSize || WIN_SIZE));
+  S.winSize = (S.winSize || WIN_SIZE) + 160;
+  const newOff = Math.max(0, full.length - S.winSize);
+  for (let i = newOff; i < oldOff; i++) renderedIds.add(full[i].id);   // доскрытое не анимируем
+  S.sig = '';
+  renderMessages();
+});
 $('#scroll-bottom').addEventListener('click', () => { const b = $('#messages'); b.scrollTop = b.scrollHeight; });
+
+// ─────────────────────────────────────────── реакции на сообщения
+const RX_SET = ['😀','😂','😍','👍','👎','','🔥','🎉','❤️','😢','😮','🤝'];
+let rxPopFor = null;
+function closeRxPicker() { const p = $('#rx-pop'); if (p) { hide(p); rxPopFor = null; } }
+function openRxPicker(mid, anchor) {
+  let pop = $('#rx-pop');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'rx-pop';
+    pop.className = 'emoji-pop rx-pop';
+    document.body.appendChild(pop);
+    pop.addEventListener('mousedown', e => {
+      const b = e.target.closest('[data-rxset]');
+      if (!b) return;
+      e.preventDefault();
+      const id = rxPopFor;
+      closeRxPicker();
+      if (id) toggleReaction(id, b.dataset.rxset);
+    });
+  }
+  if (rxPopFor === mid && !pop.classList.contains('hidden')) return closeRxPicker();
+  rxPopFor = mid;
+  pop.innerHTML = RX_SET.map(e => `<button data-rxset="${e}" title="${e}">${e}</button>`).join('');
+  show(pop);
+  const r = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth || 286;
+  let x = Math.min(window.innerWidth - w - 8, Math.max(8, r.left - w + 40));
+  pop.style.left = x + 'px';
+  pop.style.top = (r.top - 44) + 'px';
+}
+document.addEventListener('mousedown', e => {
+  if (!e.target.closest('#rx-pop, [data-rxpick]')) closeRxPicker();
+});
+async function toggleReaction(mid, emoji) {
+  try {
+    await api('/api/messages/' + mid + '/react', { method: 'POST', body: { emoji } });
+    await sync();
+  } catch (ex) { toast(ex.message, true); }
+}
+
+// ─────────────────────────────────────────── правка своего сообщения
+function openEditor(mid) {
+  const m = S.messages.find(x => x.id === mid);
+  if (!m || m.uid !== S.me.id) return;
+  const el = document.getElementById('m-' + mid);
+  if (!el || el.dataset.editing) return;
+  const p = S.plain.get(mid) || {};
+  const bubble = el.querySelector('.bubble');
+  if (!bubble) return;
+  el.dataset.editing = '1';
+  const old = bubble.outerHTML;
+  bubble.outerHTML = `<div class="edit-box">
+    <textarea id="ed-${mid}" class="edit-area" maxlength="4000">${escapeHtml(p.text || '')}</textarea>
+    <div class="edit-row">
+      <button class="mini" id="edc-${mid}">Отмена</button>
+      <button class="mini primary" id="eds-${mid}">Сохранить</button>
+    </div>
+  </div>`;
+  const ta = $('#ed-' + mid);
+  ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';   // текст виден целиком, без полосы прокрутки
+  ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
+  $('#edc-' + mid).addEventListener('click', () => {
+    const box = ta.closest('.edit-box');
+    if (box) box.outerHTML = old;
+    delete el.dataset.editing;
+  });
+  $('#eds-' + mid).addEventListener('click', async () => {
+    const text = ta.value.trim();
+    if (!text) return toast('Пустое сообщение', true);
+    try {
+      const c = chatById(m.chat);
+      const k = await chatKeyOf(c);
+      const mentions = findMentions(text);
+      const blob = await encryptJSON(k.key, { text, mentions, author: S.me.name });
+      await api('/api/messages/' + mid + '/edit', { method: 'POST', body: { blob } });
+      S.plain.set(mid, { text, mentions });
+      await sync();
+      toast('Сообщение изменено');
+    } catch (ex) { toast(ex.message, true); }
+  });
+}
+
+// ─────────────────────────────────────────── крупный просмотр аватара и статус
+function openAvatarView(userId) {
+  const u = userById(userId) || (S.me && S.me.id === userId ? S.me : null);
+  if (!u) return;
+  const me = u.id === S.me.id;
+  const av = avatarCache.get(u.id);
+  const inner = (u.avatar && av) ? `<img src="${av.src}" alt="">` : escapeHtml(initials(u.name));
+  modal((me ? 'Ваш профиль' : u.name), `
+    <div class="lb-ava" style="background:${avColor(u.id)}">${inner}</div>
+    <div style="text-align:center;font-weight:600;font-size:16px">${escapeHtml(u.name)}${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}</div>
+    <div class="tiny muted" style="text-align:center;margin-top:3px">${isOnline(u) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}${u.status ? ' · ' + escapeHtml(u.status) : ''}</div>
+    ${me ? '<button class="primary soft" id="lb-status" style="margin-top:14px">Изменить статус</button>' : ''}`);
+  const bs = $('#lb-status');
+  if (bs) bs.addEventListener('click', () => { hide($('#modal')); openProfileWithStatus(); });
+}
+document.addEventListener('click', e => {
+  const av = e.target.closest('.av-wrap');
+  if (!av) return;
+  const host = av.closest('.msg, #me-box, #topbar, .mention-item');
+  if (!host) return;
+  e.stopPropagation();
+  const img = av.querySelector('.avatar');
+  const uid = av.dataset.uid || (host.classList && host.classList.contains('msg') ? null : null);
+  if (uid) return openAvatarView(uid);
+  // определяем автора по сообщению
+  const msgEl = av.closest('.msg');
+  if (msgEl) {
+    const m = S.messages.find(x => 'm-' + x.id === msgEl.id);
+    if (m) return openAvatarView(m.uid);
+  }
+  if (av.closest('#me-box')) return openAvatarView(S.me.id);
+});
 
 // ─────────────────────────────────────────── создание группового чата
 function openCreateChat() {
@@ -1997,6 +2151,9 @@ $('#btn-profile').addEventListener('click', () => {
     <div class="divider"><span>Имя</span></div>
     <label>Как вас называть<input type="text" id="pf-name" value="${escapeHtml(me.name)}" maxlength="32"></label>
     <button class="primary" id="pf-save-name">Сохранить имя</button>
+    <div class="divider"><span>Статус</span></div>
+    <label>Короткая строка под именем<input type="text" id="pf-status" value="${escapeHtml(me.status || '')}" maxlength="48" placeholder="например: на связи до шести"></label>
+    <button class="primary soft" id="pf-save-status">Сохранить статус</button>
     <div class="divider"><span>Пароль</span></div>
     <label>Текущий пароль<input type="password" id="pf-old" autocomplete="current-password"></label>
     <label>Новый пароль<input type="password" id="pf-new" autocomplete="new-password" placeholder="минимум 6 символов"></label>
@@ -2022,6 +2179,12 @@ $('#btn-profile').addEventListener('click', () => {
   $('#pf-save-name').addEventListener('click', async () => {
     try { await api('/api/profile', { method: 'POST', body: { name: $('#pf-name').value.trim() } }); S.sig = ''; await sync(); toast('Имя обновлено'); }
     catch (ex) { toast(ex.message, true); }
+  });
+  $('#pf-save-status').addEventListener('click', async () => {
+    try {
+      await api('/api/profile', { method: 'POST', body: { status: $('#pf-status').value } });
+      S.sig = ''; await sync(); toast('Статус обновлён');
+    } catch (ex) { toast(ex.message, true); }
   });
   $('#pf-save-pass').addEventListener('click', async () => {
     const err = $('#pf-err'); err.textContent = '';
