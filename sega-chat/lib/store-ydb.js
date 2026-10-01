@@ -82,28 +82,36 @@ function createYdbStore(opts = {}) {
     for (const it of items) await ydb.del(table, K(pk, str(it.sk)));
     chunkK.delete(ck(pk, prefix));
   }
+  /**
+   * Собрать документы из строк с кусками. Порядок строк из базы может быть любым
+   * (YDB отдаёт ключи лексикографически: «#10» раньше «#2»), поэтому куски
+   * расставляем по их номерам, а не по порядку прихода.
+   */
   function parseDocs(items, pk) {
-    const docs = [];
-    let cur = null;
+    const map = new Map();
     for (const it of items) {
       const sk = str(it.sk);
       const h = sk.lastIndexOf('#');
       const isPart = h > 0 && /^\d+$/.test(sk.slice(h + 1));
-      if (isPart && cur && sk.slice(0, h) === cur.sk) {
-        if (cur.parts.length < cur.k) cur.parts.push(str(it.d) || '');
-        continue;
-      }
-      if (isPart) continue;                      // осиротевший кусок — пропускаем
-      if (cur) docs.push(cur);
-      cur = { sk, k: num(it.k) || 1, parts: [str(it.d) || ''], item: it };
+      const base = isPart ? sk.slice(0, h) : sk;
+      const idx = isPart ? Number(sk.slice(h + 1)) : 0;
+      let d = map.get(base);
+      if (!d) { d = { sk: base, k: 1, parts: new Map(), item: it }; map.set(base, d); }
+      if (idx === 0) { d.k = num(it.k) || 1; d.item = it; }
+      d.parts.set(idx, str(it.d) || '');
     }
-    if (cur) docs.push(cur);
-    return docs.map(d => {
+    const docs = [];
+    for (const d of map.values()) {
+      if (!d.parts.has(0)) continue;             // осиротевшие куски без головы — мимо
       if (pk) chunkK.set(ck(pk, d.sk), d.k);
+      let text = '';
+      for (let i = 0; i < d.k; i++) text += d.parts.get(i) || '';
       let value = null;
-      try { value = JSON.parse(d.parts.join('')); } catch (e) { value = null; }
-      return { sk: d.sk, item: d.item, value };
-    }).filter(d => d.value !== null);
+      try { value = JSON.parse(text); } catch (e) { value = null; }
+      if (value !== null) docs.push({ sk: d.sk, item: d.item, value });
+    }
+    docs.sort((a, b) => (a.sk < b.sk ? -1 : a.sk > b.sk ? 1 : 0));
+    return docs;
   }
   const queryPk = (pk, extra) => ydb.queryAll(table, Object.assign({
     KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': S(pk) }
@@ -426,7 +434,7 @@ function createYdbStore(opts = {}) {
     },
 
     async putArchive(file, text) { await putDoc('arc', file, { t: text }); },
-    async delArchive(file) { await delDoc('arc', file); },
+    async delArchive(file) { await delByPrefix('arc', file); },   // chunkK на холодном старте пуст, поэтому по префиксу
     async getArchive(file) {
       const docs = parseDocs(await ydb.queryAll(table, {
         KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)',
