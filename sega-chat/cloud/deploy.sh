@@ -113,6 +113,22 @@ else
   info "создана"
 fi
 
+# Переменные среды новой версии. Важно: они задаются заново при каждом деплое,
+# поэтому ключи Web Push (VAPID) нужно передавать явно — иначе после
+# обновления функция «забудет» их и уведомления молча перестанут работать.
+ENV_LIST="YDB_ENDPOINT=$ENDPOINT,YDB_TABLE=$TABLE,STORAGE_LIMIT=$STORAGE_LIMIT"
+if [ -n "${VAPID_PUBLIC_KEY:-}" ] && [ -n "${VAPID_PRIVATE_KEY:-}" ]; then
+  ENV_LIST="$ENV_LIST,VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY"
+  if [ -n "${VAPID_SUBJECT:-}" ]; then
+    ENV_LIST="$ENV_LIST,VAPID_SUBJECT=$VAPID_SUBJECT"
+  fi
+  info "ключи Web Push (VAPID) переданы в функцию"
+else
+  printf '    \033[1;31mВнимание: VAPID-ключи не заданы — push-уведомления в этой версии работать не будут.\033[0m\n'
+  printf '    \033[1;31mЗадайте их и запустите деплой заново:\033[0m\n'
+  printf '    \033[1;31m  export VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… VAPID_SUBJECT=mailto:вы@почта\033[0m\n'
+fi
+
 yc serverless function version create \
   --function-name "$FUNC_NAME" \
   --runtime "$RUNTIME" \
@@ -121,7 +137,7 @@ yc serverless function version create \
   --execution-timeout "$TIMEOUT" \
   --source-path "$ZIP" \
   --service-account-id "$SA_ID" \
-  --environment "YDB_ENDPOINT=$ENDPOINT,YDB_TABLE=$TABLE,STORAGE_LIMIT=$STORAGE_LIMIT" \
+  --environment "$ENV_LIST" \
   >/dev/null
 info "версия выложена (среда: $RUNTIME, память: $MEMORY)"
 
