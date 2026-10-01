@@ -213,7 +213,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg2-5',
+        build: 'pkg2-6',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -529,7 +529,10 @@ function createApi(store, opts = {}) {
 
       if (action === 'archives' && method === 'GET') {
         await store.loadArchives();
-        return J(200, { archives: db.archives.filter(a => a.chat === chat.id).reverse() });
+        const list = db.archives.filter(a => a.chat === chat.id).reverse();
+        // помечаем «призраков»: запись в индексе есть, а тела архива в базе нет
+        for (const a of list) a.hasContent = (await store.countArchiveParts(a.file)) > 0;
+        return J(200, { archives: list });
       }
 
       // --- восстановление заархивированной истории обратно в чат
@@ -764,7 +767,13 @@ function createApi(store, opts = {}) {
       if (text == null) {
         const parts = await store.countArchiveParts(file);
         console.error('[arc] не собрался:', file, '| кусков в базе:', parts);
-        return E(404, 'Архив не найден в базе (кусков: ' + parts + '). Пришлите этот текст разработчику');
+        if (parts === 0) {
+          // запись-призак: тело архива отсутствует (удалено старым кодом) — убираем её из индекса
+          db.archives = db.archives.filter(a => a.file !== file);
+          db.seq++; save();
+          return E(404, 'Запись архива была пустой (тело удалено старым кодом) — она убрана из списка');
+        }
+        return E(404, 'Архив не собрался из кусков (кусков: ' + parts + '). Пришлите этот текст разработчику');
       }
       return FILE(text, file);
     }
