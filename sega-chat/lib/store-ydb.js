@@ -153,7 +153,7 @@ function createYdbStore(opts = {}) {
   }
   const userFp = (u) => JSON.stringify(userDoc(u));
   const msgFp = (m) => `${m.seq}|${m.parent || ''}|${m.quote || ''}|${m.rev || 0}|${m.editedAt || 0}`;
-  const coreFp = () => JSON.stringify({ v: db.version, c: db.createdAt, r: db.room, s: db.serverSecret });
+  const coreFp = () => JSON.stringify({ v: db.version, c: db.createdAt, r: db.room, s: db.serverSecret, u: db.upBytes || 0 });
 
   function takeSnapshot() {
     return {

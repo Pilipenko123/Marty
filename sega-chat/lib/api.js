@@ -237,7 +237,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-5',
+        build: 'pkg3-6',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
