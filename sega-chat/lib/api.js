@@ -22,6 +22,8 @@ function createApi(store, opts = {}) {
   const MAX_UPLOAD = Number(opts.maxUpload || process.env.MAX_UPLOAD || 3.1 * MB);
   const SYNC_MAX_COUNT = Number(opts.syncMaxCount || 400);
   const SYNC_MAX_BYTES = Number(opts.syncMaxBytes || process.env.SYNC_MAX_BYTES || 1.2 * MB);
+  const UP_MAX = Number(opts.upMax || process.env.UP_MAX || 25 * MB);   // предел одного вложения
+  const UP_CHUNK = 900000;                                               // символов в одном куске загрузки
 
   let db = null;
 
@@ -72,7 +74,7 @@ function createApi(store, opts = {}) {
   function usage() {
     // архивы тоже занимают место в базе — учитываем их в плашке «Память сервера»
     const arcBytes = db.archives.reduce((a, r) => a + (r.bytes || 0), 0);
-    const bytes = db.stats.bytes + avatarBytes() + arcBytes;
+    const bytes = db.stats.bytes + avatarBytes() + arcBytes + (db.upBytes || 0);
     return {
       bytes, limit: STORAGE_LIMIT,
       percent: Math.min(100, Math.round(bytes / STORAGE_LIMIT * 1000) / 10),
@@ -235,7 +237,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-4',
+        build: 'pkg3-5',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -688,7 +690,7 @@ function createApi(store, opts = {}) {
         if (q.chat !== chat.id) return E(400, 'Ссылаться можно только на сообщение этого чата');
         quote = q.id;
       }
-      const m = { id: uid(), seq: ++db.seq, uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote };
+      const m = { id: uid(), seq: ++db.seq, uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote, upId: b.upId || null };
       db.messages.push(m);
       addStat(m, 1);
       me.reads = me.reads || {};
@@ -768,7 +770,15 @@ function createApi(store, opts = {}) {
       const canDelete = victim.uid === me.id;   // удалять можно только свои сообщения
       if (!canDelete) return E(403, 'Удалять можно только свои сообщения');
       await store.loadChats([victim.chat]);
+      const ups = new Set(db.messages.filter(m => (m.id === id || m.parent === id) && m.upId).map(m => m.upId));
       dropMessages(m => m.id === id || m.parent === id);
+      for (const up of ups) {
+        const meta = await store.getUpMeta(up);
+        if (meta && !db.messages.some(m => m.upId === up)) {
+          await store.delUp(up);
+          db.upBytes = Math.max(0, (db.upBytes || 0) - (meta.size || 0));
+        }
+      }
       for (const m of db.messages) if (m.quote === id) m.quote = null;
       db.seq++;
       save();
@@ -872,6 +882,57 @@ function createApi(store, opts = {}) {
         await store.loadArchives();
         return J(200, { archives: db.archives.slice().reverse() });
       }
+    }
+
+    // --- кусковая загрузка больших вложений (видео, аудио, файлы до 25 МБ)
+    if (pathname === '/api/upload/init' && method === 'POST') {
+      const b = req.body || {};
+      const chat = chatById(b.chat);
+      if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+      const size = Number(b.size) || 0;
+      if (size > UP_MAX) return E(413, 'Файл больше 25 МБ — предела облачного хранилища');
+      if (size <= 0) return E(400, 'Пустой файл');
+      const upId = uid();
+      await store.putUpMeta(upId, {
+        chat: chat.id, name: String(b.name || 'file').slice(0, 120), size,
+        mime: String(b.mime || 'application/octet-stream').slice(0, 80),
+        parts: Math.max(1, Number(b.parts) || 1), owner: me.id, ts: Date.now()
+      });
+      return J(200, { upId, chunk: UP_CHUNK });
+    }
+    if (pathname === '/api/upload/chunk' && method === 'POST') {
+      const b = req.body || {};
+      const meta = await store.getUpMeta(b.upId);
+      if (!meta) return E(404, 'Загрузка не найдена — начните заново');
+      if (!isMember(chatById(meta.chat), me.id)) return E(403, 'Это не ваш чат');
+      if (meta.owner !== me.id) return E(403, 'Догружать может только начавший загрузку');
+      const i = Number(b.i) || 0;
+      if (i < 0 || i >= 5000) return E(400, 'Неверный номер куска');
+      if (!b.data || b.data.length > UP_CHUNK + 8192) return E(413, 'Кусок больше допустимого');
+      await store.putUpPart(meta.chat, b.upId, i, b.data);
+      return J(200, { ok: true });
+    }
+    if (pathname === '/api/upload/fin' && method === 'POST') {
+      const b = req.body || {};
+      const meta = await store.getUpMeta(b.upId);
+      if (!meta) return E(404, 'Загрузка не найдена — начните заново');
+      if (!isMember(chatById(meta.chat), me.id)) return E(403, 'Это не ваш чат');
+      const u = usage();
+      if (u.bytes + meta.size > STORAGE_LIMIT) return E(507, 'Память чата заполнена — освободите место');
+      db.upBytes = (db.upBytes || 0) + meta.size;
+      db.seq++; save();
+      return J(200, { ok: true, meta });
+    }
+    if (pathname.startsWith('/api/upload/') && method === 'GET') {
+      const seg = pathname.split('/').filter(Boolean);
+      const upId = safeFile(decodeURIComponent(seg[2] || ''));
+      const i = Number(seg[3] || 0);
+      const meta = await store.getUpMeta(upId);
+      if (!meta) return E(404, 'Загрузка не найдена');
+      if (!isMember(chatById(meta.chat), me.id)) return E(403, 'Это не ваш чат');
+      const d = await store.getUpPart(meta.chat, upId, i);
+      if (d == null) return E(404, 'Кусок не найден');
+      return J(200, { data: d, parts: meta.parts, name: meta.name, mime: meta.mime, size: meta.size });
     }
 
     // --- выгрузка своих чатов (данные всё равно зашифрованы)

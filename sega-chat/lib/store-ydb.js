@@ -472,6 +472,12 @@ function createYdbStore(opts = {}) {
     async getWall(id) { const v = await readDocJson('wall', id); return v ? (v.w || null) : null; },
     async putIcon(id, data) { await putDoc('cicon', id, { w: data }); },
     async getIcon(id) { const v = await readDocJson('cicon', id); return v ? (v.w || null) : null; },
+    // кусковые загрузки больших вложений
+    async putUpMeta(id, meta) { await putDoc('upmeta', id, meta); },
+    async getUpMeta(id) { return await readDocJson('upmeta', id); },
+    async putUpPart(chatId, upId, i, data) { await putDoc('up', upId + '#' + i, { d: data }); },
+    async getUpPart(chatId, upId, i) { const v = await readDocJson('up', upId + '#' + i); return v ? (v.d || null) : null; },
+    async delUp(upId) { await delByPrefix('up', upId + '#'); await delDoc('upmeta', upId); },
     // «тёплый» экземпляр функции мог загрузить список архивов при старте раньше,
     // чем архивы появились: перед любым обращением к архивам перечитываем индекс
     async loadArchives() {

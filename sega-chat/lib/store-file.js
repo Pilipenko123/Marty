@@ -80,6 +80,21 @@ function createFileStore(opts = {}) {
       const f = path.join(dataDir, 'cicon-' + id + '.txt');
       try { return fs.readFileSync(f, 'utf8') || null; } catch (e) { return null; }
     },
+    async putUpMeta(id, meta) { fs.writeFileSync(path.join(dataDir, 'upmeta-' + id + '.json'), JSON.stringify(meta)); },
+    async getUpMeta(id) {
+      try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'upmeta-' + id + '.json'), 'utf8')); } catch (e) { return null; }
+    },
+    async putUpPart(chatId, upId, i, data) { fs.writeFileSync(path.join(dataDir, 'up-' + upId + '-' + i + '.txt'), data); },
+    async getUpPart(chatId, upId, i) {
+      try { return fs.readFileSync(path.join(dataDir, 'up-' + upId + '-' + i + '.txt'), 'utf8'); } catch (e) { return null; }
+    },
+    async delUp(upId) {
+      try {
+        for (const f of fs.readdirSync(dataDir)) {
+          if (f.startsWith('up-' + upId + '-') || f === 'upmeta-' + upId + '.json') fs.rmSync(path.join(dataDir, f), { force: true });
+        }
+      } catch (e) {}
+    },
     async delArchive(file) {
       const full = path.join(archiveDir, file);
       if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });
