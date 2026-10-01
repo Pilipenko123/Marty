@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-2';
+const BUILD = 'pkg3-3';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -90,6 +90,16 @@ const PALS = [
   { id: 'graphite', name: 'Графит', c1: '#4b5563', c2: '#9aa5b1' }
 ];
 const palById = id => PALS.find(p => p.id === id) || PALS[0];
+// ─────────────────────────────────────────── современные эмодзи (Twemoji, CC-BY)
+// Картинки подтягиваются с CDN; если сети нет — onerror возвращает системный символ.
+const TW_URL = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/';
+const EMO_RE = /(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu;
+function twEmo(html) {
+  return String(html).replace(EMO_RE, seq => {
+    const cp = [...seq].map(c => c.codePointAt(0).toString(16)).join('-');
+    return `<img class="emo" src="${TW_URL}${cp}.png" alt="${seq}" loading="lazy" onerror="this.replaceWith(document.createTextNode(this.alt))">`;
+  });
+}
 const linkify = h => h.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
 function fmtBytes(b) {
   if (b < 1024) return b + ' Б';
@@ -455,6 +465,7 @@ async function prepareChats() {
 
 // ─────────────────────────────────────────── цикл синхронизации
 async function startApp() {
+  S.lastReactSeen = Date.now();   // старые реакции не будят уведомления
   screen('app');
   S.seq = 0; S.gen = -1; S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
   syncPromise = null; syncQueued = false;
@@ -589,6 +600,7 @@ async function syncOnce(initial) {
   }
 
   if (freshAll.length && !initial && !suppressNotify) notifyNewMessages(freshAll);
+  if (!initial) notifyReactions();
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
   if (!document.hidden) markRead();
@@ -937,7 +949,7 @@ function messageHtml(m, opts = {}) {
   const kids = opts.noThread ? [] : S.messages.filter(x => x.parent === m.id);
   const unreadKids = kids.length ? threadUnread(m.id) : 0;
   const chat = chatById(m.chat);
-  const canDel = mine || isOwner(chat);
+  const canDel = mine;   // удалять и править можно только свои сообщения
   const continued = !!opts.continued;
   const continues = !!opts.continues;
   const metaParts = [];
@@ -948,14 +960,14 @@ function messageHtml(m, opts = {}) {
   const rx = m.reactions || {};
   const rxKeys = Object.keys(rx).filter(k => (rx[k] || []).length);
   const rxHtml = rxKeys.length ? `<div class="rx-row">${rxKeys.map(k =>
-    `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${k}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>` : '';
+    `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>` : '';
   return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
     ${avatarHtml(author, 'sm', true)}
     <div class="bubble-wrap">
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
-        ${p.text ? `<div class="btext">${mentionize(p.text)}</div>` : ''}
+        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}
         ${p.att ? attHtml(p.att) : ''}
       </div>
       ${rxHtml}
@@ -1109,9 +1121,51 @@ function renderQuoteBar() {
 function updateTitle() {
   let total = 0;
   for (const c of S.chats) total += unreadIn(c.id).total;
+  const rx = unreadReactions();
+  total += rx;
   document.title = (total ? `(${total}) ` : '') + 'SEGA-CHAT';
   $('#rail-badge').classList.toggle('hidden', !total);
   updateFavicon(total);
+}
+
+// ─────────────────────────────────────────── непрочитанные реакции
+/** Отметка времени, когда я последний смотрел чат: хранится локально. */
+function seenTs() {
+  try { return JSON.parse(localStorage.getItem('sega.seenTs') || '{}'); } catch (e) { return {}; }
+}
+function bumpSeen(chatId) {
+  if (!chatId) return;
+  const m = seenTs(); m[chatId] = Date.now();
+  try { localStorage.setItem('sega.seenTs', JSON.stringify(m)); } catch (e) {}
+}
+/** Реакции на мои сообщения, поставленные другими после моего последнего просмотра чата. */
+function unreadReactions() {
+  const seen = seenTs();
+  let n = 0;
+  for (const m of S.messages) {
+    if (m.uid !== S.me.id || !m.reactTs || m.reactBy === S.me.id) continue;
+    if (m.reactTs > (seen[m.chat] || 0)) n++;
+  }
+  return n;
+}
+function notifyReactions() {
+  const seen = seenTs();
+  const fresh = S.messages.filter(m => m.uid === S.me.id && m.reactTs && m.reactBy !== S.me.id
+    && m.reactTs > (S.lastReactSeen || 0));
+  S.lastReactSeen = Math.max(S.lastReactSeen || 0, ...fresh.map(m => m.reactTs), 0);
+  if (!fresh.length) return;
+  const inactive = document.hidden || (document.hasFocus && !document.hasFocus());
+  if (!inactive) return;
+  const by = userById(fresh[fresh.length - 1].reactBy);
+  playNotifySound();
+  try {
+    if (S.notify.desktop && 'Notification' in window && Notification.permission === 'granted') {
+      const n = new Notification('SEGA-CHAT', { body: (by ? by.name : 'Кто-то') + ' отреагировал(а) на ваше сообщение', tag: 'sega-react', silent: true });
+      n.onclick = () => { window.focus(); openChat(fresh[fresh.length - 1].chat); n.close(); };
+      setTimeout(() => n.close(), 8000);
+    }
+  } catch (e) {}
+  void seen;
 }
 
 // ─────────────────────────────────────────── значок вкладки и ярлыка
@@ -1163,6 +1217,7 @@ function openChat(id) {
   const un = unreadIn(id);
   S.openMark = un.total ? firstUnreadMark(id, un.total) : null;
   S.focusApplied = false;
+  bumpSeen(id);
   renderAll();
   renderMessages(!S.openMark);   // с непрочитанными не прыгаем вниз — фокус ставит renderMessages
   markRead();
@@ -1284,7 +1339,7 @@ function openRxPicker(mid, anchor) {
   }
   if (rxPopFor === mid && !pop.classList.contains('hidden')) return closeRxPicker();
   rxPopFor = mid;
-  pop.innerHTML = RX_SET.map(e => `<button data-rxset="${e}" title="${e}">${e}</button>`).join('');
+  pop.innerHTML = RX_SET.map(e => `<button data-rxset="${e}" title="${e}">${twEmo(escapeHtml(e))}</button>`).join('');
   show(pop);
   const r = anchor.getBoundingClientRect();
   const w = pop.offsetWidth || 286;
@@ -1419,7 +1474,8 @@ function patSvg(kind) {
 async function applyWallBackground() {
   const box = $('#messages'), c = curChat();
   if (!c || !c.wall || c.wall.type === 'none') { box.style.background = ''; return; }
-  const w = c.wall;
+  // страховка: цвета могли не сохраниться в старых версиях — подставляем дефолт
+  const w = Object.assign({ type: 'grad', c1: '#eef2f4', c2: '#e8f4fe', a: 165, pat: 'dots' }, c.wall);
   const grad = `linear-gradient(${w.a}deg, ${w.c1}, ${w.c2})`;
   if (w.type === 'grad') { box.style.background = grad; return; }
   if (w.type === 'pat') { box.style.background = `${patSvg(w.pat)} repeat, ${grad}`; return; }
@@ -1957,7 +2013,7 @@ function insertAtCursor(textarea, text) {
 }
 function placeEmojiPanel(btn) {
   const pop = $('#emoji-pop');
-  pop.innerHTML = EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}">${e}</button>`).join('');
+  pop.innerHTML = EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}">${twEmo(escapeHtml(e))}</button>`).join('');
   const r = btn.getBoundingClientRect();
   show(pop);
   const w = pop.offsetWidth || 280, h = pop.offsetHeight || 220;
