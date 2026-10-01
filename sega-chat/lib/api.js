@@ -211,6 +211,23 @@ function createApi(store, opts = {}) {
     } catch (e) { if (process.env.PUSH_DEBUG) console.error('[push]', e.message); }
   }
 
+  /** Пуш конкретному человеку (реакция на его сообщение, комментарий и т.п.). */
+  async function notifyPushTo(target, sender, body) {
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+    if (!target || target.id === sender.id) return;
+    try {
+      const webpush = require('web-push');
+      webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+      for (const sub of (target.pushSubs || [])) {
+        webpush.sendNotification(sub, JSON.stringify({ title: 'SEGA-CHAT', body, tag: 'evt-' + target.id })).catch(e => {
+          if (e.statusCode === 404 || e.statusCode === 410) target.pushSubs = (target.pushSubs || []).filter(x => x.endpoint !== sub.endpoint);
+        });
+      }
+      await Promise.race([Promise.all((target.pushSubs || []).map(() => Promise.resolve())), new Promise(r => setTimeout(r, 3000))]);
+      save();
+    } catch (e) { if (process.env.PUSH_DEBUG) console.error('[push]', e.message); }
+  }
+
   // ------------------------------------------------------------- маршруты
   async function api(req) {
     const { method, path: pathname, query, ip } = req;
@@ -218,7 +235,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-2',
+        build: 'pkg3-3',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -509,7 +526,7 @@ function createApi(store, opts = {}) {
         if (b.data && b.data.length > 350 * 1024) return E(413, 'Фото фона слишком большое (до ~350 КБ в шифрованном виде)');
         chat.wallRev = b.data ? crypto.randomBytes(4).toString('hex') : null;
         await store.putWall(chat.id, b.data || '');
-        if (b.data) chat.wall = Object.assign({}, chat.wall, { type: 'photo' });
+        if (b.data) chat.wall = Object.assign({ type: 'grad', c1: '#eef2f4', c2: '#e8f4fe', a: 165, pat: 'dots' }, chat.wall || {}, { type: 'photo' });
         db.seq++; save();
         return J(200, { chat: publicChat(chat, me.id) });
       }
@@ -685,6 +702,15 @@ function createApi(store, opts = {}) {
         notifyPush(chat, me).catch(() => {}),
         new Promise(resolve => setTimeout(resolve, 3000))
       ]);
+      if (parent) {
+        const pAuthor = db.users.find(u => u.id === parent.uid);
+        if (pAuthor && pAuthor.id !== me.id) {
+          await Promise.race([
+            notifyPushTo(pAuthor, me, me.name + ' прокомментировал(а) ваше сообщение'),
+            new Promise(r => setTimeout(r, 3000))
+          ]);
+        }
+      }
       return J(200, { message: m, usage: usage() });
     }
 
@@ -702,7 +728,15 @@ function createApi(store, opts = {}) {
       if (!had) arr.push(me.id);
       if (arr.length) m.reactions[emo] = arr; else delete m.reactions[emo];
       m.rev = (m.rev || 0) + 1;
+      m.reactTs = Date.now();
       db.seq++; db.gen++; save();   // gen++ → клиенты перечитают сообщение и увидят реакцию
+      const author = db.users.find(u => u.id === m.uid);
+      if (author && author.id !== me.id && had) {
+        await Promise.race([
+          notifyPushTo(author, me, me.name + ' отреагировал(а) на ваше сообщение'),
+          new Promise(r => setTimeout(r, 3000))
+        ]);
+      }
       return J(200, { reactions: m.reactions, usage: usage() });
     }
 
@@ -731,8 +765,8 @@ function createApi(store, opts = {}) {
       if (!victim) return E(404, 'Сообщение не найдено');
       const chat = chatById(victim.chat);
       if (!isMember(chat, me.id)) return E(403, 'Это не ваш чат');
-      const canDelete = victim.uid === me.id || (chat.kind === 'group' && chat.ownerId === me.id);
-      if (!canDelete) return E(403, 'Удалять может автор или создатель чата');
+      const canDelete = victim.uid === me.id;   // удалять можно только свои сообщения
+      if (!canDelete) return E(403, 'Удалять можно только свои сообщения');
       await store.loadChats([victim.chat]);
       dropMessages(m => m.id === id || m.parent === id);
       for (const m of db.messages) if (m.quote === id) m.quote = null;

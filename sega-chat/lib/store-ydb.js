@@ -116,6 +116,34 @@ function createYdbStore(opts = {}) {
   const queryPk = (pk, extra) => ydb.queryAll(table, Object.assign({
     KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': S(pk) }
   }, extra || {}));
+  /** Читает документ целиком по точным ключам кусков (порядок выдачи базы не важен). */
+  async function readDocParts(pk, sk) {
+    const exact = s => ydb.queryAll(table, {
+      KeyConditionExpression: 'pk = :p AND sk = :s',
+      ExpressionAttributeValues: { ':p': S(pk), ':s': S(s) }
+    });
+    const head = await exact(sk);
+    if (!head.length) return null;
+    const k = num(head[0].k) || 1;
+    let text = str(head[0].d) || '';
+    for (let i = 1; i < k; i++) {
+      const row = await exact(sk + '#' + i);
+      text += row.length ? (str(row[0].d) || '') : '';
+    }
+    return text;
+  }
+  async function readDocJson(pk, sk) {
+    const text = await readDocParts(pk, sk);
+    if (text == null) return null;
+    try { return JSON.parse(text); } catch (e) { return null; }
+  }
+  async function countParts(pk, sk) {
+    const head = await ydb.queryAll(table, {
+      KeyConditionExpression: 'pk = :p AND sk = :s',
+      ExpressionAttributeValues: { ':p': S(pk), ':s': S(sk) }
+    });
+    return head.length ? (num(head[0].k) || 1) : 0;
+  }
 
   // ------------------------------------------------------------- отпечатки
   function userDoc(u) {
@@ -441,59 +469,16 @@ function createYdbStore(opts = {}) {
     // фон и иконка чата хранятся отдельными документами (как аватары),
     // чтобы не раздувать запись чата и синхронизацию
     async putWall(id, data) { await putDoc('wall', id, { w: data }); },
-    async getWall(id) {
-      const d = parseDocs(await ydb.queryAll(table, {
-        KeyConditionExpression: 'pk = :p AND sk = :s',
-        ExpressionAttributeValues: { ':p': S('wall'), ':s': S(id) }
-      }), 'wall');
-      return d.length ? (d[0].value.w || null) : null;
-    },
+    async getWall(id) { const v = await readDocJson('wall', id); return v ? (v.w || null) : null; },
     async putIcon(id, data) { await putDoc('cicon', id, { w: data }); },
-    async getIcon(id) {
-      const d = parseDocs(await ydb.queryAll(table, {
-        KeyConditionExpression: 'pk = :p AND sk = :s',
-        ExpressionAttributeValues: { ':p': S('cicon'), ':s': S(id) }
-      }), 'cicon');
-      return d.length ? (d[0].value.w || null) : null;
-    },
+    async getIcon(id) { const v = await readDocJson('cicon', id); return v ? (v.w || null) : null; },
     // «тёплый» экземпляр функции мог загрузить список архивов при старте раньше,
     // чем архивы появились: перед любым обращением к архивам перечитываем индекс
     async loadArchives() {
       db.archives = parseDocs(await queryPk('arcidx'), 'arcidx').map(d => d.value);
     },
-    /** Читает документ архива ТОЛЬКО точными ключами кусков: не зависит ни от
-     *  порядка выдачи, ни от особенностей begins_with в конкретной базе. */
-    async getArchive(file) {
-      const exact = sk => ydb.queryAll(table, {
-        KeyConditionExpression: 'pk = :p AND sk = :s',
-        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(sk) }
-      });
-      const head = await exact(file);
-      if (!head.length) return null;
-      const k = num(head[0].k) || 1;
-      let text = str(head[0].d) || '';
-      for (let i = 1; i < k; i++) {
-        const row = await exact(file + '#' + i);
-        text += row.length ? (str(row[0].d) || '') : '';
-      }
-      try { JSON.parse(text); } catch (e) { return null; }
-      return text;
-    },
-    async countArchiveParts(file) {
-      const head = await ydb.queryAll(table, {
-        KeyConditionExpression: 'pk = :p AND sk = :s',
-        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(file) }
-      });
-      return head.length ? (num(head[0].k) || 1) : 0;
-    },
-    async getArchive(file) {
-      const docs = parseDocs(await ydb.queryAll(table, {
-        KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)',
-        ExpressionAttributeValues: { ':p': S('arc'), ':s': S(file) }
-      }), 'arc');
-      const hit = docs.find(d => d.sk === file);
-      return hit ? hit.value.t : null;
-    },
+    async getArchive(file) { const v = await readDocJson('arc', file); return v ? (v.t || null) : null; },
+    async countArchiveParts(file) { return countParts('arc', file); },
 
     async close() {}
   };
