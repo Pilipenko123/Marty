@@ -43,6 +43,11 @@ function createApi(store, opts = {}) {
     return crypto.scryptSync(Buffer.from(hexValue, 'hex'), Buffer.from(saltHex, 'hex'), 32).toString('hex');
   }
   /** Проверка кодового слова мессенджера: клиент присылает proof, выведенный из слова. */
+  const normFile = (f) => String(f || '').replace(/[^\w.\-]/g, '').toLowerCase();
+  const findArchive = (file) => db.archives.find(a => a.file === file)
+    || db.archives.find(a => normFile(a.file) === normFile(file));
+  const arcDiag = (file) => '[arc] запрошен: ' + file + ' | в базе: ' + db.archives.length
+    + ' | примеры: ' + db.archives.slice(0, 3).map(a => a.file).join(', ');
   function verifyCodeProof(proof) {
     if (!db.room || !proof) return false;
     return timingEqual(hashSecret(proof, db.room.codeProofSalt), db.room.codeProofHash);
@@ -208,7 +213,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg2-4',
+        build: 'pkg2-5',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -533,8 +538,12 @@ function createApi(store, opts = {}) {
         const b = req.body || {};
         if (!verifyCodeProof(b.codeProof)) return E(403, 'Неверное кодовое слово');
         const file = safeFile(String(b.file || ''));
-        const rec = db.archives.find(a => a.file === file && a.chat === chat.id);
-        if (!rec) return E(404, 'Архив не найден в списке (архивов в базе: ' + db.archives.length + ')');
+        const rec = db.archives.find(a => a.file === file && a.chat === chat.id)
+          || db.archives.find(a => normFile(a.file) === normFile(file) && a.chat === chat.id);
+        if (!rec) {
+          console.error(arcDiag(file), '| чат:', chat.id);
+          return E(404, 'Архив не найден в списке этого чата (архивов в базе: ' + db.archives.length + ')');
+        }
         const text = await store.getArchive(file);
         if (!text) return E(404, 'Архив не найден');
         let payload;
@@ -737,10 +746,11 @@ function createApi(store, opts = {}) {
     if (pathname.startsWith('/api/archives/') && method === 'GET') {
       await store.loadArchives();
       const file = safeFile(decodeURIComponent(pathname.split('/')[3] || ''));
-      const rec = db.archives.find(a => a.file === file);
+      const rec = findArchive(file);
       if (!rec) {
-        console.error('[arc] нет записи в индексе:', file, '| архивов в индексе:', db.archives.length);
-        return E(404, 'Архив не найден в списке (архивов в базе: ' + db.archives.length + ')');
+        console.error(arcDiag(file));
+        return E(404, 'Архив не найден в списке (архивов в базе: ' + db.archives.length
+          + '). Пример: ' + (db.archives[0] ? db.archives[0].file : '-'));
       }
       // тело архива отдаём только участнику чата, знающему кодовое слово мессенджера
       let allowed = isMember(chatById(rec.chat), me.id);
@@ -763,8 +773,12 @@ function createApi(store, opts = {}) {
     if (pathname.startsWith('/api/archives/') && method === 'DELETE') {
       await store.loadArchives();
       const file = safeFile(decodeURIComponent(pathname.split('/')[3] || ''));
-      const rec = db.archives.find(a => a.file === file);
-      if (!rec) return E(404, 'Архив не найден в списке (архивов в базе: ' + db.archives.length + ')');
+      const rec = findArchive(file);
+      if (!rec) {
+        console.error(arcDiag(file));
+        return E(404, 'Архив не найден в списке (архивов в базе: ' + db.archives.length
+          + '). Пример: ' + (db.archives[0] ? db.archives[0].file : '-'));
+      }
       let allowed = isMember(chatById(rec.chat), me.id) || me.isAdmin;
       if (!allowed) {
         const t0 = await store.getArchive(file);
