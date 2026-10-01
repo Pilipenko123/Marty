@@ -549,8 +549,14 @@ function createApi(store, opts = {}) {
       me.reads = me.reads || {};
       me.reads[parent ? 'thr:' + parent : chat.id] = m.seq;
       save();
-      // Не блокируем отправку сообщения ожиданием внешнего push-сервиса.
-      notifyPush(chat, me).catch(() => {});
+      // Облачная функция замораживается сразу после того, как ответила браузеру,
+      // поэтому отправку пуша нужно дождаться — иначе он физически не успевает
+      // дойти до сервиса рассылок. Но ждём не дольше 3 секунд, чтобы внешняя
+      // служба не могла затормозить отправку сообщения.
+      await Promise.race([
+        notifyPush(chat, me).catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
       return J(200, { message: m, usage: usage() });
     }
 
