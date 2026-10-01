@@ -42,6 +42,11 @@ function createApi(store, opts = {}) {
     // scrypt поверх значения, которое клиент вывел из пароля (сам пароль сюда не попадает)
     return crypto.scryptSync(Buffer.from(hexValue, 'hex'), Buffer.from(saltHex, 'hex'), 32).toString('hex');
   }
+  /** Проверка кодового слова мессенджера: клиент присылает proof, выведенный из слова. */
+  function verifyCodeProof(proof) {
+    if (!db.room || !proof) return false;
+    return timingEqual(hashSecret(proof, db.room.codeProofSalt), db.room.codeProofHash);
+  }
   function timingEqual(a, b) {
     const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
     if (ba.length !== bb.length) return false;
@@ -60,11 +65,15 @@ function createApi(store, opts = {}) {
     return db.users.reduce((a, u) => a + (u.avatarLen || 0), 0);
   }
   function usage() {
-    const bytes = db.stats.bytes + avatarBytes();
+    // архивы тоже занимают место в базе — учитываем их в плашке «Память сервера»
+    const arcBytes = db.archives.reduce((a, r) => a + (r.bytes || 0), 0);
+    const bytes = db.stats.bytes + avatarBytes() + arcBytes;
     return {
       bytes, limit: STORAGE_LIMIT,
       percent: Math.min(100, Math.round(bytes / STORAGE_LIMIT * 1000) / 10),
-      messages: db.stats.count
+      messages: db.stats.count,
+      archives: db.archives.length,
+      archiveBytes: arcBytes
     };
   }
 
@@ -471,6 +480,8 @@ function createApi(store, opts = {}) {
       if (action === 'archive' && method === 'POST') {
         if (chat.kind === 'group' && !isOwner) return E(403, 'Архивировать чат может создатель');
         const b = req.body || {};
+        // архивация защищена кодовым словом мессенджера: одно слово на все архивы
+        if (!verifyCodeProof(b.codeProof)) return E(403, 'Неверное кодовое слово');
         await store.loadChats([chat.id]);
         const msgs = db.messages.filter(m => m.chat === chat.id);
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -512,6 +523,38 @@ function createApi(store, opts = {}) {
 
       if (action === 'archives' && method === 'GET') {
         return J(200, { archives: db.archives.filter(a => a.chat === chat.id).reverse() });
+      }
+
+      // --- восстановление заархивированной истории обратно в чат
+      if (action === 'restore' && method === 'POST') {
+        const b = req.body || {};
+        if (!verifyCodeProof(b.codeProof)) return E(403, 'Неверное кодовое слово');
+        const file = safeFile(String(b.file || ''));
+        const rec = db.archives.find(a => a.file === file && a.chat === chat.id);
+        if (!rec) return E(404, 'Архив не найден');
+        const text = await store.getArchive(file);
+        if (!text) return E(404, 'Архив не найден');
+        let payload;
+        try { payload = JSON.parse(text); } catch (e) { return E(500, 'Архив повреждён'); }
+        const list = Array.isArray(payload.messages) ? payload.messages : [];
+        if (!list.length) return E(400, 'В архиве нет сообщений');
+        await store.loadChats([chat.id]);
+        const have = new Set(db.messages.map(m => m.id));
+        let n = 0;
+        for (const m of list) {
+          if (!m || have.has(m.id) || m.chat !== chat.id) continue;
+          const msg = {
+            id: m.id, seq: ++db.seq, uid: m.uid, ts: m.ts || Date.now(),
+            blob: m.blob, bytes: m.bytes || (m.blob || '').length,
+            chat: chat.id, parent: m.parent || null, quote: m.quote || null
+          };
+          db.messages.push(msg);
+          addStat(msg, 1);
+          have.add(msg.id);
+          n++;
+        }
+        save();
+        return J(200, { restored: n, usage: usage() });
       }
     }
 
@@ -691,15 +734,41 @@ function createApi(store, opts = {}) {
       const file = safeFile(decodeURIComponent(pathname.split('/')[3] || ''));
       const rec = db.archives.find(a => a.file === file);
       if (!rec) return E(404, 'Архив не найден');
-      const text = await store.getArchive(file);
-      if (text == null) return E(404, 'Архив не найден');
-      // архив скачивают только те, кто состоит(ял) в этом чате
+      // тело архива отдаём только участнику чата, знающему кодовое слово мессенджера
       let allowed = isMember(chatById(rec.chat), me.id);
       if (!allowed) {
-        try { allowed = (JSON.parse(text).chat.members || []).includes(me.id); } catch (e) {}
+        const t0 = await store.getArchive(file);
+        try { allowed = (JSON.parse(t0).chat.members || []).includes(me.id); } catch (e) {}
       }
       if (!allowed) return E(403, 'Это архив чужого чата');
+      if (!verifyCodeProof(req.headers['x-code-proof'])) return E(403, 'Нужно кодовое слово мессенджера');
+      const text = await store.getArchive(file);
+      if (text == null) return E(404, 'Архив не найден');
       return FILE(text, file);
+    }
+
+    // --- удалить архив с сервера (освобождает место в базе)
+    if (pathname.startsWith('/api/archives/') && method === 'DELETE') {
+      const file = safeFile(decodeURIComponent(pathname.split('/')[3] || ''));
+      const rec = db.archives.find(a => a.file === file);
+      if (!rec) return E(404, 'Архив не найден');
+      let allowed = isMember(chatById(rec.chat), me.id) || me.isAdmin;
+      if (!allowed) {
+        const t0 = await store.getArchive(file);
+        try { allowed = (JSON.parse(t0).chat.members || []).includes(me.id); } catch (e) {}
+      }
+      if (!allowed) return E(403, 'Это архив чужого чата');
+      await store.delArchive(file);
+      db.archives = db.archives.filter(a => a.file !== file);
+      db.seq++;
+      save();
+      return J(200, { ok: true, usage: usage() });
+    }
+
+    // --- проверка кодового слова мессенджера (для архивов) без раскрытия результата заранее
+    if (pathname === '/api/code/check' && method === 'POST') {
+      if (!verifyCodeProof((req.body || {}).codeProof)) return E(403, 'Неверное кодовое слово');
+      return J(200, { ok: true });
     }
 
     // --- аватар участника (зашифрован; скачивается один раз и кэшируется браузером)

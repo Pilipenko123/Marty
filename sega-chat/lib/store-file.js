@@ -69,6 +69,10 @@ function createFileStore(opts = {}) {
       fs.mkdirSync(archiveDir, { recursive: true });
       fs.writeFileSync(path.join(archiveDir, file), text);
     },
+    async delArchive(file) {
+      const full = path.join(archiveDir, file);
+      if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });
+    },
     async getArchive(file) {
       const full = path.join(archiveDir, file);
       if (!full.startsWith(archiveDir) || !fs.existsSync(full)) return null;

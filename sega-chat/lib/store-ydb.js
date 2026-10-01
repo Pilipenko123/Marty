@@ -426,6 +426,7 @@ function createYdbStore(opts = {}) {
     },
 
     async putArchive(file, text) { await putDoc('arc', file, { t: text }); },
+    async delArchive(file) { await delDoc('arc', file); },
     async getArchive(file) {
       const docs = parseDocs(await ydb.queryAll(table, {
         KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)',
