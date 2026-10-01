@@ -86,6 +86,7 @@ function createApi(store, opts = {}) {
     return {
       id: u.id, name: u.name, isAdmin: !!u.isAdmin,
       avatar: u.avatarRev || null,        // отпечаток: сама картинка скачивается через /api/avatar/:id
+      status: u.status || null,           // короткий статус участника («на связи до шести»)
       createdAt: u.createdAt, lastSeen: u.lastSeen || 0, activeAt: u.activeAt || 0,
       pub: u.pub || null, reads: u.reads || {}
     };
@@ -216,7 +217,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg2-9',
+        build: 'pkg3-1',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -650,6 +651,43 @@ function createApi(store, opts = {}) {
       return J(200, { message: m, usage: usage() });
     }
 
+    if (pathname.startsWith('/api/messages/') && pathname.endsWith('/react') && method === 'POST') {
+      const id = pathname.split('/')[3];
+      const m = await findMessage(id);
+      if (!m) return E(404, 'Сообщение не найдено');
+      const chat = chatById(m.chat);
+      if (!isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+      const emo = String((req.body || {}).emoji || '').trim().slice(0, 16);
+      if (!emo) return E(400, 'Нет реакции');
+      m.reactions = m.reactions || {};
+      const had = (m.reactions[emo] || []).includes(me.id);
+      const arr = (m.reactions[emo] || []).filter(x => x !== me.id);
+      if (!had) arr.push(me.id);
+      if (arr.length) m.reactions[emo] = arr; else delete m.reactions[emo];
+      m.rev = (m.rev || 0) + 1;
+      db.seq++; db.gen++; save();   // gen++ → клиенты перечитают сообщение и увидят реакцию
+      return J(200, { reactions: m.reactions, usage: usage() });
+    }
+
+    if (pathname.startsWith('/api/messages/') && pathname.endsWith('/edit') && method === 'POST') {
+      const id = pathname.split('/')[3];
+      const m = await findMessage(id);
+      if (!m) return E(404, 'Сообщение не найдено');
+      if (m.uid !== me.id) return E(403, 'Редактировать можно только своё сообщение');
+      const b = req.body || {};
+      if (!b.blob || typeof b.blob !== 'string') return E(400, 'Пустое сообщение');
+      if (b.blob.length > MAX_UPLOAD) return E(413, 'Слишком большой объём после шифрования');
+      await store.loadChats([m.chat]);
+      const old = m.bytes || 0;
+      m.blob = b.blob; m.bytes = b.blob.length; m.editedAt = Date.now(); m.rev = (m.rev || 0) + 1;
+      db.gen++;   // правка видна всем: клиенты перечитают историю
+      db.stats.bytes = Math.max(0, db.stats.bytes - old + m.bytes);
+      const cs = db.stats.chats[m.chat];
+      if (cs) cs.b = Math.max(0, cs.b - old + m.bytes);
+      db.seq++; save();
+      return J(200, { message: m, usage: usage() });
+    }
+
     if (pathname.startsWith('/api/messages/') && method === 'DELETE') {
       const id = pathname.split('/')[3];
       const victim = await findMessage(id);
@@ -682,6 +720,9 @@ function createApi(store, opts = {}) {
         me.avatarLen = b.avatar ? b.avatar.length : 0;
         me.avatarRev = b.avatar ? crypto.randomBytes(4).toString('hex') : null;
         store.touchAvatar(me);
+      }
+      if (b.status !== undefined) {
+        me.status = String(b.status || '').replace(/\s+/g, ' ').trim().slice(0, 48) || null;
       }
       if (b.keys && b.keys.pub && b.keys.wrappedPriv && !me.pub) {
         me.pub = b.keys.pub; me.wrappedPriv = b.keys.wrappedPriv;
