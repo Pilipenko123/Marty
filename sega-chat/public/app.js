@@ -8,13 +8,14 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-11';
+const BUILD = 'pkg3-12';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const ITER = 150000;
 const ONLINE_MS = 65000;
+const HEAL_PAUSE = 4000;   // пауза автодолечивания ленты, если расшифровать пока нечем
 const MB = 1024 * 1024;
 const DEFAULT_MAX_UPLOAD = 3.1 * MB;
 const UPLOAD_PLAIN_HEADROOM = 0.70; // AES-GCM + base64 + JSON должны уложиться в лимит Cloud Functions
@@ -208,6 +209,8 @@ const S = {
   users: [], chats: [], messages: [], messageIds: new Set(), plain: new Map(),
   pairKeys: new Map(),   // userId -> CryptoKey
   chatKeys: new Map(),   // chatId -> { key, raw }
+  keyIssue: new Map(),   // chatId -> { code, who } — почему нечем расшифровать
+  healBusy: false, healPauseUntil: 0,   // защита от бесконечного «долечивания» без ключа
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
   seq: 0, usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
@@ -444,6 +447,7 @@ function doLogout(silent) {
   Object.assign(S, {
     token: null, me: null, roomKey: null, roomKeyRaw: null, priv: null, privRaw: null,
     messages: [], messageIds: new Set(), chats: [], plain: new Map(), pairKeys: new Map(), chatKeys: new Map(), chatTitles: new Map(),
+    keyIssue: new Map(), healBusy: false, healPauseUntil: 0,
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -465,24 +469,141 @@ async function pairKeyWith(userId) {
 }
 async function chatKeyOf(chat) {
   if (!chat) return null;
-  if (S.chatKeys.has(chat.id)) return S.chatKeys.get(chat.id);
-  let entry = null;
+  if (S.chatKeys.has(chat.id)) { S.keyIssue.delete(chat.id); return S.chatKeys.get(chat.id); }
+  let entry = null, issue = null;
   if (chat.kind === 'dm') {
-    const key = await pairKeyWith(dmPeer(chat));
-    entry = key ? { key, raw: null } : null;
+    const peer = userById(dmPeer(chat));
+    if (!S.priv) issue = { code: 'no-priv' };
+    else if (!peer || !peer.pub) issue = { code: 'no-peer-pub', who: peer ? peer.name : null };
+    else {
+      const key = await pairKeyWith(peer.id);
+      entry = key ? { key, raw: null } : null;
+      if (!entry) issue = { code: 'pair-fail', who: peer.name };
+    }
   } else if (chat.legacyRoomKey) {
-    entry = { key: S.roomKey, raw: S.roomKeyRaw };
+    if (S.roomKey) entry = { key: S.roomKey, raw: S.roomKeyRaw };
+    else issue = { code: 'no-room-key' };
   } else if (chat.key && chat.key.blob) {
     const wrap = await pairKeyWith(chat.key.by);
-    if (wrap) {
+    if (!wrap) {
+      issue = !S.priv ? { code: 'no-priv' } : { code: 'no-wrapper-pub', who: (userById(chat.key.by) || {}).name };
+    } else {
       try {
         const raw = await aesDecryptBytes(wrap, chat.key.blob);
         entry = { key: await importAes(raw), raw };
-      } catch (e) { entry = null; }
+      } catch (e) { entry = null; issue = { code: 'unwrap-fail' }; }
     }
+  } else {
+    issue = { code: 'no-group-key' };
   }
-  if (entry) S.chatKeys.set(chat.id, entry);
+  if (entry) { S.chatKeys.set(chat.id, entry); S.keyIssue.delete(chat.id); }
+  else if (issue) S.keyIssue.set(chat.id, issue);
   return entry;
+}
+/** Человекочитаемая причина, почему чат не расшифровать на этом устройстве. */
+function keyIssueText(c) {
+  const it = S.keyIssue.get(c.id);
+  if (!it) return null;
+  const who = it.who || 'собеседник';
+  return {
+    'no-priv': 'На этом устройстве нет вашего личного ключа шифрования (например, вход был по старому сохранению без пароля). Без него сообщения остаются закрытыми.',
+    'no-room-key': 'На этом устройстве нет общего ключа мессенджера (старое сохранение входа). Нужен повторный вход с паролем.',
+    'no-peer-pub': 'У участника ' + who + ' на его устройстве нет ключа шифрования: его сообщения нечем открыть, а ваши он не видит. Ему нужно один раз войти заново (Выйти → Вход с паролем) — после этого всё расшифруется само.',
+    'no-wrapper-pub': 'Ключ этого чата упакован для вас участником ' + (it.who || 'создатель чата') + ', но у него нет ключа шифрования. Ему нужно войти заново (Выйти → Вход с паролем).',
+    'pair-fail': 'Не удалось построить ключ переписки с ' + who + '. Попробуйте Выйти → Вход с паролем.',
+    'unwrap-fail': 'Ключ этого чата не открывается вашим личным ключом. Поможет повторный вход с паролем (Выйти → Вход).',
+    'no-group-key': 'Для вас пока нет ключа этого чата. Он доставится автоматически, как только кто-то из участников с ключом откроет чат.'
+  }[it.code] || ('Нет ключа шифрования для этого чата (' + it.code + ').');
+}
+function keyBannerHtml(c) {
+  if (!c) return '';
+  const txt = keyIssueText(c);
+  if (!txt) return '';
+  const it = S.keyIssue.get(c.id);
+  const btn = (it.code === 'no-priv' || it.code === 'no-room-key' || it.code === 'unwrap-fail' || it.code === 'pair-fail')
+    ? '<button class="mini primary" data-restore-keys="1">Ввести пароль и открыть ключи</button>' : '';
+  return '<div class="key-banner"><div class="kb-title">🔒 Сообщения не расшифрованы</div>'
+    + '<div class="kb-text">' + escapeHtml(txt) + '</div>'
+    + (btn ? '<div class="kb-act">' + btn + '</div>' : '')
+    + '<div class="kb-code tiny muted">диагностика: ' + escapeHtml(it.code) + ' · ' + escapeHtml(BUILD) + '</div></div>';
+}
+/** Восстановление личного ключа паролем без потери сеанса. */
+function openRestoreKeys() {
+  const name = S.me ? S.me.name : '';
+  modal('Нет ключа шифрования', `
+    <p class="hint">На этом устройстве не хватает вашего личного ключа, поэтому переписка закрыта.
+    Введите пароль от имени «${escapeHtml(name)}» — устройство получит ключ с сервера и расшифрует всё само.</p>
+    <label>Пароль<input type="password" id="rk-pass" autocomplete="current-password"></label>
+    <div class="err" id="rk-err"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="rk-go">Открыть ключи</button>
+      <button class="mini" id="rk-later">Позже</button>
+    </div>`);
+  const go = async () => {
+    const pass = $('#rk-pass').value, err = $('#rk-err');
+    err.textContent = '';
+    if (!pass) return err.textContent = 'Введите пароль';
+    $('#rk-go').disabled = true; $('#rk-go').textContent = 'Открываем…';
+    try {
+      const salts = await api('/api/salt', { method: 'POST', body: { name } });
+      const authKey = toHex(await pbkdf2(pass, salts.saltAuth));
+      const r = await api('/api/login', { method: 'POST', body: { name, authKey } });
+      const wrapKey = await aesKeyFrom(pass, r.saltWrap);
+      let roomRaw = null;
+      try { roomRaw = await aesDecryptBytes(wrapKey, r.wrappedKeyByPass); } catch (e) { throw new Error('Не удалось расшифровать ключи. Проверьте пароль.'); }
+      if (r.wrappedPriv) {
+        const pkcs8 = await aesDecryptBytes(wrapKey, r.wrappedPriv);
+        S.priv = await importPriv(pkcs8); S.privRaw = pkcs8;
+      } else {
+        const pair = await genPairKeys(wrapKey);
+        await api('/api/profile', { method: 'POST', body: { keys: { pub: pair.pub, wrappedPriv: pair.wrappedPriv } }, headers: { Authorization: 'Bearer ' + r.token } });
+        S.priv = pair.priv; S.privRaw = pair.pkcs8; S.pub = pair.pub;
+      }
+      S.roomKeyRaw = roomRaw; S.roomKey = await importAes(roomRaw);
+      S.saltAuth = salts.saltAuth; S.saltWrap = r.saltWrap;
+      saveSession();
+      S.chatKeys = new Map(); S.pairKeys = new Map(); S.keyIssue = new Map();
+      S.healBusy = false; S.healPauseUntil = 0;
+      hide($('#modal'));
+      toast('Ключи восстановлены — расшифровываю переписку');
+      await prepareChats();
+      decryptSmart(S.messages).catch(() => {});
+      if (S.view) scheduleDecryptRest(S.view);
+      S.sig = ''; renderAll(); renderMessages();
+    } catch (ex) {
+      err.textContent = ex.message || ('' + ex);
+      $('#rk-go').disabled = false; $('#rk-go').textContent = 'Открыть ключи';
+    }
+  };
+  $('#rk-go').addEventListener('click', go);
+  $('#rk-pass').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  $('#rk-later').addEventListener('click', () => hide($('#modal')));
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-restore-keys]')) openRestoreKeys();
+});
+/** Авто-ремонт групп: у кого есть ключ чата — делится им с участниками без ключа. */
+const repairStamp = new Map();
+async function repairGroupKeys() {
+  if (!S.priv) return;
+  for (const c of S.chats) {
+    if (c.kind !== 'group') continue;
+    const entry = S.chatKeys.get(c.id);
+    if (!entry || !entry.raw) continue;
+    const last = repairStamp.get(c.id) || 0;
+    if (Date.now() - last < 5 * 60 * 1000) continue;
+    repairStamp.set(c.id, Date.now());
+    try {
+      const r = await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/missing');
+      for (const miss of (r.missing || [])) {
+        if (!miss.hasPub || miss.id === S.me.id) continue;
+        const pk = await pairKeyWith(miss.id);
+        if (!pk) continue;
+        await api('/api/chats/' + encodeURIComponent(c.id) + '/keys', { method: 'POST', body: { userId: miss.id, blob: await aesEncryptBytes(pk, entry.raw) } });
+        console.info('[keys] доставил ключ чата участнику ' + miss.id);
+      }
+    } catch (e) { /* тихо: повторим через пять минут */ }
+  }
 }
 async function prepareChats() {
   for (const c of S.chats) {
@@ -500,12 +621,14 @@ async function startApp() {
   S.lastReactSeen = Date.now();   // старые реакции не будят уведомления
   screen('app');
   S.seq = 0; S.gen = -1; S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
+  S.keyIssue = new Map();
+  S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
   await sync(true);
   if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
   S.sig = ''; renderAll(); renderMessages(true);
   loop();
-  if (!S.priv) toast('Войдите заново (Выйти → Вход), чтобы включить шифрование чатов', true);
+  if (!S.priv) setTimeout(() => { if (!S.priv) openRestoreKeys(); }, 600);
 }
 // Опрашиваем сервер тем реже, чем дольше человек ничего не делает.
 // На домашнем сервере это незаметно, а в облаке заметно экономит бесплатный лимит.
@@ -632,11 +755,19 @@ async function syncOnce(initial) {
   }
 
   if (freshAll.length && !initial && !suppressNotify) notifyNewMessages(freshAll);
+  if (!initial) repairGroupKeys();
   if (!initial) {
     notifyReactions();
     // долечиваем заглушки видимого окна на каждом опросе, пока ключи добираются
     const pend = currentWindowIds().filter(id => !S.plain.has(id));
-    if (pend.length) ensureIds(pend).then(() => { if (S.view) renderMessages(); }).catch(() => {});
+    if (pend.length) {
+      const before = S.plain.size;
+      ensureIds(pend).then(() => {
+        // перерисовываем только если что-то действительно расшифровалось,
+        // иначе лента «моргала» бы впустую каждый опрос
+        if (S.view && S.plain.size > before) { S.healPauseUntil = 0; renderMessages(); }
+      }).catch(() => {});
+    }
   }
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
@@ -1018,7 +1149,8 @@ function canGroup(prev, m) {
 }
 
 function messageHtml(m, opts = {}) {
-  const p = S.plain.get(m.id) || { text: '…' };
+  const locked = !S.plain.has(m.id) && S.keyIssue.has(m.chat);
+  const p = S.plain.get(m.id) || (locked ? { text: '🔒', locked: true } : { text: '…' });
   const author = userById(m.uid) || { id: m.uid, name: p.author || 'Бывший участник' };
   const mine = m.uid === S.me.id;
   const mentioned = p.mentions && p.mentions.includes(S.me.id) && !mine;
@@ -1037,7 +1169,7 @@ function messageHtml(m, opts = {}) {
   const rxKeys = Object.keys(rx).filter(k => (rx[k] || []).length);
   const rxHtml = rxKeys.length ? `<div class="rx-row">${rxKeys.map(k =>
     `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>` : '';
-  return `<div class="msg ${mine ? 'mine' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
+  return `<div class="msg ${mine ? 'mine' : ''} ${locked ? 'locked' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
     ${avatarHtml(author, 'sm', true)}
     <div class="bubble-wrap">
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
@@ -1108,7 +1240,7 @@ function renderMessages(force) {
   const prevTop = box.scrollTop, prevHeight = box.scrollHeight;
   const nearBottom = prevHeight - prevTop - box.clientHeight < 160;
   const c = curChat();
-  const banner = archiveBannerHtml(c);
+  const banner = archiveBannerHtml(c) + keyBannerHtml(c);
   if (!full.length) {
     const emptyHint = `<div class="sys">${c && c.kind === 'dm'
       ? 'Личная переписка. Никто, кроме вас двоих, её не увидит.'
@@ -1134,11 +1266,22 @@ function renderMessages(force) {
   box.innerHTML = html;
   renderedIds = new Set(list.map(m => m.id));
   paintIcons(box);
-  // самовосстановление: если в видимом окне остались «…», дошифровываем их сами
+  // самовосстановление: если в видимом окне остались «…», дошифровываем их сами.
+  // ВАЖНО: если ключа на устройстве нет (S.keyIssue), сообщения так и останутся закрытыми,
+  // и цикл «перерисовали → не расшифровали → перерисовали» крутился бы вечно, вешая страницу.
+  // Поэтому при отсутствии ключа и после неудачной попытки берём паузу: следующую попытку
+  // сделает опрос сервера (раз в 2,5 с) — как только ключ доедет, лента расшифруется сама.
   const pending = list.slice(off).filter(m => !S.plain.has(m.id)).map(m => m.id);
-  if (pending.length && !S.healBusy) {
+  const keyBlocked = !!(S.view && S.keyIssue.has(S.view));
+  const cooled = Date.now() < (S.healPauseUntil || 0);
+  if (pending.length && !keyBlocked && !cooled && !S.healBusy) {
     S.healBusy = true;
-    ensureIds(pending).then(() => { S.healBusy = false; if (S.view) renderMessages(); }).catch(() => { S.healBusy = false; });
+    const before = S.plain.size;
+    ensureIds(pending).then(() => {
+      S.healBusy = false;
+      if (S.plain.size > before) { if (S.view) renderMessages(); }   // есть прогресс — дорисуем
+      else S.healPauseUntil = Date.now() + HEAL_PAUSE;               // нет — пауза, ждём опрос сервера
+    }).catch(() => { S.healBusy = false; S.healPauseUntil = Date.now() + HEAL_PAUSE; });
   }
   applyWallBackground();
   upgradeMedia(box);
@@ -1290,6 +1433,7 @@ async function openChat(id) {
   S.atBottom = true; S.sig = '';
   renderedChat = null; renderedOnce = false; renderedIds = new Set();
   S.winSize = WIN_SIZE;
+  S.healBusy = false; S.healPauseUntil = 0;
   $('#input').value = S.drafts[id] || '';
   // фокус при открытии: строго первое непрочитанное, а если их нет — последнее сообщение
   const un = unreadIn(id);

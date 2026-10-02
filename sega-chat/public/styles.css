@@ -611,3 +611,15 @@ html,body{overflow-x:hidden}
 }
 /* красная точка на кнопке «чаты» заметнее */
 .badge-dot{width:12px;height:12px;border:2px solid var(--panel);box-sizing:content-box}
+
+/* pkg3-12: плашка «почему не расшифровано» поверх ленты */
+.key-banner{margin:10px 12px 6px;padding:10px 12px;border-radius:14px;
+  background:rgba(255,196,64,.16);border:1px solid rgba(214,148,20,.45);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.key-banner .kb-title{font-weight:700;font-size:13px;margin-bottom:4px}
+.key-banner .kb-text{font-size:12.5px;line-height:1.45;opacity:.92}
+.key-banner .kb-act{margin-top:8px}
+.key-banner .kb-code{margin-top:6px;opacity:.7}
+/* pkg3-12: пузырь «замок» — видно, что сообщение закрыто, а не потеряно */
+.msg.locked .bubble{opacity:.85;border-style:dashed}
+.msg.locked .btext{opacity:.8;letter-spacing:2px}
