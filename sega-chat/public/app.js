@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-10';
+const BUILD = 'pkg3-11';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -632,7 +632,12 @@ async function syncOnce(initial) {
   }
 
   if (freshAll.length && !initial && !suppressNotify) notifyNewMessages(freshAll);
-  if (!initial) notifyReactions();
+  if (!initial) {
+    notifyReactions();
+    // долечиваем заглушки видимого окна на каждом опросе, пока ключи добираются
+    const pend = currentWindowIds().filter(id => !S.plain.has(id));
+    if (pend.length) ensureIds(pend).then(() => { if (S.view) renderMessages(); }).catch(() => {});
+  }
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
   if (!document.hidden) markRead();
@@ -641,6 +646,7 @@ async function syncOnce(initial) {
 
 /** Расшифровать конкретные сообщения, если ещё не расшифрованы. */
 async function ensureIds(ids) {
+  try {
   const need = [];
   for (const id of ids) {
     if (S.plain.has(id)) continue;
@@ -648,6 +654,12 @@ async function ensureIds(ids) {
     if (m) need.push(m);
   }
   if (need.length) await decryptAll(need);
+  } catch (e) { /* повторим при следующей перерисовке или опросе */ }
+}
+/** Id последнего окна открытого чата — для долечивания заглушек. */
+function currentWindowIds() {
+  if (!S.view) return [];
+  return S.messages.filter(m => m.chat === S.view && !m.parent).slice(-(S.winSize || WIN_SIZE)).map(m => m.id);
 }
 /**
  * Быстрый первый экран: расшифровываем только последнее сообщение каждого чата
@@ -671,8 +683,10 @@ async function decryptSmart(fresh) {
 async function decryptAll(list) {
   for (const m of list) {
     if (S.plain.has(m.id)) continue;
-    const k = await chatKeyOf(chatById(m.chat));
-    if (!k) { S.plain.set(m.id, { text: '🔒 нет ключа для расшифровки', broken: true }); continue; }
+    let k = null;
+    try { k = await chatKeyOf(chatById(m.chat)); } catch (e) { k = null; }
+    // ключ ещё не доехал — НЕ ставим заглушку, пропускаем: повторим на следующем опросе
+    if (!k) continue;
     try { S.plain.set(m.id, await decryptJSON(k.key, m.blob)); }
     catch (e) { S.plain.set(m.id, { text: '🔒 не удалось расшифровать', broken: true }); }
   }

@@ -19,8 +19,18 @@ self.addEventListener('notificationclick', event => {
 /* Кэш статики для быстрого холодного старта: страница, стили, скрипт, иконки.
    Стратегия «кэш сразу + обновление в фоне»: открытие чата не ждёт сеть,
    а свежая версия прилетает к следующему запуску. */
-const STATIC_CACHE = 'sega-static-v2';
+const STATIC_CACHE = 'sega-static-v3';
 const STATIC_RE = /(\.css|\.js|\.png|\.svg|\.webmanifest|\.ico)$|^\/$|index\.html$/;
+/* Новый воркер встаёт на вахту сразу (не ждёт закрытия вкладок) и вычищает
+   старые кэши, чтобы друзья получили свежий app.js при первой же загрузке. */
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k !== STATIC_CACHE).map(k => caches.delete(k)));
+    await clients.claim();
+  })());
+});
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
