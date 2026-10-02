@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-9';
+const BUILD = 'pkg3-10';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1120,6 +1120,12 @@ function renderMessages(force) {
   box.innerHTML = html;
   renderedIds = new Set(list.map(m => m.id));
   paintIcons(box);
+  // самовосстановление: если в видимом окне остались «…», дошифровываем их сами
+  const pending = list.slice(off).filter(m => !S.plain.has(m.id)).map(m => m.id);
+  if (pending.length && !S.healBusy) {
+    S.healBusy = true;
+    ensureIds(pending).then(() => { S.healBusy = false; if (S.view) renderMessages(); }).catch(() => { S.healBusy = false; });
+  }
   applyWallBackground();
   upgradeMedia(box);
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
@@ -1276,16 +1282,19 @@ async function openChat(id) {
   S.openMark = un.total ? firstUnreadMark(id, un.total) : null;
   S.focusPending = true; S.userScrolled = false;
   bumpSeen(id);
-  // ПЕРВЫМ ДЕЛОМ: расшифровать и нарисовать последние 30 сообщений
-  const winIds = S.messages.filter(m => m.chat === id && !m.parent).slice(-WIN_SIZE).map(m => m.id);
-  await ensureIds(winIds);
-  renderAll();
-  renderMessages(!S.openMark);
-  applyFocus();
-  markRead();
-  if (window.matchMedia('(min-width: 901px)').matches) $('#input').focus();
-  // ПОТОМ ФОНОМ: остальная история и медиа — после первого экрана
-  scheduleDecryptRest(id);
+  try {
+    // ПЕРВЫМ ДЕЛОМ: расшифровать и нарисовать последние 30 сообщений
+    const winIds = S.messages.filter(m => m.chat === id && !m.parent).slice(-WIN_SIZE).map(m => m.id);
+    await ensureIds(winIds).catch(() => {});
+    renderAll();
+    renderMessages(!S.openMark);
+    applyFocus();
+  } finally {
+    markRead();
+    if (window.matchMedia('(min-width: 901px)').matches) $('#input').focus();
+    // ПОТОМ ФОНОМ: остальная история и медиа — после первого экрана (гарантированно)
+    scheduleDecryptRest(id);
+  }
 }
 let decryptRestTimer = null;
 function scheduleDecryptRest(chatId) {
