@@ -239,7 +239,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-11',
+        build: 'pkg3-12',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -461,6 +461,31 @@ function createApi(store, opts = {}) {
         chat.titleBlob = b.titleBlob; chat.titlePlain = null;
         db.seq++; save();
         return J(200, { chat: publicChat(chat, me.id) });
+      }
+
+      // --- ремонт ключа чата: участники, у которых нет своей копии ключа.
+      // Любой текущий участник и так владеет ключом чата, поэтому выдача копии
+      // «запертому» участнику не открывает никому ничего нового — зато автоматически
+      // возвращает человеку доступ к переписке (клиенты делают это сами, фоном).
+      if (action === 'keys' && chat.kind === 'group') {
+        const sub = parts[5] || '';
+        if (sub === 'missing' && method === 'GET') {
+          const missing = chat.members
+            .filter(id => !(chat.keys || {})[id])
+            .map(id => ({ id, hasPub: !!(db.users.find(u => u.id === id) || {}).pub }));
+          return J(200, { missing });
+        }
+        if (sub === '' && method === 'POST') {
+          const b = req.body || {};
+          const target = String(b.userId || '');
+          if (!chat.members.includes(target)) return E(400, 'Адресат не участник этого чата');
+          if (!b.blob || typeof b.blob !== 'string' || b.blob.length > 4096) return E(400, 'Нет ключа для участника');
+          if (!chat.keys) chat.keys = {};
+          if (chat.keys[target]) return E(409, 'У участника уже есть ключ этого чата');
+          chat.keys[target] = { by: me.id, blob: b.blob };
+          db.seq++; save();
+          return J(200, { ok: true, chat: publicChat(chat, me.id) });
+        }
       }
 
       if (action === 'members' && method === 'POST') {
