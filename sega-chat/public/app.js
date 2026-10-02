@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-8';
+const BUILD = 'pkg3-9';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1124,13 +1124,8 @@ function renderMessages(force) {
   upgradeMedia(box);
   if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
-  // фокус при открытии чата: первое непрочитанное (повторяем после перерисовок,
-  // пока дочитываются ключи и картинки), иначе — последнее сообщение
-  if (!S.focusApplied) {
-    S.focusApplied = true;
-    const mk = $('#unread-mark');
-    if (mk) mk.scrollIntoView({ block: 'start', behavior: 'auto' });
-  }
+  // фокус держим на цели, пока пользователь сам не прокрутит ленту
+  if (S.focusPending && !S.userScrolled) applyFocus();
 }
 
 function renderThread() {
@@ -1268,7 +1263,7 @@ $('#chat-list').addEventListener('click', async e => {
     openChat(r.chat.id);
   } catch (ex) { toast(ex.message, true); }
 });
-function openChat(id) {
+async function openChat(id) {
   if (S.view) S.drafts[S.view] = $('#input').value;
   S.view = id;
   S.threadId = null; S.quote = null;
@@ -1276,15 +1271,48 @@ function openChat(id) {
   renderedChat = null; renderedOnce = false; renderedIds = new Set();
   S.winSize = WIN_SIZE;
   $('#input').value = S.drafts[id] || '';
-  // фокус при открытии: первое непрочитанное сообщение, а если их нет — последнее
+  // фокус при открытии: строго первое непрочитанное, а если их нет — последнее сообщение
   const un = unreadIn(id);
   S.openMark = un.total ? firstUnreadMark(id, un.total) : null;
-  S.focusApplied = false;
+  S.focusPending = true; S.userScrolled = false;
   bumpSeen(id);
+  // ПЕРВЫМ ДЕЛОМ: расшифровать и нарисовать последние 30 сообщений
+  const winIds = S.messages.filter(m => m.chat === id && !m.parent).slice(-WIN_SIZE).map(m => m.id);
+  await ensureIds(winIds);
   renderAll();
-  renderMessages(!S.openMark);   // с непрочитанными не прыгаем вниз — фокус ставит renderMessages
+  renderMessages(!S.openMark);
+  applyFocus();
   markRead();
   if (window.matchMedia('(min-width: 901px)').matches) $('#input').focus();
+  // ПОТОМ ФОНОМ: остальная история и медиа — после первого экрана
+  scheduleDecryptRest(id);
+}
+let decryptRestTimer = null;
+function scheduleDecryptRest(chatId) {
+  clearTimeout(decryptRestTimer);
+  decryptRestTimer = setTimeout(async () => {
+    const list = S.messages.filter(m => m.chat === chatId);
+    for (let i = 0; i < list.length; i += 20) {
+      if (S.view !== chatId) return;
+      const need = list.slice(i, i + 20).filter(m => m.id && !S.plain.has(m.id));
+      if (!need.length) continue;
+      await decryptAll(need);
+      renderMessages();          // «…» заменяются текстом, прокрутка сохраняется
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }, 300);
+}
+/** Детерминированный фокус: первое непрочитанное (с разделителем) или низ ленты. */
+function applyFocus() {
+  const box = $('#messages');
+  S.programmatic = true;
+  if (S.openMark) {
+    const el = $('#unread-mark') || document.getElementById('m-' + S.openMark.msgId);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'auto' });
+  } else {
+    box.scrollTop = box.scrollHeight;
+  }
+  requestAnimationFrame(() => { S.programmatic = false; });
 }
 /** Первое непрочитанное сообщение чата (сверху вниз) + сколько их всего. */
 function firstUnreadMark(chatId, count) {
@@ -1379,6 +1407,7 @@ $('#thread-body').addEventListener('click', handleMsgClick);
 $('#quote-cancel').addEventListener('click', () => { S.quote = null; renderQuoteBar(); });
 $('#messages').addEventListener('scroll', () => {
   const box = $('#messages');
+  if (!S.programmatic) { S.focusPending = false; S.userScrolled = true; }
   S.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
   $('#scroll-bottom').classList.toggle('hidden', S.atBottom);
 });

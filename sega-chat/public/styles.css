@@ -593,3 +593,16 @@ html,body{overflow-x:hidden}
   .lock-box .word{font-size:15px;line-height:16px}
   .lock-box .sep{height:16px}
 }
+
+/* ───────── мобильная плашка инструментов: крупнее и привязана к сообщению ───────── */
+@media (max-width:900px){
+  .msg.show-tools .tools{display:flex;gap:6px;padding:6px;border-radius:14px;top:-30px;
+    box-shadow:0 10px 30px rgba(10,30,50,.28)}
+  .msg.show-tools .tool{width:46px;height:46px;border-radius:12px;background:var(--panel-2)}
+  .msg.show-tools .tool .ic{width:23px;height:23px}
+  /* кольцо вокруг пузыря показывает, к какому сообщению относится плашка */
+  .msg.show-tools .bubble{box-shadow:0 0 0 2.5px var(--accent), 0 1px 2px rgba(20,50,70,.12)}
+  .msg.show-tools .head .who{color:var(--accent)}
+}
+/* красная точка на кнопке «чаты» заметнее */
+.badge-dot{width:12px;height:12px;border:2px solid var(--panel);box-sizing:content-box}
