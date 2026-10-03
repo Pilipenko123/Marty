@@ -65,6 +65,27 @@ function createFileStore(opts = {}) {
     touchAvatar() {},
     async loadAvatar() {},
 
+    // журнал мелких изменений: в файловом режиме он лежит прямо в db.json
+    pushChange(rec) {
+      const r = rec.r || Math.max(Date.now(), (db.changes[db.changes.length - 1] || { r: 0 }).r + 1);
+      const item = { i: rec.i, c: rec.c, r, d: rec.d ? 1 : 0 };
+      db.changes.push(item);
+      if (db.changes.length > 200) db.changes = db.changes.slice(-200);
+      db.chg = (db.chg || 0) + 1;
+      store.dirty = true;
+      return item;
+    },
+    async loadChanges(sinceR, overlap) {
+      const from = Number(sinceR || 0) - Number(overlap || 0);
+      return db.changes.filter(x => x.r > from).sort((a, b) => a.r - b.r);
+    },
+    async trimChanges() {
+      const cut = Date.now() - 24 * 60 * 60 * 1000;
+      const before = db.changes.length;
+      db.changes = db.changes.filter(x => x.r > cut);
+      return before - db.changes.length;
+    },
+
     async putArchive(file, text) {
       fs.mkdirSync(archiveDir, { recursive: true });
       fs.writeFileSync(path.join(archiveDir, file), text);

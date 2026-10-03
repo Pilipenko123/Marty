@@ -71,18 +71,36 @@ function createApi(store, opts = {}) {
   function avatarBytes() {
     return db.users.reduce((a, u) => a + (u.avatarLen || 0), 0);
   }
+  /**
+   * ЧЕСТНАЯ шкала памяти: показывает не только сами шифротела, но и всё, что
+   * физически ложится в базу вместе с ними. Раньше счётчик занижал занятое
+   * место примерно вдвое (замер tools/measure-space.mjs: 2,93 МБ на шкале
+   * против 3,67 МБ в таблице), и лимит срабатывал «внезапно».
+   *
+   * Что добавлено:
+   *   • каждое сообщение — это ДВЕ строки в базе (само сообщение + указатель
+   *     «id → чат») плюс JSON-конверт и атрибуты: ~286 Б сверх шифротела;
+   *   • вложения лежат в базе текстом base64, а он на треть длиннее байтов файла.
+   */
+  const MSG_ROW_OVERHEAD = Number(process.env.MSG_ROW_OVERHEAD || 286);
+  const UP_B64 = 4 / 3;
   function usage() {
-    // плашка показывает РЕАЛЬНО занятый объём: зашифрованные тела сообщений, аватары,
-    // конверты архивов, куски загрузок и фото фона/иконок чатов
     const arcBytes = db.archives.reduce((a, r) => a + (r.bytes || 0), 0);
     const chatAssets = db.chats.reduce((a, c) => a + (c.wallLen || 0) + (c.iconLen || 0), 0);
-    const bytes = db.stats.bytes + avatarBytes() + arcBytes + (db.upBytes || 0) + chatAssets;
+    const uploads = Math.ceil((db.upBytes || 0) * UP_B64);
+    const overhead = db.stats.count * MSG_ROW_OVERHEAD;
+    const bytes = db.stats.bytes + overhead + avatarBytes() + arcBytes + uploads + chatAssets;
     return {
       bytes, limit: STORAGE_LIMIT,
       percent: Math.min(100, Math.round(bytes / STORAGE_LIMIT * 1000) / 10),
       messages: db.stats.count,
       archives: db.archives.length,
-      archiveBytes: arcBytes
+      archiveBytes: arcBytes,
+      // составляющие — для плавки «сколько чего занимает»
+      parts: {
+        messages: db.stats.bytes, overhead, uploads,
+        avatars: avatarBytes(), archives: arcBytes, assets: chatAssets
+      }
     };
   }
 
@@ -150,7 +168,9 @@ function createApi(store, opts = {}) {
     db.messages = db.messages.filter(m => !pred(m));
     for (const m of gone) addStat(m, -1);
     store.dropMessages(gone);
-    db.gen++;
+    // «поколение» базы не трогаем: клиенты узнают об удалении из журнала изменений
+    // и уберут только эти сообщения, не перечитывая всю историю
+    for (const m of gone) noteChange(m, true);
     return gone;
   }
   /** Удалить всю историю чата, даже если она не загружена в память. */
@@ -200,36 +220,140 @@ function createApi(store, opts = {}) {
 
   let dirty = false;
   function save() { dirty = true; }
-  async function notifyPush(chat, sender) {
-    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+
+  // ------------------------------------------------------------- уведомления
+  // Облачная функция засыпает сразу после того, как ответила браузеру, поэтому
+  // рассылку push нужно дождаться внутри своего запроса. Но ждать её в момент
+  // отправки сообщения нельзя — именно так раньше и рождалась пауза в 2–3 секунды.
+  // Теперь отправка отвечает мгновенно, а браузер сразу следом делает короткий
+  // запрос /api/notify, который и раздаёт уведомления (см. public/app.js).
+  const PUSH_TIMEOUT = Number(process.env.PUSH_TIMEOUT_MS || 1500);   // на одну доставку
+  const PUSH_BUDGET = Number(process.env.PUSH_BUDGET_MS || 8000);     // на весь запрос /api/notify
+
+  function withTimeout(promise, ms) {
+    let timer = null;
+    return Promise.race([
+      Promise.resolve(promise).finally(() => { if (timer) clearTimeout(timer); }),
+      new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('push:timeout')), ms); })
+    ]);
+  }
+  function pusher() {
+    const webpush = require('web-push');
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+    return webpush;
+  }
+  const pushEnabled = () => !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+
+  /** Одна доставка одному браузеру. Мёртвые подписки (404/410) вычищаем сразу. */
+  async function deliver(webpush, target, sub, payload) {
     try {
-      const webpush = require('web-push');
-      webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
-      const jobs = [];
-      for (const u of db.users) if (u.id !== sender.id && chat.members.includes(u.id)) for (const sub of (u.pushSubs || [])) {
-        jobs.push(webpush.sendNotification(sub, JSON.stringify({ title: 'SEGA-CHAT', body: 'Новое сообщение', tag: chat.id })).catch(e => {
-          if (e.statusCode === 404 || e.statusCode === 410) u.pushSubs = (u.pushSubs || []).filter(x => x.endpoint !== sub.endpoint);
-        }));
-      }
-      await Promise.all(jobs); if (jobs.length) save();
-    } catch (e) { if (process.env.PUSH_DEBUG) console.error('[push]', e.message); }
+      await withTimeout(webpush.sendNotification(sub, payload), PUSH_TIMEOUT);
+      return true;
+    } catch (e) {
+      if (e && (e.statusCode === 404 || e.statusCode === 410)) {
+        target.pushSubs = (target.pushSubs || []).filter(x => x.endpoint !== sub.endpoint);
+        save();
+      } else if (process.env.PUSH_DEBUG) console.error('[push]', e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Разослать уведомление участникам чата (кроме отправителя).
+   * Возвращает число доставок; на всё про всё — не дольше PUSH_BUDGET.
+   */
+  async function notifyPush(chat, sender, body) {
+    if (!pushEnabled() || !chat) return 0;
+    const webpush = pusher();
+    const payload = JSON.stringify({ title: 'SEGA-CHAT', body: body || 'Новое сообщение', tag: chat.id });
+    const jobs = [];
+    for (const u of db.users) {
+      if (u.id === sender.id || !chat.members.includes(u.id)) continue;
+      for (const sub of (u.pushSubs || [])) jobs.push(deliver(webpush, u, sub, payload));
+    }
+    if (!jobs.length) return 0;
+    const done = await withTimeout(Promise.all(jobs), PUSH_BUDGET).catch(() => []);
+    save();
+    return Array.isArray(done) ? done.filter(Boolean).length : 0;
   }
 
   /** Пуш конкретному человеку (реакция на его сообщение, комментарий и т.п.). */
   async function notifyPushTo(target, sender, body) {
-    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
-    if (!target || target.id === sender.id) return;
-    try {
-      const webpush = require('web-push');
-      webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
-      for (const sub of (target.pushSubs || [])) {
-        webpush.sendNotification(sub, JSON.stringify({ title: 'SEGA-CHAT', body, tag: 'evt-' + target.id })).catch(e => {
-          if (e.statusCode === 404 || e.statusCode === 410) target.pushSubs = (target.pushSubs || []).filter(x => x.endpoint !== sub.endpoint);
-        });
+    if (!pushEnabled() || !target || target.id === sender.id) return 0;
+    const subs = target.pushSubs || [];
+    if (!subs.length) return 0;
+    const webpush = pusher();
+    const payload = JSON.stringify({ title: 'SEGA-CHAT', body, tag: 'evt-' + target.id });
+    const done = await withTimeout(Promise.all(subs.map(sub => deliver(webpush, target, sub, payload))), PUSH_BUDGET).catch(() => []);
+    save();
+    return Array.isArray(done) ? done.filter(Boolean).length : 0;
+  }
+
+  /**
+   * Выполнить просьбу браузера «разошли уведомления». Браузер шлёт её сразу
+   * после отправки сообщения отдельным коротким запросом, поэтому человек не
+   * ждёт доставки: сообщение у него на экране появляется мгновенно.
+   */
+  async function runNotify(b, me) {
+    if (!pushEnabled()) return { ok: true, sent: 0, push: false };
+    const kind = String(b.kind || b.k || 'msg');
+    const chat = chatById(b.chat);
+    if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+    let sent = 0;
+    if (kind === 'msg' || kind === 'thr') {
+      const m = b.mid ? await findMessage(b.mid) : null;
+      if (m && m.chat !== chat.id) return E(400, 'Сообщение не из этого чата');
+      sent += await notifyPush(chat, me);
+      if (kind === 'thr' && m) {
+        const author = db.users.find(u => u.id === m.uid);
+        if (author && author.id !== me.id) sent += await notifyPushTo(author, me, me.name + ' прокомментировал(а) ваше сообщение');
       }
-      await Promise.race([Promise.all((target.pushSubs || []).map(() => Promise.resolve())), new Promise(r => setTimeout(r, 3000))]);
-      save();
-    } catch (e) { if (process.env.PUSH_DEBUG) console.error('[push]', e.message); }
+    } else if (kind === 'react') {
+      const m = b.mid ? await findMessage(b.mid) : null;
+      if (!m || m.chat !== chat.id) return E(404, 'Сообщение не найдено');
+      const author = db.users.find(u => u.id === m.uid);
+      if (author && author.id !== me.id) sent += await notifyPushTo(author, me, me.name + ' отреагировал(а) на ваше сообщение');
+    } else {
+      return E(400, 'Непонятный тип уведомления');
+    }
+    return { ok: true, sent };
+  }
+
+  // ------------------------------------------------------------- журнал изменений
+  // Реакция, правка и удаление одного сообщения — это НЕ повод перечитывать всю
+  // историю. Сервер делает пометку «изменилось сообщение такое-то», а опрос
+  // забирает только такие пометки и присылает сами сообщения.
+  const CHANGE_OVERLAP = Number(process.env.CHANGE_OVERLAP || 2000);   // запас по времени, мс
+  const CHANGE_STALE = Number(process.env.CHANGE_STALE || 20 * 60 * 60 * 1000);
+  const CHANGE_MAX = 80;                                              // сколько изменений отдаём за опрос
+
+  function noteChange(m, deleted) {
+    if (!m || !m.id) return;
+    store.pushChange({ i: m.id, c: m.chat, d: deleted ? 1 : 0 });
+  }
+
+  /**
+   * Собрать для участника список сообщений, изменившихся после отметки rsince.
+   * Возвращает { changed, gone, rnow, resync }.
+   */
+  async function collectChanges(me, rsince, cchg, rnow) {
+    const mine = new Set(myChats(me.id).map(c => c.id));
+    const out = { changed: [], gone: [], rnow, resync: false };
+    if (!rsince) return out;
+    // клиент отсутствовал дольше, чем живёт журнал, — проще перечитать всё заново
+    if (rnow - rsince > CHANGE_STALE) { out.resync = true; return out; }
+    // счётчик не сдвинулся — ничего не менялось, запрос к базе не нужен вовсе
+    if (cchg !== undefined && cchg === (db.chg || 0)) return out;
+    let recs = [];
+    try { recs = await store.loadChanges(rsince, CHANGE_OVERLAP); } catch (e) { recs = []; }
+    for (const rec of recs.slice(0, CHANGE_MAX)) {
+      if (!mine.has(rec.c)) continue;
+      if (rec.d) { out.gone.push(rec.i); continue; }
+      const m = db.messages.find(x => x.id === rec.i) || await store.getMessage(rec.i);
+      if (m && m.chat === rec.c) out.changed.push(m);
+      else out.gone.push(rec.i);
+    }
+    return out;
   }
 
   // ------------------------------------------------------------- маршруты
@@ -239,7 +363,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-12',
+        build: 'pkg3-13',
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -369,8 +493,11 @@ function createApi(store, opts = {}) {
     }
 
     if (pathname === '/api/sync' && method === 'GET') {
+      const rnow = Date.now();
       const since = Number(query.get('since') || 0);
-      if (query.get('active') === '1') { me.activeAt = Date.now(); store.touchPresence(me, true); }
+      const rsince = Number(query.get('rsince') || 0);
+      const cchg = query.get('cchg') === null ? undefined : Number(query.get('cchg'));
+      if (query.get('active') === '1') { me.activeAt = rnow; store.touchPresence(me, true); }
       const list = myChats(me.id);
       await store.loadSince(list.map(c => c.id), since);
       const mine = new Set(list.map(c => c.id));
@@ -390,15 +517,31 @@ function createApi(store, opts = {}) {
           break;
         }
       }
+
+      // мелкие изменения (реакции, правки, удалённые сообщения) — отдельным коротким
+      // списком, чтобы ради одного смайлика не перечитывать и не расшифровывать всё
+      const delta = more ? { changed: [], gone: [], rnow, resync: false }
+        : await collectChanges(me, rsince, cchg, rnow);
+      const seen = new Set(out.map(m => m.id));
+      const changed = delta.changed.filter(m => !seen.has(m.id));
+      if (process.env.CHG_DEBUG) console.error(`[chg] rsince=${rsince} cchg=${cchg} db.chg=${db.chg} changed=${changed.length} gone=${delta.gone.length} resync=${delta.resync}`);
+      store.trimChanges().catch(() => {});
+
       return J(200, {
         messages: out,
+        changed, gone: delta.gone, rnow, chg: db.chg || 0, resync: delta.resync,
         chats: myChats(me.id).map(c => publicChat(c, me.id)),
         seq: seqOut, more, gen: db.gen,
         users: db.users.map(publicUser),
         usage: usage(),
         me: publicUser(me),
-        serverTime: Date.now()
+        serverTime: rnow
       });
+    }
+
+    // --- разослать уведомления (браузер просит об этом сразу после отправки)
+    if (pathname === '/api/notify' && method === 'POST') {
+      return J(200, await runNotify(req.body || {}, me));
     }
 
     // --- отметка «прочитано» (bucket: <chatId> | thr:<messageId>)
@@ -704,13 +847,13 @@ function createApi(store, opts = {}) {
       if (!chat) return E(404, 'Чат не найден');
       if (!isMember(chat, me.id)) return E(403, 'Вы не участник этого чата');
 
-      let parent = null;
+      let parent = null, parentMsg = null;
       if (b.parent) {
         const p = await findMessage(b.parent);
         if (!p) return E(404, 'Исходное сообщение не найдено');
         if (p.chat !== chat.id) return E(400, 'Комментарий не из того чата');
         if (p.parent) return E(400, 'Комментировать можно только исходное сообщение');
-        parent = p.id;
+        parent = p.id; parentMsg = p;
       }
       let quote = null;
       if (b.quote) {
@@ -725,24 +868,19 @@ function createApi(store, opts = {}) {
       me.reads = me.reads || {};
       me.reads[parent ? 'thr:' + parent : chat.id] = m.seq;
       save();
-      // Облачная функция замораживается сразу после того, как ответила браузеру,
-      // поэтому отправку пуша нужно дождаться — иначе он физически не успевает
-      // дойти до сервиса рассылок. Но ждём не дольше 3 секунд, чтобы внешняя
-      // служба не могла затормозить отправку сообщения.
-      await Promise.race([
-        notifyPush(chat, me).catch(() => {}),
-        new Promise(resolve => setTimeout(resolve, 3000))
-      ]);
-      if (parent) {
-        const pAuthor = db.users.find(u => u.id === parent.uid);
-        if (pAuthor && pAuthor.id !== me.id) {
-          await Promise.race([
-            notifyPushTo(pAuthor, me, me.name + ' прокомментировал(а) ваше сообщение'),
-            new Promise(r => setTimeout(r, 3000))
-          ]);
+      // Уведомления больше НЕ тормозят отправку: отвечаем сразу, а браузер
+      // следом шлёт короткий /api/notify (см. runNotify). Старым клиентам,
+      // которые такого запроса не делают, рассылаем сами — но коротко.
+      const selfNotify = !!(b.notify === 1 || b.notify === true);
+      let sent = 0;
+      if (!selfNotify && pushEnabled()) {
+        sent += await notifyPush(chat, me).catch(() => 0);
+        if (parentMsg) {
+          const pAuthor = db.users.find(u => u.id === parentMsg.uid);
+          if (pAuthor && pAuthor.id !== me.id) sent += await notifyPushTo(pAuthor, me, me.name + ' прокомментировал(а) ваше сообщение').catch(() => 0);
         }
       }
-      return J(200, { message: m, usage: usage() });
+      return J(200, { message: m, usage: usage(), notify: selfNotify ? { kind: parent ? 'thr' : 'msg', chat: chat.id, mid: m.id } : null, sent });
     }
 
     if (pathname.startsWith('/api/messages/') && pathname.endsWith('/react') && method === 'POST') {
@@ -760,15 +898,23 @@ function createApi(store, opts = {}) {
       if (arr.length) m.reactions[emo] = arr; else delete m.reactions[emo];
       m.rev = (m.rev || 0) + 1;
       m.reactTs = Date.now();
-      db.seq++; db.gen++; save();   // gen++ → клиенты перечитают сообщение и увидят реакцию
+      m.reactBy = me.id;
+      // Никакого gen++ и перечитывания всей истории: помечаем только это сообщение,
+      // и остальные браузеры подхватят реакцию ближайшим опросом (секунды, не десятки).
+      noteChange(m);
+      save();
       const author = db.users.find(u => u.id === m.uid);
-      if (author && author.id !== me.id && had) {
-        await Promise.race([
-          notifyPushTo(author, me, me.name + ' отреагировал(а) на ваше сообщение'),
-          new Promise(r => setTimeout(r, 3000))
-        ]);
+      const selfNotify = !!(req.body && (req.body.notify === 1 || req.body.notify === true));
+      let sent = 0;
+      // уведомляем автора, когда реакцию СТАВЯТ (раньше условие было перевёрнуто)
+      if (author && author.id !== me.id && !had && !selfNotify && pushEnabled()) {
+        sent += await notifyPushTo(author, me, me.name + ' отреагировал(а) на ваше сообщение').catch(() => 0);
       }
-      return J(200, { reactions: m.reactions, usage: usage() });
+      return J(200, {
+        reactions: m.reactions, rev: m.rev, reactTs: m.reactTs, usage: usage(), sent,
+        notify: selfNotify && author && author.id !== me.id && !had
+          ? { kind: 'react', chat: m.chat, mid: m.id } : null
+      });
     }
 
     if (pathname.startsWith('/api/messages/') && pathname.endsWith('/edit') && method === 'POST') {
@@ -782,11 +928,11 @@ function createApi(store, opts = {}) {
       await store.loadChats([m.chat]);
       const old = m.bytes || 0;
       m.blob = b.blob; m.bytes = b.blob.length; m.editedAt = Date.now(); m.rev = (m.rev || 0) + 1;
-      db.gen++;   // правка видна всем: клиенты перечитают историю
+      noteChange(m);   // правку увидят все — но без перечитывания всей истории
       db.stats.bytes = Math.max(0, db.stats.bytes - old + m.bytes);
       const cs = db.stats.chats[m.chat];
       if (cs) cs.b = Math.max(0, cs.b - old + m.bytes);
-      db.seq++; save();
+      save();
       return J(200, { message: m, usage: usage() });
     }
 
@@ -808,7 +954,7 @@ function createApi(store, opts = {}) {
           db.upBytes = Math.max(0, (db.upBytes || 0) - (meta.stored || meta.size || 0));
         }
       }
-      for (const m of db.messages) if (m.quote === id) m.quote = null;
+      for (const m of db.messages) if (m.quote === id) { m.quote = null; m.rev = (m.rev || 0) + 1; noteChange(m); }
       db.seq++;
       save();
       return J(200, { ok: true, usage: usage() });
@@ -947,7 +1093,7 @@ function createApi(store, opts = {}) {
       if (!meta) return E(404, 'Загрузка не найдена — начните заново');
       if (!isMember(chatById(meta.chat), me.id)) return E(403, 'Это не ваш чат');
       const u = usage();
-      if (u.bytes + meta.size > STORAGE_LIMIT) return E(507, 'Память чата заполнена — освободите место');
+      if (u.bytes + Math.ceil(meta.size * UP_B64) > STORAGE_LIMIT) return E(507, 'Память чата заполнена — освободите место');
       const stored = Number(b.stored) || meta.size;
       meta.stored = stored;
       await store.putUpMeta(b.upId, meta);

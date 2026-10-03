@@ -13,6 +13,7 @@
  *   ('sess', <токен>)          сессия
  *   ('m#<чат>', <seq>|<id>)    сообщение
  *   ('mid',  <id>)             указатель «сообщение -> чат» для быстрых ссылок
+ *   ('chg',  <отметка>|<id>)   журнал мелких изменений (реакции, правки, удаления)
  *   ('arcidx',<файл>)          запись об архиве
  *   ('arc',  <файл>)           сам архив
  *
@@ -25,8 +26,15 @@ const { emptyDb } = require('./model');
 
 const CHUNK = 48000;               // символов в одном куске
 const pad = (n) => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(12, '0');
+const pad16 = (n) => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(16, '0');
 const msgSk = (m) => pad(m.seq) + '|' + m.id;
 const K = (pk, sk) => ({ pk: S(pk), sk: S(sk) });
+
+// Журнал мелких изменений (реакция, правка, удаление одного сообщения) живёт
+// в отдельном разделе 'chg' и хранится сутки: браузер вместо перечитывания всей
+// истории спрашивает только то, что поменялось с прошлого опроса.
+const CHG_TTL = Number(process.env.CHANGE_TTL || 24 * 60 * 60 * 1000);
+const CHG_LIMIT = 200;             // сколько записей журнала отдаём за один опрос
 
 function createYdbStore(opts = {}) {
   const table = opts.table || process.env.YDB_TABLE || 'sega_chat';
@@ -46,7 +54,7 @@ function createYdbStore(opts = {}) {
 
   const fresh = () => ({
     dropMsg: [], dropChats: [], dropUsers: [], dropSessions: [],
-    avatars: new Set(), presence: false, maxSeq: {}
+    avatars: new Set(), presence: false, maxSeq: {}, changes: []
   });
   const ck = (pk, sk) => pk + '\u0000' + sk;
 
@@ -163,7 +171,7 @@ function createYdbStore(opts = {}) {
       sessions: new Map(),
       messages: new Map(),
       stats: new Map(Object.entries(db.stats.chats).map(([k, v]) => [k, Object.assign({}, v)])),
-      core: coreFp(), seq: db.seq, gen: db.gen, dv: cache.dv, sv: cache.sv
+      core: coreFp(), seq: db.seq, gen: db.gen, chg: db.chg || 0, dv: cache.dv, sv: cache.sv
     };
   }
 
@@ -171,7 +179,7 @@ function createYdbStore(opts = {}) {
   async function initMeta() {
     const core = { version: 3, createdAt: Date.now(), room: null, serverSecret: crypto.randomBytes(32).toString('hex') };
     try {
-      await ydb.put(table, { pk: S('meta'), sk: S('root'), d: S(JSON.stringify(core)), k: N(1), seq: N(0), gen: N(0), rev: N(0), dv: N(0), sv: N(0), pres: S('{}') },
+      await ydb.put(table, { pk: S('meta'), sk: S('root'), d: S(JSON.stringify(core)), k: N(1), seq: N(0), gen: N(0), rev: N(0), chg: N(0), dv: N(0), sv: N(0), pres: S('{}') },
         { ConditionExpression: 'attribute_not_exists(pk)' });
     } catch (e) {
       if (!(e instanceof YdbError) || !e.conditionFailed) throw e;
@@ -224,6 +232,7 @@ function createYdbStore(opts = {}) {
     db.upBytes = Number(core.upBytes) || 0;   // занятый объём загрузок переживает холодный старт
     db.seq = num(m.seq);
     db.gen = num(m.gen);
+    db.chg = num(m.chg);
     presence = JSON.parse(str(m.pres) || '{}');
 
     const dv = num(m.dv), sv = num(m.sv);
@@ -287,6 +296,70 @@ function createYdbStore(opts = {}) {
     if (!docs.length) return null;
     addMessages([docs[0].value]);
     return db.messages.find(m => m.id === id) || null;
+  }
+
+  // ------------------------------------------------------------- журнал изменений
+  // Одна запись — одно мелкое изменение (реакция, правка, удаление сообщения).
+  // Отметка r — время в миллисекундах, поэтому строки сразу лежат по порядку.
+  let changeStamp = 0;
+  let lastTrim = 0;
+
+  function stamp() {
+    changeStamp = Math.max(Date.now(), changeStamp + 1);
+    return changeStamp;
+  }
+  const chgSk = (r, id) => pad16(r) + '|' + id;
+
+  /** Запомнить изменение. Запись в базу произойдёт вместе с остальными в flush(). */
+  function pushChange(rec) {
+    const r = rec.r || stamp();
+    const item = { i: rec.i, c: rec.c, r, d: rec.d ? 1 : 0 };
+    pend.changes.push(item);
+    db.changes.push(item);
+    if (db.changes.length > CHG_LIMIT) db.changes = db.changes.slice(-CHG_LIMIT);
+    db.chg = (db.chg || 0) + 1;
+    store.dirty = true;
+    return item;
+  }
+
+  /**
+   * Что изменилось после отметки sinceR. Берём с запасом в пару секунд: запись
+   * могла лечь в базу чуть позже, чем соседний экземпляр функции сообщил счётчик.
+   * Повторная выдача одного и того же изменения безопасна — клиент применяет их
+   * как «обновить сообщение», а не «добавить ещё раз».
+   */
+  async function loadChanges(sinceR, overlap) {
+    const from = Math.max(0, Number(sinceR || 0) - Number(overlap || 0));
+    const items = await ydb.queryAll(table, {
+      KeyConditionExpression: 'pk = :p AND sk > :s',
+      ExpressionAttributeValues: { ':p': S('chg'), ':s': S(chgSk(from, '~')) },
+      ProjectionExpression: 'pk, sk, d'
+    });
+    const out = [];
+    for (const it of items.slice(0, CHG_LIMIT)) {
+      const sk = str(it.sk) || '';
+      const bar = sk.indexOf('|');
+      if (bar < 0) continue;
+      let v = {};
+      try { v = JSON.parse(str(it.d) || '{}'); } catch (e) {}
+      out.push({ i: sk.slice(bar + 1), c: v.c || null, r: Number(sk.slice(0, bar)), d: v.x ? 1 : 0 });
+    }
+    out.sort((a, b) => a.r - b.r);
+    return out;
+  }
+
+  /** Раз в час подчищаем журнал старше суток, чтобы раздел не рос вечно. */
+  async function trimChanges() {
+    if (Date.now() - lastTrim < 60 * 60 * 1000) return 0;
+    lastTrim = Date.now();
+    const cut = chgSk(Date.now() - CHG_TTL, '~');
+    const items = await ydb.queryAll(table, {
+      KeyConditionExpression: 'pk = :p AND sk < :s',
+      ExpressionAttributeValues: { ':p': S('chg'), ':s': S(cut) },
+      ProjectionExpression: 'pk, sk'
+    }).catch(() => []);
+    for (const it of items) await ydb.del(table, K('chg', str(it.sk))).catch(() => {});
+    return items.length;
   }
 
   // ------------------------------------------------------------- сохранение
@@ -377,6 +450,14 @@ function createYdbStore(opts = {}) {
     }
     for (const id of pend.dropChats) if (!db.stats.chats[id]) jobs.push(() => ydb.del(table, K('cstat', id)));
 
+    // журнал изменений: по одной крошечной строке на реакцию/правку/удаление
+    for (const rec of pend.changes) {
+      jobs.push(() => ydb.put(table, {
+        pk: S('chg'), sk: S(chgSk(rec.r, rec.i)),
+        d: S(JSON.stringify({ c: rec.c, x: rec.d ? 1 : 0 })), k: N(1)
+      }));
+    }
+
     await runAll(jobs);
 
     // общая запись: счётчики, настройки, присутствие
@@ -389,6 +470,7 @@ function createYdbStore(opts = {}) {
     }
     if (db.seq !== snap.seq) { adds.push('#seq :dseq'); names['#seq'] = 'seq'; values[':dseq'] = N(db.seq - snap.seq); }
     if (db.gen !== snap.gen) { adds.push('#gen :dgen'); names['#gen'] = 'gen'; values[':dgen'] = N(db.gen - snap.gen); }
+    if ((db.chg || 0) !== (snap.chg || 0)) { adds.push('#chg :dchg'); names['#chg'] = 'chg'; values[':dchg'] = N((db.chg || 0) - (snap.chg || 0)); }
     if (dirChanged) { adds.push('#dv :one'); names['#dv'] = 'dv'; }
     if (statsChanged) { adds.push('#sv :one'); names['#sv'] = 'sv'; }
     const wantPresence = pend.presence && Date.now() - presenceWritten > presenceEvery;
@@ -406,6 +488,7 @@ function createYdbStore(opts = {}) {
     if (process.env.YDB_DEBUG) console.error(`[ydb] flush dir=${dirChanged} stats=${statsChanged} back=${JSON.stringify(back)} snap.dv=${snap.dv} users=${db.users.length}`);
     if (back.seq !== undefined) db.seq = num(back.seq);
     if (back.gen !== undefined) db.gen = num(back.gen);
+    if (back.chg !== undefined) db.chg = num(back.chg);   // счётчик могли сдвинуть соседи — берём итог из базы
     // если счётчик версии сдвинулся не только нами — при следующем запросе перечитаем
     cache.dv = dirChanged ? (num(back.dv) === snap.dv + 1 ? num(back.dv) : -1) : cache.dv;
     cache.sv = statsChanged ? (num(back.sv) === snap.sv + 1 ? num(back.sv) : -1) : cache.sv;
@@ -429,6 +512,7 @@ function createYdbStore(opts = {}) {
 
     async open() { await ydb.ensureTable(table); opened = true; },
     load, flush, loadSince, loadChats, getMessage,
+    pushChange, loadChanges, trimChanges,
 
     async getSession(token) {
       const it = (await ydb.get(table, K('sess', token))).Item;

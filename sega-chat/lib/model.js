@@ -21,7 +21,9 @@ function emptyDb() {
     sessions: {},   // token -> { uid, exp }
     archives: [],   // { file, createdAt, count, bytes, chat }
     seq: 0,
-    gen: 0,         // растёт при удалениях — сигнал «перечитай всё»
+    gen: 0,         // растёт при СТРУКТУРНЫХ изменениях (очистка/архив чата) — сигнал «перечитай всё»
+    chg: 0,         // счётчик мелких изменений (реакция, правка, удаление сообщения)
+    changes: [],    // журнал «что изменилось»: { i: id, c: чат, r: отметка, d: 1 если удалено }
     serverSecret: null,
     stats: { bytes: 0, count: 0, chats: {} } // счётчики вместо пересчёта всей истории
   };
@@ -51,6 +53,10 @@ function migrate(db) {
   if (!db.archives) db.archives = [];
   if (!db.sessions) db.sessions = {};
   if (!db.gen) db.gen = 0;
+  // журнал мелких изменений (реакции, правки, удаления отдельных сообщений):
+  // без него клиентам приходилось перечитывать всю историю ради одного смайлика
+  if (!db.chg) db.chg = 0;
+  if (!Array.isArray(db.changes)) db.changes = [];
 
   const legacyId = 'legacy-group';
   if (db.messages.some(m => m.ch !== undefined && m.chat === undefined)) {
