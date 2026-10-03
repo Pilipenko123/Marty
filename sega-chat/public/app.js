@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-12';
+const BUILD = 'pkg3-13';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -213,9 +213,11 @@ const S = {
   healBusy: false, healPauseUntil: 0,   // защита от бесконечного «долечивания» без ключа
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
-  seq: 0, usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
+  seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
+  usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
   attach: null, threadAttach: null, remember: true, timer: null, atBottom: true,
   notify: { sound: true, muted: {}, desktop: false },
+  retry: {},        // черновики своих сообщений, ещё не принятых сервером
   sig: '', railFilter: ''
 };
 
@@ -620,7 +622,8 @@ async function prepareChats() {
 async function startApp() {
   S.lastReactSeen = Date.now();   // старые реакции не будят уведомления
   screen('app');
-  S.seq = 0; S.gen = -1; S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
+  S.seq = 0; S.gen = -1; S.rsince = 0; S.chg = 0; S.retry = {};
+  S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
   S.keyIssue = new Map();
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
@@ -719,17 +722,18 @@ async function sync(initial) {
 }
 
 async function syncOnce(initial) {
-  let data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
+  let data = await api('/api/sync?since=' + S.seq + '&rsince=' + (S.rsince || 0) + '&cchg=' + (S.chg || 0) + (document.hidden ? '' : '&active=1'));
   await applySyncMeta(data);
 
   let suppressNotify = false;
   const freshAll = [];
-  if (!initial && data.gen !== S.gen) {
-    // История могла измениться не только добавлением (удаление/архивация):
-    // перечитываем её целиком, чтобы локально исчезли удалённые сообщения.
+  if (!initial && (data.resync || data.gen !== S.gen)) {
+    // История изменилась ЦЕЛИКОМ (очистка чата, архивация, выход участника) —
+    // перечитываем её с нуля. Ради одной реакции или правки сообщения этот путь
+    // больше не запускается: они приходят списком data.changed.
     resetMessageStore();
     suppressNotify = true;
-    data = await api('/api/sync?since=0' + (document.hidden ? '' : '&active=1'));
+    data = await api('/api/sync?since=0&rsince=0&cchg=' + (data.chg || 0) + (document.hidden ? '' : '&active=1'));
     await applySyncMeta(data);
   }
 
@@ -744,7 +748,7 @@ async function syncOnce(initial) {
   // историю сервер отдаёт порциями — дочитываем остаток
   let guard = 0;
   while (data.more && guard++ < 50) {
-    data = await api('/api/sync?since=' + S.seq + (document.hidden ? '' : '&active=1'));
+    data = await api('/api/sync?since=' + S.seq + '&rsince=' + (S.rsince || 0) + '&cchg=' + (S.chg || 0) + (document.hidden ? '' : '&active=1'));
     await applySyncMeta(data);
     fresh = addMessages(data.messages);
     if (fresh.length) {
@@ -753,6 +757,11 @@ async function syncOnce(initial) {
     }
     S.seq = data.seq; S.gen = data.gen;
   }
+
+  const touched = await applyChangeDelta(data);
+  if (touched) { S.sig = ''; if (S.view) renderMessages(); renderThread(); }
+  if (typeof data.rnow === 'number') S.rsince = data.rnow;
+  if (typeof data.chg === 'number') S.chg = data.chg;
 
   if (freshAll.length && !initial && !suppressNotify) notifyNewMessages(freshAll);
   if (!initial) repairGroupKeys();
@@ -769,10 +778,63 @@ async function syncOnce(initial) {
       }).catch(() => {});
     }
   }
+  // шкала «Память сервера» обновляется на каждом опросе — видно и чужие загрузки
+  if (data.usage && typeof data.usage.bytes === 'number') S.usage = data.usage;
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
   if (!document.hidden) markRead();
   if ($('#search').value.trim()) runSearch();
+}
+
+/**
+ * Убрать сообщения с экрана и из памяти, не дожидаясь перечитывания истории:
+ * так работают и ответ сервера, и мгновенное удаление по кнопке «удалить».
+ * Комментарии к удалённому сообщению уходят вместе с ним.
+ */
+function removeLocal(ids) {
+  const set = new Set(Array.isArray(ids) ? ids : [ids]);
+  let touched = false;
+  for (const m of S.messages) if (set.has(m.id) || (m.parent && set.has(m.parent))) set.add(m.id);
+  for (const id of set) {
+    if (S.messageIds && S.messageIds.has(id)) { S.messageIds.delete(id); touched = true; }
+    if (S.plain.has(id)) { S.plain.delete(id); touched = true; }
+    delete S.retry[id];
+  }
+  if (!touched) return false;
+  S.messages = S.messages.filter(m => !set.has(m.id));
+  rebuildMessageIndex();
+  if (S.threadId && set.has(S.threadId)) { S.threadId = null; hide($('#thread')); }
+  if (S.quote && set.has(S.quote)) { S.quote = null; renderQuoteBar(); }
+  S.sig = '';
+  renderMessages(); renderThread();
+  return true;
+}
+
+/**
+ * Применить «мелкие изменения»: обновлённые сообщения (реакции, правки) и
+ * удалённые. Возвращает true, если что-то видно на экране изменилось.
+ * Повторная доставка одного и того же изменения безопасна.
+ */
+async function applyChangeDelta(data) {
+  const gone = data.gone || [], changed = data.changed || [];
+  if (!gone.length && !changed.length) return false;
+  let touched = false;
+  const redecrypt = [];
+  if (gone.length && removeLocal(gone)) touched = true;
+  for (const m of changed) {
+    if (!m || !m.id) continue;
+    const old = S.messages.find(x => x.id === m.id);
+    if (!old) { if (addMessages([m]).length) redecrypt.push(m); touched = true; continue; }
+    const blobChanged = (old.blob || '') !== (m.blob || '');
+    // обновляем запись на месте, не трогая порядок ленты
+    for (const k of ['blob', 'bytes', 'rev', 'editedAt', 'reactions', 'reactTs', 'reactBy', 'quote', 'parent']) {
+      if (m[k] !== undefined) old[k] = m[k];
+    }
+    if (blobChanged) { S.plain.delete(m.id); redecrypt.push(old); }
+    touched = true;
+  }
+  if (redecrypt.length) await decryptAll(redecrypt);
+  return touched;
 }
 
 /** Расшифровать конкретные сообщения, если ещё не расшифрованы. */
@@ -1119,6 +1181,10 @@ function readersOf(m) {
 }
 function readersHtml(m) {
   if (m.uid !== S.me.id) return '';
+  // своё сообщение показываем сразу, ещё до ответа сервера: часы — «летит»,
+  // галочка — «сервер принял», две — «прочитали»
+  if (m.local) return `<span class="check pending" title="Отправляется…">⏱</span>`;
+  if (m.failed) return `<span class="check failed" title="Не отправлено: ${escapeHtml(m.failed)}">⚠</span><button class="retry-send" data-retry="${m.id}" title="Отправить ещё раз">повторить</button>`;
   const rs = readersOf(m);
   if (!rs.length) return `<span class="check" title="Отправлено">✓</span>`;
   const shown = rs.slice(0, 5).map(u => avatarHtml(u, 'xs')).join('');
@@ -1148,6 +1214,41 @@ function canGroup(prev, m) {
     && Math.abs(m.ts - prev.ts) <= GROUP_GAP_MS;
 }
 
+/**
+ * Ряд реакций под сообщением. Вынесен отдельно, чтобы клик по смайлику
+ * перерисовывал только этот ряд, а не всю ленту: реакция появляется
+ * мгновенно и лента не «дёргается».
+ */
+function rxRowHtml(m) {
+  const rx = m.reactions || {};
+  const keys = Object.keys(rx).filter(k => (rx[k] || []).length);
+  if (!keys.length) return '';
+  return `<div class="rx-row">${keys.map(k =>
+    `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>`;
+}
+/** Точечно обновить реакции одного сообщения (в ленте или в панели комментариев). */
+function paintReactions(m) {
+  const el = document.getElementById('m-' + m.id);
+  if (!el) return;
+  const wrap = el.querySelector('.bubble-wrap') || el;
+  const old = wrap.querySelector('.rx-row');
+  const html = rxRowHtml(m);
+  if (old) { if (html) old.outerHTML = html; else old.remove(); return; }
+  if (!html) return;
+  const bubble = wrap.querySelector('.bubble');
+  if (bubble) bubble.insertAdjacentHTML('afterend', html);
+  else wrap.insertAdjacentHTML('beforeend', html);
+}
+/** Точечно обновить «галочки» своего сообщения (часы → ✓ → ✓✓). */
+function paintDelivery(m) {
+  const el = document.getElementById('m-' + m.id);
+  if (!el) return;
+  const meta = el.querySelector('.meta');
+  if (meta) meta.innerHTML = readersHtml(m);
+  el.classList.toggle('local', !!m.local);
+  el.classList.toggle('failed', !!m.failed);
+}
+
 function messageHtml(m, opts = {}) {
   const locked = !S.plain.has(m.id) && S.keyIssue.has(m.chat);
   const p = S.plain.get(m.id) || (locked ? { text: '🔒', locked: true } : { text: '…' });
@@ -1165,11 +1266,9 @@ function messageHtml(m, opts = {}) {
   if (m.editedAt) metaParts.push('<span class="edited" title="сообщение изменено">изменено</span>');
   if (kids.length) metaParts.push(`<span class="thread-btn" data-thread="${m.id}">${SV(ICONS.comment)} ${plural(kids.length, 'комментарий', 'комментария', 'комментариев')}${unreadKids ? `<span class="dot-new"></span>` : ''}</span>`);
   const meta = metaParts.filter(Boolean).join('');
-  const rx = m.reactions || {};
-  const rxKeys = Object.keys(rx).filter(k => (rx[k] || []).length);
-  const rxHtml = rxKeys.length ? `<div class="rx-row">${rxKeys.map(k =>
-    `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>` : '';
-  return `<div class="msg ${mine ? 'mine' : ''} ${locked ? 'locked' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
+  const rxHtml = rxRowHtml(m);
+  const sending = !!m.local || !!m.failed;   // ещё не принятое сервером сообщение
+  return `<div class="msg ${mine ? 'mine' : ''} ${locked ? 'locked' : ''} ${mentioned ? 'mentioned' : ''} ${continued ? 'grouped' : ''} ${continues ? 'continues' : ''} ${opts.fresh ? 'fresh' : ''} ${m.local ? 'local' : ''} ${m.failed ? 'failed' : ''} ${S.highlight === m.id ? 'hl' : ''}" id="m-${m.id}">
     ${avatarHtml(author, 'sm', true)}
     <div class="bubble-wrap">
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
@@ -1181,7 +1280,7 @@ function messageHtml(m, opts = {}) {
       ${rxHtml}
       ${meta ? `<div class="meta">${meta}</div>` : ''}
     </div>
-    <div class="tools">
+    <div class="tools"${sending ? ' hidden' : ''}>
       <button class="tool" data-rxpick="${m.id}" title="Поставить реакцию">${SV(ICONS.react)}</button>
       <button class="tool" data-quote="${m.id}" title="Ответить ссылкой на это сообщение">${SV(ICONS.reply)}</button>
       ${opts.noThread ? '' : `<button class="tool" data-thread="${m.id}" title="Комментировать внутри сообщения">${SV(ICONS.comment)}</button>`}
@@ -1314,6 +1413,20 @@ function renderThread() {
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
 }
 
+// из чего складывается занятое место (сервер присылает parts в usage)
+function usagePartsText(u) {
+  const p = (u && u.parts) || {};
+  const rows = [
+    ['сообщения', (p.messages || 0) + (p.overhead || 0)],
+    ['файлы, фото и видео', p.uploads || 0],
+    ['аватары', p.avatars || 0],
+    ['фоны и значки чатов', p.assets || 0],
+    ['архивы', p.archives || 0]
+  ].filter(r => r[1] > 0).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) return '';
+  return rows.map(r => r[0] + ' ' + fmtBytes(r[1])).join(' · ');
+}
+
 function renderMemory() {
   const u = S.usage, pct = Math.min(100, u.percent);
   $('#mem-pct').textContent = pct + '%';
@@ -1325,6 +1438,12 @@ function renderMemory() {
     + (u.archives ? ` · ${plural(u.archives, 'архив', 'архива', 'архивов')}` : '')
     + (c ? ` · этот чат ${fmtBytes(c.bytes)}` : '');
   $('#mem-warn').classList.toggle('hidden', pct < 80);
+  const parts = $('#mem-parts');
+  if (parts) {
+    const txt = usagePartsText(u);
+    parts.textContent = txt;
+    parts.classList.toggle('hidden', !txt);
+  }
 }
 
 function renderQuoteBar() {
@@ -1539,6 +1658,8 @@ function handleMsgClick(e) {
   if (goto) return goToMessage(goto.dataset.goto);
   const rxb = e.target.closest('[data-rx]');
   if (rxb) return toggleReaction(rxb.dataset.mid, rxb.dataset.rx);
+  const rtb = e.target.closest('[data-retry]');
+  if (rtb) return retrySend(rtb.dataset.retry);
   const rxp = e.target.closest('[data-rxpick]');
   if (rxp) return openRxPicker(rxp.dataset.rxpick, rxp);
   const ed = e.target.closest('[data-edit]');
@@ -1555,9 +1676,16 @@ function handleMsgClick(e) {
   const del = e.target.closest('[data-del]');
   if (del) {
     if (!confirm('Удалить сообщение у всех? Комментарии к нему тоже исчезнут.')) return;
-    api('/api/messages/' + del.dataset.del, { method: 'DELETE' })
-      .then(() => { if (S.threadId === del.dataset.del) S.threadId = null; return sync(); })
-      .catch(ex => toast(ex.message, true));
+    const goneId = del.dataset.del;
+    removeLocal([goneId]);            // исчезает с экрана сразу, не дожидаясь сервера
+    api('/api/messages/' + goneId, { method: 'DELETE' })
+      .then(r => {
+        if (r && r.usage) S.usage = r.usage;
+        if (S.threadId === goneId) S.threadId = null;
+        S.sig = ''; renderMemory(); renderMessages(); renderThread();
+        return sync();
+      })
+      .catch(ex => { toast(ex.message, true); sync().catch(() => {}); });
     return;
   }
   const img = e.target.closest('img.att');
@@ -1626,10 +1754,32 @@ document.addEventListener('mousedown', e => {
   if (!e.target.closest('#rx-pop, [data-rxpick]')) closeRxPicker();
 });
 async function toggleReaction(mid, emoji) {
+  const m = S.messages.find(x => x.id === mid);
+  if (!m || m.local || m.failed) return;
+  // Смайлик встаёт на место СРАЗУ, ещё до ответа сервера: именно ожидание
+  // ответа и перерисовка всей истории и давали паузу в 8–10 секунд.
+  const before = m.reactions ? JSON.parse(JSON.stringify(m.reactions)) : null;
+  const rx = Object.assign({}, m.reactions || {});
+  const had = (rx[emoji] || []).includes(S.me.id);
+  const arr = (rx[emoji] || []).filter(x => x !== S.me.id);
+  if (!had) arr.push(S.me.id);
+  if (arr.length) rx[emoji] = arr; else delete rx[emoji];
+  m.reactions = rx; m.reactTs = Date.now(); m.reactBy = S.me.id;
+  paintReactions(m);
   try {
-    await api('/api/messages/' + mid + '/react', { method: 'POST', body: { emoji } });
-    await sync();
-  } catch (ex) { toast(ex.message, true); }
+    const r = await api('/api/messages/' + mid + '/react', { method: 'POST', body: { emoji, notify: 1 } });
+    if (r && r.reactions !== undefined) m.reactions = r.reactions;
+    if (r && r.rev !== undefined) m.rev = r.rev;
+    if (r && r.reactTs) m.reactTs = r.reactTs;
+    if (r && r.usage) S.usage = r.usage;
+    paintReactions(m);
+    if (r && r.notify) fireNotify(r.notify);
+    sync().catch(() => {});          // фон: добираем чужие реакции, экран не ждёт
+  } catch (ex) {
+    m.reactions = before;            // откатываем, если сервер не принял
+    paintReactions(m);
+    toast(ex.message, true);
+  }
 }
 
 // ─────────────────────────────────────────── правка своего сообщения
@@ -1664,15 +1814,29 @@ function openEditor(mid) {
   $('#eds-' + mid).addEventListener('click', async () => {
     const text = ta.value.trim();
     if (!text) return toast('Пустое сообщение', true);
+    const prev = { plain: S.plain.get(mid), blob: m.blob, bytes: m.bytes, editedAt: m.editedAt, rev: m.rev };
     try {
       const c = chatById(m.chat);
       const k = await chatKeyOf(c);
       const mentions = findMentions(text);
       const blob = await encryptJSON(k.key, { text, mentions, author: S.me.name });
-      await api('/api/messages/' + mid + '/edit', { method: 'POST', body: { blob } });
-      S.plain.set(mid, { text, mentions });
-      await sync();
-      toast('Сообщение изменено');
+      // Новый текст показываем СРАЗУ, ещё до ответа сервера: именно ожидание
+      // ответа и перерисовка всей истории давали паузу в 8–10 секунд.
+      S.plain.set(mid, Object.assign({}, prev.plain || {}, { text, mentions }));
+      m.blob = blob; m.bytes = blob.length; m.editedAt = Date.now(); m.rev = (m.rev || 0) + 1;
+      S.sig = ''; renderMessages(); renderThread();
+      toast('Сохраняем правку…');
+      try {
+        await api('/api/messages/' + mid + '/edit', { method: 'POST', body: { blob } });
+        toast('Сообщение изменено');
+        sync().catch(() => {});      // остальным правка придёт точечно, журналом изменений
+      } catch (ex) {
+        // сервер не принял — возвращаем прежний текст, чтобы не врать на экране
+        if (prev.plain) S.plain.set(mid, prev.plain); else S.plain.delete(mid);
+        m.blob = prev.blob; m.bytes = prev.bytes; m.editedAt = prev.editedAt; m.rev = prev.rev;
+        S.sig = ''; renderMessages(); renderThread();
+        toast(ex.message || 'Правка не сохранилась', true);
+      }
     } catch (ex) { toast(ex.message, true); }
   });
 }
@@ -2354,18 +2518,108 @@ async function send({ textarea, parent, attachKey }) {
   textarea.value = ''; autoGrow(textarea);
   clearAttach(attachKey);
   if (!parent) { S.quote = null; renderQuoteBar(); }
+
+  // Сообщение появляется в ленте СРАЗУ (с часиками «отправляется»), а не после
+  // ответа сервера: раньше человек смотрел на пустое место две-три секунды.
+  let blob;
+  try { blob = await encryptJSON(k.key, payload); }
+  catch (ex) { return sendFail(ex, text, att, attachKey, quote); }
+  const tmpId = 'tmp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const draft = {
+    id: tmpId, seq: nextLocalSeq(), uid: S.me.id, ts: Date.now(),
+    blob, bytes: blob.length, chat: c.id, parent: parent || null, quote: quote || null,
+    upId: (attRef && attRef.upId) || null, local: true
+  };
+  S.retry[tmpId] = { blob, chat: c.id, parent: parent || null, quote: quote || null, payload };
+  addMessages([draft]);
+  S.plain.set(tmpId, payload);
+  S.atBottom = true; S.sig = '';
+  renderMessages(true); renderRail();
+  postMessage(draft, text, att, attachKey, quote);
+}
+
+/** Локальный номер для «своего» сообщения — только чтобы встать в конец ленты. */
+let localSeqTop = 0;
+function nextLocalSeq() {
+  let top = S.seq || 0;
+  for (const m of S.messages) if ((m.seq || 0) > top) top = m.seq;
+  localSeqTop = Math.max(localSeqTop, top) + 1;
+  return localSeqTop;
+}
+
+/** Отправить черновик на сервер и заменить его настоящей записью. */
+async function postMessage(draft, text, att, attachKey, quote) {
+  const body = Object.assign({ notify: 1 }, S.retry[draft.id] || {});
   try {
-    const blob = await encryptJSON(k.key, payload);
-    const r = await api('/api/messages', { method: 'POST', body: { blob, chat: c.id, parent: parent || null, quote } });
-    S.usage = r.usage; S.atBottom = true; S.sig = '';
-    await sync();
-    if (!parent) renderMessages(true);
+    const r = await api('/api/messages', { method: 'POST', body });
+    adoptSent(draft, r.message, S.retry[draft.id] && S.retry[draft.id].payload);
+    if (r.usage) S.usage = r.usage;
+    if (r.notify) fireNotify(r.notify);
+    S.sig = '';
+    renderMessages();
+    sync().catch(() => {});          // добираем чужие сообщения фоном
   } catch (ex) {
+    const keep = S.retry[draft.id];
+    draft.local = false; draft.failed = ex.message || 'не отправлено';
+    if (!keep) delete S.retry[draft.id];
+    S.sig = ''; renderMessages();
     toast(ex.message, true);
-    textarea.value = text; S[attachKey] = att;
-    if (att && !att.pending) showAttach(attachKey, att);
-    if (quote) { S.quote = quote; renderQuoteBar(); }
+    if (!keep) {                     // повторять нечего — возвращаем текст в поле
+      const ta = $('#input');
+      if (ta && !ta.value && text) { ta.value = text; autoGrow(ta); }
+      if (att && !att.pending && attachKey) { S[attachKey] = att; showAttach(attachKey, att); }
+      if (quote) { S.quote = quote; renderQuoteBar(); }
+    }
   }
+}
+
+/** Сервер принял сообщение: подменяем черновик настоящей записью. */
+function adoptSent(draft, real, plain) {
+  delete S.retry[draft.id];
+  if (!real || !real.id) return;
+  S.messageIds.delete(draft.id);
+  S.plain.delete(draft.id);
+  const i = S.messages.findIndex(m => m.id === draft.id);
+  if (i >= 0) S.messages[i] = real; else S.messages.push(real);
+  S.messageIds.add(real.id);
+  if (plain) S.plain.set(real.id, plain);
+  S.messages.sort((a, b) => a.seq - b.seq);
+  // курсор since НЕ двигаем: пусть его выставит ответ сервера, иначе можно
+  // пропустить чужое сообщение, прилетевшее в ту же секунду
+}
+
+/** Повторная отправка после сбоя (кнопка «повторить» под сообщением). */
+function retrySend(tmpId) {
+  const m = S.messages.find(x => x.id === tmpId);
+  const rec = S.retry[tmpId];
+  if (!m || !rec) return;
+  delete m.failed; m.local = true;
+  S.sig = ''; renderMessages();
+  postMessage(m);
+}
+
+function sendFail(ex, text, att, attachKey, quote) {
+  toast(ex.message, true);
+  const ta = $('#input');
+  if (ta && !ta.value && text) { ta.value = text; autoGrow(ta); }
+  if (att && !att.pending && attachKey) { S[attachKey] = att; showAttach(attachKey, att); }
+  if (quote) { S.quote = quote; renderQuoteBar(); }
+}
+
+/**
+ * Просьба серверу разослать уведомления. Делается отдельным коротким запросом
+ * сразу после отправки, чтобы ожидание push-службы не тормозило сообщение.
+ * keepalive — запрос успеет уйти, даже если вкладку тут же закрыли.
+ */
+function fireNotify(ticket) {
+  if (!ticket || !S.token) return;
+  try {
+    fetch(BASE + '/api/notify', {
+      method: 'POST', keepalive: true,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token },
+      body: JSON.stringify({ kind: ticket.kind, chat: ticket.chat, mid: ticket.mid })
+    }).catch(() => {});
+  } catch (e) {}
 }
 $('#btn-send').addEventListener('click', () => send({ textarea: $('#input'), attachKey: 'attach' }));
 $('#thread-send').addEventListener('click', () => send({ textarea: $('#thread-input'), parent: S.threadId, attachKey: 'threadAttach' }));
@@ -2874,7 +3128,8 @@ $('#btn-admin').addEventListener('click', async () => {
     <div class="err" id="ad-code-err"></div>
     <button class="primary" id="ad-code-save">Обновить фразу</button>
     <div class="divider"><span>Память</span></div>
-    <p class="hint">Занято ${fmtBytes(S.usage.bytes)} из ${fmtBytes(S.usage.limit)} (${S.usage.percent}%). Архивами управляет создатель каждого чата (меню «⋯» в чате).</p>`);
+    <p class="hint">Занято ${fmtBytes(S.usage.bytes)} из ${fmtBytes(S.usage.limit)} (${S.usage.percent}%). Архивами управляет создатель каждого чата (меню «⋯» в чате).</p>
+    <p class="hint">Из чего состоит: ${usagePartsText(S.usage) || '—'}.</p>`);
   renderAdminUsers();
 
   $('#ad-users').addEventListener('click', async e => {
