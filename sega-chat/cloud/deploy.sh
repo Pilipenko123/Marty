@@ -149,6 +149,14 @@ fi
 # поэтому ключи Web Push (VAPID) нужно передавать явно — иначе после
 # обновления функция «забудет» их и уведомления молча перестанут работать.
 ENV_LIST="YDB_ENDPOINT=$ENDPOINT,YDB_TABLE=$TABLE,STORAGE_LIMIT=$STORAGE_LIMIT"
+# Облачное хранилище: туда функция кладёт резервные копии переписки.
+# Задаётся именем бакета; если бакета нет, кнопка копии честно скажет об этом.
+if [ -n "${CODE_BUCKET:-}" ]; then
+  ENV_LIST="$ENV_LIST,CODE_BUCKET=$CODE_BUCKET,BACKUP_PREFIX=${BACKUP_PREFIX:-backups/},BACKUP_KEEP=${BACKUP_KEEP:-10}"
+  info "резервные копии пойдут в бакет «$CODE_BUCKET»"
+else
+  info "CODE_BUCKET не задан — резервные копии в облако сохраняться не будут"
+fi
 if [ -n "${VAPID_PUBLIC_KEY:-}" ] && [ -n "${VAPID_PRIVATE_KEY:-}" ]; then
   ENV_LIST="$ENV_LIST,VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY"
   if [ -n "${VAPID_SUBJECT:-}" ]; then
@@ -159,6 +167,17 @@ else
   printf '    \033[1;31mВнимание: VAPID-ключи не заданы — push-уведомления в этой версии работать не будут.\033[0m\n'
   printf '    \033[1;31mЗадайте их и запустите деплой заново:\033[0m\n'
   printf '    \033[1;31m  export VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… VAPID_SUBJECT=mailto:вы@почта\033[0m\n'
+fi
+
+# Если в облаке уже есть бакет с программой — положим туда и свежий архив,
+# чтобы оба способа обновления (через GitHub и через хранилище) не разъезжались.
+if [ "${SYNC_BUCKET:-0}" = 1 ] && [ -n "${CODE_BUCKET:-}" ]; then
+  say "Кладу архив в облачное хранилище «$CODE_BUCKET»"
+  if yc storage s3 cp "$ZIP" "s3://$CODE_BUCKET/sega-chat.zip" >/dev/null 2>&1; then
+    info "архив обновлён: s3://$CODE_BUCKET/sega-chat.zip"
+  else
+    info "не удалось (не критично): проверьте права на бакет"
+  fi
 fi
 
 yc serverless function version create \

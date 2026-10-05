@@ -3,10 +3,17 @@
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) { data = { body: event.data ? event.data.text() : '' }; }
-  event.waitUntil(self.registration.showNotification(data.title || 'SEGA-CHAT', {
-    body: data.body || 'Новое сообщение', icon: './icon-192.png', badge: './favicon.png',
-    tag: data.tag || 'sega-chat', data: { url: data.url || './' }, renotify: true
-  }));
+  event.waitUntil((async () => {
+    const wins = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // будим открытые окна: даже спящее («тихий час») окно просыпается и досинхронизируется
+    await Promise.all(wins.map(c => c.postMessage({ t: 'wake' }).catch(() => {})));
+    // окно прямо перед человеком — уведомление не нужно: чат сам покажет и озвучит
+    if (wins.some(c => c.visibilityState === 'visible')) return;
+    return self.registration.showNotification(data.title || 'SEGA-CHAT', {
+      body: data.body || 'Новое сообщение', icon: './icon-192.png', badge: './favicon.png',
+      tag: data.tag || 'sega-chat', data: { url: data.url || './' }, renotify: true
+    });
+  })());
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
@@ -19,7 +26,7 @@ self.addEventListener('notificationclick', event => {
 /* Кэш статики для быстрого холодного старта: страница, стили, скрипт, иконки.
    Стратегия «кэш сразу + обновление в фоне»: открытие чата не ждёт сеть,
    а свежая версия прилетает к следующему запуску. */
-const STATIC_CACHE = 'sega-static-v5';
+const STATIC_CACHE = 'sega-static-v8';
 const STATIC_RE = /(\.css|\.js|\.png|\.svg|\.webmanifest|\.ico)$|^\/$|index\.html$/;
 /* Новый воркер встаёт на вахту сразу (не ждёт закрытия вкладок) и вычищает
    старые кэши, чтобы друзья получили свежий app.js при первой же загрузке. */

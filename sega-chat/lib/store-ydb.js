@@ -571,6 +571,39 @@ function createYdbStore(opts = {}) {
     async getArchive(file) { const v = await readDocJson('arc', file); return v ? (v.t || null) : null; },
     async countArchiveParts(file) { return countParts('arc', file); },
 
+    /**
+     * Полная выгрузка таблицы — для резервной копии.
+     *
+     * В отличие от обычной загрузки (которая читает только нужные чаты), здесь
+     * таблица обходится целиком постранично (Scan) и возвращается ровно в том
+     * виде, в каком лежит в базе: pk, sk, число кусков k и текст куска d.
+     * Из такого набора строк базу можно восстановить один в один.
+     */
+    async dumpAll() {
+      const rows = [];
+      const counts = {};
+      let start = null;
+      let guard = 0;
+      do {
+        const r = await ydb.call('Scan', Object.assign(
+          { TableName: table, Limit: 500 },
+          start ? { ExclusiveStartKey: start } : {}
+        ));
+        for (const it of (r.Items || [])) {
+          const pk = str(it.pk);
+          const row = { pk, sk: str(it.sk) };
+          if (it.d !== undefined && it.d !== null) row.d = str(it.d);
+          if (it.k !== undefined && it.k !== null) row.k = num(it.k);
+          rows.push(row);
+          // «m#abc» -> «m»: считаем разделы, чтобы в отчёте было видно состав
+          const group = pk.indexOf('#') > 0 ? pk.slice(0, pk.indexOf('#')) : pk;
+          counts[group] = (counts[group] || 0) + 1;
+        }
+        start = r.LastEvaluatedKey && Object.keys(r.LastEvaluatedKey).length ? r.LastEvaluatedKey : null;
+      } while (start && ++guard < 4000);   // защита от бесконечного цикла (2 млн строк)
+      return { table, rows, counts };
+    },
+
     async close() {}
   };
   return store;

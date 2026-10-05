@@ -129,6 +129,41 @@ function createFileStore(opts = {}) {
       return fs.readFileSync(full, 'utf8');
     },
 
+    /**
+     * Полная выгрузка — для резервной копии.
+     * В файловом режиме «база» это data/db.json плюс соседние файлы
+     * (архивы, куски вложений, фоны и иконки чатов), поэтому копируем всё.
+     */
+    async dumpAll() {
+      writeNow();
+      const files = {};
+      const counts = {};
+      const walk = (dir, prefix, depth) => {
+        let names = [];
+        try { names = fs.readdirSync(dir); } catch (e) { return; }
+        for (const f of names.sort()) {
+          const full = path.join(dir, f);
+          let st = null;
+          try { st = fs.statSync(full); } catch (e) { continue; }
+          const rel = prefix ? prefix + '/' + f : f;
+          if (st.isDirectory()) { if (depth > 0) walk(full, rel, depth - 1); continue; }
+          if (f.endsWith('.tmp') || f.endsWith('.broken')) continue;
+          try { files[rel] = fs.readFileSync(full, 'utf8'); } catch (e) {}
+          const group = rel.split('/')[0].replace(/-[\w.]+$/, '');
+          counts[group] = (counts[group] || 0) + 1;
+        }
+      };
+      walk(dataDir, '', 1);
+      delete files['db.json'];                 // база уходит отдельным полем, без дубля
+      return {
+        table: null,
+        rows: [],
+        db: JSON.parse(JSON.stringify(db)),
+        files,
+        counts: Object.assign({ db: 1 }, counts)
+      };
+    },
+
     async close() { if (db) writeNow(); }
   };
   return store;

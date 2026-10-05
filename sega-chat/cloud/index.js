@@ -83,10 +83,16 @@ module.exports.handler = async function (event, context) {
   );
   let body, isBase64Encoded = false;
   if (out.body !== undefined) {
-    if (String(resHeaders['Content-Type'] || '').startsWith('text/') || resHeaders['Content-Disposition']) {
+    // Текст отдаём как есть, всё остальное (картинки, архивы, резервные копии) —
+    // в base64. Смотрим именно на тип содержимого: наличие заголовка
+    // Content-Disposition о тексте ничего не говорит.
+    const ct = String(resHeaders['Content-Type'] || '');
+    const textual = /^(text\/|application\/(json|xml|javascript|xhtml)|image\/svg)/.test(ct);
+    if (textual) {
       body = out.body.toString('utf8');
     } else {
-      body = out.body.toString('base64'); isBase64Encoded = true;
+      body = Buffer.isBuffer(out.body) ? out.body.toString('base64') : Buffer.from(String(out.body)).toString('base64');
+      isBase64Encoded = true;
     }
   } else {
     body = JSON.stringify(out.json === undefined ? {} : out.json);

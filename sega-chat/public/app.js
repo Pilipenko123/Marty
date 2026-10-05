@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-13';
+const BUILD = 'pkg3-16';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -630,36 +630,68 @@ async function startApp() {
   await sync(true);
   if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
   S.sig = ''; renderAll(); renderMessages(true);
+  wake('старт приложения');
   loop();
   if (!S.priv) setTimeout(() => { if (!S.priv) openRestoreKeys(); }, 600);
 }
-// Опрашиваем сервер тем реже, чем дольше человек ничего не делает.
-// На домашнем сервере это незаметно, а в облаке заметно экономит бесплатный лимит.
+// ── цикл опроса: «тихий час» ──────────────────────────────────────────
+// Пока человек трогает окно (или друзья пишут) — лента опрашивается бодро,
+// каждые 2,5 с. Минуту никто ни к чату не прикасается — окно ЗАСЫПАЕТ:
+// запросы прекращаются вовсе, остаётся одна редкая проверка «есть кто?»
+// (раз в 5 минут) на случай, если пуш-колокольчик не сработал.
+// Новое сообщение будит спящее окно МГНОВЕННО: служебный воркер получает
+// пуш из облака и толкает окно в бок; просыпается оно и от любого касания.
+// В облаке каждое обращение к ленте — деньги, поэтому сон экономит их
+// на порядок, а бодрствование остаётся таким же быстрым, как было.
 let lastTouch = Date.now();
-const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); };
+const POLL_QS = new URLSearchParams(location.search);
+const AWAKE_MS = Math.max(1000, Number(POLL_QS.get('awake')) || 60000);  // сколько бодрствуем после касания
+const TICK_MS = Math.max(2000, Number(POLL_QS.get('tick')) || 300000);   // проверка во сне (5 минут)
+let wakeUntil = Date.now() + AWAKE_MS;
+let prevMode = 'awake';
+const pollStats = { fast: 0, ticks: 0, wakes: 0, sleeps: 0 };
+Object.defineProperty(pollStats, 'mode', { get: pollMode, enumerable: true });
+window.__segaPoll = pollStats;          // видно в демо и в консоли браузера
+function pollMode() { return Date.now() < wakeUntil ? 'awake' : 'asleep'; }
+function wake(why) {
+  const was = pollMode();
+  wakeUntil = Date.now() + AWAKE_MS;
+  if (was === 'asleep') {
+    pollStats.wakes++;
+    console.info('[poll] подъём: ' + why);
+    clearTimeout(S.timer);
+    S.timer = setTimeout(() => { loopStep().finally(loop); }, 150);
+  }
+}
+const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); wake('касание окна'); };
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
-function pollDelay() {
-  if (document.hidden) return 45000;
-  const idle = Date.now() - lastTouch;
-  if (idle < 90000) return 2500;      // человек только что что-то делал
-  if (idle < 15 * 60000) return 10000;
-  return 30000;                        // вкладка открыта, но о ней забыли
+function pollDelay() { return pollMode() === 'awake' ? 2500 : TICK_MS; }
+async function loopStep() {
+  if (pollMode() === 'awake') pollStats.fast++; else pollStats.ticks++;
+  if (S.token) { try { await sync(); } catch (e) {} }
+  const now = pollMode();
+  if (prevMode === 'awake' && now === 'asleep') {
+    pollStats.sleeps++;
+    console.info('[poll] тихий час: спим, проверка раз в ' + Math.round(TICK_MS / 1000) + ' с');
+  }
+  prevMode = now;
 }
 function loop() {
   clearTimeout(S.timer);
-  S.timer = setTimeout(async () => {
-    if (S.token && (!document.hidden || Date.now() - lastTouch < 60 * 60000)) {
-      try { await sync(); } catch (e) {}
-    }
-    loop();
-  }, pollDelay());
+  S.timer = setTimeout(() => { loopStep().finally(loop); }, pollDelay());
 }
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && S.token) { noteTouch(); sync().catch(() => {}); loop(); }
 });
 window.addEventListener('focus', () => { if (S.token) { noteTouch(); markRead(); } });
+// служебный воркер (пуш из облака) будит спящее окно
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.t === 'wake') wake('сигнал из облака');
+  });
+}
 
 let syncPromise = null;
 let syncQueued = false;
@@ -762,6 +794,8 @@ async function syncOnce(initial) {
   if (touched) { S.sig = ''; if (S.view) renderMessages(); renderThread(); }
   if (typeof data.rnow === 'number') S.rsince = data.rnow;
   if (typeof data.chg === 'number') S.chg = data.chg;
+  // друзья пишут — продлеваем бодрствование (спящее окно будит и этот путь)
+  if (!initial && (freshAll.length || touched)) wake('новое в ленте');
 
   if (freshAll.length && !initial && !suppressNotify) notifyNewMessages(freshAll);
   if (!initial) repairGroupKeys();
@@ -1160,7 +1194,7 @@ function renderTopbar() {
   } else {
     const online = c.members.map(userById).filter(isOnline).length;
     $('#chat-sub').innerHTML = `${plural(c.members.length, 'участник', 'участника', 'участников')} · <span style="color:#5c9c1e">${online} в сети</span>`;
-    $('#input').placeholder = 'ну пиши, чё?  (@ — обратиться к участнику)';
+    $('#input').placeholder = 'ну пиши, чё?';
   }
 }
 
@@ -3129,8 +3163,14 @@ $('#btn-admin').addEventListener('click', async () => {
     <button class="primary" id="ad-code-save">Обновить фразу</button>
     <div class="divider"><span>Память</span></div>
     <p class="hint">Занято ${fmtBytes(S.usage.bytes)} из ${fmtBytes(S.usage.limit)} (${S.usage.percent}%). Архивами управляет создатель каждого чата (меню «⋯» в чате).</p>
-    <p class="hint">Из чего состоит: ${usagePartsText(S.usage) || '—'}.</p>`);
+    <p class="hint">Из чего состоит: ${usagePartsText(S.usage) || '—'}.</p>
+    <div class="divider"><span>Резервная копия</span></div>
+    <p class="hint" id="ad-bk-where">Проверяю облачное хранилище…</p>
+    <button class="primary" id="ad-bk-make">Сохранить копию в облако</button>
+    <div class="err" id="ad-bk-err"></div>
+    <div id="ad-bk-list"></div>`);
   renderAdminUsers();
+  initBackups();
 
   $('#ad-users').addEventListener('click', async e => {
     const b = e.target.closest('button[data-id]'); if (!b) return;
@@ -3162,6 +3202,108 @@ $('#btn-admin').addEventListener('click', async () => {
     btn.disabled = false; btn.textContent = 'Обновить фразу';
   });
 });
+// ─────────────────────────────────────── резервные копии в облачном хранилище
+// Копия уходит в приватный бакет Yandex Object Storage — туда же, где лежит
+// сама программа. Всё содержимое и так зашифровано, а сверху копия закрыта
+// ещё и секретом мессенджера, поэтому читать её может только этот сервер.
+function bkWhen(at) {
+  if (!at) return '—';
+  const d = new Date(at);
+  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function renderBackups(list, where) {
+  const box = $('#ad-bk-list');
+  if (!box) return;
+  if (!list) { box.innerHTML = ''; return; }
+  if (!list.length) {
+    box.innerHTML = '<p class="hint">Копий пока нет. Нажмите кнопку выше — первая копия появится здесь.</p>';
+    return;
+  }
+  box.innerHTML = list.map(b => `<div class="mrow bkrow">
+      <span class="nm"><span class="bk-date">${escapeHtml(bkWhen(b.at))}</span>
+      <span class="tiny muted">${escapeHtml(fmtBytes(b.bytes))} · ${escapeHtml(b.name)}</span></span>
+      <button class="mini" data-bk="${escapeHtml(b.name)}" data-act="get">скачать</button>
+      <button class="mini danger" data-bk="${escapeHtml(b.name)}" data-act="del">удалить</button>
+    </div>`).join('')
+    + `<p class="tiny muted" style="margin-top:8px">${escapeHtml(where || '')}</p>`;
+}
+async function initBackups() {
+  const where = $('#ad-bk-where'), make = $('#ad-bk-make');
+  try {
+    const r = await api('/api/admin/backups');
+    if (!r.enabled) {
+      const denied = r.code === 'denied';
+      where.textContent = (denied
+        ? 'Нет прав на облачное хранилище — копии недоступны. '
+        : 'Облачное хранилище не настроено — копии недоступны. ') + (r.reason || '');
+      if (make) { make.disabled = true; make.textContent = denied ? 'Нет прав на хранилище' : 'Хранилище не настроено'; }
+      renderBackups(null);
+      return;
+    }
+    where.textContent = `Копии хранятся в облаке Yandex Cloud, в закрытом ящике «${r.bucket}» `
+      + `(папка ${r.prefix}, держим последние ${r.keep}).`
+      + (r.items && r.items.length ? ` Сейчас там ${r.items.length}.` : ' Копий пока нет.');
+    renderBackups(r.items, r.items && r.items.length
+      ? `Последняя копия: ${bkWhen(r.items[0].at)}. Копия зашифрована — открыть её сможет только этот мессенджер.`
+      : '');
+  } catch (ex) {
+    where.textContent = 'Не удалось спросить сервер про копии: ' + ex.message;
+    if (make) make.disabled = true;
+  }
+  const list = $('#ad-bk-list');
+  if (list && !list.dataset.bound) {
+    list.dataset.bound = '1';
+    list.addEventListener('click', async e => {
+      const b = e.target.closest('button[data-bk]'); if (!b) return;
+      const name = b.dataset.bk;
+      try {
+        if (b.dataset.act === 'del') {
+          if (!confirm('Удалить эту копию из облака? Отменить будет нельзя.')) return;
+          await api('/api/admin/backups/' + encodeURIComponent(name), { method: 'DELETE' });
+          toast('Копия удалена');
+        } else {
+          b.disabled = true; b.textContent = 'качаем…';
+          const res = await fetch(BASE + '/api/admin/backups/' + encodeURIComponent(name),
+            { headers: { Authorization: 'Bearer ' + S.token } });
+          if (!res.ok) {
+            let m = 'Не удалось скачать';
+            try { m = (await res.json()).error || m; } catch (e2) {}
+            throw new Error(m);
+          }
+          saveBlob(await res.blob(), name);
+          b.disabled = false; b.textContent = 'скачать';
+          return;
+        }
+        initBackups();
+      } catch (ex) {
+        const err = $('#ad-bk-err'); if (err) err.textContent = ex.message;
+        toast(ex.message, true);
+        b.disabled = false; b.textContent = b.dataset.act === 'get' ? 'скачать' : 'удалить';
+      }
+    });
+  }
+  if (make && !make.dataset.bound) {
+    make.dataset.bound = '1';
+    make.addEventListener('click', async () => {
+      const err = $('#ad-bk-err'); err.textContent = '';
+      make.disabled = true; const was = make.textContent; make.textContent = 'Сохраняем…';
+      try {
+        const r = await api('/api/admin/backup', { method: 'POST' });
+        const b = r.backup || {};
+        toast(r.warn ? r.warn : 'Копия сохранена в облаке (' + fmtBytes(b.bytes || 0) + ')', !!r.warn);
+        await initBackups();
+        if (!r.warn) {
+          // дописываем честный итог ПОСЛЕ обновления списка, чтобы он не затёрся
+          const w = $('#ad-bk-where');
+          if (w) w.textContent += ' Последняя: ' + (b.rows || 0) + ' записей, ' + fmtBytes(b.bytes || 0)
+            + ', проверка целостности пройдена.';
+        }
+      } catch (ex) { err.textContent = ex.message; toast(ex.message, true); }
+      make.disabled = false; make.textContent = was;
+    });
+  }
+}
+
 function renderAdminUsers() {
   const box = $('#ad-users');
   if (!box) return;

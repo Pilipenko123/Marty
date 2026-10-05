@@ -24,6 +24,7 @@ function emptyDb() {
     gen: 0,         // растёт при СТРУКТУРНЫХ изменениях (очистка/архив чата) — сигнал «перечитай всё»
     chg: 0,         // счётчик мелких изменений (реакция, правка, удаление сообщения)
     changes: [],    // журнал «что изменилось»: { i: id, c: чат, r: отметка, d: 1 если удалено }
+    backups: [],    // следы резервных копий в облачном хранилище: { key, bytes, rows, at, by }
     serverSecret: null,
     stats: { bytes: 0, count: 0, chats: {} } // счётчики вместо пересчёта всей истории
   };
@@ -57,6 +58,7 @@ function migrate(db) {
   // без него клиентам приходилось перечитывать всю историю ради одного смайлика
   if (!db.chg) db.chg = 0;
   if (!Array.isArray(db.changes)) db.changes = [];
+  if (!Array.isArray(db.backups)) db.backups = [];
 
   const legacyId = 'legacy-group';
   if (db.messages.some(m => m.ch !== undefined && m.chat === undefined)) {

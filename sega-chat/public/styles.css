@@ -277,6 +277,12 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 .mini{font-size:12px;padding:5px 9px;border-radius:7px;border:1px solid var(--line);color:var(--muted);background:#fff}
 .mini:hover{color:var(--accent);border-color:#bcd9f2}
 .mini.danger:hover{color:var(--red);border-color:#ffc9c6}
+/* строки резервных копий в панели управления */
+.bkrow{align-items:flex-start}
+.bkrow .nm{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
+.bk-date{font-size:13px;font-weight:600}
+#ad-bk-list{margin-top:6px}
+#ad-bk-make{margin-top:10px;width:100%}
 .avatar-pick{display:flex;align-items:center;gap:14px;margin:6px 0 2px}
 .file-btn{font-size:12.5px;border:1px dashed #c3d0d9;border-radius:8px;padding:7px 11px;color:var(--muted);cursor:pointer;display:inline-block}
 .file-btn:hover{color:var(--accent);border-color:var(--accent-2)}

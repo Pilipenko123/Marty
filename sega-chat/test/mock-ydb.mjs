@@ -93,8 +93,12 @@ export function startMock(opts = {}) {
     const pk = val(p, mPk[1]).S;
     let rows = [...map.values()].filter(it => it.pk.S === pk);
     const mGt = /sk\s*>\s*(:\w+)/.exec(kc);
+    const mLt = /sk\s*<\s*(:\w+)/.exec(kc);
     const mBeg = /begins_with\(sk,\s*(:\w+)\)/.exec(kc);
+    const mEq = /sk\s*=\s*(:\w+)/.exec(kc);
+    if (mEq) { const s = val(p, mEq[1]).S; rows = rows.filter(it => it.sk.S === s); }
     if (mGt) { const s = val(p, mGt[1]).S; rows = rows.filter(it => it.sk.S > s); }
+    if (mLt) { const s = val(p, mLt[1]).S; rows = rows.filter(it => it.sk.S < s); }
     if (mBeg) { const s = val(p, mBeg[1]).S; rows = rows.filter(it => it.sk.S.startsWith(s)); }
     rows.sort((a, b) => a.sk.S < b.sk.S ? -1 : a.sk.S > b.sk.S ? 1 : 0);
     if (p.ExclusiveStartKey) {
@@ -113,6 +117,26 @@ export function startMock(opts = {}) {
       return o;
     });
     return { Items: items, Count: items.length, LastEvaluatedKey: last };
+  }
+
+  /**
+   * Scan — обход всей таблицы. Нужен резервной копии: она вычитывает базу
+   * целиком, а не по отдельным чатам. Страницы делаем маленькими нарочно,
+   * чтобы проверка ловила ошибки дочитывания.
+   */
+  function scanItems(map, p) {
+    const full = (it) => it.pk.S + '\u0000' + it.sk.S;
+    let rows = [...map.values()].sort((a, b) => (full(a) < full(b) ? -1 : full(a) > full(b) ? 1 : 0));
+    if (p.ExclusiveStartKey) {
+      const after = p.ExclusiveStartKey.pk.S + '\u0000' + p.ExclusiveStartKey.sk.S;
+      rows = rows.filter(it => full(it) > after);
+    }
+    const size = Number(p.Limit) > 0 ? Math.min(Number(p.Limit), 40) : 40;
+    const page = rows.slice(0, size);
+    const last = rows.length > page.length
+      ? { pk: { S: page[page.length - 1].pk.S }, sk: { S: page[page.length - 1].sk.S } }
+      : null;
+    return { Items: page, Count: page.length, ScannedCount: page.length, LastEvaluatedKey: last };
   }
 
   const server = http.createServer((req, res) => {
@@ -181,6 +205,10 @@ export function startMock(opts = {}) {
         if (action === 'Query') {
           counters.reads++;
           return reply(200, queryItems(map, p));
+        }
+        if (action === 'Scan') {
+          counters.reads++;
+          return reply(200, scanItems(map, p));
         }
       } catch (e) {
         return fail('ValidationException', e.message);

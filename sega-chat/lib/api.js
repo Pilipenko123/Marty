@@ -12,8 +12,14 @@
  */
 
 const crypto = require('crypto');
+const backup = require('./backup');
 
 const MB = 1024 * 1024;
+
+/** Отметка выпуска: её видно в подвале настроек и в /api/state. */
+const BUILD = 'pkg3-16';
+/** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
+const BACKUP_DL_MAX = 3.2 * MB;
 
 function createApi(store, opts = {}) {
   const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 250 * MB);
@@ -36,6 +42,15 @@ function createApi(store, opts = {}) {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Disposition': `attachment; filename="${name.replace(/[^\w.\-]/g, '_')}"`
+    }
+  });
+  /** То же, но для двоичных данных (резервная копия, картинка). */
+  const BIN = (buf, name, type) => ({
+    status: 200,
+    body: Buffer.isBuffer(buf) ? buf : Buffer.from(buf),
+    headers: {
+      'Content-Type': type || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${String(name).replace(/[^\w.\-]/g, '_')}"`
     }
   });
 
@@ -363,7 +378,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/state' && method === 'GET') {
       return J(200, {
         app: 'SEGA-CHAT',
-        build: 'pkg3-13',
+        build: BUILD,
         setupRequired: db.users.length === 0,
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
@@ -1056,6 +1071,80 @@ function createApi(store, opts = {}) {
       if (pathname === '/api/admin/archives' && method === 'GET') {
         await store.loadArchives();
         return J(200, { archives: db.archives.slice().reverse() });
+      }
+
+      // ------------------------------------------------ резервные копии в облаке
+      // Копия всей базы уходит в приватный бакет Object Storage — туда же, где
+      // лежит сама программа. Так всё хозяйство мессенджера собирается в одном
+      // облаке: один «контейнер» под код, один под переписку, один под копии.
+      if (pathname === '/api/admin/backups' && method === 'GET') {
+        const bc = backup.config();
+        if (!bc.bucket) return J(200, { enabled: false, reason: 'У функции не задана переменная CODE_BUCKET' });
+        try {
+          const items = await backup.listBackups();
+          return J(200, {
+            enabled: true, bucket: bc.bucket, prefix: bc.prefix, keep: bc.keep,
+            items, last: items[0] || null
+          });
+        } catch (e) {
+          const denied = !!(e && (e.status === 403 || e.code === 'AccessDenied'));
+          return J(200, {
+            enabled: false,
+            code: denied ? 'denied' : 'unavailable',
+            reason: denied
+              ? 'Служебной учётной записи функции не хватает роли storage.editor на каталог с ящиком «'
+                + bc.bucket + '». Лечение — одна команда в Cloud Shell: '
+                + 'yc resource-manager folder add-access-binding <ID-каталога-ящика> '
+                + '--role storage.editor --service-account-id <ID-учётки-функции>'
+              : 'Хранилище недоступно: ' + e.message
+          });
+        }
+      }
+
+      if (pathname === '/api/admin/backup' && method === 'POST') {
+        if (!backup.enabled()) return E(501, 'Облачное хранилище не настроено (нет переменной CODE_BUCKET)');
+        let res;
+        try {
+          res = await backup.createBackup({ store, db, build: BUILD });
+        } catch (e) {
+          const denied = !!(e && (e.status === 403 || e.code === 'AccessDenied'));
+          return E(502, denied
+            ? 'Не удалось сохранить копию: у функции нет прав на ящик (нужна роль storage.editor на каталог с ящиком)'
+            : 'Не удалось сохранить копию: ' + e.message);
+        }
+        db.backups = db.backups || [];
+        db.backups.unshift({ key: res.key, bytes: res.bytes, rows: res.rows, at: res.at, by: me.id });
+        db.backups = db.backups.slice(0, 20);
+        db.seq++; save();
+        if (!res.verify) return J(200, { ok: true, warn: 'Копия записана, но обратная проверка не прошла — сделайте ещё раз', backup: res });
+        return J(200, { ok: true, backup: res });
+      }
+
+      if (pathname.startsWith('/api/admin/backups/')) {
+        const name = decodeURIComponent(pathname.split('/').slice(4).join('/'));
+        let key;
+        try { key = backup.safeKey(name, backup.config().prefix); }
+        catch (e) { return E(400, e.message); }
+
+        if (method === 'DELETE') {
+          try { await backup.deleteBackup(key); }
+          catch (e) { return E(502, 'Не удалось удалить копию: ' + e.message); }
+          db.backups = (db.backups || []).filter(b => b.key !== key);
+          save();
+          return J(200, { ok: true });
+        }
+
+        if (method === 'GET') {
+          let buf;
+          try { buf = await backup.readBackup(key); }
+          catch (e) { return E(502, 'Не удалось прочитать копию: ' + e.message); }
+          if (!buf) return E(404, 'Такой копии нет');
+          if (buf.length > BACKUP_DL_MAX) {
+            return E(413, 'Копия ' + Math.round(buf.length / MB * 10) / 10 + ' МБ — больше предела выдачи через функцию. '
+              + 'Скачайте её из хранилища командой: yc storage s3 cp s3://' + backup.config().bucket + '/' + key + ' .');
+          }
+          return BIN(buf, key.split('/').pop(), 'application/octet-stream');
+        }
       }
     }
 

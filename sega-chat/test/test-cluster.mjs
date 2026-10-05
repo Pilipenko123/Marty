@@ -29,7 +29,9 @@ async function call(base, p, opts = {}, token) {
   const ct = r.headers.get('content-type') || '';
   return { status: r.status, d: ct.includes('json') ? await r.json() : await r.text() };
 }
-const syncOf = (base, token, since = 0) => call(base, '/api/sync?since=' + since, {}, token).then(r => r.d);
+const syncOf = (base, token, since = 0, extra = '') => call(base, '/api/sync?since=' + since + extra, {}, token).then(r => r.d);
+// «короткий опрос»: новых сообщений нет, спрашиваем только журнал изменений
+const deltaOf = (base, token, s0) => syncOf(base, token, s0.seq, '&rsince=' + (s0.rnow || 0) + '&cchg=' + (s0.chg || 0));
 
 async function waitReady(base) {
   for (let i = 0; i < 80; i++) {
@@ -142,11 +144,16 @@ ok(usage.bytes > 60000 && usage.messages === Number(process.env.MANY || 120) + 5
 // ── удаление
 const victim = s.messages.find(m => m.blob === 'm' + Math.floor(Number(process.env.MANY || 120) / 2));
 const genBefore = s.gen;
+const beforeDel = await syncOf(B, james.token, s.seq);
 r = await call(A, '/api/messages/' + victim.id, { method: 'DELETE' }, admin.token);
 ok(r.status === 200, 'сообщение удалено на A');
 s = await syncOf(B, james.token);
 ok(!s.messages.some(m => m.id === victim.id), 'на B сообщение тоже пропало');
-ok(s.gen !== genBefore, '«поколение» базы изменилось — клиенты перечитают историю');
+ok(s.gen === genBefore, 'удаление одного сообщения НЕ заставляет всех перечитывать историю');
+ok(s.chg > beforeDel.chg, 'в журнале изменений появилась отметка');
+const dDel = await deltaOf(B, james.token, beforeDel);
+ok(dDel.gone.includes(victim.id), 'короткий опрос назвал B конкретное исчезнувшее сообщение');
+ok(dDel.messages.length === 0, 'короткий опрос не тащит историю заново');
 ok(s.usage.messages === Number(process.env.MANY || 120) + 4, 'счётчик сообщений уменьшился');
 
 // ── аватар: большой, через куски, с удалением
@@ -160,15 +167,125 @@ await call(A, '/api/profile', { method: 'POST', body: { avatar: null } }, admin.
 av = await call(B, '/api/avatar/' + admin.id, {}, james.token);
 ok(av.d.avatar === null, 'после удаления от аватара не осталось кусков');
 
-// ── архив
+// ── архив: кодовое слово, скачивание, восстановление, удаление
+const huge = 'x'.repeat(600000) + 'TAILMARK';   // архив из 12+ кусков: порядок кусков из базы не должен matter
+r = await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'enc:' + huge } }, admin.token);
+ok(r.status === 200, 'огромное сообщение принято');
 r = await call(A, '/api/chats/' + chat + '/archive', { method: 'POST', body: { reset: true } }, admin.token);
-ok(r.status === 200 && r.d.archive.count === Number(process.env.MANY || 120) + 4, 'архив создан на A');
+ok(r.status === 403, 'архивация без кодового слова отклонена');
+r = await call(A, '/api/chats/' + chat + '/archive', { method: 'POST', body: { reset: true, codeProof: hex(32) } }, admin.token);
+ok(r.status === 403, 'архивация с чужим кодовым словом отклонена');
+r = await call(A, '/api/chats/' + chat + '/archive', { method: 'POST', body: { reset: true, codeProof: CODE_PROOF } }, admin.token);
+ok(r.status === 200 && r.d.archive.count === Number(process.env.MANY || 120) + 5, 'архив создан на A');
 const file = r.d.archive.file;
-const dl = await fetch(B + '/api/archives/' + encodeURIComponent(file), { headers: { Authorization: 'Bearer ' + james.token } });
+const dlBad = await fetch(B + '/api/archives/' + encodeURIComponent(file), { headers: { Authorization: 'Bearer ' + james.token } });
+ok(dlBad.status === 403, 'без кодового слова тело архива не отдаётся');
+const dl = await fetch(B + '/api/archives/' + encodeURIComponent(file), { headers: { Authorization: 'Bearer ' + james.token, 'X-Code-Proof': CODE_PROOF } });
 const text = await dl.text();
-ok(dl.status === 200 && text.includes('enc-A-1') && text.includes(big.slice(0, 200)), 'архив скачан со второго экземпляра целиком');
+ok(dl.status === 200 && text.includes('enc-A-1') && text.includes(big.slice(0, 200)) && text.includes('TAILMARK'), 'архив из 12+ кусков скачан целиком и в верном порядке');
 s = await syncOf(B, james.token);
 ok(s.messages.length === 0 && s.usage.messages === 0, 'после архивации история очищена на обоих экземплярах');
+r = await call(B, '/api/chats/' + chat + '/restore', { method: 'POST', body: { file, codeProof: CODE_PROOF } }, james.token);
+ok(r.status === 200 && r.d.restored === Number(process.env.MANY || 120) + 5, 'архив восстановлен на B');
+s = await syncOf(A, admin.token);
+ok(s.messages.length === Number(process.env.MANY || 120) + 5, 'восстановленная история видна на A');
+r = await call(A, '/api/archives/' + encodeURIComponent(file), { method: 'DELETE' }, admin.token);
+ok(r.status === 200, 'архив удалён с сервера');
+// ── реакции, правка своих сообщений, статус
+let sb = await syncOf(A, admin.token);
+const mid = (sb.messages.find(m => m.chat === chat && !m.parent) || {}).id;
+const genRx = sb.gen;
+const beforeRx = await syncOf(B, james.token, sb.seq);
+r = await call(A, '/api/messages/' + mid + '/react', { method: 'POST', body: { emoji: '🔥' } }, admin.token);
+ok(r.status === 200 && (r.d.reactions['🔥'] || []).includes(admin.id), 'реакция поставилась');
+sb = await syncOf(B, james.token);
+const rx2 = ((sb.messages.find(m => m.id === mid) || {}).reactions || {})['🔥'] || [];
+ok(rx2.includes(admin.id), 'реакцию видно у второго участника');
+// главное нововведение pkg3-13: реакция приходит точечно, без перечитывания истории
+ok(sb.gen === genRx, 'реакция не поднимает «поколение» базы (историю заново читать не нужно)');
+const dRx = await deltaOf(B, james.token, beforeRx);
+ok(dRx.changed.length === 1 && dRx.changed[0].id === mid, 'короткий опрос прислал ровно изменённое сообщение');
+ok(((dRx.changed[0].reactions || {})['🔥'] || []).includes(admin.id), 'в этой посылке виден сам смайлик');
+ok(dRx.messages.length === 0 && !dRx.gone.includes(mid), 'повторно прислано только уже известное (удаление из окна запаса) — лишнего нет');
+const dIdle = await deltaOf(B, james.token, dRx);
+ok(dIdle.changed.length === 0, 'повторный короткий опрос пустой (журнал не дёргает базу зря)');
+r = await call(A, '/api/messages/' + mid + '/react', { method: 'POST', body: { emoji: '🔥' } }, admin.token);
+ok(r.status === 200 && !((r.d.reactions || {})['🔥'] || []).includes(admin.id), 'повторное нажатие снимает реакцию');
+r = await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'enc:edit-me' } }, admin.token);
+const eid = r.d.message.id;
+r = await call(B, '/api/messages/' + mid + '/del-x', { method: 'DELETE' }, james.token).catch(() => ({ status: 0 }));
+r = await call(B, '/api/messages/' + (sb.messages.find(m => m.uid === admin.id && m.chat === chat) || {}).id, { method: 'DELETE' }, james.token);
+ok(r.status === 403, 'чужое сообщение удалить нельзя');
+r = await call(A, '/api/messages/' + eid + '/edit', { method: 'POST', body: { blob: 'enc:edited' } }, admin.token);
+ok(r.status === 200 && r.d.message.editedAt > 0, 'своё сообщение отредактировано');
+r = await call(B, '/api/messages/' + eid + '/edit', { method: 'POST', body: { blob: 'enc:x' } }, james.token);
+ok(r.status === 403, 'чужое сообщение редактировать нельзя');
+sb = await syncOf(B, james.token);
+ok((sb.messages.find(m => m.id === eid) || {}).blob === 'enc:edited', 'правка видна у второго участника');
+const dEd = await deltaOf(B, james.token, beforeRx);
+const edArrived = dEd.changed.some(m => m.id === eid && m.blob === 'enc:edited')
+  || dEd.messages.some(m => m.id === eid && m.blob === 'enc:edited');
+ok(edArrived, 'правка доходит до второго участника коротким опросом (журнал или список новых)');
+ok(dEd.changed.some(m => m.id === mid), 'реакция пришла точечно, через журнал изменений');
+r = await call(A, '/api/profile', { method: 'POST', body: { status: 'на связи до шести' } }, admin.token);
+ok(r.status === 200 && r.d.user.status === 'на связи до шести', 'статус сохранён');
+sb = await syncOf(B, james.token);
+ok((sb.users.find(u => u.id === admin.id) || {}).status === 'на связи до шести', 'статус виден другим');
+
+// ── фон чата, иконка чата, вложения
+r = await call(A, '/api/chats/' + chat + '/wall', { method: 'POST', body: { wall: { type: 'grad', c1: '#112233', c2: '#445566', a: 90, pat: 'dots' } } }, admin.token);
+ok(r.status === 200 && r.d.chat.wall.c1 === '#112233', 'фон чата сохранён');
+sb = await syncOf(B, james.token);
+ok(((sb.chats.find(x => x.id === chat) || {}).wall || {}).a === 90, 'фон виден второму участнику');
+r = await call(B, '/api/chats/' + chat + '/wall', { method: 'POST', body: { wall: { type: 'pat', c1: '#112233', c2: '#445566', a: 90, pat: 'waves' } } }, james.token);
+ok(r.status === 200 && r.d.chat.wall.pat === 'waves', 'фон может менять любой участник');
+r = await call(A, '/api/chats/' + chat + '/wallphoto', { method: 'POST', body: { data: 'enc:wallphoto' } }, admin.token);
+ok(r.status === 200 && r.d.chat.wallRev, 'фото фона сохранено');
+const w = await call(B, '/api/wall/' + chat, {}, james.token);
+ok(w.status === 200 && w.d.wall === 'enc:wallphoto', 'второй участник получает фото фона');
+r = await call(A, '/api/chats/' + chat + '/icon', { method: 'POST', body: { data: 'enc:icon' } }, admin.token);
+ok(r.status === 200 && r.d.chat.iconRev, 'иконка чата сохранена');
+const ic = await call(B, '/api/chaticon/' + chat, {}, james.token);
+ok(ic.status === 200 && ic.d.icon === 'enc:icon', 'второй участник получает иконку');
+r = await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'enc:video-att' } }, admin.token);
+ok(r.status === 200, 'вложение принимается сервером');
+
+const bigWall = 'enc:' + 'w'.repeat(120000);   // больше куска в 48К: фон читается из нескольких кусков
+r = await call(A, '/api/chats/' + chat + '/wallphoto', { method: 'POST', body: { data: bigWall } }, admin.token);
+ok(r.status === 200, 'большое фото фона принято');
+const w2 = await call(B, '/api/wall/' + chat, {}, james.token);
+ok(w2.status === 200 && w2.d.wall === bigWall, 'большое фото фона собирается из кусков без потерь');
+// ── кусковая загрузка большого вложения (видео/аудио/файлы до 25 МБ)
+const upPayload = 'V'.repeat(200000);
+const CH = 90000;
+const partsN = Math.ceil(upPayload.length / CH);
+r = await call(A, '/api/upload/init', { method: 'POST', body: { chat, name: 'demo.mp4', size: upPayload.length, mime: 'video/mp4', parts: partsN } }, admin.token);
+ok(r.status === 200 && r.d.upId, 'загрузка начата');
+const upId = r.d.upId;
+for (let i = 0; i < partsN; i++) {
+  r = await call(A, '/api/upload/chunk', { method: 'POST', body: { upId, i, data: upPayload.slice(i * CH, (i + 1) * CH) } }, admin.token);
+  ok(r.status === 200, 'кусок ' + (i + 1) + ' принят');
+}
+r = await call(A, '/api/upload/fin', { method: 'POST', body: { upId } }, admin.token);
+ok(r.status === 200, 'загрузка завершена');
+let got = '';
+for (let i = 0; i < partsN; i++) { const g = await call(B, '/api/upload/' + upId + '/' + i, {}, james.token); got += g.d.data; }
+ok(got === upPayload, 'второй участник собрал вложение из кусков без потерь');
+r = await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'enc:with-att', upId } }, admin.token);
+ok(r.status === 200 && r.d.message.upId === upId, 'сообщение ссылается на вложение');
+const upBefore = (await syncOf(A, admin.token)).usage.bytes;
+r = await call(A, '/api/messages/' + r.d.message.id, { method: 'DELETE' }, admin.token);
+ok(r.status === 200, 'сообщение с вложением удалено');
+const upAfter = (await syncOf(A, admin.token)).usage.bytes;
+ok(upAfter < upBefore, 'память освободилась после удаления вложения');
+
+r = await call(A, '/api/chats/' + chat + '/clear', { method: 'POST', body: {} }, admin.token);
+ok(r.status === 200 && typeof r.d.cleared === 'number' && r.d.usage.bytes >= 0, 'очистка чата освобождает место');
+s = await syncOf(B, james.token);
+ok(s.messages.filter(m => m.chat === chat).length === 0, 'после очистки история пуста у обоих');
+ok((s.chats.find(x => x.id === chat) || {}).clearedByName != null, 'в чате видно, кто его очистил');
+r = await call(A, '/api/chats/' + chat + '/archives', {}, admin.token);
+ok(r.status === 200 && r.d.archives.length === 0, 'список архивов пуст после удаления');
 
 // ── присутствие и сессии
 await call(A, '/api/sync?since=0&active=1', {}, admin.token);

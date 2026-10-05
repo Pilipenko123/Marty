@@ -263,11 +263,23 @@ let quoteMsg = null;
   const texts = [];
   for (const m of s.messages.filter(m => m.chat === chat1 && !m.parent)) texts.push((await decJ(okey, m.blob)).text);
   ok(texts.some(t => t.includes('пингвин')), 'новый участник читает всю прошлую историю чата');
+  // ── pkg3-12: ремонт ключа чата (кому доставить копию)
+  const miss0 = await call('/api/chats/' + chat1 + '/keys/missing', {}, admin.token);
+  ok(miss0.status === 200 && Array.isArray(miss0.d.missing) && miss0.d.missing.length === 0,
+    'у всех участников есть ключ чата — список «кому доставить» пуст');
+  ok((await call('/api/chats/' + chat1 + '/keys/missing', {}, admin.token + 'x')).status === 401,
+    'список «кому доставить» закрыт от посторонних');
+  ok((await call('/api/chats/' + chat1 + '/keys', { method: 'POST', body: { userId: outsider.id, blob: 'x'.repeat(10) } }, admin.token)).status === 409,
+    'готовый ключ участника не перезаписывается');
+  ok((await call('/api/chats/' + chat1 + '/keys', { method: 'POST', body: { userId: 'u-nope', blob: 'x'.repeat(10) } }, admin.token)).status === 400,
+    'ключ нельзя доставить тому, кто не в чате');
   ok((await call('/api/chats/' + chat1 + '/members', { method: 'POST', body: { remove: [third.id] } }, outsider.token)).status === 403,
     'исключать из чата может только его создатель');
   ok((await call('/api/chats/' + chat1 + '/members', { method: 'POST', body: { remove: [outsider.id] } }, admin.token)).status === 200,
     'создатель чата убрал участника');
   ok(!(await syncOf(outsider)).chats.some(x => x.id === chat1), 'убранный участник больше не видит чат');
+  ok((await call('/api/chats/' + chat1 + '/keys/missing', {}, outsider.token)).status === 403,
+    'убранный участник не доступа к ремонту ключей чата');
 }
 
 // ── права на удаление
@@ -292,12 +304,25 @@ let quoteMsg = null;
   ok(!data.messages.some(m => m.chat === chat2 && false), 'в выгрузке только свои чаты');
   ok((await call('/api/chats/' + chat1 + '/archive', { method: 'POST', body: { reset: true } }, third.token)).status === 403,
     'архивировать чат на сервере может только создатель');
-  const a = await call('/api/chats/' + chat1 + '/archive', { method: 'POST', body: { reset: true } }, admin.token);
+  ok((await call('/api/chats/' + chat1 + '/archive', { method: 'POST', body: { reset: true, codeProof: hex(await pbkdf2('нет-такого-слова', (await call('/api/state')).d.codeProofSalt)) } }, admin.token)).status === 403,
+    'архивация с неверным кодовым словом отклонена');
+  const proof = hex(await pbkdf2(CODE, (await call('/api/state')).d.codeProofSalt));
+  const a = await call('/api/chats/' + chat1 + '/archive', { method: 'POST', body: { reset: true, codeProof: proof } }, admin.token);
   ok(a.status === 200 && a.d.cleared, 'создатель заархивировал чат и очистил переписку');
-  const dl = await fetch(B + '/api/archives/' + a.d.archive.file, { headers: { Authorization: 'Bearer ' + friend.token } });
+  const noWord = await fetch(B + '/api/archives/' + a.d.archive.file, { headers: { Authorization: 'Bearer ' + friend.token } });
+  ok(noWord.status === 403, 'без кодового слова тело архива не отдаётся');
+  const dl = await fetch(B + '/api/archives/' + a.d.archive.file, { headers: { Authorization: 'Bearer ' + friend.token, 'X-Code-Proof': proof } });
   ok((await dl.json()).messages.length === before, 'участник чата скачивает архив себе');
-  const denied = await fetch(B + '/api/archives/' + a.d.archive.file, { headers: { Authorization: 'Bearer ' + outsider.token } });
+  const denied = await fetch(B + '/api/archives/' + a.d.archive.file, { headers: { Authorization: 'Bearer ' + outsider.token, 'X-Code-Proof': proof } });
   ok(denied.status === 403, 'посторонний архив скачать не может');
+  const rs = await call('/api/chats/' + chat1 + '/restore', { method: 'POST', body: { file: a.d.archive.file, codeProof: proof } }, friend.token);
+  ok(rs.status === 200 && rs.d.restored === before, 'любой участник восстанавливает архив обратно в чат');
+  ok((await syncOf(admin)).messages.filter(m => m.chat === chat1).length === before, 'восстановленная история видна всем');
+  await call('/api/chats/' + chat1 + '/archive', { method: 'POST', body: { reset: true, codeProof: proof } }, admin.token);
+  const del = await call('/api/archives/' + a.d.archive.file, { method: 'DELETE' }, friend.token);
+  ok(del.status === 200, 'участник удаляет архив с сервера');
+  ok((await fetch(B + '/api/archives/' + a.d.archive.file, { headers: { Authorization: 'Bearer ' + friend.token, 'X-Code-Proof': proof } })).status === 404,
+    'после удаления архив недоступен');
   ok((await syncOf(admin)).messages.filter(m => m.chat === chat1).length === 0, 'после архивации чат пуст');
   ok((await syncOf(friend)).messages.some(m => m.chat === chat2), 'другие чаты архивация не затронула');
 }
