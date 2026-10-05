@@ -641,3 +641,16 @@ html,body{overflow-x:hidden}
 .retry-send{margin-left:6px;padding:1px 8px;border-radius:10px;border:1px solid rgba(224,82,74,.55);
   background:transparent;color:#e0524a;font-size:11px;cursor:pointer;line-height:1.5}
 .retry-send:hover{background:rgba(224,82,74,.12)}
+
+/* ── шкала первой загрузки: стадия и проценты поверх пустого чата ── */
+#load-ui{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,#12323f,#1b4354 45%,#2067b0);transition:opacity .25s;}
+#load-ui.hidden{display:none;}
+#load-ui .brand h1,#load-ui .brand{color:#fff;margin-bottom:10px;}
+#load-ui .logo{filter:brightness(0) invert(1);}
+#load-ui .lockup span{color:#fff;border-left-color:rgba(255,255,255,.4);}
+.lu-box{width:min(420px,86vw);text-align:center;}
+.lu-stage{color:#dceaf2;font-size:14px;}
+.lu-bar{height:8px;border-radius:6px;background:rgba(255,255,255,.22);margin:14px auto 8px;overflow:hidden;max-width:320px;}
+.lu-bar i{display:block;height:100%;width:0;background:#fff;transition:width .25s;}
+.lu-pct{color:#eaf4fa;font-size:13px;font-variant-numeric:tabular-nums;min-height:18px;}

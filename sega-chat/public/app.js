@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-16';
+const BUILD = 'pkg3-17';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -301,6 +301,39 @@ async function api(path, opts = {}) {
   return data;
 }
 
+// ─────────────────────────────────────────── шкала первой загрузки
+// Перекрывает экран поверх всего, пока история едет и расшифровывается:
+// человек видит стадию и честные проценты вместо «чёрного окна» и пустого чата.
+const loadUi = {
+  el: null,
+  node() {
+    if (this.el) return this.el;
+    const d = document.createElement('div');
+    d.id = 'load-ui';
+    d.innerHTML = `<div class="lu-box">
+      <div class="brand"><h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1></div>
+      <div class="lu-stage" id="lu-stage">Соединяемся с облаком…</div>
+      <div class="lu-bar"><i id="lu-fill"></i></div>
+      <div class="lu-pct" id="lu-pct"></div>
+    </div>`;
+    document.body.appendChild(d);
+    this.el = d;
+    return d;
+  },
+  show(stage, pct, note) {
+    const d = this.node();
+    d.classList.remove('hidden');
+    if (stage) $('#lu-stage').textContent = stage;
+    const fill = $('#lu-fill'), p = $('#lu-pct');
+    if (pct == null) { fill.style.width = '10%'; p.textContent = note || ''; }
+    else {
+      fill.style.width = Math.max(4, Math.min(100, pct)) + '%';
+      p.textContent = Math.round(pct) + '%' + (note ? ' · ' + note : '');
+    }
+  },
+  hide() { if (this.el) this.el.classList.add('hidden'); }
+};
+
 const screen = name => {
   ['loading', 'setup', 'auth', 'app']
     .forEach(n => document.getElementById('screen-' + n).classList.toggle('hidden', n !== name));
@@ -324,11 +357,12 @@ async function boot() {
     return;
   }
   let st;
-  try { st = await api('/api/state'); } catch (e) { toast('Сервер недоступен: ' + e.message, true); return; }
+  loadUi.show('Соединяемся с облаком…', null);
+  try { st = await api('/api/state'); } catch (e) { loadUi.hide(); toast('Сервер недоступен: ' + e.message, true); return; }
   S.maxUpload = Number(st.maxUpload || DEFAULT_MAX_UPLOAD);
   S.codeProofSalt = st.codeProofSalt || null;   // для проверки кодового слова архивов
   S.serverBuild = st.build || 'без метки (старше pkg2-3)';
-  if (st.setupRequired) return screen('setup');
+  if (st.setupRequired) { loadUi.hide(); return screen('setup'); }
 
   const sess = loadSessionRaw();
   if (sess && sess.token) {
@@ -338,6 +372,7 @@ async function boot() {
     if (sess.priv) { S.privRaw = fromB64(sess.priv); S.priv = await importPriv(S.privRaw); }
     try { await startApp(); return; } catch (e) { clearSession(); S.token = null; }
   }
+  loadUi.hide();
   screen('auth');
 }
 
@@ -622,14 +657,19 @@ async function prepareChats() {
 async function startApp() {
   S.lastReactSeen = Date.now();   // старые реакции не будят уведомления
   screen('app');
+  S.initialLoad = true; S.loadRec = 0;
+  loadUi.show('Загружаем историю', 0);
   S.seq = 0; S.gen = -1; S.rsince = 0; S.chg = 0; S.retry = {};
   S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
   S.keyIssue = new Map();
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
   await sync(true);
+  S.initialLoad = false;
+  loadUi.show('Расшифровываем сообщения', 100);
   if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
   S.sig = ''; renderAll(); renderMessages(true);
+  requestAnimationFrame(() => requestAnimationFrame(() => loadUi.hide()));
   wake('старт приложения');
   loop();
   if (!S.priv) setTimeout(() => { if (!S.priv) openRestoreKeys(); }, 600);
@@ -753,6 +793,14 @@ async function sync(initial) {
   return syncPromise;
 }
 
+function loadProgress(data, fresh) {
+  if (!S.initialLoad) return;
+  S.loadRec = (S.loadRec || 0) + fresh.reduce((a, m) => a + ((m.blob || '').length + 40), 0);
+  const total = Number(data.loadB) || 0;
+  const pct = total ? Math.min(99, S.loadRec / total * 100) : null;
+  loadUi.show('Загружаем историю', pct, fmtBytes(S.loadRec) + (total ? ' из ' + fmtBytes(total) : ''));
+}
+
 async function syncOnce(initial) {
   let data = await api('/api/sync?since=' + S.seq + '&rsince=' + (S.rsince || 0) + '&cchg=' + (S.chg || 0) + (document.hidden ? '' : '&active=1'));
   await applySyncMeta(data);
@@ -774,6 +822,7 @@ async function syncOnce(initial) {
     await decryptSmart(fresh);
     freshAll.push(...fresh);
   }
+  loadProgress(data, fresh);
   S.seq = data.seq;
   S.gen = data.gen;
 
@@ -787,6 +836,7 @@ async function syncOnce(initial) {
       await decryptSmart(fresh);
       freshAll.push(...fresh);
     }
+    loadProgress(data, fresh);
     S.seq = data.seq; S.gen = data.gen;
   }
 
@@ -3222,11 +3272,100 @@ function renderBackups(list, where) {
   box.innerHTML = list.map(b => `<div class="mrow bkrow">
       <span class="nm"><span class="bk-date">${escapeHtml(bkWhen(b.at))}</span>
       <span class="tiny muted">${escapeHtml(fmtBytes(b.bytes))} · ${escapeHtml(b.name)}</span></span>
-      <button class="mini" data-bk="${escapeHtml(b.name)}" data-act="get">скачать</button>
-      <button class="mini danger" data-bk="${escapeHtml(b.name)}" data-act="del">удалить</button>
+      <button class="mini" data-bk="${escapeHtml(b.name)}" data-key="${escapeHtml(b.key)}" data-bytes="${b.bytes || 0}" data-act="get">скачать</button>
+      <button class="mini" data-bk="${escapeHtml(b.name)}" data-key="${escapeHtml(b.key)}" data-bytes="${b.bytes || 0}" data-act="rst">восстановить</button>
+      <button class="mini danger" data-bk="${escapeHtml(b.name)}" data-key="${escapeHtml(b.key)}" data-act="del">удалить</button>
     </div>`).join('')
+    + `<div style="margin-top:10px"><button class="mini" id="bk-upl">Восстановить из файла с компьютера…</button>
+       <input type="file" id="bk-upl-file" accept=".sbgz,application/octet-stream" style="display:none"></div>`
     + `<p class="tiny muted" style="margin-top:8px">${escapeHtml(where || '')}</p>`;
 }
+const DL_CHUNK = 2500000;   // кусок скачивания копии: с запасом под потолок ответа функции
+async function errOf(res) {
+  try { return (await res.json()).error || ('Ошибка ' + res.status); } catch (e) { return 'Ошибка ' + res.status; }
+}
+function b64Of(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+/** Скачивает копию: целиком, если маленькая, иначе по кусочкам с процентами на кнопке. */
+async function downloadBackup(name, bytes, btn) {
+  const hdr = { headers: { Authorization: 'Bearer ' + S.token } };
+  const url = BASE + '/api/admin/backups/' + encodeURIComponent(name);
+  if (!bytes || bytes <= 3200000) {
+    btn.textContent = 'качаем…';
+    const res = await fetch(url, hdr);
+    if (!res.ok) throw new Error(await errOf(res));
+    saveBlob(await res.blob(), name);
+  } else {
+    const parts = [];
+    let off = 0, rec = 0;
+    while (off < bytes) {
+      const len = Math.min(DL_CHUNK, bytes - off);
+      const res = await fetch(url + '?off=' + off + '&len=' + len, hdr);
+      if (!res.ok) throw new Error(await errOf(res));
+      const piece = new Uint8Array(await res.arrayBuffer());
+      parts.push(piece); rec += piece.length; off += piece.length;
+      btn.textContent = Math.round(rec / bytes * 100) + '%';
+      if (!piece.length) break;
+    }
+    saveBlob(new Blob(parts), name);
+    toast('Копия скачана: ' + fmtBytes(rec));
+  }
+  btn.disabled = false; btn.textContent = 'скачать';
+}
+/** Восстановление из копии, лежащей в ящике. */
+async function restoreFromKey(key, name, btn) {
+  if (!confirm('Восстановить базу из копии ' + name + '?\n\n'
+    + 'Переписка станет такой, как на момент копии; всё, что написано позже, заменится.\n'
+    + 'Перед этим мессенджер сам сделает страховочную копию текущего состояния.')) return;
+  const word = await askCodeword('Восстановление из копии',
+    'Введите кодовое слово мессенджера — база будет заменена содержимым копии.', false).catch(() => null);
+  if (!word) return;
+  btn.disabled = true; btn.textContent = 'восстанавливаем…';
+  try {
+    const r = await api('/api/admin/restore', { method: 'POST', body: { key, codeProof: await codeProofOf(word) } });
+    toast('Готово: база заменена копией. Страховочная копия: ' + (r.safety || '—'));
+    setTimeout(() => location.reload(), 1500);
+  } finally {
+    btn.disabled = false; btn.textContent = 'восстановить';
+  }
+}
+/** Восстановление из файла .sbgz с компьютера: загружаем кусочками, затем применяем. */
+async function restoreFromFile(file) {
+  if (!confirm('Восстановить базу из файла ' + file.name + ' (' + fmtBytes(file.size) + ')?\n\n'
+    + 'Текущее состояние сначала сохранится в страховочную копию.')) return;
+  const word = await askCodeword('Восстановление из файла',
+    'Введите кодовое слово мессенджера — база будет заменена содержимым файла.', false).catch(() => null);
+  if (!word) return;
+  const btn = $('#bk-upl');
+  if (btn) { btn.disabled = true; btn.textContent = 'читаем файл…'; }
+  try {
+    const u8 = new Uint8Array(await file.arrayBuffer());
+    const init = await api('/api/admin/restore/upload', {
+      method: 'POST', body: { step: 'init', size: u8.length, parts: Math.max(1, Math.ceil(u8.length / 675000)) }
+    });
+    const chunk = Number(init.chunk || 900000);
+    for (let off = 0, i = 0; off < u8.length; off += Math.floor(chunk * 0.75), i++) {
+      const slice = u8.subarray(off, Math.min(u8.length, off + Math.floor(chunk * 0.75)));
+      await api('/api/admin/restore/upload', {
+        method: 'POST', body: { step: 'chunk', id: init.id, i, data: b64Of(slice) }
+      });
+      if (btn) btn.textContent = 'загружаем ' + Math.round(Math.min(100, off / u8.length * 100)) + '%';
+    }
+    if (btn) btn.textContent = 'восстанавливаем…';
+    const r = await api('/api/admin/restore/upload', {
+      method: 'POST', body: { step: 'fin', id: init.id, codeProof: await codeProofOf(word) }
+    });
+    toast('Готово: база заменена копией из файла. Страховочная копия: ' + (r.safety || '—'));
+    setTimeout(() => location.reload(), 1500);
+  } catch (ex) {
+    toast(ex.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = 'Восстановить из файла с компьютера…'; }
+  }
+}
+
 async function initBackups() {
   const where = $('#ad-bk-where'), make = $('#ad-bk-make');
   try {
@@ -3254,32 +3393,37 @@ async function initBackups() {
   if (list && !list.dataset.bound) {
     list.dataset.bound = '1';
     list.addEventListener('click', async e => {
-      const b = e.target.closest('button[data-bk]'); if (!b) return;
-      const name = b.dataset.bk;
-      try {
-        if (b.dataset.act === 'del') {
-          if (!confirm('Удалить эту копию из облака? Отменить будет нельзя.')) return;
-          await api('/api/admin/backups/' + encodeURIComponent(name), { method: 'DELETE' });
-          toast('Копия удалена');
-        } else {
-          b.disabled = true; b.textContent = 'качаем…';
-          const res = await fetch(BASE + '/api/admin/backups/' + encodeURIComponent(name),
-            { headers: { Authorization: 'Bearer ' + S.token } });
-          if (!res.ok) {
-            let m = 'Не удалось скачать';
-            try { m = (await res.json()).error || m; } catch (e2) {}
-            throw new Error(m);
+      const b = e.target.closest('button[data-bk]');
+      if (b) {
+        const name = b.dataset.bk;
+        try {
+          if (b.dataset.act === 'del') {
+            if (!confirm('Удалить эту копию из облака? Отменить будет нельзя.')) return;
+            await api('/api/admin/backups/' + encodeURIComponent(name), { method: 'DELETE' });
+            toast('Копия удалена');
+            initBackups();
+          } else if (b.dataset.act === 'rst') {
+            await restoreFromKey(b.dataset.key || ('backups/' + name), name, b);
+          } else {
+            b.disabled = true;
+            await downloadBackup(name, Number(b.dataset.bytes || 0), b);
           }
-          saveBlob(await res.blob(), name);
-          b.disabled = false; b.textContent = 'скачать';
-          return;
+        } catch (ex) {
+          const err = $('#ad-bk-err'); if (err) err.textContent = ex.message;
+          toast(ex.message, true);
+          b.disabled = false;
+          b.textContent = b.dataset.act === 'get' ? 'скачать' : b.dataset.act === 'rst' ? 'восстановить' : 'удалить';
         }
-        initBackups();
-      } catch (ex) {
-        const err = $('#ad-bk-err'); if (err) err.textContent = ex.message;
-        toast(ex.message, true);
-        b.disabled = false; b.textContent = b.dataset.act === 'get' ? 'скачать' : 'удалить';
+        return;
       }
+      const upl = e.target.closest('#bk-upl');
+      if (upl) { $('#bk-upl-file').click(); return; }
+    });
+    list.addEventListener('change', e => {
+      if (e.target.id !== 'bk-upl-file') return;
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) restoreFromFile(f);
     });
   }
   if (make && !make.dataset.bound) {

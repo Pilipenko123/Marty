@@ -42,7 +42,7 @@ function createYdbStore(opts = {}) {
   const presenceEvery = Number(opts.presenceEvery || process.env.PRESENCE_EVERY || 60000);
 
   let db = null;                  // переживает вызовы функции, пока экземпляр «тёплый»
-  let cache = { dv: -1, sv: -1 };
+  let cache = { dv: -1, sv: -1, rv: -1 };
   let lastSeq = {};               // чат -> последний seq (чтобы не опрашивать пустое)
   let chunkK = new Map();         // сколько кусков у записи
   let loadedFull = new Set();
@@ -222,6 +222,15 @@ function createYdbStore(opts = {}) {
       m = null;
     }
     if (!m) m = await initMeta();
+
+    // «поколение восстановления»: если таблицу целиком заменили из копии,
+    // все кэши экземпляра (справочник, сообщения, аватары) больше не верны
+    const rvNow = num(m.rv);
+    if (cache.rv !== rvNow) {
+      db = null; chunkK = new Map(); loadedFull = new Set(); lastSeq = {};
+      presence = {}; snap = null;
+      cache = { dv: -1, sv: -1, rv: rvNow };
+    }
 
     if (!db) db = emptyDb();
     const core = JSON.parse(str(m.d) || '{}');
@@ -572,6 +581,85 @@ function createYdbStore(opts = {}) {
     async countArchiveParts(file) { return countParts('arc', file); },
 
     /**
+     * Восстановление таблицы из резервной копии: убрать всё текущее,
+     * записать строки копии как есть (куски и счётчики уже внутри строк).
+     * Мета-строка приходит из копии, поэтому версии откатываются вместе с ней;
+     * сверху restore ставит свежий «rv» — по нему соседние экземпляры функции
+     * понимают, что таблицу заменили, и сбрасывают свои кэши целиком.
+     */
+    async restoreRows(rows) {
+      let start = null, dropped = 0;
+      do {
+        const r = await ydb.call('Scan', Object.assign(
+          { TableName: table, Limit: 500, ProjectionExpression: 'pk, sk' },
+          start ? { ExclusiveStartKey: start } : {}));
+        const items = r.Items || [];
+        await Promise.all(items.map(it => ydb.del(table, { pk: it.pk, sk: it.sk })));
+        dropped += items.length;
+        start = r.LastEvaluatedKey && Object.keys(r.LastEvaluatedKey).length ? r.LastEvaluatedKey : null;
+      } while (start);
+      for (let i = 0; i < rows.length; i += 12) {
+        await Promise.all(rows.slice(i, i + 12).map(row => {
+          const Item = row.item || Object.assign(
+            { pk: S(row.pk), sk: S(row.sk) },
+            row.d !== undefined && row.d !== null ? { d: S(row.d) } : {},
+            row.k !== undefined && row.k !== null ? { k: N(row.k) } : {});
+          return ydb.put(table, Item);
+        }));
+      }
+
+      // ── починка копий, сделанных старым («сжимающим») дампом: у таких строк
+      // нет служебных колонок. Восстанавливаем счётчики чатов, указатели
+      // сообщений и версии меты из самого содержимого сообщений.
+      const legacy = rows.some(row => !row.item);
+      let maxSeq = 0;
+      for (const row of rows) {
+        if (String(row.pk).startsWith('m#')) {
+          const q = Number(String(row.sk).split('|')[0]);
+          if (q > maxSeq) maxSeq = q;
+        }
+      }
+      if (legacy) {
+        const msgs = [];
+        for (const row of rows) {
+          if (String(row.pk).startsWith('m#') && row.d) {
+            try { msgs.push(JSON.parse(row.d)); } catch (e) {}
+          }
+        }
+        const per = new Map();
+        for (const m of msgs) {
+          const rec = per.get(m.chat) || { n: 0, b: 0, ls: 0 };
+          rec.n++; rec.b += (m.blob || '').length + 40; rec.ls = Math.max(rec.ls, m.seq || 0);
+          per.set(m.chat, rec);
+        }
+        const jobs = [];
+        for (const [chatId, rec] of per) {
+          jobs.push(ydb.put(table, { pk: S('cstat'), sk: S(chatId), n: N(rec.n), b: N(rec.b), t: N(0), ls: N(rec.ls) }));
+        }
+        for (const m of msgs) jobs.push(ydb.put(table, { pk: S('mid'), sk: S(m.id), c: S(m.chat), s: N(m.seq) }));
+        for (let i = 0; i < jobs.length; i += 12) await Promise.all(jobs.slice(i, i + 12));
+      }
+
+      // помечаем «поколение восстановления» и освежаем версии меты: соседние
+      // экземпляры функции и клиенты поймут, что таблицу заменили целиком
+      const meta = await ydb.get(table, K('meta', 'root'));
+      if (meta && meta.Item) {
+        const it = Object.assign({}, meta.Item);
+        it.seq = N(Math.max(maxSeq, num(it.seq)));
+        it.gen = N(num(it.gen) + 1);
+        it.dv = N(num(it.dv) + 1);
+        it.sv = N(num(it.sv) + 1);
+        it.chg = N(num(it.chg));
+        if (it.pres === undefined) it.pres = S('{}');
+        it.rv = N(Date.now());
+        await ydb.put(table, it);
+      }
+      db = null; opened = false; cache = { dv: -1, sv: -1, rv: -1 }; chunkK = new Map();
+      loadedFull = new Set(); lastSeq = {}; presence = {}; snap = null; pend = null;
+      return { dropped, written: rows.length };
+    },
+
+    /**
      * Полная выгрузка таблицы — для резервной копии.
      *
      * В отличие от обычной загрузки (которая читает только нужные чаты), здесь
@@ -591,10 +679,9 @@ function createYdbStore(opts = {}) {
         ));
         for (const it of (r.Items || [])) {
           const pk = str(it.pk);
-          const row = { pk, sk: str(it.sk) };
-          if (it.d !== undefined && it.d !== null) row.d = str(it.d);
-          if (it.k !== undefined && it.k !== null) row.k = num(it.k);
-          rows.push(row);
+          // строка копии хранит ВСЕ колонки как есть (seq, gen, dv, sv, счётчики
+          // чатов, указатели сообщений) — иначе восстановить базу невозможно
+          rows.push({ pk, sk: str(it.sk), item: it });
           // «m#abc» -> «m»: считаем разделы, чтобы в отчёте было видно состав
           const group = pk.indexOf('#') > 0 ? pk.slice(0, pk.indexOf('#')) : pk;
           counts[group] = (counts[group] || 0) + 1;

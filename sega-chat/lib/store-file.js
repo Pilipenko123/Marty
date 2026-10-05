@@ -164,7 +164,29 @@ function createFileStore(opts = {}) {
       };
     },
 
-    async close() { if (db) writeNow(); }
+    async close() { if (db) writeNow(); },
+
+    /**
+     * Восстановление из копии файлового режима: база целиком плюс соседние
+     * файлы (архивы, куски вложений, фоны и иконки чатов).
+     */
+    async restoreFiles(payload) {
+      const files = payload.files || {};
+      let written = 0;
+      for (const [rel, text] of Object.entries(files)) {
+        const full = path.join(dataDir, rel);
+        if (!full.startsWith(dataDir)) continue;      // всякие «../» из копии не пишем
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, text);
+        written++;
+      }
+      db = payload.db && typeof payload.db === 'object' ? payload.db : emptyDb();
+      if (!db.serverSecret) db.serverSecret = crypto.randomBytes(32).toString('hex');
+      migrate(db);
+      recomputeStats(db);
+      writeNow();
+      return { dropped: null, written };
+    }
   };
   return store;
 }

@@ -147,6 +147,14 @@ function createS3(opts = {}) {
       return res.buffer;
     },
 
+    /** Прочитать диапазон байт объекта — чтобы выдавать большие копии по кусочкам. */
+    async getRange(key, off, len) {
+      const res = await send('GET', url(key), null, null, { Range: `bytes=${off}-${off + len - 1}` });
+      if (res.status === 404) return null;
+      if (res.status !== 206 && res.status !== 200) throw errorFrom(res.status, res.buffer.toString('utf8'));
+      return res.buffer;
+    },
+
     /** Только метаданные (размер, дата). Несуществующий -> null. */
     async head(key) {
       const res = await send('HEAD', url(key), null, null, null);

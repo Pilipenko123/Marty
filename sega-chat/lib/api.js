@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-16';
+const BUILD = 'pkg3-17';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -27,7 +27,7 @@ function createApi(store, opts = {}) {
   const MAX_MEMBERS = Number(opts.maxMembers || process.env.MAX_MEMBERS || 200);
   const MAX_UPLOAD = Number(opts.maxUpload || process.env.MAX_UPLOAD || 3.1 * MB);
   const SYNC_MAX_COUNT = Number(opts.syncMaxCount || 400);
-  const SYNC_MAX_BYTES = Number(opts.syncMaxBytes || process.env.SYNC_MAX_BYTES || 1.2 * MB);
+  const SYNC_MAX_BYTES = Number(opts.syncMaxBytes || process.env.SYNC_MAX_BYTES || 2.8 * MB);
   const UP_MAX = Number(opts.upMax || process.env.UP_MAX || 25 * MB);   // предел одного вложения
   const UP_CHUNK = 900000;                                               // символов в одном куске загрузки
 
@@ -542,11 +542,15 @@ function createApi(store, opts = {}) {
       if (process.env.CHG_DEBUG) console.error(`[chg] rsince=${rsince} cchg=${cchg} db.chg=${db.chg} changed=${changed.length} gone=${delta.gone.length} resync=${delta.resync}`);
       store.trimChanges().catch(() => {});
 
+      const mch = myChats(me.id);
       return J(200, {
         messages: out,
         changed, gone: delta.gone, rnow, chg: db.chg || 0, resync: delta.resync,
-        chats: myChats(me.id).map(c => publicChat(c, me.id)),
+        chats: mch.map(c => publicChat(c, me.id)),
         seq: seqOut, more, gen: db.gen,
+        // сколько всего истории у участника — клиент рисует честные проценты загрузки
+        loadN: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).n || 0), 0),
+        loadB: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).b || 0), 0),
         users: db.users.map(publicUser),
         usage: usage(),
         me: publicUser(me),
@@ -1135,17 +1139,79 @@ function createApi(store, opts = {}) {
         }
 
         if (method === 'GET') {
+          const off = Math.max(0, Number(query.get('off') || 0));
+          const len = Math.max(0, Number(query.get('len') || 0));
+          if (len > 0) {
+            // большой файл отдаём по кусочкам: у облачной функции потолок ответа,
+            // а диапазон читается прямо из хранилища, без загрузки копии целиком
+            if (len > BACKUP_DL_MAX) return E(413, 'Кусок больше предела выдачи — уменьшите len');
+            let part;
+            try { part = await backup.s3().getRange(key, off, len); }
+            catch (e) { return E(502, 'Не удалось прочитать кусок копии: ' + e.message); }
+            if (!part) return E(404, 'Такой копии нет');
+            return BIN(part, key.split('/').pop() + '.part', 'application/octet-stream');
+          }
           let buf;
           try { buf = await backup.readBackup(key); }
           catch (e) { return E(502, 'Не удалось прочитать копию: ' + e.message); }
           if (!buf) return E(404, 'Такой копии нет');
           if (buf.length > BACKUP_DL_MAX) {
-            return E(413, 'Копия ' + Math.round(buf.length / MB * 10) / 10 + ' МБ — больше предела выдачи через функцию. '
-              + 'Скачайте её из хранилища командой: yc storage s3 cp s3://' + backup.config().bucket + '/' + key + ' .');
+            return E(413, 'Копия ' + Math.round(buf.length / MB * 10) / 10 + ' МБ — больше разовой выдачи через функцию. '
+              + 'Кнопка «скачать» в чате загрузит её по кусочкам; с другого компьютера — консоль: '
+              + 'Object Storage → ' + backup.config().bucket + ' → ' + key + ' → «Скачать».');
           }
           return BIN(buf, key.split('/').pop(), 'application/octet-stream');
         }
       }
+    }
+
+    // --- восстановление из резервной копии (из ящика или файлом с компьютера)
+    if (pathname === '/api/admin/restore' && method === 'POST') {
+      const b = req.body || {};
+      if (!verifyCodeProof(b.codeProof)) return E(403, 'Восстановление из копии защищено кодовым словом');
+      const key = String(b.key || '');
+      if (!/^[A-Za-z0-9/.\-_]+$/.test(key) || !(key.startsWith('backups/') || key.startsWith('prerestore/'))) {
+        return E(400, 'Неверное имя копии');
+      }
+      let buf;
+      try { buf = await backup.readBackup(key); }
+      catch (e) { return E(502, 'Не удалось прочитать копию: ' + e.message); }
+      if (!buf) return E(404, 'Такой копии нет');
+      return doRestore(buf);
+    }
+
+    if (pathname === '/api/admin/restore/upload' && method === 'POST') {
+      const b = req.body || {};
+      if (b.step === 'init') {
+        const size = Number(b.size) || 0;
+        if (size <= 0) return E(400, 'Пустой файл');
+        if (size > 64 * MB) return E(413, 'Файл больше 64 МБ восстановить нельзя');
+        const id = 'rst-' + uid();
+        await store.putUpMeta(id, { restore: 1, size, parts: Math.max(1, Number(b.parts) || 1), ts: Date.now() });
+        return J(200, { id, chunk: UP_CHUNK });
+      }
+      if (b.step === 'chunk') {
+        const meta = await store.getUpMeta(String(b.id || ''));
+        if (!meta || !meta.restore) return E(404, 'Загрузка не найдена — начните заново');
+        await store.putUpPart('', String(b.id), Number(b.i) || 0, String(b.data || ''));
+        return J(200, { ok: true });
+      }
+      if (b.step === 'fin') {
+        if (!verifyCodeProof(b.codeProof)) return E(403, 'Восстановление из копии защищено кодовым словом');
+        const meta = await store.getUpMeta(String(b.id || ''));
+        if (!meta || !meta.restore) return E(404, 'Загрузка не найдена — начните заново');
+        const parts = [];
+        for (let i = 0; i < meta.parts; i++) {
+          const pc = await store.getUpPart('', String(b.id), i);
+          if (pc == null) return E(400, 'Не все куски файла доехали — начните загрузку заново');
+          parts.push(pc);
+        }
+        await store.delUp(String(b.id));
+        const buf = Buffer.from(parts.join(''), 'base64');
+        if (Math.abs(buf.length - Number(meta.size)) > 8) return E(400, 'Файл собрался неточно — начните загрузку заново');
+        return doRestore(buf);
+      }
+      return E(400, 'Неизвестный шаг загрузки');
     }
 
     // --- кусковая загрузка больших вложений (видео, аудио, файлы до 25 МБ)
@@ -1304,6 +1370,42 @@ function createApi(store, opts = {}) {
     }
 
     return E(404, 'Неизвестный метод API');
+  }
+
+  /**
+   * Восстановить базу из распакованной копии. Всегда сначала страховочная
+   * копия текущего состояния — чтобы откат был возможен даже после отката.
+   */
+  async function doRestore(buf) {
+    let payload;
+    try { payload = backup.open(buf, db.serverSecret); }
+    catch (e) { return E(400, 'Копия не открылась: ' + e.message); }
+    let safety = null;
+    try {
+      safety = await backup.createBackup({ store, db, build: BUILD, prefix: 'prerestore/' });
+    } catch (e) {
+      return E(502, 'Остановлено: не удалось сделать страховочную копию текущего состояния (' + e.message + ')');
+    }
+    let res;
+    try {
+      if (store.name === 'ydb') {
+        if (!Array.isArray(payload.rows)) return E(400, 'Копия не подходит для облачного восстановления (в ней нет записей таблицы)');
+        res = await store.restoreRows(payload.rows);
+      } else {
+        if (!payload.db || typeof payload.db !== 'object') return E(400, 'Копия не подходит для домашнего режима (в ней нет базы)');
+        res = await store.restoreFiles(payload);
+      }
+    } catch (e) {
+      return E(502, 'Восстановление прервано: ' + e.message);
+    }
+    db = await store.load();
+    return J(200, {
+      ok: true,
+      safety: safety ? safety.key : null,
+      dropped: res.dropped === undefined ? null : res.dropped,
+      written: res.written === undefined ? null : res.written,
+      createdAt: payload.createdAt || null
+    });
   }
 
   // ------------------------------------------------------------- точка входа

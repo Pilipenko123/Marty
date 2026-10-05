@@ -206,10 +206,12 @@ const unpacked = JSON.parse(zlib.gunzipSync(backupLib.decrypt(s3mock.objects.get
 ok(unpacked.format === 'sega-chat-cloud-backup-v1', 'формат копии опознаётся');
 ok(unpacked.build === BUILD, 'в копии записана отметка выпуска ' + BUILD);
 ok(unpacked.store === 'ydb' && unpacked.table === 'sega_chat', 'в копии указано, откуда она (ydb/sega_chat)');
-const blobs = unpacked.rows.map(x => x.d || '').join('|');
+const rowD = x => x.d !== undefined ? x.d : (x.item && x.item.d ? x.item.d.S : '');
+const blobs = unpacked.rows.map(rowD).join('|');
 ok(unpacked.rows.filter(x => x.pk.startsWith('m#')).length >= 5, 'в копии все пять сообщений');
 ok(blobs.includes('шифр-сообщение-4'), 'текст последнего сообщения на месте');
-ok(unpacked.rows.some(x => x.pk === 'user' && (x.d || '').includes('Поля')), 'в копии есть карточка второго участника');
+ok(unpacked.rows.some(x => x.pk === 'user' && rowD(x).includes('Поля')), 'в копии есть карточка второго участника');
+ok(unpacked.rows.some(x => x.pk === 'meta' && x.item && x.item.seq), 'копия хранит служебные колонки меты (seq/gen/dv/sv)');
 ok(unpacked.counts && unpacked.counts.user >= 2, 'в копии есть счётчики разделов: ' + JSON.stringify(unpacked.counts));
 
 // --- скачивание копии через сам мессенджер
@@ -297,6 +299,106 @@ const funpack = JSON.parse(zlib.gunzipSync(backupLib.decrypt(fs3.objects.get(fre
 ok(funpack.store === 'file' && funpack.db && Array.isArray(funpack.db.users), 'в копии файлового режима база целиком');
 ok(funpack.db.users.some(u => u.name === 'Локальный'), 'в копии есть участник локального мессенджера');
 delete process.env.CODE_BUCKET; delete process.env.S3_ENDPOINT;
+
+// ═══════════════════════ 5. кусковое скачивание и восстановление из копии
+console.log('\n══════════════════════════════════════════════════');
+console.log('  Кусковое скачивание и восстановление из копии');
+console.log('══════════════════════════════════════════════════');
+
+const snapSync = async (tok) => (await call(A, '/api/sync?since=0', {}, tok)).d;
+const before = await snapSync(adminToken);
+const beforeIds = before.messages.filter(m => !m.parent).map(m => m.id).sort();
+
+r = await call(A, '/api/admin/backup', { method: 'POST' }, adminToken);
+ok(r.status === 200 && r.d.ok, 'копия C1 создана перед изменениями');
+const c1 = r.d.backup;
+
+const added = await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'исчезнет-после-восстановления' } }, adminToken);
+ok(added.status === 200, 'сообщение добавлено ПОСЛЕ копии');
+const victimId = before.messages.find(m => !m.parent && m.uid === adminId).id;
+ok((await call(A, '/api/messages/' + victimId, { method: 'DELETE' }, adminToken)).status === 200, 'старое сообщение удалено ПОСЛЕ копии');
+
+{
+  const piece = await call(A, '/api/admin/backups/' + encodeURIComponent(c1.key) + '?off=0&len=64', {}, adminToken);
+  ok(piece.status === 200 && piece.raw.subarray(0, 8).toString('ascii') === 'SEGABK01', 'кусок с нуля начинается с магии копии');
+}
+
+r = await call(A, '/api/admin/restore', { method: 'POST', body: { key: c1.key, codeProof: hex(32) } }, adminToken);
+ok(r.status === 403, 'восстановление с неверным кодовым словом отклонено (403)');
+r = await call(A, '/api/admin/restore', { method: 'POST', body: { key: c1.key, codeProof: CODE_PROOF } }, guestToken);
+ok(r.status === 403, 'не администратор не может восстановить (403)');
+
+r = await call(A, '/api/admin/restore', { method: 'POST', body: { key: c1.key, codeProof: CODE_PROOF } }, adminToken);
+ok(r.status === 200 && r.d.ok, 'восстановление из копии в ящике прошло');
+ok(!!r.d.safety && String(r.d.safety).startsWith('prerestore/'), 'страховочная копия создана в папке prerestore/');
+const safetyKey = r.d.safety;
+
+let after = await snapSync(adminToken);
+ok(JSON.stringify(after.messages.filter(m => !m.parent).map(m => m.id).sort()) === JSON.stringify(beforeIds),
+  'сообщения вернулись к состоянию на момент копии');
+ok(!after.messages.some(m => m.blob === 'исчезнет-после-восстановления'), 'добавленное после копии сообщение исчезло');
+ok(after.messages.some(m => m.id === victimId), 'удалённое сообщение вернулось');
+
+ok(s3mock.objects.has(safetyKey), 'страховочная копия физически в бакете');
+r = await call(A, '/api/admin/restore', { method: 'POST', body: { key: safetyKey, codeProof: CODE_PROOF } }, adminToken);
+ok(r.status === 200 && r.d.ok, 'откат из страховочной копии прошёл');
+after = await snapSync(adminToken);
+ok(after.messages.some(m => m.blob === 'исчезнет-после-восстановления'), 'после отката сообщение «после копии» снова на месте');
+r = await call(A, '/api/admin/restore', { method: 'POST', body: { key: c1.key, codeProof: CODE_PROOF } }, adminToken);
+ok(r.status === 200, 'повторное восстановление C1 перед тестом большой копии');
+
+// ── большая копия: вложение ~4 МБ несжимаемых данных
+const big = crypto.randomBytes(4 * 1024 * 1024).toString('base64');
+const ini = await call(A, '/api/upload/init', {
+  method: 'POST',
+  body: { chat, name: 'big.bin', size: big.length, mime: 'application/octet-stream', parts: Math.ceil(big.length / 675000) }
+}, adminToken);
+ok(ini.status === 200, 'загрузка вложения ~4 МБ начата');
+for (let off = 0, i = 0; off < big.length; off += 675000, i++) {
+  await call(A, '/api/upload/chunk', { method: 'POST', body: { upId: ini.d.upId, i, data: big.slice(off, off + 675000) } }, adminToken);
+}
+r = await call(A, '/api/upload/fin', { method: 'POST', body: { upId: ini.d.upId, stored: big.length } }, adminToken);
+ok(r.status === 200, 'вложение собрано на сервере');
+r = await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'держи-файл', upId: ini.d.upId } }, adminToken);
+ok(r.status === 200, 'сообщение сослалось на вложение');
+
+r = await call(A, '/api/admin/backup', { method: 'POST' }, adminToken);
+ok(r.status === 200 && r.d.ok, 'большая копия создана');
+const bigc = r.d.backup;
+ok(bigc.bytes > 3200000, 'копия больше предела разовой выдачи (' + (Math.round(bigc.bytes / 1048576 * 10) / 10) + ' МБ)');
+const whole = await call(A, '/api/admin/backups/' + encodeURIComponent(bigc.key), {}, adminToken);
+ok(whole.status === 413, 'целиком большая копия не выдаётся (413) — кнопка скачает по кускам');
+
+let off2 = 0; const dparts = [];
+while (off2 < bigc.bytes) {
+  const len = Math.min(2500000, bigc.bytes - off2);
+  const pc = await call(A, '/api/admin/backups/' + encodeURIComponent(bigc.key) + '?off=' + off2 + '&len=' + len, {}, adminToken);
+  if (pc.status !== 200) { ok(false, 'кусок большой копии вернул ' + pc.status); break; }
+  dparts.push(pc.raw); off2 += pc.raw.length;
+}
+const assembled = Buffer.concat(dparts);
+ok(assembled.length === bigc.bytes, 'большая копия собрана из кусков целиком (' + assembled.length + ' байт)');
+ok(assembled.subarray(0, 8).toString('ascii') === 'SEGABK01', 'собранный файл — валидная копия');
+
+// ── восстановление из «файла с компьютера» (загрузка кусочками)
+await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'временное-перед-файлом' } }, adminToken);
+const ini2 = await call(A, '/api/admin/restore/upload', {
+  method: 'POST', body: { step: 'init', size: assembled.length, parts: Math.ceil(assembled.length / 675000) }
+}, adminToken);
+ok(ini2.status === 200, 'загрузка файла копии начата');
+for (let o = 0, i = 0; o < assembled.length; o += 675000, i++) {
+  const rc2 = await call(A, '/api/admin/restore/upload', {
+    method: 'POST', body: { step: 'chunk', id: ini2.d.id, i, data: assembled.subarray(o, o + 675000).toString('base64') }
+  }, adminToken);
+  if (rc2.status !== 200) ok(false, 'кусок файла копии не принят: ' + rc2.status);
+}
+const fin2 = await call(A, '/api/admin/restore/upload', {
+  method: 'POST', body: { step: 'fin', id: ini2.d.id, codeProof: CODE_PROOF }
+}, adminToken);
+ok(fin2.status === 200 && fin2.d.ok, 'восстановление из загруженного файла прошло');
+after = await snapSync(adminToken);
+ok(!after.messages.some(m => m.blob === 'временное-перед-файлом'), 'файловое восстановление вернуло базу к состоянию копии');
+ok(after.messages.some(m => m.upId), 'вложение из копии снова на месте');
 
 // ══════════════════════════════════════════════════ итог
 await wait(150);

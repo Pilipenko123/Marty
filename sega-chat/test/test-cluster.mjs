@@ -11,6 +11,7 @@
 
 import { spawn } from 'node:child_process';
 import { startMock } from './mock-ydb.mjs';
+import { startMockS3 } from './mock-s3.mjs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,9 +43,11 @@ async function waitReady(base) {
 }
 
 const mock = await startMock();
+const s3m = await startMockS3({ bucket: 'sega-chat-code', token: 'iam-cluster' });
 const env = {
   STORE: 'ydb', YDB_ENDPOINT: mock.endpoint, YDB_TABLE: 'sega_chat',
   YDB_ACCESS_KEY_ID: mock.accessKeyId, YDB_SECRET_ACCESS_KEY: mock.secretAccessKey,
+  CODE_BUCKET: 'sega-chat-code', S3_ENDPOINT: s3m.endpoint, YC_IAM_TOKEN: 'iam-cluster',
   HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0'
 };
 const procs = [];
@@ -286,6 +289,21 @@ ok(s.messages.filter(m => m.chat === chat).length === 0, 'после очист�
 ok((s.chats.find(x => x.id === chat) || {}).clearedByName != null, 'в чате видно, кто его очистил');
 r = await call(A, '/api/chats/' + chat + '/archives', {}, admin.token);
 ok(r.status === 200 && r.d.archives.length === 0, 'список архивов пуст после удаления');
+
+// ── восстановление из копии: соседний экземпляр видит заменённую таблицу
+{
+  const rc = await call(A, '/api/admin/backup', { method: 'POST' }, admin.token);
+  ok(rc.status === 200 && rc.d.ok, 'копия создана на A');
+  await call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'исчезнет-при-восстановлении' } }, admin.token);
+  const rr = await call(A, '/api/admin/restore', { method: 'POST', body: { key: rc.d.backup.key, codeProof: CODE_PROOF } }, admin.token);
+  ok(rr.status === 200 && rr.d.ok, 'восстановление на A прошло');
+  await wait(400);
+  const sB = await syncOf(B, james.token);
+  ok(!sB.messages.some(m => m.blob === 'исчезнет-при-восстановлении'),
+    'экземпляр B увидел заменённую таблицу (сообщения после копии нет)');
+  const sA = await syncOf(A, admin.token);
+  ok(!sA.messages.some(m => m.blob === 'исчезнет-при-восстановлении'), 'на A сообщения после копии тоже нет');
+}
 
 // ── присутствие и сессии
 await call(A, '/api/sync?since=0&active=1', {}, admin.token);

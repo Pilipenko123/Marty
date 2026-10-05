@@ -97,6 +97,21 @@ function inspect(buf, secret) {
   };
 }
 
+/**
+ * Распаковать копию для восстановления: подпись, расшифровка, разбор.
+ * Бросает ошибку, если файл не копия SEGA-CHAT или сделан другим мессенджером
+ * (секрет другой — расшифровка не состоится).
+ */
+function open(buf, secret) {
+  if (!Buffer.isBuffer(buf) || buf.length < MAGIC.length + IV_LEN + TAG_LEN) throw new Error('файл слишком короткий');
+  const json = zlib.gunzipSync(decrypt(buf, secret)).toString('utf8');
+  const payload = JSON.parse(json);
+  if (!payload || payload.app !== 'SEGA-CHAT' || String(payload.format || '') !== FORMAT) {
+    throw new Error('это не копия SEGA-CHAT или копия другого мессенджера');
+  }
+  return payload;
+}
+
 /** Имя файла копии: sega-chat-2026-10-03-142503.sbgz (время всемирное). */
 function stampName(d = new Date()) {
   const p = (n, w = 2) => String(n).padStart(w, '0');
@@ -126,6 +141,7 @@ async function createBackup(opts) {
   if (typeof store.flush === 'function') { try { await store.flush(db); } catch (e) {} }
   if (typeof store.dumpAll !== 'function') throw new Error('Хранилище не умеет выгружать копию');
 
+  const prefix = opts.prefix || c.prefix;   // страховочные копии перед восстановлением живут отдельно
   const dump = await store.dumpAll();
   const payload = {
     app: 'SEGA-CHAT',
@@ -147,7 +163,7 @@ async function createBackup(opts) {
   const blob = encrypt(gz, db.serverSecret);
 
   const at = Date.now();
-  const key = c.prefix + await freeName(client, c.prefix, stampName(new Date(at)));
+  const key = prefix + await freeName(client, prefix, stampName(new Date(at)));
   await client.put(key, blob, 'application/octet-stream');
 
   // самопроверка: читаем обратно и сверяем отпечаток
@@ -157,7 +173,7 @@ async function createBackup(opts) {
     verify = !!back && sha256(back) === sha256(blob);
   } catch (e) { verify = false; }
 
-  await trim(client, c);
+  await trim(client, Object.assign({}, c, { prefix }));
 
   return {
     key, at, bytes: blob.length, rawBytes: raw.length, gzBytes: gz.length,
@@ -209,7 +225,10 @@ async function listBackups(client) {
 async function readBackup(key, client) {
   const c = config();
   const cl = client || s3();
-  const buf = await cl.get(safeKey(key, c.prefix));
+  // ключ с «папкой» (backups/…, prerestore/…) берём как есть — это нужно
+  // восстановлению из страховочных копий; голое имя sanitiz'ится как раньше
+  const full = String(key).indexOf('/') >= 0 ? String(key) : safeKey(key, c.prefix);
+  const buf = await cl.get(full);
   return buf;
 }
 
@@ -232,5 +251,5 @@ function safeKey(key, prefix) {
 
 module.exports = {
   FORMAT, config, enabled, s3, createBackup, listBackups, readBackup, deleteBackup,
-  encrypt, decrypt, inspect, sha256, safeKey, stampName, atFromKey, countRecords, S3Error
+  encrypt, decrypt, inspect, open, sha256, safeKey, stampName, atFromKey, countRecords, S3Error
 };
