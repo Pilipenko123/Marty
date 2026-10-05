@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-17';
+const BUILD = 'pkg3-19';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -239,7 +239,7 @@ function store() { return S.remember ? localStorage : sessionStorage; }
 function saveSession() {
   store().setItem('sega.session', JSON.stringify({
     token: S.token, key: toB64(S.roomKeyRaw), priv: S.privRaw ? toB64(S.privRaw) : null,
-    saltAuth: S.saltAuth, saltWrap: S.saltWrap
+    saltAuth: S.saltAuth, saltWrap: S.saltWrap, uid: (S.me && S.me.id) || S.uid || null
   }));
 }
 function loadSessionRaw() {
@@ -364,8 +364,14 @@ async function boot() {
   S.serverBuild = st.build || 'без метки (старше pkg2-3)';
   if (st.setupRequired) { loadUi.hide(); return screen('setup'); }
 
+  if (window.createLocalCache) {
+    try {
+      S.idb = window.indexedDB ? createLocalCache(idbBackend(), { log: m => console.info('[кэш] ' + m) }) : null;
+    } catch (e) { S.idb = null; S.idbBootError = String((e && e.message) || e); }
+  } else S.idb = null;
   const sess = loadSessionRaw();
   if (sess && sess.token) {
+    S.uid = sess.uid || null;
     S.token = sess.token; S.saltAuth = sess.saltAuth; S.saltWrap = sess.saltWrap;
     S.roomKeyRaw = fromB64(sess.key);
     S.roomKey = await importAes(S.roomKeyRaw);
@@ -657,22 +663,75 @@ async function prepareChats() {
 async function startApp() {
   S.lastReactSeen = Date.now();   // старые реакции не будят уведомления
   screen('app');
-  S.initialLoad = true; S.loadRec = 0;
-  loadUi.show('Загружаем историю', 0);
   S.seq = 0; S.gen = -1; S.rsince = 0; S.chg = 0; S.retry = {};
   S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
   S.keyIssue = new Map();
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
-  await sync(true);
-  S.initialLoad = false;
-  loadUi.show('Расшифровываем сообщения', 100);
-  if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
-  S.sig = ''; renderAll(); renderMessages(true);
-  requestAnimationFrame(() => requestAnimationFrame(() => loadUi.hide()));
+  S.resyncHappened = false; S.warm = false;
+
+  // ── локальная память: мгновенно показать то, что уже есть на устройстве ──
+  let warm = null;
+  if (S.idb && S.uid) {
+    try {
+      S.cacheFp = await cacheFp();
+      const meta = await S.idb.peek(S.cacheFp);
+      if (meta && typeof meta.seq === 'number') {
+        const data = await S.idb.loadAll();
+        if (data && Array.isArray(data.messages)) warm = { meta, data };
+      }
+    } catch (e) { warm = null; }
+  }
+  if (warm) {
+    S.warm = true;
+    S.chats = warm.data.chats || [];
+    S.users = warm.data.users || [];
+    addMessages(warm.data.messages || []);
+    S.seq = warm.meta.seq || 0;
+    S.gen = warm.meta.gen === undefined ? -1 : warm.meta.gen;
+    S.chg = warm.meta.chg || 0; S.rsince = warm.meta.rsince || 0;
+    S.warmAt = warm.meta.at || null; S.warmCount = (warm.data.messages || []).length;
+    loadUi.show('Локальная память: открыто с устройства', 100,
+      S.messages.length + ' сообщ. · проверяем новинки');
+    if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
+    S.sig = ''; renderAll(); renderMessages(true);
+    decryptLocal();
+    await sync(false);                 // дельта; при смене gen — полный дозагруз внутри
+    S.initialLoad = false;
+    if (S.resyncHappened) persistAll();
+    S.sig = ''; renderAll(); renderMessages(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => loadUi.hide()));
+  } else {
+    S.initialLoad = true; S.loadRec = 0;
+    loadUi.show('Загружаем историю', 0);
+    await sync(true);
+    S.initialLoad = false;
+    loadUi.show('Расшифровываем сообщения', 100);
+    if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
+    S.sig = ''; renderAll(); renderMessages(true);
+    persistAll();                      // первый визит: положить историю в локальную память
+    requestAnimationFrame(() => requestAnimationFrame(() => loadUi.hide()));
+  }
+  // старая сессия (сохранённая до pkg3-18) не несла uid: дошиваем и пишем кэш
+  if (S.me && S.uid !== S.me.id) { S.uid = S.me.id; saveSession(); }
+  if (S.idb && S.uid && !S.cacheFp) { S.cacheFp = await cacheFp(); persistAll(); }
+  renderCacheState();
   wake('старт приложения');
   loop();
   if (!S.priv) setTimeout(() => { if (!S.priv) openRestoreKeys(); }, 600);
+}
+/** Строка в настройках: жива ли локальная память и почему. */
+function renderCacheState() {
+  const el = $('#cache-state');
+  if (!el) return;
+  if (!S.idb) { el.textContent = 'Локальная память: недоступна в этом браузере' + (S.idbBootError ? ' (' + S.idbBootError + ')' : '') + ' — история грузится с сервера.'; return; }
+  if (S.idb.disabled) { el.textContent = 'Локальная память: отключена (' + (S.idb.disabledReason || S.idb.lastError || 'ошибка') + '). Чат работает по-прежнему.'; return; }
+  if (S.warmAt) {
+    el.textContent = 'Локальная память: работает. Кэш от ' + new Date(S.warmAt).toLocaleString()
+      + ' (' + (S.warmCount || 0) + ' сообщ.). Повторное открытие — мгновенное.';
+    return;
+  }
+  el.textContent = 'Локальная память: включена, кэш запишется после первой полной загрузки.';
 }
 // ── цикл опроса: «тихий час» ──────────────────────────────────────────
 // Пока человек трогает окно (или друзья пишут) — лента опрашивается бодро,
@@ -808,6 +867,8 @@ async function syncOnce(initial) {
   let suppressNotify = false;
   const freshAll = [];
   if (!initial && (data.resync || data.gen !== S.gen)) {
+    S.resyncHappened = true;
+    if (S.warm) { S.initialLoad = true; S.loadRec = 0; loadUi.show('История заменена — загружаем заново', 0); }
     // История изменилась ЦЕЛИКОМ (очистка чата, архивация, выход участника) —
     // перечитываем её с нуля. Ради одной реакции или правки сообщения этот путь
     // больше не запускается: они приходят списком data.changed.
@@ -844,6 +905,15 @@ async function syncOnce(initial) {
   if (touched) { S.sig = ''; if (S.view) renderMessages(); renderThread(); }
   if (typeof data.rnow === 'number') S.rsince = data.rnow;
   if (typeof data.chg === 'number') S.chg = data.chg;
+  if (S.idb && S.cacheFp && !S.initialLoad) {
+    S.idb.applySync(S.cacheFp, {
+      resync: false,
+      messages: freshAll.concat(data.changed || []).map(pickMsg),
+      gone: (data.gone || []).map(g => (g && g.id) || g),
+      chats: data.chats || [], users: data.users || [],
+      meta: { me: S.uid, seq: S.seq, gen: S.gen, chg: S.chg, rsince: S.rsince }
+    });
+  }
   // друзья пишут — продлеваем бодрствование (спящее окно будит и этот путь)
   if (!initial && (freshAll.length || touched)) wake('новое в ленте');
 
@@ -3470,6 +3540,75 @@ function saveBlob(blob, name) {
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
+// ─────────────────────────────────────────── локальная память (IndexedDB)
+function idbBackend() {
+  const DB = 'sega-local-v1';
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    const rq = indexedDB.open(DB, 1);
+    rq.onupgradeneeded = () => {
+      const d = rq.result;
+      ['kv', 'msg', 'chat', 'user'].forEach(st => { if (!d.objectStoreNames.contains(st)) d.createObjectStore(st); });
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  }));
+  const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  function run(store, mode, job) {
+    return open().then(d => new Promise((res, rej) => {
+      const t = d.transaction(store, mode);
+      const out = job(t.objectStore(store));
+      t.oncomplete = () => res(out);
+      t.onerror = () => rej(t.error);
+      t.onabort = () => rej(t.error);
+    }));
+  }
+  return {
+    get: (st, k) => run(st, 'readonly', o => req(o.get(k))),
+    put: (st, k, v) => run(st, 'readwrite', o => req(o.put(v, k))),
+    del: (st, k) => run(st, 'readwrite', o => req(o.delete(k))),
+    delMany: (st, keys) => run(st, 'readwrite', o => { keys.forEach(k => o.delete(k)); return null; }),
+    putAll: (st, items) => run(st, 'readwrite', o => { items.forEach(it => o.put(it.value, it.key)); return null; }),
+    all: st => run(st, 'readonly', o => req(o.getAll())),
+    clear: st => run(st, 'readwrite', o => req(o.clear()))
+  };
+}
+async function cacheFp() {
+  const dig = await subtle.digest('SHA-256', S.roomKeyRaw);
+  return (S.uid || '-') + ':' + toHex(new Uint8Array(dig)).slice(0, 16);
+}
+const pickMsg = m => ({
+  id: m.id, chat: m.chat, seq: m.seq, uid: m.uid, ts: m.ts,
+  parent: m.parent || null, quote: m.quote || null, blob: m.blob || null,
+  upId: m.upId || null, bytes: m.bytes || 0, reactions: m.reactions || null,
+  rev: m.rev || 0, editedAt: m.editedAt || 0, reactTs: m.reactTs || 0, reactBy: m.reactBy || null
+});
+function persistAll() {
+  if (!S.idb || !S.cacheFp) return;
+  // просим браузер не вычищать нас при уборке storage (особенно iOS Safari)
+  if (navigator.storage && navigator.storage.persist && !S.persistAsked) {
+    S.persistAsked = true;
+    Promise.resolve(navigator.storage.persist()).catch(() => {});
+  }
+  S.idb.saveAll(S.cacheFp, {
+    messages: S.messages.map(pickMsg),
+    chats: S.chats, users: S.users,
+    meta: { me: S.uid, seq: S.seq, gen: S.gen, chg: S.chg, rsince: S.rsince }
+  });
+}
+/** Массовая локальная расшифровка со шкалой — для тёплого старта из кэша. */
+async function decryptLocal() {
+  const list = S.messages.filter(m => !S.plain.has(m.id) && m.blob);
+  if (!list.length) return;
+  for (let i = 0; i < list.length; i += 96) {
+    const part = list.slice(i, i + 96);
+    await decryptSmart(part);
+    const done = Math.min(list.length, i + part.length);
+    loadUi.show('Расшифровываем на устройстве', done / list.length * 100, done + ' из ' + list.length);
+    renderMessages(true);
+  }
+}
+
 $('#btn-export').addEventListener('click', () => {
   $('#rail').classList.remove('open');
   const c = curChat();
@@ -3563,6 +3702,11 @@ a{color:#2353a2}.muted{color:#8b98a4}mark{background:#ffe9a8;border-radius:3px;p
 }
 
 $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из мессенджера на этом устройстве?')) doLogout(); });
+$('#btn-dropcache').addEventListener('click', async () => {
+  if (!confirm('Стереть кэш переписки с этого устройства?\n\nПереписка останется в облаке; следующая загрузка вытянет её оттуда заново.')) return;
+  if (S.idb) await S.idb.clear();
+  toast('Локальный кэш стёрт');
+});
 
 // ─────────────────────────────────────────── оформление: тема, плотность, гамма
 function currentPal() {

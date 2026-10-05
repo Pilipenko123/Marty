@@ -232,10 +232,12 @@
       <div class="pals" id="pals"></div>
       <div class="hint">Гамма применяется и к светлой, и к тёмной теме. Это личная настройка: каждый участник выбирает гамму на своём устройстве — сразу для всех чатов.</div>
       <div class="divider"><span>Ещё</span></div>
+      <div class="hint" id="cache-state" style="margin-bottom:8px"></div>
       <div class="set-actions">
         <button class="ghost" id="btn-profile" data-close-sheet><span data-ic="user"></span> Профиль</button>
         <button class="ghost hidden" id="btn-admin" data-close-sheet><span data-ic="lock"></span> Управление</button>
         <button class="ghost" id="btn-export" data-close-sheet><span data-ic="folder"></span> Архивы</button>
+        <button class="ghost" id="btn-dropcache" data-close-sheet><span data-ic="trash"></span> Стереть кэш переписки на устройстве</button>
         <button class="ghost danger" id="btn-logout" data-close-sheet><span data-ic="door"></span> Выйти</button>
       </div>
       <div class="tiny muted" id="build-tag" style="margin-top:14px;text-align:center"></div>
@@ -253,6 +255,7 @@
 <div id="emoji-pop" class="emoji-pop hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
+<script src="local-cache.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
