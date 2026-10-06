@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-19';
+const BUILD = 'pkg3-31';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -149,8 +149,27 @@ function createApi(store, opts = {}) {
       clearedAt: c.clearedAt || null,
       clearedCount: c.clearedCount !== undefined && c.clearedCount !== null ? c.clearedCount : null,
       wall: c.wall || null, wallRev: c.wallRev || null, iconRev: c.iconRev || null,
-      lastArchive: c.lastArchive || null
+      lastArchive: c.lastArchive || null,
+      roles: c.roles || null, game: c.game || null, knocks: c.knocks || null
     };
+  }
+
+  /** Живые приглашения: адресат видит их до вступления в игру. */
+  function openInvites(uid) {
+    return db.chats
+      .filter(c => c.kind === 'game' && c.game && c.game.status === 'invite' && c.game.invitee === uid)
+      .map(c => ({ id: c.id, owner: c.ownerId, colorChoice: c.game.colorChoice, createdAt: c.createdAt }));
+  }
+
+  /** Открытые игры для тех, кто не участник: справочник «постучаться в зрители». */
+  function openGames(uid) {
+    return db.chats
+      .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing' && !c.members.includes(uid))
+      .map(c => ({
+        id: c.id, white: c.game.white, black: c.game.black,
+        createdAt: c.createdAt, knocks: (c.knocks || []).length,
+        moves: (db.stats.chats[c.id] || {}).n || 0
+      }));
   }
 
   function ensureDm(a, b) {
@@ -551,6 +570,8 @@ function createApi(store, opts = {}) {
         // сколько всего истории у участника — клиент рисует честные проценты загрузки
         loadN: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).n || 0), 0),
         loadB: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).b || 0), 0),
+        games: openGames(me.id),
+        invites: openInvites(me.id),
         users: db.users.map(publicUser),
         usage: usage(),
         me: publicUser(me),
@@ -839,7 +860,7 @@ function createApi(store, opts = {}) {
         for (const m of list) {
           if (!m || have.has(m.id) || m.chat !== chat.id) continue;
           const msg = {
-            id: m.id, seq: ++db.seq, uid: m.uid, ts: m.ts || Date.now(),
+            id: m.id, seq: await store.reserveSeq(), uid: m.uid, ts: m.ts || Date.now(),
             blob: m.blob, bytes: m.bytes || (m.blob || '').length,
             chat: chat.id, parent: m.parent || null, quote: m.quote || null
           };
@@ -881,7 +902,7 @@ function createApi(store, opts = {}) {
         if (q.chat !== chat.id) return E(400, 'Ссылаться можно только на сообщение этого чата');
         quote = q.id;
       }
-      const m = { id: uid(), seq: ++db.seq, uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote, upId: b.upId || null };
+      const m = { id: uid(), seq: await store.reserveSeq(), uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote, upId: b.upId || null };
       db.messages.push(m);
       addStat(m, 1);
       me.reads = me.reads || {};
@@ -977,6 +998,136 @@ function createApi(store, opts = {}) {
       db.seq++;
       save();
       return J(200, { ok: true, usage: usage() });
+    }
+
+    // --- чаты-игры: шахматы как чат (правила живут в клиентах, сервер слеп)
+    if (pathname === '/api/games' && method === 'POST') {
+      const b = req.body || {};
+      const opp = db.users.find(u => u.id === String(b.opponent || ''));
+      if (!opp) return E(404, 'Соперник не найден');
+      if (opp.id === me.id) return E(400, 'Пригласите кого-то ещё, не себя');
+      const color = String(b.color || 'random');
+      if (!['white', 'black', 'random', 'choice'].includes(color)) return E(400, 'Цвет: white, black, random или choice');
+      const keys = {};
+      for (const id of [me.id, opp.id]) {
+        const k = (b.keys || {})[id];
+        if (!k || !k.blob) return E(400, 'Нет ключа чата для ' + (id === me.id ? 'вас' : 'соперника'));
+        keys[id] = { by: me.id, blob: String(k.blob).slice(0, 4096) };
+      }
+      let white = null, black = null;
+      if (color === 'white') { white = me.id; black = opp.id; }
+      if (color === 'black') { black = me.id; white = opp.id; }
+      if (color === 'random') {
+        if (crypto.randomBytes(1)[0] % 2) { white = me.id; black = opp.id; }
+        else { black = me.id; white = opp.id; }
+      }
+      const chat = {
+        id: uid(), kind: 'game', ownerId: me.id, createdAt: Date.now(),
+        members: [me.id], roles: { [me.id]: 'player' }, keys, knocks: [],
+        game: { rules: 'chess', status: 'invite', invitee: opp.id, colorChoice: color, white, black, result: null }
+      };
+      db.chats.push(chat);
+      db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt };
+      db.seq++; save();
+      return J(200, { chat: publicChat(chat, me.id) });
+    }
+
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/accept') && method === 'POST') {
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      if (chat.game.status !== 'invite' || chat.game.invitee !== me.id) {
+        return E(403, 'Приглашение адресовано не вам или уже обработано');
+      }
+      const b = req.body || {};
+      if (chat.game.colorChoice === 'choice') {
+        const pick = String(b.color || 'white');
+        if (!['white', 'black'].includes(pick)) return E(400, 'Цвет: white или black');
+        chat.game[pick] = me.id;
+        chat.game[pick === 'white' ? 'black' : 'white'] = chat.ownerId;
+      }
+      if (!chat.game.white || !chat.game.black) return E(500, 'Не удалось распределить цвета');
+      chat.members.push(me.id);
+      chat.roles[me.id] = 'player';
+      chat.game.status = 'playing';
+      chat.game.invitee = null;
+      db.seq++; save();
+      return J(200, { ok: true, chat: publicChat(chat, me.id) });
+    }
+
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/decline') && method === 'POST') {
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      if (chat.game.status !== 'invite' || chat.game.invitee !== me.id) return E(403, 'Приглашение адресовано не вам');
+      dropChat(chat.id);
+      db.chats = db.chats.filter(c => c.id !== chat.id);
+      db.seq++; save();
+      return J(200, { ok: true, wiped: true });
+    }
+
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/leave') && method === 'POST') {
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      if (!chat.members.includes(me.id)) return E(403, 'Вы не участник этой игры');
+      const isPlayer = (chat.roles || {})[me.id] === 'player';
+      let resigned = false;
+      if (isPlayer && chat.game.status === 'playing') {
+        chat.game.status = 'finished';
+        chat.game.result = {
+          winner: me.id === chat.game.white ? chat.game.black : chat.game.white,
+          how: 'resign', at: Date.now()
+        };
+        resigned = true;
+      }
+      chat.members = chat.members.filter(x => x !== me.id);
+      delete chat.roles[me.id];
+      delete chat.keys[me.id];
+      let wiped = false;
+      const playersIn = [chat.game.white, chat.game.black].filter(x => x && chat.members.includes(x));
+      if (!playersIn.length) {
+        dropChat(chat.id);
+        db.chats = db.chats.filter(c => c.id !== chat.id);
+        wiped = true;
+      }
+      db.seq++; save();
+      return J(200, { ok: true, resigned, wiped });
+    }
+
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/knock') && method === 'POST') {
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      if (chat.members.includes(me.id)) return E(400, 'Вы уже в этой игре');
+      if (chat.game.status !== 'playing') return E(400, 'Игра ещё не началась или уже закончена');
+      chat.knocks = chat.knocks || [];
+      if (!chat.knocks.includes(me.id)) chat.knocks.push(me.id);
+      db.seq++; save();
+      return J(200, { ok: true, knocks: chat.knocks.length });
+    }
+
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/knock/approve') && method === 'POST') {
+      const b = req.body || {};
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      if ((chat.roles || {})[me.id] !== 'player') return E(403, 'Пускать зрителей может только игрок');
+      const uidKnock = String(b.uid || '');
+      if (!(chat.knocks || []).includes(uidKnock)) return E(404, 'Запрос не найден');
+      const k = (b.blob && { by: me.id, blob: String(b.blob).slice(0, 4096) }) || null;
+      if (!k) return E(400, 'Нет ключа чата для зрителя');
+      if (!chat.members.includes(uidKnock)) chat.members.push(uidKnock);
+      chat.roles[uidKnock] = 'viewer';
+      chat.keys[uidKnock] = k;
+      chat.knocks = chat.knocks.filter(x => x !== uidKnock);
+      db.seq++; save();
+      return J(200, { ok: true });
+    }
+
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/knock/reject') && method === 'POST') {
+      const b = req.body || {};
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      if ((chat.roles || {})[me.id] !== 'player') return E(403, 'Решать по заявкам может только игрок');
+      chat.knocks = (chat.knocks || []).filter(x => x !== String(b.uid || ''));
+      db.seq++; save();
+      return J(200, { ok: true });
     }
 
     // --- профиль: имя, аватар, пароль

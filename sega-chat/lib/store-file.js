@@ -49,6 +49,7 @@ function createFileStore(opts = {}) {
     },
 
     async load() { if (!db) await store.open(); return db; },
+    async reserveSeq() { db.seq++; store.dirty = true; return db.seq; },
     async flush() { writeNow(); },
 
     // сессии, сообщения и аватары здесь всегда в памяти — подгружать нечего

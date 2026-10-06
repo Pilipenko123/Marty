@@ -389,5 +389,77 @@ let quoteMsg = null;
   ok(page.d.messages.length === before.messages.length && page.d.more === false,
     `история целиком помещается в один ответ (${page.d.messages.length} шт.)`);
   ok(typeof page.d.gen === 'number', 'сервер сообщает «поколение» базы для перечитывания после удалений');
+
+// ── чат-игра: шахматы как чат (создание, приглашение, ходы, зрители, выход)
+{
+  const grow = getRandomValues(new Uint8Array(32));
+  const gkey = await importAes(grow);
+  const keys = {
+    [admin.id]: { blob: await encB(await pairKey(admin.keys.priv, pubs[admin.id]), grow) },
+    [friend.id]: { blob: await encB(await pairKey(admin.keys.priv, pubs[friend.id]), grow) }
+  };
+  const g = await call('/api/games', { method: 'POST', body: { opponent: friend.id, color: 'white', keys } }, admin.token);
+  ok(g.status === 200 && g.d.chat.kind === 'game' && g.d.chat.game.white === admin.id, 'игра создана: белые у создателя');
+  const gid = g.d.chat.id;
+
+  const dm = await call('/api/dm', { method: 'POST', body: { peer: friend.id } }, admin.token);
+  const dmKey = await pairKey(admin.keys.priv, pubs[friend.id]);
+  const inv = { k: 'game-invite', game: gid, to: friend.id, colorChoice: 'white', note: 'тест' };
+  ok((await call('/api/messages', { method: 'POST', body: { chat: dm.d.chat.id, blob: await encJ(dmKey, inv) } }, admin.token)).status === 200,
+    'приглашение ушло в личный чат');
+
+  let s3 = await syncOf(third);
+  ok(!(s3.games || []).some(x => x.id === gid), 'неначатая игра не видна в «Открытых играх»');
+  const sInv = await syncOf(friend);
+  ok((sInv.invites || []).some(x => x.id === gid), 'адресат видит живое приглашение в sync.invites');
+
+  const acc = await call('/api/games/' + gid + '/accept', { method: 'POST', body: {} }, friend.token);
+  ok(acc.status === 200 && acc.d.chat.game.status === 'playing', 'соперник вошёл в игру, статус playing');
+  const sInv2 = await syncOf(friend);
+  ok(!(sInv2.invites || []).some(x => x.id === gid), 'после принятия приглашение исчезает из списка');
+  s3 = await syncOf(third);
+  ok((s3.games || []).some(x => x.id === gid), 'начатая игра видна постороннему');
+
+  const mv = async (tok, from, to) => call('/api/messages', { method: 'POST', body: { chat: gid, blob: await encJ(gkey, { k: 'move', from, to }) } }, tok);
+  ok((await mv(admin.token, 'e2', 'e4')).status === 200, 'ход белых принят сервером');
+  ok((await mv(friend.token, 'e7', 'e5')).status === 200, 'ход чёрных принят сервером');
+  const sf = await syncOf(friend);
+  ok(sf.messages.filter(m => m.chat === gid).length >= 2, 'соперник видит ходы');
+
+  ok((await call('/api/games/' + gid + '/knock', { method: 'POST', body: {} }, third.token)).status === 200, 'посторонний постучался в зрители');
+  const sa = await syncOf(admin);
+  ok((sa.chats.find(c => c.id === gid).knocks || []).includes(third.id), 'игрок видит заявку зрителя');
+  const wrap3 = await encB(await pairKey(admin.keys.priv, pubs[third.id]), grow);
+  ok((await call('/api/games/' + gid + '/knock/approve', { method: 'POST', body: { uid: third.id, blob: wrap3 } }, admin.token)).status === 200,
+    'игрок пустил зрителя');
+  s3 = await syncOf(third);
+  const g3 = s3.chats.find(c => c.id === gid);
+  ok(g3 && g3.roles[third.id] === 'viewer' && g3.key, 'зритель получил роль и ключ чата');
+  const firstMove = s3.messages.find(m => m.chat === gid);
+  ok(firstMove && (await decJ(gkey, firstMove.blob)).k === 'move', 'зритель расшифровывает ходы');
+
+  const lv1 = await call('/api/games/' + gid + '/leave', { method: 'POST', body: {} }, admin.token);
+  ok(lv1.status === 200 && lv1.d.resigned && !lv1.d.wiped, 'выход игрока = сдача; игра жива до второго выхода');
+  const lv2 = await call('/api/games/' + gid + '/leave', { method: 'POST', body: {} }, friend.token);
+  ok(lv2.status === 200 && lv2.d.wiped, 'оба вышли — чат-игра стёрта');
+  s3 = await syncOf(third);
+  ok(!s3.chats.some(c => c.id === gid) && !(s3.games || []).some(x => x.id === gid), 'зритель больше не видит игру');
+
+  const grow2 = getRandomValues(new Uint8Array(32));
+  const keys2 = {
+    [admin.id]: { blob: await encB(await pairKey(admin.keys.priv, pubs[admin.id]), grow2) },
+    [third.id]: { blob: await encB(await pairKey(admin.keys.priv, pubs[third.id]), grow2) }
+  };
+  const g2 = await call('/api/games', { method: 'POST', body: { opponent: third.id, color: 'random', keys: keys2 } }, admin.token);
+  ok(g2.status === 200 && !!(g2.d.chat.game.white && g2.d.chat.game.black), 'случайный цвет распределился');
+  const dec2 = await call('/api/games/' + g2.d.chat.id + '/decline', { method: 'POST', body: {} }, third.token);
+  ok(dec2.status === 200 && dec2.d.wiped, 'отклон приглашения удалил игру');
+  const g4 = await call('/api/games', { method: 'POST', body: { opponent: friend.id, color: 'black', keys } }, admin.token);
+  ok(g4.status === 200, 'создатель может отменить приглашение: вторая игра создана');
+  const lv3 = await call('/api/games/' + g4.d.chat.id + '/leave', { method: 'POST', body: {} }, admin.token);
+  ok(lv3.status === 200 && lv3.d.wiped && !lv3.d.resigned, 'создатель отменил приглашение выходом — игра стёрта без сдачи');
+  const s4 = await syncOf(friend);
+  ok(!s4.chats.some(c => c.id === g4.d.chat.id), 'у приглашённого отменённой игры тоже нет');
+}
 }
 console.log('\nГотово.');

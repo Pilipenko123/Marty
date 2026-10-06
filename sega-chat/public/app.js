@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-19';
+const BUILD = 'pkg3-31';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -229,6 +229,7 @@ const bucketOf = m => m.parent ? 'thr:' + m.parent : m.chat;
 const dmPeer = c => c && c.kind === 'dm' ? c.members.find(x => x !== S.me.id) : null;
 const isOwner = c => !!c && c.kind === 'group' && c.ownerId === S.me.id;
 function chatTitle(c) {
+  if (c && c.kind === 'game') return gameTitle(c);
   if (!c) return '';
   if (c.kind === 'dm') { const u = userById(dmPeer(c)); return u ? u.name : 'Личная переписка'; }
   return S.chatTitles.get(c.id) || c.titlePlain || 'Групповой чат';
@@ -376,7 +377,17 @@ async function boot() {
     S.roomKeyRaw = fromB64(sess.key);
     S.roomKey = await importAes(S.roomKeyRaw);
     if (sess.priv) { S.privRaw = fromB64(sess.priv); S.priv = await importPriv(S.privRaw); }
-    try { await startApp(); return; } catch (e) { clearSession(); S.token = null; }
+    try { await startApp(); return; }
+    catch (e) {
+      console.error('startApp:', e);
+      try { await startApp(); return; }
+      catch (e2) {
+        const msg = ((e2 && e2.message) || String(e2));
+        const authFail = /401|просроч|недейств|истёк|войдите заново/i.test(msg);
+        if (authFail) { clearSession(); S.token = null; }
+        toast('Не удалось открыть сессию: ' + msg + (authFail ? '' : ' Попробуйте ещё раз или войдите по паролю — галочка «запомнить» не пострадала.'), true);
+      }
+    }
   }
   loadUi.hide();
   screen('auth');
@@ -669,6 +680,7 @@ async function startApp() {
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
   S.resyncHappened = false; S.warm = false;
+  S.gapChecked = S.gapChecked || new Set();
 
   // ── локальная память: мгновенно показать то, что уже есть на устройстве ──
   let warm = null;
@@ -683,6 +695,11 @@ async function startApp() {
     } catch (e) { warm = null; }
   }
   if (warm) {
+    const meCached = (warm.data.users || []).find(u => u.id === S.uid);
+    if (!meCached) warm = null;      // без «меня» тёплый рендер опасен — идём обычным путём
+    else S.me = meCached;
+  }
+  if (warm) {
     S.warm = true;
     S.chats = warm.data.chats || [];
     S.users = warm.data.users || [];
@@ -695,7 +712,8 @@ async function startApp() {
       S.messages.length + ' сообщ. · проверяем новинки');
     if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
     S.sig = ''; renderAll(); renderMessages(true);
-    decryptLocal();
+    await decryptLocal();
+    loadUi.hide();                     // история уже на экране — фон работаем без шторки
     await sync(false);                 // дельта; при смене gen — полный дозагруз внутри
     S.initialLoad = false;
     if (S.resyncHappened) persistAll();
@@ -767,9 +785,17 @@ for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
 function pollDelay() { return pollMode() === 'awake' ? 2500 : TICK_MS; }
+function gameOnScreen() {
+  const c = curChat();
+  return !!(c && c.kind === 'game' && c.game && c.game.status === 'playing' && !document.hidden);
+}
 async function loopStep() {
+  // открытая партия держит окно бодрым: зрители и ожидающий соперник
+  // должны видеть ходы сразу, а не после пробуждения «тихого часа»
+  if (gameOnScreen()) wake('партия на экране');
   if (pollMode() === 'awake') pollStats.fast++; else pollStats.ticks++;
   if (S.token) { try { await sync(); } catch (e) {} }
+  if (!S.initialLoad) loadUi.hide();   // фоновая синхронизация не оставляет оверлей
   const now = pollMode();
   if (prevMode === 'awake' && now === 'asleep') {
     pollStats.sleeps++;
@@ -826,6 +852,8 @@ async function applySyncMeta(data) {
   S.me = data.me;
   S.usage = data.usage;
   S.chats = data.chats;
+  S.games = data.games || [];
+  S.invites = data.invites || [];
   await prepareChats();
 }
 
@@ -861,17 +889,28 @@ function loadProgress(data, fresh) {
 }
 
 async function syncOnce(initial) {
+  const prevChatIds = new Set((S.chats || []).map(c => c.id));
   let data = await api('/api/sync?since=' + S.seq + '&rsince=' + (S.rsince || 0) + '&cchg=' + (S.chg || 0) + (document.hidden ? '' : '&active=1'));
   await applySyncMeta(data);
 
+  // в списке появился чат, которого у нас не было (приняли приглашение, пустили
+const invSig = (data.invites || []).map(x => x.id).join(',');
+  if (invSig !== (S.invitesSig || '')) { S.invitesSig = invSig; S.sig = ''; if (S.view) renderMessages(); }
+  const inResp = {};
+  for (const m of (data.messages || [])) inResp[m.chat] = (inResp[m.chat] || 0) + 1;
+  let backfill = null;
+  for (const c of (data.chats || [])) {
+    if (!prevChatIds.has(c.id) && (c.count || 0) > 0) { backfill = c.id; break; }
+    if (!S.gapChecked.has(c.id)) {
+      S.gapChecked.add(c.id);
+      const local = S.messages.filter(m => m.chat === c.id).length;
+      if ((c.count || 0) > local + (inResp[c.id] || 0)) { backfill = c.id; break; }
+    }
+  }
   let suppressNotify = false;
   const freshAll = [];
-  if (!initial && (data.resync || data.gen !== S.gen)) {
+  if (!initial && (data.resync || data.gen !== S.gen || backfill)) {
     S.resyncHappened = true;
-    if (S.warm) { S.initialLoad = true; S.loadRec = 0; loadUi.show('История заменена — загружаем заново', 0); }
-    // История изменилась ЦЕЛИКОМ (очистка чата, архивация, выход участника) —
-    // перечитываем её с нуля. Ради одной реакции или правки сообщения этот путь
-    // больше не запускается: они приходят списком data.changed.
     resetMessageStore();
     suppressNotify = true;
     data = await api('/api/sync?since=0&rsince=0&cchg=' + (data.chg || 0) + (document.hidden ? '' : '&active=1'));
@@ -1233,11 +1272,293 @@ const lastMessageIn = chatId => {
   return best;
 };
 function preview(m) {
+  const gp = S.plain.get(m.id);
+  if (gp && gp.k === 'move') return '♟ ход ' + (gp.san || (gp.from + '–' + gp.to));
+  if (gp && gp.k === 'game-invite') return '♟ приглашение в игру';
+  if (gp && gp.k === 'game-event') return '♟ ' + (gp.text || 'событие игры');
   if (!m) return '';
   const p = S.plain.get(m.id) || {};
   const who = m.uid === S.me.id ? 'Вы: ' : ((userById(m.uid) || {}).name || '') + ': ';
   const body = p.text ? p.text : attLabel(p.att);
   return who + (m.parent ? '↳ ' : '') + body;
+}
+
+// ─────────────────────────────────────────── шахматы: доска и игры
+const PIECE_GLYPH = { P: '♙', N: '♘', B: '♗', R: '♖', Q: '♕', K: '♔', p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
+const isWhitePiece = p => p === p.toUpperCase();
+const sqIndex = name => 'abcdefgh'.indexOf(name[0]) + (Number(name[1]) - 1) * 8;
+const userNameById = id => (userById(id) || {}).name || '…';
+function gameTitle(c) {
+  const g = c.game || {};
+  const base = '♟ ' + userNameById(g.white) + ' против ' + userNameById(g.black);
+  if (g.status === 'invite') return base + ' · приглашение';
+  if (g.status === 'finished') return base + ' · завершена';
+  return base;
+}
+function openGameTitle(g) {
+  return userNameById(g.white) + ' против ' + userNameById(g.black);
+}
+function gameReplay(c) {
+  const eng = createChess();
+  const sans = [];
+  const msgs = S.messages.filter(m => m.chat === c.id && !m.parent).sort((a, b) => a.seq - b.seq);
+  for (const m of msgs) {
+    const p = S.plain.get(m.id);
+    if (p && p.k === 'move') { const san = eng.apply(p); if (san) sans.push(san); }
+  }
+  return { eng, sans };
+}
+const myGameColor = c => (c.game || {}).white === S.me.id ? 'w' : (c.game || {}).black === S.me.id ? 'b' : null;
+function gameStatusText(c, eng, st) {
+  const g = c.game || {};
+  if (g.status === 'invite') return 'Ожидание соперника: приглашение отправлено';
+  if (g.status === 'finished' && g.result) {
+    return 'Партия окончена: победил ' + userNameById(g.result.winner) + ' (соперник сдался)';
+  }
+  if (st === 'checkmate') return 'Мат! Победил ' + userNameById(eng.turn() === 'w' ? g.black : g.white);
+  if (st === 'stalemate') return 'Пат — ничья';
+  if (st === 'draw50') return 'Ничья: 50 ходов без взятий и шахов';
+  return (st === 'check' ? 'Шах! ' : '') + 'Ход: ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
+}
+function gamePayloadHtml(p) {
+  if (!p || typeof p !== 'object' || !p.k) return '';
+  if (p.k === 'move') return `<div class="mv-line">♟ ${escapeHtml(p.san || (p.from + '–' + p.to))}</div>`;
+  if (p.k === 'game-event') return `<div class="mv-sys">${escapeHtml(p.text || '')}</div>`;
+  if (p.k === 'game-invite') {
+    const mine = p.to === (S.me || {}).id;
+    const gc = (S.chats || []).find(x => x.id === p.game);
+    const pending = (S.invites || []).some(x => x.id === p.game);
+    let act;
+    if (!mine) act = '<div class="tiny muted">ждём ответа…</div>';
+    else if (gc && ((gc.members || []).includes(S.me.id) || (gc.game || {}).status !== 'invite')) {
+      act = '<div class="tiny" style="color:#2c7a3f;font-weight:600">Приглашение принято ✓</div>';
+    } else if (pending) act = `<div style="margin-top:8px;display:flex;gap:6px">
+        <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}">Войти в игру</button>
+        <button class="mini danger" data-game-decline="${escapeHtml(p.game)}">Отклонить</button></div>`;
+    else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
+    return `<div class="invite-card">♟ <b>Приглашение в шахматы</b>
+      <div class="tiny muted">${escapeHtml(p.note || '')}</div>${act}</div>`;
+  }
+  return '';
+}
+function layoutGame(on) {
+  const main = $('#main');
+  let right = $('#game-right');
+  if (on) {
+    // уже разложены — не трогаем DOM, иначе каждое перерисовывание даёт моргание
+    if (right && main.classList.contains('game-mode')
+      && $('#messages').parentElement === right && $('#composer').parentElement === right) return;
+    if (!right) { right = document.createElement('div'); right.id = 'game-right'; main.appendChild(right); }
+    right.appendChild($('#search-results'));
+    right.appendChild($('#messages'));
+    right.appendChild($('#scroll-bottom'));
+    right.appendChild($('#composer'));
+    main.classList.add('game-mode');
+  } else if (right) {
+    const bw = $('#board-wrap');
+    bw.after($('#search-results'), $('#messages'), $('#scroll-bottom'), $('#composer'));
+    right.remove();
+    main.classList.remove('game-mode');
+  } else {
+    main.classList.remove('game-mode');
+  }
+}
+function renderBoard() {
+  const wrap = $('#board-wrap');
+  if (!wrap) return;
+  const c = curChat();
+  if (!c || c.kind !== 'game') { layoutGame(false); wrap.classList.add('hidden'); wrap.innerHTML = ''; return; }
+  layoutGame(true);
+  const { eng, sans } = gameReplay(c);
+  const st = eng.status();
+  const my = myGameColor(c);
+  const role = (c.roles || {})[S.me.id];
+  const flip = my === 'b';
+  const b = eng.board();
+  const lm = eng.lastMove();
+  let cells = '';
+  for (let r = 7; r >= 0; r--) {
+    for (let f = 0; f < 8; f++) {
+      const rr = flip ? 7 - r : r, ff = flip ? 7 - f : f;
+      const i = rr * 8 + ff;
+      const name = 'abcdefgh'[ff] + (rr + 1);
+      const cls = 'sq ' + (((ff + rr) % 2) ? 'dark' : 'light')
+        + (lm && (lm.from === name || lm.to === name) ? ' lm' : '')
+        + (S.selSq === name ? ' sel' : '')
+        + ((S.selTargets || []).includes(name) ? (b[i] ? ' tgt cap' : ' tgt') : '');
+      const p = b[i];
+      const img = p ? `<img class="pcimg" src="pieces/${isWhitePiece(p) ? 'w' : 'b'}${p.toUpperCase()}.svg" alt="${escapeHtml(p)}" draggable="false">` : '';
+      cells += `<div class="${cls}" data-sq="${name}">${img}</div>`;
+    }
+  }
+  const g = c.game || {};
+  const ctrl = [];
+  if (role) {
+    const label = role === 'viewer' ? 'Покинуть игру'
+      : g.status === 'playing' ? 'Сдаться и выйти'
+        : g.status === 'invite' ? 'Отменить приглашение и удалить игру'
+          : 'Закрыть и удалить игру';
+    ctrl.push(`<button class="mini danger" id="gm-leave">${label}</button>`);
+  }
+  if (role === 'player' && (c.knocks || []).length) ctrl.push(`<button class="mini" id="gm-knocks">Заявки зрителей: ${c.knocks.length}</button>`);
+  ctrl.push('<button class="mini only-mobile" id="gm-thread">💬 чат: свернуть/развернуть</button>');
+  const sig = [c.id, sans.length, st, S.selSq || '', (S.selTargets || []).join(','),
+    ctrl.join(','), (c.knocks || []).length, flip ? 1 : 0, gameStatusText(c, eng, st)].join('|');
+  if (S.boardSig === sig && wrap.dataset.chat === c.id && wrap.firstChild) return;
+  S.boardSig = sig; wrap.dataset.chat = c.id;
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = `<div class="board-panel">
+    <div class="bp-head">${escapeHtml(gameStatusText(c, eng, st))}</div>
+    <div class="board" id="board">${cells}</div>
+    <div class="bp-ctrl">${ctrl.join(' ')}</div>
+    <div class="bp-moves tiny muted">${escapeHtml(sans.slice(-14).join(' '))}</div>
+  </div>`;
+}
+async function onBoardClick(sq) {
+  const c = curChat();
+  if (!c || c.kind !== 'game') return;
+  const { eng } = gameReplay(c);
+  const st = eng.status();
+  if (st !== 'playing' && st !== 'check') return;
+  const my = myGameColor(c);
+  if ((c.roles || {})[S.me.id] !== 'player' || eng.turn() !== my) return;
+  if (S.selSq && (S.selTargets || []).includes(sq)) {
+    const promo = eng.legalMoves().some(m => m.from === S.selSq && m.to === sq && m.promo) ? 'q' : null;
+    const mv = { from: S.selSq, to: sq, promo };
+    S.selSq = null; S.selTargets = [];
+    await sendGameMove(c, mv);
+    return;
+  }
+  const p = eng.board()[sqIndex(sq)];
+  if (p && isWhitePiece(p) === (eng.turn() === 'w')) {
+    S.selSq = sq;
+    S.selTargets = eng.legalMoves().filter(m => m.from === sq).map(m => m.to);
+  } else { S.selSq = null; S.selTargets = []; }
+  renderBoard();
+}
+async function sendGameMove(c, mv) {
+  const { eng } = gameReplay(c);
+  const legal = eng.legalMoves().find(m => m.from === mv.from && m.to === mv.to && (m.promo || null) === (mv.promo || null));
+  if (!legal) { toast('Так ходить нельзя', true); return; }
+  const k = await chatKeyOf(c);
+  const payload = { k: 'move', from: mv.from, to: mv.to, promo: mv.promo || null, san: legal.san, author: S.me.name };
+  const r = await api('/api/messages', { method: 'POST', body: { chat: c.id, blob: await encryptJSON(k.key, payload) } });
+  S.plain.set(r.message.id, payload);
+  addMessages([r.message]);
+  cacheMsg(r.message);
+  S.sig = ''; renderMessages(); renderBoard(); renderRail();
+  wake('ход в игре');
+}
+async function acceptGame(id, choice) {
+  let color = undefined;
+  if (choice === 'choice') {
+    color = await new Promise(res => {
+      modal('Ваш цвет', `<p class="hint">Создатель игры оставил выбор цвета за вами.</p>
+        <button class="primary" id="pc-w">Играю белыми</button>
+        <button class="primary" id="pc-b">Играю чёрными</button>`);
+      $('#pc-w').addEventListener('click', () => { hide($('#modal')); res('white'); });
+      $('#pc-b').addEventListener('click', () => { hide($('#modal')); res('black'); });
+    });
+  }
+  await api('/api/games/' + id + '/accept', { method: 'POST', body: { color } });
+  await sync(false);
+  const c = S.chats.find(x => x.id === id);
+  if (c) {
+    const ck = await chatKeyOf(c);
+    if (ck) {
+      const payload = { k: 'game-event', text: 'Партия началась: ' + userNameById(c.game.white) + ' (белые) против ' + userNameById(c.game.black) + ' (чёрные)' };
+      const rr = await api('/api/messages', { method: 'POST', body: { chat: id, blob: await encryptJSON(ck.key, payload) } });
+      S.plain.set(rr.message.id, payload);
+      addMessages([rr.message]);
+      cacheMsg(rr.message);
+    }
+    await openChat(id);
+    renderBoard();
+  }
+  loadUi.hide();
+  S.sig = ''; renderAll(); renderMessages(true); renderBoard();
+}
+async function declineGame(id) {
+  if (!confirm('Отклонить приглашение? Игра будет удалена.')) return;
+  await api('/api/games/' + id + '/decline', { method: 'POST', body: {} });
+  await sync(false); renderAll();
+  toast('Приглашение отклонено');
+}
+function leaveKindOf(c) {
+  const role = (c.roles || {})[S.me.id];
+  if (role === 'viewer') return 'viewer';
+  const st = (c.game || {}).status;
+  return st === 'playing' ? 'resign' : st === 'invite' ? 'cancel' : 'close';
+}
+async function leaveGameSmart() {
+  const c = curChat();
+  if (c) await leaveGame(leaveKindOf(c));
+}
+async function leaveGame(kind) {
+  const c = curChat();
+  if (!c || c.kind !== 'game') return;
+  const asks = {
+    resign: 'Вы сдаётесь? Партия завершится победой соперника, и вы покинете чат-игру.',
+    cancel: 'Отменить приглашение? Игра ещё не началась и будет удалена без следа.',
+    close: 'Закрыть и удалить игру? Партия завершена; чат-игра исчезнет у всех оставшихся участников и зрителей. История ходов удалится безвозвратно.',
+    viewer: 'Покинуть игру в роли зрителя?'
+  };
+  if (!confirm(asks[kind] || 'Покинуть игру?')) return;
+  const r = await api('/api/games/' + c.id + '/leave', { method: 'POST', body: {} });
+  if (r.wiped) { toast('Игроков не осталось — чат-игра стёрта'); S.view = null; }
+  else toast(r.resigned ? 'Вы сдались. Результат записан.' : 'Вы вышли из игры');
+  await sync(false);
+  S.sig = ''; renderAll(); renderMessages(true); renderBoard();
+}
+async function openKnocks(c) {
+  const list = (c.knocks || []).map(userById).filter(Boolean);
+  if (!list.length) { toast('Заявок сейчас нет'); return; }
+  modal('Заявки в зрители', list.map(u => `<div class="mrow">
+    <span class="nm">${escapeHtml(u.name)}</span>
+    <button class="mini" data-knock-approve="${escapeHtml(u.id)}">пустить</button>
+    <button class="mini danger" data-knock-reject="${escapeHtml(u.id)}">отказать</button></div>`).join(''));
+}
+async function openNewGame() {
+  const users = S.users.filter(u => u.id !== S.me.id);
+  if (!users.length) { toast('Пока некого пригласить в игру', true); return; }
+  modal('Новая игра в шахматы', `
+    <label>Соперник<select id="ng-opp">${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}</select></label>
+    <label>Ваш цвет<select id="ng-color">
+      <option value="random">Случайно</option>
+      <option value="white">Белые</option>
+      <option value="black">Чёрные</option>
+      <option value="choice">Пусть выберет соперник</option>
+    </select></label>
+    <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
+    <button class="primary" id="ng-go">Создать и пригласить</button>`);
+  $('#ng-go').addEventListener('click', async () => {
+    const opp = $('#ng-opp').value, color = $('#ng-color').value;
+    try {
+      const raw = crypto.getRandomValues(new Uint8Array(32));
+      const keys = {};
+      for (const id of [S.me.id, opp]) {
+        const pk = await pairKeyWith(id);
+        if (!pk) throw new Error('У участника нет ключа шифрования — попросите его войти в чат');
+        keys[id] = { blob: await aesEncryptBytes(pk, raw) };
+      }
+      const r = await api('/api/games', { method: 'POST', body: { opponent: opp, color, keys } });
+      const gid = r.chat.id;
+      S.chatKeys.set(gid, { key: await importAes(raw), raw });
+      hide($('#modal'));
+      const dm = (await api('/api/dm', { method: 'POST', body: { peer: opp } })).chat;
+      const dk = await chatKeyOf(dm);
+      const inv = {
+        k: 'game-invite', game: gid, to: opp, colorChoice: color,
+        note: 'Соперник: ' + S.me.name + (color === 'choice' ? ' · цвет выберете вы' : '')
+      };
+      const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
+      S.plain.set(rr.message.id, inv);
+      addMessages([rr.message]);
+      cacheMsg(rr.message);
+      await sync(false); renderAll();
+      toast('Игра создана, приглашение отправлено');
+    } catch (ex) { toast(ex.message, true); }
+  });
 }
 
 function renderRail() {
@@ -1250,6 +1571,7 @@ function renderRail() {
     });
 
   let html = '';
+  const games = chats.filter(c => c.kind === 'game');
   const groups = chats.filter(c => c.kind === 'group');
   const dms = chats.filter(c => c.kind === 'dm');
   const chatRow = (c) => {
@@ -1262,13 +1584,14 @@ function renderRail() {
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
       <div class="ci-main">
-        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}</div>
+        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? '<span class="tag-grp">♟</span>' : ''}</div>
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
       ${un.mentions ? `<span class="badge at" title="обращения к вам">@${un.mentions}</span>` : ''}
       ${un.total ? `<span class="badge">${un.total}</span>` : ''}
     </div>`;
   };
+  if (games.length) html += `<div class="rail-group">Игры</div>` + games.map(chatRow).join('');
   if (groups.length) html += `<div class="rail-group">Групповые чаты</div>` + groups.map(chatRow).join('');
   if (dms.length) html += `<div class="rail-group">Личные чаты</div>` + dms.map(chatRow).join('');
 
@@ -1284,6 +1607,19 @@ function renderRail() {
           <div class="ci-name">${escapeHtml(u.name)}${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}</div>
           <div class="ci-last">${isOnline(u) ? 'в сети' : escapeHtml(fmtAgo(u.lastSeen))}</div>
         </div>
+      </div>`;
+    }
+  }
+  const open = (S.games || []).filter(g => !S.chats.some(c => c.id === g.id));
+  if (open.length) {
+    html += `<div class="rail-group">Открытые игры</div>`;
+    for (const g of open) {
+      html += `<div class="chat-item">
+        <div class="ci-main">
+          <div class="ci-name">♟ ${escapeHtml(openGameTitle(g))}</div>
+          <div class="ci-last">ходов: ${g.moves || 0}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
+        </div>
+        <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
       </div>`;
     }
   }
@@ -1428,7 +1764,7 @@ function messageHtml(m, opts = {}) {
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
-        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}
+        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${gamePayloadHtml(p)}
         ${p.att ? attHtml(p.att) : ''}
       </div>
       ${rxHtml}
@@ -1469,6 +1805,7 @@ let renderedIds = new Set(), renderedChat = null, renderedOnce = false;
 const WIN_SIZE = 30;   // сообщений в одном окне ленты (быстрее первый экран)
 
 function renderMessages(force) {
+  setTimeout(renderBoard, 0);
   const box = $('#messages');
   if (renderedChat !== (S.view || null)) { renderedChat = S.view || null; renderedOnce = false; renderedIds = new Set(); }
   if (!S.view) {
@@ -1490,6 +1827,8 @@ function renderMessages(force) {
   const off = Math.max(0, full.length - win);
   const list = full.slice(off);
   const moreBtn = off > 0 ? `<button class="load-more" id="load-more">Показать более ранние (${off})</button>` : '';
+  const listSig = list.map(m => m.id).join(',');
+  const sameList = !force && renderedOnce && listSig === (S.lastListSig || '');
   const prevTop = box.scrollTop, prevHeight = box.scrollHeight;
   const nearBottom = prevHeight - prevTop - box.clientHeight < 160;
   const c = curChat();
@@ -1504,21 +1843,38 @@ function renderMessages(force) {
   let html = banner + moreBtn, lastDay = '';
   const firstPaint = !renderedOnce;
   renderedOnce = true;
-  const freshIds = [];
-  for (let i = 0; i < list.length; i++) {
-    const m = list[i];
-    const day = new Date(m.ts).toDateString();
-    if (day !== lastDay) { html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`; lastDay = day; }
-    if (S.openMark && S.openMark.chat === S.view && S.openMark.msgId === m.id) {
-      html += `<div class="unread-line" id="unread-mark">Непрочитанные — ${S.openMark.count}</div>`;
+  const markHtml = S.openMark && S.openMark.chat === S.view
+    ? `<div class="unread-line" id="unread-mark">${S.openMark.count ? 'Непрочитанные — ' + S.openMark.count : 'Новые реакции или комментарии'}</div>`
+    : '';
+  if (sameList) {
+    // лента та же — обновляем точечно только изменившиеся строки: без моргания
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      const el = document.getElementById('m-' + m.id);
+      if (!el) continue;
+      const rs = rowSig(m);
+      if (el.dataset.rs !== rs) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = messageHtml(m, { continued: canGroup(list[i - 1], m), continues: canGroup(m, list[i + 1]), fresh: false }).trim();
+        el.replaceWith(tmp.firstChild);
+      }
     }
-    const fresh = !firstPaint && !renderedIds.has(m.id);
-    if (fresh) freshIds.push(m.id);
-    html += messageHtml(m, { continued: canGroup(list[i - 1], m), continues: canGroup(m, list[i + 1]), fresh });
+    S.lastListSig = listSig;
+  } else {
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      const day = new Date(m.ts).toDateString();
+      if (day !== lastDay) { html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`; lastDay = day; }
+      if (S.openMark && S.openMark.chat === S.view && S.openMark.msgId === m.id) html += markHtml;
+      const fresh = !firstPaint && !renderedIds.has(m.id);
+      html += messageHtml(m, { continued: canGroup(list[i - 1], m), continues: canGroup(m, list[i + 1]), fresh });
+    }
+    box.innerHTML = html;
+    renderedIds = new Set(list.map(m => m.id));
+    for (const m of list) { const el = document.getElementById('m-' + m.id); if (el) el.dataset.rs = rowSig(m); }
+    S.lastListSig = listSig;
+    paintIcons(box);
   }
-  box.innerHTML = html;
-  renderedIds = new Set(list.map(m => m.id));
-  paintIcons(box);
   // самовосстановление: если в видимом окне остались «…», дошифровываем их сами.
   // ВАЖНО: если ключа на устройстве нет (S.keyIssue), сообщения так и останутся закрытыми,
   // и цикл «перерисовали → не расшифровали → перерисовали» крутился бы вечно, вешая страницу.
@@ -1538,12 +1894,19 @@ function renderMessages(force) {
   }
   applyWallBackground();
   upgradeMedia(box);
-  if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
+  if (sameList) { if (S.atBottom || nearBottom) box.scrollTop = box.scrollHeight; }
+  else if (S.focusPending && !S.userScrolled) { /* позицию ставит applyFocus — без двойного прыжка */ }
+  else if (force || nearBottom || S.atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
   // фокус держим на цели, пока пользователь сам не прокрутит ленту
   if (S.focusPending && !S.userScrolled) applyFocus();
 }
 
+function rowSig(m) {
+  const p = S.plain.get(m.id);
+  return [p ? 1 : 0, (p && p.rev) || 0, m.rev || 0, m.reactTs || 0,
+    Object.keys(m.reactions || {}).length, S.highlight === m.id ? 1 : 0].join(':');
+}
 function renderThread() {
   const panel = $('#thread');
   if (!S.threadId) { hide(panel); return; }
@@ -1560,7 +1923,7 @@ function renderThread() {
   box.innerHTML = `<div class="parent-card">
       <div style="display:flex;gap:9px;align-items:center">${avatarHtml(author, 'sm', true)}
         <div><div class="who">${escapeHtml(author.name)}</div><div class="tiny muted">${fmtDay(parent.ts)}, ${fmtTime(parent.ts)}</div></div></div>
-      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}
+      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${gamePayloadHtml(p)}
       ${p.att ? attHtml(p.att) : ''}
     </div>` + kids.map((k, i) => messageHtml(k, { noThread: true, continued: canGroup(kids[i - 1], k), continues: canGroup(k, kids[i + 1]) })).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;
@@ -1707,10 +2070,11 @@ async function openChat(id) {
   renderedChat = null; renderedOnce = false; renderedIds = new Set();
   S.winSize = WIN_SIZE;
   S.healBusy = false; S.healPauseUntil = 0;
+  S.lastListSig = '';
   $('#input').value = S.drafts[id] || '';
   // фокус при открытии: строго первое непрочитанное, а если их нет — последнее сообщение
   const un = unreadIn(id);
-  S.openMark = un.total ? firstUnreadMark(id, un.total) : null;
+  S.openMark = un.total ? firstUnreadMark(id, un.total) : firstUnseenMark(id);
   S.focusPending = true; S.userScrolled = false;
   bumpSeen(id);
   try {
@@ -1754,6 +2118,23 @@ function applyFocus() {
   }
   requestAnimationFrame(() => { S.programmatic = false; });
 }
+/** Если непрочитанных сообщений нет — ищем первое сообщение с новой реакцией
+ *  или первый непрочитанный комментарий: лента откроется на нём. */
+function firstUnseenMark(chatId) {
+  const seen = seenTs()[chatId] || 0;
+  const reads = myReads();
+  const cands = [];
+  for (const m of S.messages) {
+    if (m.chat !== chatId || m.parent) continue;
+    if ((m.reactTs || 0) > seen) cands.push(m);
+  }
+  for (const m of S.messages) {
+    if (m.chat !== chatId || m.parent) continue;
+    if (S.messages.some(k => k.parent === m.id && k.seq > (reads['thr:' + m.id] || 0))) cands.push(m);
+  }
+  cands.sort((a, b) => a.seq - b.seq);
+  return cands.length ? { chat: chatId, msgId: cands[0].id, count: 0 } : null;
+}
 /** Первое непрочитанное сообщение чата (сверху вниз) + сколько их всего. */
 function firstUnreadMark(chatId, count) {
   const reads = myReads();
@@ -1779,6 +2160,11 @@ $('#thread-close').addEventListener('click', () => { S.threadId = null; S.sig = 
 let hlTimer = null;
 async function goToMessage(id) {
   const m = S.messages.find(x => x.id === id);
+  if (m && !m.parent) {
+    const full = S.messages.filter(x => x.chat === m.chat && !x.parent);
+    const fromEnd = full.length - full.findIndex(x => x.id === id);
+    if (fromEnd > (S.winSize || WIN_SIZE)) S.winSize = fromEnd + 60;
+  }
   if (m) await ensureIds([id]);
   if (!m) return toast('Это сообщение удалено', true);
   if (m.chat !== S.view) openChat(m.chat);
@@ -1794,16 +2180,55 @@ async function goToMessage(id) {
   }, 80);
 }
 
+const MS_RX_SET = ['👍', '❤️', '😂', '', '😢', ''];
+function toggleBigRx(mid) {
+  const el = document.getElementById('m-' + mid);
+  if (!el) return;
+  const old = el.querySelector('.rx-big');
+  if (old) { old.remove(); return; }
+  const box = document.createElement('div');
+  box.className = 'rx-big';
+  box.innerHTML = MS_RX_SET.map(em => `<button class="rx-big-btn" data-rxset="${em}" data-mid="${mid}">${em}</button>`).join('')
+    + `<button class="rx-big-btn" data-rxmore="${mid}" title="Любой смайл">…</button>`;
+  (el.querySelector('.tools') || el).appendChild(box);
+}
+/** Клавиатура при правке не должна заслонять редактируемое сообщение. */
+function keepEditVisible(mid) {
+  if (!window.matchMedia('(max-width:900px)').matches) return;
+  const scroll = () => {
+    const el = document.getElementById('m-' + mid);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  setTimeout(scroll, 80); setTimeout(scroll, 400);
+  const vv = window.visualViewport;
+  if (vv) {
+    const onR = () => scroll();
+    vv.addEventListener('resize', onR);
+    setTimeout(() => vv.removeEventListener('resize', onR), 5000);
+  }
+}
+
+
 function handleMsgClick(e) {
   // на телефоне инструменты сообщения открываются тапом по сообщению,
   // чтобы панель кнопок не распирала ленту по горизонтали
   if (window.matchMedia('(max-width:900px)').matches) {
     const msgEl = e.target.closest('.msg');
-    if (msgEl && !e.target.closest('button, a, img, video, audio, [data-upl]')) {
-      const was = msgEl.classList.contains('show-tools');
-      $$('#messages .msg.show-tools').forEach(x => x.classList.remove('show-tools'));
-      if (!was) msgEl.classList.add('show-tools');
-      return;
+    const solo = (el) => $$('#messages .msg.show-tools').forEach(x => { if (x !== el) x.classList.remove('show-tools'); });
+    if (!msgEl) { solo(null); }                       // касание мимо — плашка закрывается
+    else {
+      const media = e.target.closest('img.att, video, audio, [data-upl]');
+      const interactive = e.target.closest('button, a, [data-goto], input, textarea');
+      if (interactive) { solo(msgEl); }               // кнопки, цитата, ссылки работают сразу
+      else if (media) {
+        // 1-е касание по медиа — плашка; 2-е (когда плашка открыта) — открыть медиа
+        if (!msgEl.classList.contains('show-tools')) { solo(msgEl); msgEl.classList.add('show-tools'); return; }
+      } else {
+        const was = msgEl.classList.contains('show-tools');
+        solo(null);
+        if (!was) msgEl.classList.add('show-tools');
+        return;
+      }
     }
   }
   const upl = e.target.closest('[data-upl]');
@@ -1814,10 +2239,18 @@ function handleMsgClick(e) {
   if (rxb) return toggleReaction(rxb.dataset.mid, rxb.dataset.rx);
   const rtb = e.target.closest('[data-retry]');
   if (rtb) return retrySend(rtb.dataset.retry);
+  const rbig = e.target.closest('.rx-big [data-rxset]');
+  if (rbig) {
+    const rb = rbig.closest('.rx-big');
+    if (rb) rb.remove();
+    return toggleReaction(rbig.dataset.mid, rbig.dataset.rxset);
+  }
+  const rmore = e.target.closest('[data-rxmore]');
+  if (rmore) return openRxPop(rmore.dataset.rxmore, rmore);
   const rxp = e.target.closest('[data-rxpick]');
   if (rxp) return openRxPicker(rxp.dataset.rxpick, rxp);
   const ed = e.target.closest('[data-edit]');
-  if (ed) return openEditor(ed.dataset.edit);
+  if (ed) { openEditor(ed.dataset.edit); keepEditVisible(ed.dataset.edit); return; }
   const q = e.target.closest('[data-quote]');
   if (q) {
     S.quote = q.dataset.quote; S.sig = '';
@@ -1879,6 +2312,10 @@ const RX_SET = ['😀','😂','😍','👍','👎','','🔥','🎉','❤️','�
 let rxPopFor = null;
 function closeRxPicker() { const p = $('#rx-pop'); if (p) { hide(p); rxPopFor = null; } }
 function openRxPicker(mid, anchor) {
+  if (window.matchMedia('(max-width:900px)').matches) { toggleBigRx(mid); return; }
+  return openRxPop(mid, anchor);
+}
+function openRxPop(mid, anchor) {
   let pop = $('#rx-pop');
   if (!pop) {
     pop = document.createElement('div');
@@ -2707,6 +3144,7 @@ async function postMessage(draft, text, att, attachKey, quote) {
   try {
     const r = await api('/api/messages', { method: 'POST', body });
     adoptSent(draft, r.message, S.retry[draft.id] && S.retry[draft.id].payload);
+    cacheMsg(r.message);              // эхо сразу в локальную память — курсор кэша честный
     if (r.usage) S.usage = r.usage;
     if (r.notify) fireNotify(r.notify);
     S.sig = '';
@@ -3583,6 +4021,15 @@ const pickMsg = m => ({
   upId: m.upId || null, bytes: m.bytes || 0, reactions: m.reactions || null,
   rev: m.rev || 0, editedAt: m.editedAt || 0, reactTs: m.reactTs || 0, reactBy: m.reactBy || null
 });
+/** Положить в локальную память только что отправленное сообщение:
+ *  курсор кэша darf идти вперёд только вместе с сохранённым телом. */
+function cacheMsg(m) {
+  if (!S.idb || !S.cacheFp || !m) return;
+  S.idb.applySync(S.cacheFp, {
+    messages: [pickMsg(m)],
+    meta: { me: S.uid, seq: Math.max(S.seq || 0, m.seq || 0), gen: S.gen, chg: S.chg, rsince: S.rsince }
+  });
+}
 function persistAll() {
   if (!S.idb || !S.cacheFp) return;
   // просим браузер не вычищать нас при уборке storage (особенно iOS Safari)
@@ -3702,6 +4149,52 @@ a{color:#2353a2}.muted{color:#8b98a4}mark{background:#ffe9a8;border-radius:3px;p
 }
 
 $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из мессенджера на этом устройстве?')) doLogout(); });
+document.addEventListener('click', async e => {
+  const sq = e.target.closest('[data-sq]');
+  if (sq) { await onBoardClick(sq.dataset.sq); return; }
+  if (e.target.closest('#gm-leave')) { await leaveGameSmart(); return; }
+  if (e.target.closest('#gm-thread')) { $('#main').classList.toggle('thread-collapsed'); return; }
+  if (e.target.closest('#gm-knocks')) { openKnocks(curChat()); return; }
+  const acc = e.target.closest('[data-game-accept]');
+  if (acc) {
+    acc.disabled = true; acc.textContent = 'Входим…';
+    const decBtn = acc.parentElement.querySelector('[data-game-decline]');
+    if (decBtn) decBtn.disabled = true;
+    try { await acceptGame(acc.dataset.gameAccept, acc.dataset.choice); }
+    catch (ex) { toast(ex.message, true); acc.disabled = false; acc.textContent = 'Войти в игру'; if (decBtn) decBtn.disabled = false; }
+    return;
+  }
+  const dec = e.target.closest('[data-game-decline]');
+  if (dec) { try { await declineGame(dec.dataset.gameDecline); } catch (ex) { toast(ex.message, true); } return; }
+  const kb = e.target.closest('[data-knock-btn]');
+  if (kb) {
+    e.stopPropagation();
+    try { await api('/api/games/' + kb.dataset.knockBtn + '/knock', { method: 'POST', body: {} }); toast('Заявка отправлена игрокам'); await sync(false); renderRail(); }
+    catch (ex) { toast(ex.message, true); }
+    return;
+  }
+  const ka = e.target.closest('[data-knock-approve]');
+  if (ka) {
+    const c = curChat();
+    const ck = await chatKeyOf(c);
+    const pk = await pairKeyWith(ka.dataset.knockApprove);
+    const blob = await aesEncryptBytes(pk, ck.raw);
+    await api('/api/games/' + c.id + '/knock/approve', { method: 'POST', body: { uid: ka.dataset.knockApprove, blob } });
+    hide($('#modal'));
+    await sync(false); renderAll();
+    toast('Зритель допущен в игру');
+    return;
+  }
+  const kr = e.target.closest('[data-knock-reject]');
+  if (kr) {
+    const c = curChat();
+    await api('/api/games/' + c.id + '/knock/reject', { method: 'POST', body: { uid: kr.dataset.knockReject } });
+    hide($('#modal'));
+    await sync(false); renderAll();
+    return;
+  }
+});
+$('#btn-new-game').addEventListener('click', () => { $('#rail').classList.remove('open'); openNewGame(); });
 $('#btn-dropcache').addEventListener('click', async () => {
   if (!confirm('Стереть кэш переписки с этого устройства?\n\nПереписка останется в облаке; следующая загрузка вытянет её оттуда заново.')) return;
   if (S.idb) await S.idb.clear();

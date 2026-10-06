@@ -520,6 +520,22 @@ function createYdbStore(opts = {}) {
     table, client: ydb,
 
     async open() { await ydb.ensureTable(table); opened = true; },
+
+    /**
+     * Атомно занять номер сообщения: счётчик живёт в мете и увеличивается
+     * операцией ADD на стороне базы — два «тёплых» экземпляра функции
+     * физически не могут выдать один seq двум сообщениям.
+     */
+    async reserveSeq() {
+      const r = await ydb.update(table, K('meta', 'root'), {
+        UpdateExpression: 'ADD #s :n',
+        ExpressionAttributeNames: { '#s': 'seq' },
+        ExpressionAttributeValues: { ':n': N(1) },
+        ReturnValues: 'UPDATED_NEW'
+      });
+      db.seq = Math.max(db.seq, num(r.Attributes && r.Attributes.seq));
+      return db.seq;
+    },
     load, flush, loadSince, loadChats, getMessage,
     pushChange, loadChanges, trimChanges,
 

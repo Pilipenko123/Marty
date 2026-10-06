@@ -606,7 +606,7 @@ html,body{overflow-x:hidden}
   .msg.show-tools{flex-wrap:wrap}
   .msg.show-tools .tools{position:static;opacity:1;pointer-events:auto;display:flex;gap:6px;
     padding:6px;border-radius:14px;margin-top:6px;box-shadow:none;
-    flex-basis:100%;align-self:stretch}
+    width:fit-content;flex-basis:auto;align-self:flex-start;flex-wrap:wrap}
   .msg.mine.show-tools .tools{justify-content:flex-end}
   .msg:not(.mine).show-tools .tools{justify-content:flex-start}
   .msg.show-tools .tool{width:46px;height:46px;border-radius:12px;background:var(--panel-2)}
@@ -654,3 +654,61 @@ html,body{overflow-x:hidden}
 .lu-bar{height:8px;border-radius:6px;background:rgba(255,255,255,.22);margin:14px auto 8px;overflow:hidden;max-width:320px;}
 .lu-bar i{display:block;height:100%;width:0;background:#fff;transition:width .25s;}
 .lu-pct{color:#eaf4fa;font-size:13px;font-variant-numeric:tabular-nums;min-height:18px;}
+
+/* ── шахматы: доска, раскладка игрового чата, карточки приглашений ── */
+#board-wrap{padding:10px 12px 0;}
+#board-wrap.hidden{display:none;}
+#main.game-mode{display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(320px,54%) 1fr;}
+#main.game-mode > header{grid-column:1 / -1;grid-row:1;}
+#main.game-mode #board-wrap{grid-column:1;grid-row:2;overflow:auto;padding:12px 14px;}
+#main.game-mode #game-right{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0;position:relative;}
+@media (max-width:959px){
+  /* доска закреплена и никогда не уезжает в скролл; чат — шторка снизу */
+  #main.game-mode{display:flex;flex-direction:column;height:100dvh;overflow:hidden;}
+  #main.game-mode #board-wrap{flex:0 0 auto;overflow:visible;padding:6px 8px 0;}
+  #main.game-mode .board-panel{max-width:min(100%, 58dvh);}
+  #main.game-mode #game-right{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;position:relative;}
+  #main.game-mode.thread-collapsed #game-right{flex:0 0 128px;}
+  #main.game-mode.thread-collapsed #messages{overflow:hidden;}
+  #main.game-mode.thread-collapsed #composer{display:none;}
+}
+.board-panel{max-width:560px;margin:0 auto;}
+.bp-head{font-weight:600;margin:0 0 8px;text-align:center;}
+.bp-ctrl{display:flex;gap:6px;justify-content:center;margin:8px 0 4px;flex-wrap:wrap;}
+.bp-moves{text-align:center;min-height:16px;word-break:break-word;}
+.board{display:grid;grid-template-columns:repeat(8,1fr);border-radius:10px;overflow:hidden;
+  box-shadow:0 10px 30px rgba(10,30,50,.25);user-select:none;}
+/* клетки квадратные без aspect-ratio: паддинг-трюк работает на любых iOS */
+.sq{position:relative;height:0;padding-bottom:100%;cursor:pointer;}
+.sq.light{background:#f0d9b5;}
+.sq.dark{background:#b58863;}
+.sq.lm{box-shadow:inset 0 0 0 999px rgba(255,213,79,.35);}
+.sq.sel{box-shadow:inset 0 0 0 3px #2353a2;}
+.sq.tgt::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:26%;padding-bottom:26%;border-radius:50%;background:rgba(35,83,162,.45);}
+.sq.cap::after{width:88%;padding-bottom:88%;background:transparent;border:4px solid rgba(35,83,162,.55);box-sizing:border-box;}
+.pcimg{position:absolute;left:50%;top:50%;width:86%;height:86%;transform:translate(-50%,-50%);
+  pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));}
+.mv-line{font-weight:600;padding:2px 0;}
+.mv-sys{font-style:italic;opacity:.75;}
+.invite-card{border:1px solid #cfd9e0;border-radius:10px;padding:10px 12px;margin:6px 0;background:#f6f9fc;}
+
+/* ── мобильная плашка действий сообщения (pkg3-30) ── */
+
+/* крупные смайлы внутри мобильной плашки инструментов */
+.rx-big{display:flex;gap:8px;flex-wrap:wrap;width:100%;padding:4px 2px 2px;justify-content:center;}
+.rx-big-btn{font-size:26px;line-height:1;background:var(--panel);border:0;border-radius:12px;
+  width:46px;height:46px;cursor:pointer;}
+.rx-big-btn:active{background:rgba(128,148,168,.25);}
+
+/* ── pkg3-31: на тач-устройствах «залипший hover» не показывает мелкую полосу;
+   единственная плашка на телефоне — большая под сообщением, с первого касания ── */
+@media (max-width:900px){
+  .msg .tools{opacity:0;pointer-events:none;}
+  .msg:hover .tools{opacity:0;pointer-events:none;}
+  .msg.show-tools .tools,.msg.show-tools:hover .tools{opacity:1;pointer-events:auto;}
+}
+@media (hover:none){
+  .msg:hover .tools{opacity:0;}
+  .msg.show-tools .tools{opacity:1;pointer-events:auto;}
+}

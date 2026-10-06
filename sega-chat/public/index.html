@@ -119,6 +119,7 @@
     <div class="rail-search">
       <input id="chat-filter" type="search" placeholder="Найти чат или участника…" autocomplete="sega-nofill" name="sega-filter">
       <button class="new-chat" id="btn-new-chat" title="Создать групповой чат"><span data-ic="plus"></span> Новый чат</button>
+        <button class="new-chat" id="btn-new-game" title="Новая игра в шахматы">♟ Игра</button>
     </div>
 
     <div class="rail-list" id="chat-list"></div>
@@ -162,6 +163,7 @@
     </header>
 
     <div id="search-results" class="hidden"></div>
+    <div id="board-wrap" class="board-wrap hidden"></div>
     <div id="messages"></div>
     <div id="scroll-bottom" class="hidden" title="Вниз"><span data-ic="down"></span></div>
 
@@ -255,6 +257,7 @@
 <div id="emoji-pop" class="emoji-pop hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
+<script src="chess-engine.js"></script>
 <script src="local-cache.js"></script>
 <script src="app.js"></script>
 </body>

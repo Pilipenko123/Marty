@@ -206,10 +206,25 @@ const rx2 = ((sb.messages.find(m => m.id === mid) || {}).reactions || {})['🔥'
 ok(rx2.includes(admin.id), 'реакцию видно у второго участника');
 // главное нововведение pkg3-13: реакция приходит точечно, без перечитывания истории
 ok(sb.gen === genRx, 'реакция не поднимает «поколение» базы (историю заново читать не нужно)');
+
 const dRx = await deltaOf(B, james.token, beforeRx);
 ok(dRx.changed.length === 1 && dRx.changed[0].id === mid, 'короткий опрос прислал ровно изменённое сообщение');
 ok(((dRx.changed[0].reactions || {})['🔥'] || []).includes(admin.id), 'в этой посылке виден сам смайлик');
 ok(dRx.messages.length === 0 && !dRx.gone.includes(mid), 'повторно прислано только уже известное (удаление из окна запаса) — лишнего нет');
+// ── гонка двух экземпляров за номера сообщений
+{
+  const many = await Promise.all([
+    call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'race-1' } }, admin.token),
+    call(B, '/api/messages', { method: 'POST', body: { chat, blob: 'race-2' } }, james.token),
+    call(A, '/api/messages', { method: 'POST', body: { chat, blob: 'race-3' } }, james.token),
+    call(B, '/api/messages', { method: 'POST', body: { chat, blob: 'race-4' } }, admin.token)
+  ]);
+  const seqs = many.map(r => r.d.message.seq);
+  ok(many.every(r => r.status === 200), 'четыре одновременные отправки приняты обоими экземплярами');
+  ok(new Set(seqs).size === 4, 'номера сообщений уникальны при гонке экземпляров: ' + seqs.join(','));
+  const sA = await syncOf(A, admin.token, Math.min(...seqs) - 1);
+  ok(seqs.every(q => sA.messages.some(m => m.seq === q)), 'курсор «с предпоследнего» достаёт все четыре гонщика');
+}
 const dIdle = await deltaOf(B, james.token, dRx);
 ok(dIdle.changed.length === 0, 'повторный короткий опрос пустой (журнал не дёргает базу зря)');
 r = await call(A, '/api/messages/' + mid + '/react', { method: 'POST', body: { emoji: '🔥' } }, admin.token);
