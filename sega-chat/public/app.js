@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-37';
+const BUILD = 'pkg3-40';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -92,14 +92,20 @@ const PALS = [
   { id: 'graphite', name: 'Графит', c1: '#4b5563', c2: '#9aa5b1' }
 ];
 const palById = id => PALS.find(p => p.id === id) || PALS[0];
-// узоры фона чата: id + превью для кнопок выбора (pkg3-34: добавлены неоновые)
+// узоры фона чата: id + превью для кнопок выбора
+// pkg3-38: узоры перерисованы по пожеланиям владельца —
+//  · diag — настоящие непрерывные диагональные линии (ровный шаг, сшиваются между плитками)
+//  · grid — обычная клетка, повёрнутая на 45° (ромбиком)
+//  · waves — настоящие концентрические окружности (не «волны»)
+//  · neongrid — бирюзовая клетка на чёрном, уходящая в перспективу (big: во весь экран)
+//  · sunset — фиолетовые линии на чёрном, уходящие в перспективу (big: во весь экран)
 const PATS = [
   { id: 'dots', prev: 'radial-gradient(rgba(255,255,255,.6) 1.5px, transparent 1.6px)', bg: '#5c6f7c' },
-  { id: 'diag', prev: 'repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 2px, transparent 2px 8px)', bg: '#5c6f7c' },
-  { id: 'grid', prev: 'repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px)', bg: '#5c6f7c' },
-  { id: 'waves', prev: 'repeating-radial-gradient(circle at 0 8px, rgba(255,255,255,.4) 0 2px, transparent 2px 8px)', bg: '#5c6f7c' },
-  { id: 'neongrid', prev: 'repeating-linear-gradient(0deg, rgba(0,229,255,.65) 0 1px, transparent 1px 9px), repeating-linear-gradient(90deg, rgba(0,229,255,.65) 0 1px, transparent 1px 9px)', bg: '#160b2e' },
-  { id: 'sunset', prev: 'repeating-linear-gradient(0deg, rgba(255,43,214,.6) 0 2px, transparent 2px 9px)', bg: '#2a0f4c' }
+  { id: 'diag', prev: 'repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 1.6px, transparent 1.6px 9px)', bg: '#5c6f7c' },
+  { id: 'grid', prev: 'repeating-linear-gradient(45deg, rgba(255,255,255,.45) 0 1px, transparent 1px 9px), repeating-linear-gradient(-45deg, rgba(255,255,255,.45) 0 1px, transparent 1px 9px)', bg: '#5c6f7c' },
+  { id: 'waves', prev: 'repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.45) 0 1px, transparent 1px 6px)', bg: '#5c6f7c' },
+  { id: 'neongrid', prev: '', bg: '#000', big: true },
+  { id: 'sunset', prev: '', bg: '#000', big: true }
 ];
 // ─────────────────────────────────────────── современные эмодзи (Twemoji, CC-BY)
 // Картинки подтягиваются с CDN; если сети нет — onerror возвращает системный символ.
@@ -224,6 +230,7 @@ const S = {
   healBusy: false, healPauseUntil: 0,   // защита от бесконечного «долечивания» без ключа
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
+  chatPos: {},      // pkg3-38: chatId -> где была прокручена лента ({bottom:true} или {id,dy}) — память места в рамках сессии
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
   usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
   attach: null, threadAttach: null, remember: true, timer: null, atBottom: true,
@@ -780,6 +787,7 @@ async function startApp() {
   if (S.idb && S.uid && !S.cacheFp) { S.cacheFp = await cacheFp(); persistAll(); }
   renderCacheState();
   wake('старт приложения');
+  refreshPushReady();                  // pkg3-40: знать, можно ли доске спать спокойно
   loop();
   if (!S.priv) setTimeout(() => { if (!S.priv) openRestoreKeys(); }, 600);
 }
@@ -797,17 +805,23 @@ function renderCacheState() {
   el.textContent = 'Локальная память: включена, кэш запишется после первой полной загрузки.';
 }
 // ── цикл опроса: «тихий час» ──────────────────────────────────────────
-// Пока человек трогает окно (или друзья пишут) — лента опрашивается бодро,
-// каждые 2,5 с. Минуту никто ни к чату не прикасается — окно ЗАСЫПАЕТ:
-// запросы прекращаются вовсе, остаётся одна редкая проверка «есть кто?»
-// (раз в 5 минут) на случай, если пуш-колокольчик не сработал.
-// Новое сообщение будит спящее окно МГНОВЕННО: служебный воркер получает
-// пуш из облака и толкает окно в бок; просыпается оно и от любого касания.
+// pkg3-40: опрос подешевел в разы. Главный доставщик новинок — пуш: как
+// только сообщение (или ход) ложится в облако, служебный воркер получает
+// «звонок» и будит окно за 0,15 с — ждать следующего опроса не нужно.
+// Поэтому бодрствующее окно спрашивает ленту раз в 15 с (открытая партия —
+// раз в 10 с), а через 30 с бездействия окно ЗАСЫПАЕТ: запросы прекращаются
+// вовсе, остаётся одна редкая проверка «есть кто?» (раз в 5 минут) на случай,
+// если пуш не сработал. Любое касание и любой пуш будят окно МГНОВЕННО.
+// Доска больше не держит окно бодрым вечно: ушёл игрок пить чай — окно спит,
+// а ход соперника разбудит его сам. Страховка только для браузеров без пуша
+// (pushReady === false): там доска, как раньше, не даёт окну уснуть.
 // В облаке каждое обращение к ленте — деньги, поэтому сон экономит их
-// на порядок, а бодрствование остаётся таким же быстрым, как было.
+// на порядок, а новинки прилетают даже быстрее, чем при старом опросе.
 let lastTouch = Date.now();
 const POLL_QS = new URLSearchParams(location.search);
-const AWAKE_MS = Math.max(1000, Number(POLL_QS.get('awake')) || 60000);  // сколько бодрствуем после касания
+const AWAKE_MS = Math.max(1000, Number(POLL_QS.get('awake')) || 30000);  // сколько бодрствуем после касания
+const FAST_MS = Math.max(1000, Number(POLL_QS.get('fast')) || 15000);    // опрос в бодрствовании (пуш приносит новинки раньше)
+const GAME_MS = Math.max(1000, Number(POLL_QS.get('game')) || 10000);    // опрос в бодрствовании при открытой доске
 const TICK_MS = Math.max(2000, Number(POLL_QS.get('tick')) || 300000);   // проверка во сне (5 минут)
 let wakeUntil = Date.now() + AWAKE_MS;
 let prevMode = 'awake';
@@ -829,15 +843,31 @@ const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); bootstrapN
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
-function pollDelay() { return pollMode() === 'awake' ? 2500 : TICK_MS; }
+function pollDelay() { return pollMode() === 'awake' ? (gameOnScreen() ? GAME_MS : FAST_MS) : TICK_MS; }
 function gameOnScreen() {
   const c = curChat();
   return !!(c && c.kind === 'game' && c.game && c.game.status === 'playing' && !document.hidden);
 }
+// pkg3-40: подключён ли пуш. Пока пуш исправен, открытая доска НЕ держит окно
+// бодрым вечно — ход соперника будит окно через служебный воркер за 0,15 с.
+// Если пуша нет (браузер не умеет, человек выключил, сервер без VAPID-ключей),
+// остаётся прежняя страховка: доска держит окно бодрым, опрос каждые 10 с.
+// Проверка стоит одного лёгкого запроса, поэтому делается при старте и не
+// чаще раза в 5 минут, пока доска открыта.
+let pushReady = false;
+let pushCheckedAt = 0;
+const PUSH_CHECK_MS = 5 * 60 * 1000;
+async function refreshPushReady() {
+  pushCheckedAt = Date.now();
+  try { pushReady = (await pushState()) === 'on'; } catch (e) { pushReady = false; }
+}
 async function loopStep() {
-  // открытая партия держит окно бодрым: зрители и ожидающий соперник
-  // должны видеть ходы сразу, а не после пробуждения «тихого часа»
-  if (gameOnScreen()) wake('партия на экране');
+  // открытая партия: с пушем окно живёт по общему расписанию (ход разбудит),
+  // без пуша — держим бодрым, чтобы игра никогда не «зависала»
+  if (gameOnScreen()) {
+    if (Date.now() - pushCheckedAt > PUSH_CHECK_MS) refreshPushReady();
+    if (!pushReady) wake('партия на экране (страховка без пуша)');
+  }
   if (pollMode() === 'awake') pollStats.fast++; else pollStats.ticks++;
   if (S.token) { try { await sync(); } catch (e) {} }
   if (!S.initialLoad) loadUi.hide();   // фоновая синхронизация не оставляет оверлей
@@ -1538,6 +1568,9 @@ function layoutGame(on) {
     // уже разложены — не трогаем DOM, иначе каждое перерисовывание даёт моргание
     if (right && main.classList.contains('game-mode')
       && $('#messages').parentElement === right && $('#composer').parentElement === right) return;
+    // pkg3-39: браузер сбрасывает прокрутку, когда узел #messages переносят
+    // в другой угол DOM, — запоминаем место ленты до переноса и возвращаем после
+    const keep = feedScrollKeep();
     if (!right) { right = document.createElement('div'); right.id = 'game-right'; main.appendChild(right); }
     right.appendChild($('#search-results'));
     right.appendChild($('#messages'));
@@ -1551,11 +1584,14 @@ function layoutGame(on) {
         '<div id="gm-grip" role="button" aria-label="Окно чата: коснитесь, чтобы раскрыть или свернуть; потяните, чтобы изменить размер"><i></i></div>');
     }
     applyGmChatSize();
+    feedScrollKeepRestore(keep);
   } else if (right) {
+    const keep = feedScrollKeep();
     const bw = $('#board-wrap');
     bw.after($('#search-results'), $('#messages'), $('#scroll-bottom'), $('#composer'));
     right.remove();
     main.classList.remove('game-mode', 'gm-expanded', 'gm-sized', 'thread-collapsed');
+    feedScrollKeepRestore(keep);
   } else {
     main.classList.remove('game-mode', 'gm-expanded', 'gm-sized', 'thread-collapsed');
   }
@@ -1722,7 +1758,8 @@ function renderBoard() {
     ctrl.push(`<button class="mini danger" id="gm-leave">${label}</button>`);
   }
   if (role === 'player' && (c.knocks || []).length) ctrl.push(`<button class="mini" id="gm-knocks">Заявки зрителей: ${c.knocks.length}</button>`);
-  ctrl.push('<button class="mini only-mobile" id="gm-thread">💬 чат: свернуть/развернуть</button>');
+  // pkg3-38: мобильная кнопка «чат: свернуть/развернуть» убрана по просьбе владельца —
+  // на телефоне чат и так всегда внизу, а ручка-шторка над ним раскрывает и меняет размер
   const showTurn = g.status === 'playing' && (st === 'playing' || st === 'check');
   const sig = [c.id, sans.length, st, S.selSq || '', (S.selTargets || []).join(','),
     ctrl.join(','), (c.knocks || []).length, flip ? 1 : 0, gameStatusText(c, eng, st),
@@ -1949,7 +1986,11 @@ function renderRail() {
   const games = chats.filter(c => c.kind === 'game').sort((a, b) =>
     (((b.game || {}).status === 'playing') ? 1 : 0) - (((a.game || {}).status === 'playing') ? 1 : 0));
   const groups = chats.filter(c => c.kind === 'group');
-  const dms = chats.filter(c => c.kind === 'dm');
+  // pkg3-38: в «Личных чатах» кто сейчас в сети — поднимаются наверх;
+  // остальные остаются в прежнем порядке (по свежести сообщений).
+  // Сортировка устойчивая: внутри групп порядок не ломается.
+  const dms = chats.filter(c => c.kind === 'dm').sort((a, b) =>
+    (isOnline(userById(dmPeer(b))) ? 1 : 0) - (isOnline(userById(dmPeer(a))) ? 1 : 0));
   const chatRow = (c) => {
     const un = unreadIn(c.id);
     const last = lastMessageIn(c.id);
@@ -1958,12 +1999,18 @@ function renderRail() {
       : last ? preview(last)
       : (c.kind === 'dm' ? (isOnline(peer) ? 'в сети' : fmtAgo(peer && peer.lastSeen))
         : plural(c.members.length, 'участник', 'участника', 'участников'));
+    // pkg3-38: напротив личного чата — когда человек последний раз заходил
+    // (тот же формат, что вверху личной переписки: «в сети» / «был(а) …»)
+    const seen = c.kind === 'dm' && peer
+      ? `<div class="ci-seen ${isOnline(peer) ? 'on' : ''}" title="Последний визит">${isOnline(peer) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(peer.lastSeen))}</div>`
+      : '';
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
       <div class="ci-main">
         <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? '<span class="tag-grp">♟</span>' : ''}</div>
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
+      ${seen}
       ${un.mentions ? `<span class="badge at" title="обращения к вам">@${un.mentions}</span>` : ''}
       ${un.total ? `<span class="badge">${un.total}</span>` : ''}
     </div>`;
@@ -2478,12 +2525,27 @@ $('#chat-list').addEventListener('click', async e => {
   } catch (ex) { toast(ex.message, true); }
 });
 async function openChat(id) {
-  if (S.view) S.drafts[S.view] = $('#input').value;
+  if (S.view) { S.drafts[S.view] = $('#input').value; captureChatPos(); }
   S.view = id;
   S.threadId = null; S.quote = null;
   S.atBottom = true; S.sig = '';
   renderedChat = null; renderedOnce = false; renderedIds = new Set();
   S.winSize = WIN_SIZE;
+  // pkg3-39: раскладку игры (перенос ленты в колонку рядом с доской или обратно)
+  // собираем СРАЗУ, до отрисовки ленты. Раньше её собирал отложенный boardSoon —
+  // уже после того, как лента поставлена на запомненное место; перенос #messages
+  // сбрасывал прокрутку в ноль, и при возврате в чат лента оказывалась в самом
+  // начале переписки. Теперь перенос всегда происходит ДО постановки позиции,
+  // а заодно сразу рисуется доска (или спиннер «загружаем ходы») — без пустой колонки.
+  boardSoon();
+  // pkg3-38: возвращаемся в чат, где в этой сессии читали середину, —
+  // окно ленты расширяем так, чтобы запомненное сообщение точно отрисовалось
+  const pos = S.chatPos[id];
+  if (pos && pos.id) {
+    const full = S.messages.filter(m => m.chat === id && !m.parent && feedVisible(m));
+    const idx = full.findIndex(m => m.id === pos.id);
+    if (idx >= 0) S.winSize = Math.max(WIN_SIZE, full.length - idx + 2);
+  }
   S.healBusy = false; S.healPauseUntil = 0;
   S.lastListSig = '';
   $('#input').value = S.drafts[id] || '';
@@ -2493,8 +2555,8 @@ async function openChat(id) {
   S.focusPending = true; S.userScrolled = false;
   bumpSeen(id);
   try {
-    // ПЕРВЫМ ДЕЛОМ: расшифровать и нарисовать последние 30 сообщений
-    const winIds = S.messages.filter(m => m.chat === id && !m.parent).slice(-WIN_SIZE).map(m => m.id);
+    // ПЕРВЫМ ДЕЛОМ: расшифровать и нарисовать видимое окно сообщений
+    const winIds = S.messages.filter(m => m.chat === id && !m.parent).slice(-(S.winSize || WIN_SIZE)).map(m => m.id);
     S.programmatic = true;   // pkg3-37: пока ставим позицию — прокрутка не «человеческая»
     await ensureIds(winIds).catch(() => {});
     renderAll();
@@ -2523,15 +2585,67 @@ function scheduleDecryptRest(chatId) {
     }
   }, 300);
 }
-/** Детерминированный фокус: первое непрочитанное (с разделителем) или низ ленты. */
+/** pkg3-39: «снимок» прокрутки ленты: {bottom:true} — лента внизу,
+ * иначе {id,dy} — первое видимое сообщение и его смещение от верха экрана.
+ * Снимок нужен везде, где DOM ленты пересоздаётся или переносится: браузер
+ * в такие моменты сбрасывает прокрутку в ноль, а мы ставим её обратно. */
+function feedScrollKeep() {
+  const box = $('#messages');
+  if (!box || !box.scrollHeight) return null;
+  if (box.scrollHeight - box.scrollTop - box.clientHeight < 160) return { bottom: true };
+  const br = box.getBoundingClientRect();
+  for (const el of box.querySelectorAll('.msg')) {
+    if (el.getBoundingClientRect().bottom > br.top + 1) {
+      if (!el.id || el.id.indexOf('m-') !== 0) return { bottom: true };
+      return { id: el.id.slice(2), dy: el.getBoundingClientRect().top - br.top };
+    }
+  }
+  return { bottom: true };
+}
+/** pkg3-39: вернуть прокрутку по снимку: «внизу» — мотаем вниз,
+ * «сообщение» — ставим ленту так, чтобы оно оказалось на том же расстоянии от верха. */
+function feedScrollKeepRestore(keep) {
+  const box = $('#messages');
+  if (!keep || !box) return;
+  if (keep.bottom) { box.scrollTop = box.scrollHeight; return; }
+  const el = document.getElementById('m-' + keep.id);
+  box.scrollTop = el
+    ? box.scrollTop + (el.getBoundingClientRect().top - box.getBoundingClientRect().top) - keep.dy
+    : box.scrollHeight;
+}
+/** pkg3-38: запомнить, где была прокручена лента текущего чата (делаем при уходе из чата).
+ * Внизу — просто «вниз»; в середине — первое видимое сообщение и его смещение от верха экрана.
+ * Память живёт до перезагрузки страницы — как и просил владелец, «в текущей сессии». */
+function captureChatPos() {
+  const box = $('#messages');
+  if (!S.view || !box || renderedChat !== S.view) return;
+  S.chatPos[S.view] = feedScrollKeep() || { bottom: true };
+}
+/** Детерминированный фокус: pkg3-38 — сначала возвращаем запомненное место сессии,
+ * затем первое непрочитанное (с разделителем), иначе низ ленты. */
 function applyFocus() {
   const box = $('#messages');
   S.programmatic = true;
-  if (S.openMark) {
-    const el = $('#unread-mark') || document.getElementById('m-' + S.openMark.msgId);
-    if (el) el.scrollIntoView({ block: 'start', behavior: 'auto' });
-  } else {
+  const pos = S.view ? S.chatPos[S.view] : null;
+  let done = false;
+  if (pos && pos.bottom) {
     box.scrollTop = box.scrollHeight;
+    done = true;
+  } else if (pos && pos.id) {
+    const el = document.getElementById('m-' + pos.id);
+    if (el) {
+      // ставим ленту так, чтобы запомненное сообщение оказалось на том же расстоянии от верха
+      box.scrollTop += (el.getBoundingClientRect().top - box.getBoundingClientRect().top) - pos.dy;
+      done = true;
+    }
+  }
+  if (!done) {
+    if (S.openMark) {
+      const el = $('#unread-mark') || document.getElementById('m-' + S.openMark.msgId);
+      if (el) el.scrollIntoView({ block: 'start', behavior: 'auto' });
+    } else {
+      box.scrollTop = box.scrollHeight;
+    }
   }
   // pkg3-37: позицию ставим мгновенно и сами помним, где низ ленты, —
   // обработчик прокрутки в это время спит, поэтому «середина» не возникает
@@ -2922,16 +3036,58 @@ async function fetchIcon(c) {
 }
 function patSvg(kind) {
   const s = 'rgba(255,255,255,.28)';
+  const svg = (w, h, body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}' viewBox='0 0 ${w} ${h}'>${body}</svg>`)}")`;
+  // pkg3-38: большие «перспективные» обои — одна картина на весь экран, со своим чёрным фоном
+  if (kind === 'neongrid' || kind === 'sunset') return svg(240, 160, perspBody(kind));
   const body = {
+    // точки — без изменений
     dots: `<circle cx='6' cy='6' r='1.4' fill='${s}'/><circle cx='18' cy='18' r='1.4' fill='${s}'/>`,
-    diag: `<path d='M-4 8 L8 -4 M4 20 L20 4 M12 28 L28 12' stroke='${s}' stroke-width='1.4'/>`,
-    grid: `<path d='M0 8 H24 M0 16 H24 M8 0 V24 M16 0 V24' stroke='${s}' stroke-width='1'/>`,
-    waves: `<path d='M0 8 q6 -5 12 0 t12 0 M0 18 q6 -5 12 0 t12 0' stroke='${s}' stroke-width='1.4' fill='none'/>`,
-    neongrid: `<path d='M0 8 H24 M0 16 H24 M8 0 V24 M16 0 V24' stroke='rgba(0,229,255,.5)' stroke-width='1'/><path d='M0 4 H24 M4 0 V24' stroke='rgba(255,43,214,.35)' stroke-width='1'/>`,
-    sunset: `<path d='M0 5 H24 M0 11 H24 M0 17 H24' stroke='rgba(255,43,214,.45)' stroke-width='1.6'/><circle cx='12' cy='12' r='4.4' fill='none' stroke='rgba(255,158,0,.55)' stroke-width='1.4'/>`
+    // непрерывные диагональные линии: ровный шаг, концы выведены за плитку —
+    // при повторении плитки линии сшиваются в сплошные полосы без разрывов
+    diag: `<path d='M0 6 L6 0 M0 18 L18 0 M6 24 L24 6 M18 24 L24 18' stroke='${s}' stroke-width='1.4' fill='none'/>`,
+    // клетка, повёрнутая на 45°: те же сплошные диагонали + перпендикулярные им
+    grid: `<path d='M0 6 L6 0 M0 18 L18 0 M6 24 L24 6 M18 24 L24 18 M6 0 L24 18 M18 0 L24 6 M0 18 L6 24 M0 6 L18 24' stroke='${s}' stroke-width='1' fill='none'/>`,
+    // настоящие концентрические окружности: кольца из центра крупной плитки
+    waves: `<circle cx='24' cy='24' r='6' stroke='${s}' stroke-width='1.3' fill='none'/><circle cx='24' cy='24' r='12' stroke='${s}' stroke-width='1.3' fill='none'/><circle cx='24' cy='24' r='18' stroke='${s}' stroke-width='1.3' fill='none'/><circle cx='24' cy='24' r='23.4' stroke='${s}' stroke-width='1.3' fill='none'/>`
   }[kind] || '';
-  return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'>${body}</svg>`)}")`;
+  return svg(kind === 'waves' ? 48 : 24, kind === 'waves' ? 48 : 24, body);
 }
+/** pkg3-38: «перспективные» картины: горизонт y=60, точка схода (120,60), чёрный фон.
+ * neongrid — бирюзовая клетка пола, уходящая вдаль; sunset — фиолетовые лучи-линии. */
+function perspBody(kind) {
+  const W = 240, H = 160, HZ = 60, VX = 120;
+  let g = `<rect width='${W}' height='${H}' fill='#000'/>`;
+  let d = '';
+  if (kind === 'neongrid') {
+    const c = 'rgba(0,229,255,';
+    // горизонтали пола: шаг растёт вниз — та самая перспектива
+    for (let i = 1; i <= 9; i++) { const t = i / 9; d += `M0 ${(HZ + (H - HZ) * t * t).toFixed(1)} H${W} `; }
+    g += `<path d='${d.trim()}' stroke='${c}.45)' stroke-width='1' fill='none'/>`;
+    // вертикали сходятся в одну точку на горизонте
+    d = '';
+    for (let k = -7; k <= 7; k++) d += `M${VX} ${HZ} L${VX + k * 34} ${H} `;
+    g += `<path d='${d.trim()}' stroke='${c}.45)' stroke-width='1' fill='none'/>`;
+    g += `<path d='M0 ${HZ} H${W}' stroke='${c}.8)' stroke-width='1.2'/>`;
+  } else {
+    const c = 'rgba(176,106,255,';
+    // фиолетовые линии-лучи расходятся из точки на горизонте — коридор, уходящий вдаль
+    for (let a = 6; a < 360; a += 12) {
+      const r = a * Math.PI / 180;
+      d += `M${VX} ${HZ} L${(VX + Math.cos(r) * 420).toFixed(1)} ${(HZ + Math.sin(r) * 420).toFixed(1)} `;
+    }
+    g += `<path d='${d.trim()}' stroke='${c}.4)' stroke-width='1' fill='none'/>`;
+    g += `<path d='M0 ${HZ} H${W}' stroke='${c}.55)' stroke-width='1'/>`;
+    g += `<circle cx='${VX}' cy='${HZ}' r='3' fill='rgba(255,43,214,.5)'/>`;
+  }
+  return g;
+}
+const patMeta = id => PATS.find(p => p.id === id) || PATS[0];
+/** pkg3-38: как класть узор в фон: мелкие плиткой (repeat), большие «перспективные» — во весь экран. */
+function patLayer(pat) {
+  return patMeta(pat).big ? `${patSvg(pat)} center/cover no-repeat` : `${patSvg(pat)} repeat`;
+}
+/** Превью для кнопок выбора узора: у больших — та же картина, у мелких — CSS-градиент. */
+const patPrev = p => p.big ? `${patSvg(p.id)} center/cover no-repeat` : p.prev;
 async function applyWallBackground() {
   const box = $('#messages'), c = curChat();
   if (S.eco) { box.style.background = ''; return; }   // эконом-режим: фонов нет
@@ -2940,7 +3096,7 @@ async function applyWallBackground() {
   const w = Object.assign({ type: 'grad', c1: '#eef2f4', c2: '#e8f4fe', a: 165, pat: 'dots' }, c.wall);
   const grad = `linear-gradient(${w.a}deg, ${w.c1}, ${w.c2})`;
   if (w.type === 'grad') { box.style.background = grad; return; }
-  if (w.type === 'pat') { box.style.background = `${patSvg(w.pat)} repeat, ${grad}`; return; }
+  if (w.type === 'pat') { box.style.background = `${patLayer(w.pat)}, ${grad}`; return; }
   const data = await fetchWall(c);
   box.style.background = data ? `linear-gradient(165deg, ${w.c1}22, ${w.c2}55), url(${data}) center/cover no-repeat` : grad;
 }
@@ -2959,7 +3115,7 @@ function wallEditor(c) {
     </div>
     <div id="w-pat" class="${w.type === 'pat' ? '' : 'hidden'}">
       <div class="pat-grid" id="w-pats">
-        ${PATS.map(p => `<button class="pat ${w.pat === p.id ? 'on' : ''}" data-pat="${p.id}" style="background:${p.prev};background-color:${p.bg}"></button>`).join('')}
+        ${PATS.map(p => `<button class="pat ${w.pat === p.id ? 'on' : ''}" data-pat="${p.id}" style="background:${patPrev(p)};background-color:${p.bg}"></button>`).join('')}
       </div>
     </div>
     <div id="w-photo" class="${w.type === 'photo' ? '' : 'hidden'}">
@@ -2975,7 +3131,7 @@ function wallEditor(c) {
   const rerender = async () => {
     const box = $('#messages');
     const grad = `linear-gradient(${state.a}deg, ${state.c1}, ${state.c2})`;
-    if (state.type === 'pat') box.style.background = `${patSvg(state.pat)} repeat, ${grad}`;
+    if (state.type === 'pat') box.style.background = `${patLayer(state.pat)}, ${grad}`;
     else if (state.type !== 'photo') box.style.background = grad;
   };
   $('#w-tabs').addEventListener('click', e => {
@@ -4026,6 +4182,8 @@ async function refreshPushSwitch() {
   const sw = $('#sw-push'), hint = $('#push-hint');
   if (!sw) return;
   const st = await pushState();
+  pushReady = st === 'on';             // pkg3-40: тумблер в настройках — тоже точка правды о пуше
+  pushCheckedAt = Date.now();
   sw.disabled = (st === 'unavailable' || st === 'noserver');
   sw.checked = st === 'on';
   const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -4067,6 +4225,7 @@ async function setPush(on) {
       toast('Уведомления выключены');
     }
   } catch (e) { toast(e.message || 'Не удалось переключить уведомления', true); }
+  refreshPushReady();                  // pkg3-40: доска сразу узнаёт, можно ли ей спать
   refreshPushSwitch();
 }
 
@@ -4596,12 +4755,6 @@ document.addEventListener('click', async e => {
   const sq = e.target.closest('[data-sq]');
   if (sq) { await onBoardClick(sq.dataset.sq); return; }
   if (e.target.closest('#gm-leave')) { await leaveGameSmart(); return; }
-  if (e.target.closest('#gm-thread')) {
-    const m = $('#main');
-    clearGmSize(); m.classList.remove('gm-expanded');   // pkg3-37: кнопка и ручка не спорят
-    m.classList.toggle('thread-collapsed');
-    return;
-  }
   if (e.target.closest('#gm-knocks')) { openKnocks(curChat()); return; }
   const acc = e.target.closest('[data-game-accept]');
   if (acc) {

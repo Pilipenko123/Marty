@@ -324,6 +324,18 @@ ok(r.status === 200 && r.d.archives.length === 0, 'список архивов �
 await call(A, '/api/sync?since=0&active=1', {}, admin.token);
 const seen = (await syncOf(B, james.token)).users.find(u => u.id === admin.id);
 ok(seen.activeAt > 0, 'второй экземпляр видит, что человек сейчас в чате');
+
+// pkg3-40: пустой опрос должен стоить ровно одного чтения базы (строка меты);
+// сессию тёплый экземпляр помнит и за токеном в базу больше не ходит
+{
+  const warm = await syncOf(A, admin.token);
+  await deltaOf(A, admin.token, warm);            // прогрев: экземпляр запомнил пропуск
+  const readsBefore = mock.counters.reads;
+  const d = await deltaOf(A, admin.token, warm);
+  ok(mock.counters.reads - readsBefore === 1, 'пустой опрос — одно чтение базы (сессия в тёплом кэше)');
+  ok(d.messages.length === 0 && d.resync === false && d.chg === warm.chg, 'пустой опрос не принёс новостей и не потребовал ресинка');
+}
+
 const loginA = await call(A, '/api/login', { method: 'POST', body: { name: 'Джеймс', authKey: jamesCred.authKey } });
 ok(loginA.status === 200, 'вход через A');
 ok((await call(B, '/api/sync?since=0', {}, loginA.d.token)).status === 200, 'выданный на A пропуск работает на B');

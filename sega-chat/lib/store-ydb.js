@@ -42,7 +42,12 @@ function createYdbStore(opts = {}) {
   const presenceEvery = Number(opts.presenceEvery || process.env.PRESENCE_EVERY || 60000);
 
   let db = null;                  // переживает вызовы функции, пока экземпляр «тёплый»
-  let cache = { dv: -1, sv: -1, rv: -1 };
+  let cache = { dv: -1, sv: -1, rv: -1, zv: -1 };
+  // pkg3-40: тёплый кэш сессий — пустой опрос больше не ходит в базу за токеном.
+  // Кэш сбрасывается по счётчику «zv» в мете (растёт при любой записи/удалении
+  // сессии), поэтому выход на соседнем экземпляре доезжает сюда к следующему запросу.
+  let sessCache = new Map();      // токен -> { v, at }
+  const SESS_TTL = Number(process.env.SESS_CACHE_MS || 5 * 60 * 1000);
   let lastSeq = {};               // чат -> последний seq (чтобы не опрашивать пустое)
   let chunkK = new Map();         // сколько кусков у записи
   let loadedFull = new Set();
@@ -179,7 +184,7 @@ function createYdbStore(opts = {}) {
   async function initMeta() {
     const core = { version: 3, createdAt: Date.now(), room: null, serverSecret: crypto.randomBytes(32).toString('hex') };
     try {
-      await ydb.put(table, { pk: S('meta'), sk: S('root'), d: S(JSON.stringify(core)), k: N(1), seq: N(0), gen: N(0), rev: N(0), chg: N(0), dv: N(0), sv: N(0), pres: S('{}') },
+      await ydb.put(table, { pk: S('meta'), sk: S('root'), d: S(JSON.stringify(core)), k: N(1), seq: N(0), gen: N(0), rev: N(0), chg: N(0), dv: N(0), sv: N(0), zv: N(0), pres: S('{}') },
         { ConditionExpression: 'attribute_not_exists(pk)' });
     } catch (e) {
       if (!(e instanceof YdbError) || !e.conditionFailed) throw e;
@@ -228,8 +233,8 @@ function createYdbStore(opts = {}) {
     const rvNow = num(m.rv);
     if (cache.rv !== rvNow) {
       db = null; chunkK = new Map(); loadedFull = new Set(); lastSeq = {};
-      presence = {}; snap = null;
-      cache = { dv: -1, sv: -1, rv: rvNow };
+      presence = {}; snap = null; sessCache = new Map();
+      cache = { dv: -1, sv: -1, rv: rvNow, zv: -1 };
     }
 
     if (!db) db = emptyDb();
@@ -248,6 +253,10 @@ function createYdbStore(opts = {}) {
     if (process.env.YDB_DEBUG) console.error(`[ydb] load dv=${dv} cache=${cache.dv} sv=${sv}/${cache.sv}`);
     if (cache.dv !== dv) { await loadDirectory(); cache.dv = dv; }
     if (cache.sv !== sv) { await loadStats(); cache.sv = sv; }
+    // версия сессий: сдвинулась — значит соседний экземпляр записал или удалил
+    // сессию; свой тёплый кэш сбрасываем, чтобы не пустить никого по старому токену
+    const zvNow = num(m.zv);
+    if (cache.zv !== zvNow) { sessCache = new Map(); cache.zv = zvNow; }
 
     for (const u of db.users) {
       const p = presence[u.id] || {};
@@ -375,7 +384,7 @@ function createYdbStore(opts = {}) {
   async function flush(cur) {
     db = cur;
     const jobs = [];
-    let dirChanged = false, statsChanged = false;
+    let dirChanged = false, statsChanged = false, sessChanged = false;
 
     // участники
     for (const u of db.users) {
@@ -401,10 +410,10 @@ function createYdbStore(opts = {}) {
     }
     // сессии
     for (const [t, s] of Object.entries(db.sessions)) {
-      if (snap.sessions.get(t) !== JSON.stringify(s)) jobs.push(() => ydb.put(table, { pk: S('sess'), sk: S(t), d: S(JSON.stringify(s)), k: N(1) }));
+      if (snap.sessions.get(t) !== JSON.stringify(s)) { jobs.push(() => ydb.put(table, { pk: S('sess'), sk: S(t), d: S(JSON.stringify(s)), k: N(1) })); sessChanged = true; }
     }
-    for (const t of snap.sessions.keys()) if (!db.sessions[t]) jobs.push(() => ydb.del(table, K('sess', t)));
-    for (const t of pend.dropSessions) if (!db.sessions[t]) jobs.push(() => ydb.del(table, K('sess', t)));
+    for (const t of snap.sessions.keys()) if (!db.sessions[t]) { jobs.push(() => ydb.del(table, K('sess', t))); sessChanged = true; }
+    for (const t of pend.dropSessions) if (!db.sessions[t]) { jobs.push(() => ydb.del(table, K('sess', t))); sessChanged = true; }
     // сообщения
     for (const m of db.messages) {
       const was = snap.messages.get(m.id);
@@ -482,6 +491,7 @@ function createYdbStore(opts = {}) {
     if ((db.chg || 0) !== (snap.chg || 0)) { adds.push('#chg :dchg'); names['#chg'] = 'chg'; values[':dchg'] = N((db.chg || 0) - (snap.chg || 0)); }
     if (dirChanged) { adds.push('#dv :one'); names['#dv'] = 'dv'; }
     if (statsChanged) { adds.push('#sv :one'); names['#sv'] = 'sv'; }
+    if (sessChanged) { adds.push('#zv :one'); names['#zv'] = 'zv'; }   // pkg3-40: версия сессий — соседние экземпляры сбросят свои кэши
     const wantPresence = pend.presence && Date.now() - presenceWritten > presenceEvery;
     if (wantPresence) {
       for (const u of db.users) presence[u.id] = { s: u.lastSeen || 0, a: u.activeAt || 0 };
@@ -498,6 +508,11 @@ function createYdbStore(opts = {}) {
     if (back.seq !== undefined) db.seq = num(back.seq);
     if (back.gen !== undefined) db.gen = num(back.gen);
     if (back.chg !== undefined) db.chg = num(back.chg);   // счётчик могли сдвинуть соседи — берём итог из базы
+    if (sessChanged) {
+      // мы сами меняли сессии: тёплый кэш больше не достоверен, а версию берём из базы
+      sessCache = new Map();
+      cache.zv = back.zv !== undefined ? num(back.zv) : -1;
+    }
     // если счётчик версии сдвинулся не только нами — при следующем запросе перечитаем
     cache.dv = dirChanged ? (num(back.dv) === snap.dv + 1 ? num(back.dv) : -1) : cache.dv;
     cache.sv = statsChanged ? (num(back.sv) === snap.sv + 1 ? num(back.sv) : -1) : cache.sv;
@@ -540,15 +555,25 @@ function createYdbStore(opts = {}) {
     pushChange, loadChanges, trimChanges,
 
     async getSession(token) {
+      // pkg3-40: пустой опрос не стоит обращения к базе — тёплый экземпляр
+      // помнит токен. Кэш действителен, пока не сдвинулся счётчик «zv»
+      // (проверяется в load()) и не истёк короткий срок.
+      const hit = sessCache.get(token);
+      if (hit && Date.now() - hit.at < SESS_TTL) {
+        db.sessions[token] = hit.v;
+        snap.sessions.set(token, JSON.stringify(hit.v));   // иначе flush перезаписал бы строку без нужды
+        return hit.v;
+      }
       const it = (await ydb.get(table, K('sess', token))).Item;
-      if (!it) return null;
+      if (!it) { sessCache.delete(token); return null; }
       let v = null;
       try { v = JSON.parse(str(it.d)); } catch (e) { return null; }
       db.sessions[token] = v;
       snap.sessions.set(token, JSON.stringify(v));
+      sessCache.set(token, { v, at: Date.now() });
       return v;
     },
-    dropSession(token) { pend.dropSessions.push(token); },
+    dropSession(token) { pend.dropSessions.push(token); sessCache.delete(token); },
     async loadSessions() {
       for (const d of parseDocs(await queryPk('sess'), 'sess')) {
         if (db.sessions[d.sk] === undefined) db.sessions[d.sk] = d.value;

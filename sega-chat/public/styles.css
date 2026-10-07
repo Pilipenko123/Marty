@@ -53,6 +53,11 @@ label{display:block;font-size:12px;color:var(--muted);margin:12px 0 0}
 input[type=text],input[type=password],input[type=search],textarea{
   width:100%;margin-top:5px;background:#fff;border:1px solid #d7dfe5;border-radius:8px;padding:10px 12px;outline:none;
   transition:border-color .15s,box-shadow .15s}
+/* pkg3-38: в модальных окнах выпадающий список стоит ниже подписи — с заметным промежутком */
+.modal-body label select{display:block;width:100%;margin-top:8px;padding:9px 11px;background:#fff;
+  border:1px solid #d7dfe5;border-radius:8px;font-family:inherit;font-size:14px;color:var(--text);outline:none;
+  transition:border-color .15s,box-shadow .15s}
+.modal-body label select:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(47,198,246,.18)}
 input:focus,textarea:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(47,198,246,.18)}
 .row-check{display:flex;align-items:center;gap:8px;margin-top:14px;color:var(--muted);font-size:13px}
 .row-check input{accent-color:var(--accent);width:16px;height:16px}
@@ -125,6 +130,9 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 .chat-item .ci-name{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-item.unread .ci-name{color:var(--accent)}
 .chat-item .ci-last{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* pkg3-38: напротив личного чата — «в сети» / «был(а) …» (как вверху личной переписки) */
+.chat-item .ci-seen{font-size:10.5px;color:var(--muted);white-space:nowrap;max-width:104px;overflow:hidden;text-overflow:ellipsis;margin-left:2px;text-align:right}
+.chat-item .ci-seen.on{color:#5c9c1e}
 .badge{min-width:19px;height:19px;padding:0 6px;border-radius:99px;background:var(--red);color:#fff;font-size:11px;
   font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .badge.at{background:#f5a623}
@@ -346,6 +354,7 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 :root[data-theme="dark"] input[type=password],
 :root[data-theme="dark"] input[type=search],
 :root[data-theme="dark"] textarea{background:var(--panel-2);border-color:var(--line);color:var(--text)}
+:root[data-theme="dark"] .modal-body label select{background:var(--panel-2);border-color:var(--line);color:var(--text)}
 :root[data-theme="dark"] .composer-row textarea,
 :root[data-theme="dark"] .rail-search input,
 :root[data-theme="dark"] .search-wrap input{background:var(--panel-2)}
@@ -835,6 +844,7 @@ html,body{overflow-x:hidden}
 :root[data-eco="1"] .bubble,:root[data-eco="1"] .card,:root[data-eco="1"] .chat-item,
 :root[data-eco="1"] .day span,:root[data-eco="1"] .tool,:root[data-eco="1"] .mini,
 :root[data-eco="1"] .new-chat,:root[data-eco="1"] input,:root[data-eco="1"] textarea,
+:root[data-eco="1"] .modal-body label select,
 :root[data-eco="1"] .invite-card,:root[data-eco="1"] #msg-sheet,:root[data-eco="1"] .rx,
 :root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .avatar{
   border-radius:0;box-shadow:none;}
@@ -1094,6 +1104,10 @@ html,body{overflow-x:hidden}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider::before,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider::after{background:rgba(138,43,255,.45)}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=text],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=password],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=search],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea{
   background:rgba(5,2,18,.7);border:1.5px solid rgba(0,229,255,.35);color:var(--text)}
+/* pkg3-38: выпадающие списки модалок в неоновой гамме */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal-body label select{
+  background:rgba(5,2,18,.7);border:1.5px solid rgba(0,229,255,.35);color:var(--text)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal-body label select:focus{border-color:#00e5ff;box-shadow:0 0 12px rgba(0,229,255,.5)}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input:focus,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea:focus{border-color:#00e5ff;box-shadow:0 0 12px rgba(0,229,255,.5)}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input::placeholder,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea::placeholder{color:#6fa7c9}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rail-search input,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .search-wrap input{background:rgba(5,2,18,.7)}
