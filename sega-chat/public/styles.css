@@ -85,6 +85,9 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 .av-wrap .status{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:#c4ced6;
   border:2px solid #fff;box-sizing:content-box}
 .av-wrap .status.on{background:var(--green)}
+/* pkg3-36: крошечный маячок для мелких аватаров («Прочитали») — те же правила:
+   зелёный у всех онлайн-участников и погашенный у всех, кто чат не смотрит */
+.av-wrap .status.xs{width:7px;height:7px;right:-2px;bottom:-2px;border-width:1.5px}
 .avatar.sm{width:24px;height:24px;font-size:10.5px}
 .avatar.xs{width:20px;height:20px;font-size:9px}
 .avatar.lg{width:64px;height:64px;font-size:22px}
@@ -159,7 +162,7 @@ button.ghost.danger{color:var(--red)}
 .search-wrap{display:flex;align-items:center;gap:2px;margin-left:auto;max-width:330px;flex:1}
 .search-wrap input{margin:0;background:var(--panel-2);padding:7px 11px;font-size:13px}
 
-#messages{flex:1;overflow-y:auto;padding:12px 18px 8px;scroll-behavior:smooth}
+#messages{flex:1;overflow-y:auto;padding:12px 18px 8px}
 .day{display:flex;justify-content:center;margin:10px 0 8px}
 .day span{background:#dde6ec;color:#5e6e7a;font-size:11.5px;border-radius:99px;padding:3px 12px}
 .msg{display:flex;gap:8px;margin:0 auto 7px;max-width:900px;position:relative}
@@ -658,10 +661,10 @@ html,body{overflow-x:hidden}
 /* ── шахматы: доска, раскладка игрового чата, карточки приглашений ── */
 #board-wrap{padding:10px 12px 0;}
 #board-wrap.hidden{display:none;}
-#main.game-mode{display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(320px,54%) 1fr;}
+#main.game-mode{display:grid;grid-template-rows:auto minmax(0,1fr);grid-template-columns:minmax(320px,54%) 1fr;}
 #main.game-mode > header{grid-column:1 / -1;grid-row:1;}
 #main.game-mode #board-wrap{grid-column:1;grid-row:2;overflow:auto;padding:12px 14px;}
-#main.game-mode #game-right{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0;position:relative;}
+#main.game-mode #game-right{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;position:relative;}
 @media (max-width:959px){
   /* доска закреплена и никогда не уезжает в скролл; чат — шторка снизу */
   #main.game-mode{display:flex;flex-direction:column;height:100dvh;overflow:hidden;}
@@ -669,6 +672,36 @@ html,body{overflow-x:hidden}
   #main.game-mode .board-panel{max-width:min(100%, 58dvh);}
   #main.game-mode #game-right{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;position:relative;}
   #main.game-mode.thread-collapsed #game-right{flex:0 0 128px;}
+  #main.game-mode.thread-collapsed #messages{overflow:hidden;}
+  #main.game-mode.thread-collapsed #composer{display:none;}
+}
+@media (max-width:959px) and (orientation:portrait){
+  /* pkg3-36: вертикально на телефоне список ходов не показываем —
+     только доска и чат; ходы и так видны на доске и в подписи над ней */
+  #game-moves{display:none;}
+  /* pkg3-37: ручка видна только здесь — тянем шторку чата по вертикали */
+  #main.game-mode #gm-grip{display:flex;}
+  /* раскрытый чат загораживает большую часть доски; размер по тяге — свой */
+  #main.game-mode.gm-expanded #game-right{flex:0 0 auto;height:min(78dvh,calc(100dvh - 132px));}
+  #main.game-mode.gm-sized #game-right{flex:0 0 auto;}
+  #main.game-mode.gm-expanded #board-wrap,
+  #main.game-mode.gm-sized #board-wrap{flex:1 1 auto;min-height:0;overflow:auto;}
+  #main.game-mode.gm-expanded #messages,
+  #main.game-mode.gm-sized #messages{overflow-y:auto;}
+}
+@media (max-width:959px) and (orientation:landscape){
+  /* pkg3-36: горизонтально — слева доска и полный список ходов, справа чат */
+  #main.game-mode{display:grid;grid-template-columns:minmax(0,52%) minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;}
+  #main.game-mode > header{grid-column:1 / -1;grid-row:1;}
+  #main.game-mode #board-wrap{grid-column:1;grid-row:2;overflow:auto;padding:6px 8px;
+    display:flex;flex-direction:column;}
+  #main.game-mode .board-panel{max-width:min(100%,48dvh);width:100%;
+    display:flex;flex-direction:column;flex:1;min-height:0;}
+  #main.game-mode .board-panel .board{flex:none;}
+  #main.game-mode #game-moves{flex:1;min-height:0;max-height:none;}
+  #main.game-mode #game-right{grid-column:2;grid-row:2;min-width:0;}
+  #main.game-mode.thread-collapsed{grid-template-columns:minmax(0,1fr) 150px;}
   #main.game-mode.thread-collapsed #messages{overflow:hidden;}
   #main.game-mode.thread-collapsed #composer{display:none;}
 }
@@ -693,6 +726,64 @@ html,body{overflow-x:hidden}
 .mv-sys{font-style:italic;opacity:.75;}
 .invite-card{border:1px solid #cfd9e0;border-radius:10px;padding:10px 12px;margin:6px 0;background:#f6f9fc;}
 
+/* ── pkg3-36: полный список ходов под доской (компактно, парами, с прокруткой) ── */
+.bp-moves-list{margin-top:8px;max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:9px;
+  padding:5px 8px;background:var(--panel-2);font-variant-numeric:tabular-nums;}
+.mrow-mv{display:grid;grid-template-columns:2.6em 1fr 1fr;gap:2px 6px;padding:1px 2px;font-size:12.5px;}
+.mrow-mv:nth-child(odd){background:rgba(128,148,168,.08)}
+.mv-n{color:var(--muted);text-align:right;}
+.mv-w,.mv-b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mrow-mv .last{color:var(--accent);font-weight:800;}
+.mv-empty{padding:3px 2px;text-align:center;}
+/* фишка «чей ход» в заголовке над доской */
+.tdot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px;
+  border:1.5px solid rgba(0,0,0,.55);background:#fff;}
+.tdot.b{background:#1d1d1d;border-color:rgba(255,255,255,.65);box-shadow:0 0 0 1px rgba(0,0,0,.5);}
+/* короли-аватары игроков */
+.king-av{border-radius:50%;object-fit:cover;}
+.king-av.kw{box-shadow:0 0 0 2px #fff,0 0 0 4px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.4);}
+.king-av.kb{box-shadow:0 0 0 2px #20242a,0 0 0 4px rgba(255,255,255,.8),0 2px 6px rgba(0,0,0,.4);}
+.king-init{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;
+  font-size:clamp(10px,2.6vmin,19px);letter-spacing:.5px;}
+/* заявки зрителей — мигают ровно раз в секунду, пока есть кому отвечать */
+#gm-knocks{border-color:var(--red);color:var(--red);font-weight:700;animation:knockBlink 1s steps(1,end) infinite;}
+@keyframes knockBlink{
+  0%,50%{background:var(--red);color:#fff;box-shadow:0 0 12px rgba(255,87,82,.75);}
+  50.01%,100%{background:transparent;color:var(--red);box-shadow:none;}
+}
+/* плашка идущей партии в самом верху списка — плавно дышит (для тех, кто не в игре) */
+.chat-item.game-live{animation:gamePulse 2.2s ease-in-out infinite;}
+@keyframes gamePulse{
+  0%,100%{background:transparent;box-shadow:none;}
+  50%{background:rgba(47,198,246,.16);box-shadow:0 0 12px rgba(47,198,246,.35);}
+}
+
+/* ── pkg3-37: анимация загрузки истории — вместо пустого чата и ложной доски ── */
+.hist-load{display:flex;gap:10px;align-items:center;justify-content:center;padding:30px 12px;
+  color:var(--muted);font-size:13.5px;}
+.hl-spin{width:18px;height:18px;flex:0 0 auto;border-radius:50%;border:2px solid currentColor;
+  border-top-color:transparent;animation:hlRot .9s linear infinite;}
+.hl-spin.big{width:30px;height:30px;border-width:3px;}
+@keyframes hlRot{to{transform:rotate(360deg)}}
+.bp-loading{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;
+  text-align:center;min-height:240px;padding:26px 14px;border:1px dashed var(--line);
+  border-radius:12px;color:var(--text);}
+.bp-loading .tiny{color:var(--muted);max-width:34ch;}
+.bp-load-ico{font-size:26px;line-height:1;}
+:root[data-pal="synth"]:not([data-eco="1"]) .hl-spin{border-color:#00e5ff;border-top-color:transparent;
+  box-shadow:0 0 10px rgba(0,229,255,.45);}
+:root[data-pal="synth"]:not([data-eco="1"]) .hist-load{color:#7defff;}
+:root[data-pal="synth"]:not([data-eco="1"]) .bp-loading{border-color:rgba(255,43,214,.5);
+  box-shadow:0 0 18px rgba(255,43,214,.18) inset;}
+:root[data-eco="1"] .bp-loading{border-style:solid;box-shadow:none;}
+
+/* ── pkg3-37: ручка шторки чата в партии (телефон) ── */
+#gm-grip{display:none;align-items:center;justify-content:center;flex:0 0 auto;height:28px;
+  cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
+#gm-grip i{width:46px;height:5px;border-radius:4px;background:var(--line);opacity:.85;}
+#main.game-mode #gm-grip:active{cursor:grabbing;}
+#main.game-mode #gm-grip:active i{opacity:1;}
+
 /* ── мобильная плашка действий сообщения (pkg3-30) ── */
 
 /* крупные смайлы внутри мобильной плашки инструментов */
@@ -711,4 +802,401 @@ html,body{overflow-x:hidden}
 @media (hover:none){
   .msg:hover .tools{opacity:0;}
   .msg.show-tools .tools{opacity:1;pointer-events:auto;}
+}
+
+/* ───────── экономный режим «читалка» (pkg3-32/33): 1 бит, только чёрное и белое ───────── */
+:root[data-eco="1"]{
+  --bg:#ffffff; --panel:#ffffff; --panel-2:#ffffff; --line:#000000; --line-2:#000000;
+  --text:#000000; --muted:#000000; --accent:#000000; --ios-on:#000000;
+}
+:root[data-eco="1"][data-theme="dark"]{
+  --bg:#000000; --panel:#000000; --panel-2:#000000; --line:#ffffff; --line-2:#ffffff;
+  --text:#ffffff; --muted:#ffffff; --accent:#ffffff; --ios-on:#ffffff;
+}
+/* дизеринг «электронных чернил» вместо любых полутонов */
+:root[data-eco="1"] body{
+  background-image:conic-gradient(#000 0 25%, #fff 0 50%, #000 0 75%, #fff 0);
+  background-size:2px 2px;
+}
+:root[data-eco="1"][data-theme="dark"] body{
+  background-image:conic-gradient(#fff 0 25%, #000 0 50%, #fff 0 75%, #000 0);
+  background-size:2px 2px;
+}
+:root[data-eco="1"] .center,:root[data-eco="1"] #load-ui{background:#fff;}
+:root[data-eco="1"][data-theme="dark"] .center,:root[data-eco="1"][data-theme="dark"] #load-ui{background:#000;}
+:root[data-eco="1"] #load-ui .lu-stage,:root[data-eco="1"] #load-ui .lu-pct{color:var(--text);}
+:root[data-eco="1"] #load-ui .lu-bar{background:#fff;border:2px solid #000;}
+:root[data-eco="1"] #load-ui .lu-bar i{background:#000;}
+:root[data-eco="1"][data-theme="dark"] #load-ui .lu-bar{background:#000;border-color:#fff;}
+:root[data-eco="1"][data-theme="dark"] #load-ui .lu-bar i{background:#fff;}
+:root[data-eco="1"] .logo,:root[data-eco="1"] img,:root[data-eco="1"] video{
+  filter:grayscale(1) contrast(1000);image-rendering:pixelated;}
+/* прямые углы, чёрные контуры, никаких теней и полутонов */
+:root[data-eco="1"] .bubble,:root[data-eco="1"] .card,:root[data-eco="1"] .chat-item,
+:root[data-eco="1"] .day span,:root[data-eco="1"] .tool,:root[data-eco="1"] .mini,
+:root[data-eco="1"] .new-chat,:root[data-eco="1"] input,:root[data-eco="1"] textarea,
+:root[data-eco="1"] .invite-card,:root[data-eco="1"] #msg-sheet,:root[data-eco="1"] .rx,
+:root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .avatar{
+  border-radius:0;box-shadow:none;}
+:root[data-eco="1"] .bubble{border:2px solid #000;background:#fff;}
+:root[data-eco="1"] .msg.mine .bubble{background:#000;border-color:#000;color:#fff;}
+:root[data-eco="1"] .msg.mine .bubble .who,:root[data-eco="1"] .msg.mine .bubble .meta,
+:root[data-eco="1"] .msg.mine .bubble .tiny{color:#fff;}
+:root[data-eco="1"][data-theme="dark"] .bubble{border-color:#fff;background:#000;}
+:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble{background:#fff;color:#000;border-color:#fff;}
+:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble .who,:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble .meta,
+:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble .tiny{color:#000;}
+:root[data-eco="1"] .avatar{background:#000 !important;color:#fff !important;}
+:root[data-eco="1"][data-theme="dark"] .avatar{background:#fff !important;color:#000 !important;}
+:root[data-eco="1"] .status.on{background:#000;border:2px solid #fff;}
+:root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .new-chat{background:#000;color:#fff;}
+:root[data-eco="1"][data-theme="dark"] .badge,:root[data-eco="1"][data-theme="dark"] .send,
+:root[data-eco="1"][data-theme="dark"] .new-chat{background:#fff;color:#000;}
+:root[data-eco="1"] .mini,:root[data-eco="1"] .tool{border:2px solid #000;background:#fff;color:#000;}
+:root[data-eco="1"][data-theme="dark"] .mini,:root[data-eco="1"][data-theme="dark"] .tool{border-color:#fff;background:#000;color:#fff;}
+:root[data-eco="1"] .chat-item.active{background:#000;}
+:root[data-eco="1"] .chat-item.active .ci-name,:root[data-eco="1"] .chat-item.active .ci-last{color:#fff;}
+:root[data-eco="1"][data-theme="dark"] .chat-item.active{background:#fff;}
+:root[data-eco="1"][data-theme="dark"] .chat-item.active .ci-name,:root[data-eco="1"][data-theme="dark"] .chat-item.active .ci-last{color:#000;}
+:root[data-eco="1"] .m-at{background:#fff;color:#000;border:1px solid #000;}
+:root[data-eco="1"][data-theme="dark"] .m-at{background:#000;color:#fff;border-color:#fff;}
+:root[data-eco="1"] .eco-hidden{border:2px dashed #000;opacity:1;}
+:root[data-eco="1"][data-theme="dark"] .eco-hidden{border-color:#fff;}
+/* шахматная доска: белые поля белые, тёмные — дизеринг 50% */
+:root[data-eco="1"] .sq.light{background:#fff;}
+:root[data-eco="1"] .sq.dark{background:repeating-conic-gradient(#000 0 25%, #fff 0 50%);background-size:4px 4px;}
+:root[data-eco="1"] .sq.lm{box-shadow:inset 0 0 0 3px #000;}
+:root[data-eco="1"] .sq.sel{box-shadow:inset 0 0 0 4px #000;}
+:root[data-eco="1"] .sq.tgt::after{background:#000;}
+:root[data-eco="1"] .board{border:2px solid #000;}
+:root[data-eco="1"][data-theme="dark"] .sq.light{background:#000;}
+:root[data-eco="1"][data-theme="dark"] .sq.dark{background:repeating-conic-gradient(#fff 0 25%, #000 0 50%);background-size:4px 4px;}
+:root[data-eco="1"][data-theme="dark"] .sq.lm,:root[data-eco="1"][data-theme="dark"] .sq.sel{box-shadow:inset 0 0 0 3px #fff;}
+:root[data-eco="1"][data-theme="dark"] .sq.tgt::after{background:#fff;}
+:root[data-eco="1"][data-theme="dark"] .board{border-color:#fff;}
+:root[data-eco="1"] .rx,:root[data-eco="1"] .rx-big-btn{filter:grayscale(1);}
+/* pkg3-36: электронные чернила и шахматы — никаких полутонов: полосатость
+   списка ходов убрана, последний ход подчёркнут, заявки мигают чёрным-по-белому,
+   идущая партия у остальных участников помечена жирной рамкой (без анимации) */
+:root[data-eco="1"] .mrow-mv:nth-child(odd){background:transparent;}
+:root[data-eco="1"] .mrow-mv .last{color:var(--text);text-decoration:underline;}
+:root[data-eco="1"] #gm-knocks{border-color:var(--line);animation:knockBlinkEco 1s steps(1,end) infinite;}
+@keyframes knockBlinkEco{
+  0%,50%{background:var(--text);color:var(--panel);}
+  50.01%,100%{background:var(--panel);color:var(--text);}
+}
+:root[data-eco="1"] .chat-item.game-live{animation:none;outline:2px solid var(--line);outline-offset:-2px;}
+
+
+/* ═════════════════════ гамма «Синтвейв» (pkg3-34) ═════════════════════
+   Неоновая тёмная кожа внутри мессенджера: голубой #00e5ff, розовый #ff2bd6
+   и фиолетовый #8a2bff + зелёный #39ff14, оранжевый #ff9e00, красный #ff3860.
+   Мягкая подсветка (свечения), стеклянные панели, всё читается на тёмном.
+   ВАЖНО: экраны входа/регистрации, первая загрузка (#load-ui, .lu-*) и логотип
+   намеренно не тронуты — они остаются фирменно-синими.
+   Экономный режим исключён селектором :not([data-eco="1"]) — там по-прежнему 1 бит. */
+
+/* ── палитра ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]){
+  --bg:#0d0221; --panel:#160b2e; --panel-2:#1f1140;
+  --line:#3a2170; --line-2:#2c1a55;
+  --text:#eaf6ff; --muted:#b98bd9;
+  --accent:#00e5ff; --accent-2:#ff2bd6; --accent-soft:#33155c;
+  --dark:#12062b; --dark-2:#1f0b42;
+  --green:#39ff14; --red:#ff3860;
+  --own:#2a1040; --mention:#3a2c0c;
+  --ios-on:#ff2bd6;
+  --pal-plate-a:#ff2bd64d; --pal-plate-b:#00e5ff4d;
+}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) body{color:var(--text);scrollbar-color:#4a2a8c rgba(13,2,33,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) ::selection{background:rgba(255,43,214,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) ::-webkit-scrollbar{width:10px;height:10px}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) ::-webkit-scrollbar-thumb{background:#4a2a8c;border-radius:99px;border:2px solid #0d0221}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) ::-webkit-scrollbar-thumb:hover{background:#6a3fc0}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) ::-webkit-scrollbar-track{background:transparent}
+
+/* ── стандартный фон: «сетка-горизонт» и мягкие неоновые зарева ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #main{background:
+  radial-gradient(900px 420px at 78% -8%, rgba(138,43,255,.22), transparent 60%),
+  radial-gradient(760px 380px at 8% 108%, rgba(255,43,214,.14), transparent 60%),
+  repeating-linear-gradient(0deg, rgba(0,229,255,.05) 0 1px, transparent 1px 34px),
+  repeating-linear-gradient(90deg, rgba(0,229,255,.05) 0 1px, transparent 1px 34px),
+  linear-gradient(180deg,#0d0221,#1a0b2e 55%,#10142e)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #thread-body{background:linear-gradient(180deg,#0d0221,#150a2c)}
+
+/* ── боковая колонка ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #rail{border-right:1px solid rgba(138,43,255,.5);box-shadow:1px 0 26px rgba(138,43,255,.14)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rail-head{box-shadow:inset 0 -1px 0 rgba(0,229,255,.35),0 6px 24px rgba(255,43,214,.18)}
+/* логотип сохранён целиком — добавлена только мягкая подсветка рамки */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .lock-box{box-shadow:0 0 18px rgba(255,43,214,.35),0 0 34px rgba(0,229,255,.18)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rail-search{border-bottom:1px solid rgba(138,43,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rail-group{color:#d678c8;text-shadow:0 0 7px rgba(255,43,214,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item{box-shadow:0 1px 0 rgba(0,229,255,.12)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item:hover{background:rgba(0,229,255,.07)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item.active{background:rgba(255,43,214,.10);
+  box-shadow:inset 0 0 0 1px rgba(255,43,214,.85),0 0 12px rgba(255,43,214,.28),0 1px 0 rgba(0,229,255,.12)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item .ci-name{text-shadow:0 0 6px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item.unread .ci-name{color:#7df3ff;text-shadow:0 0 8px rgba(0,229,255,.55)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item .ci-last{color:#d678c8}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .me-name{text-shadow:0 0 8px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .new-chat{background:linear-gradient(180deg,rgba(0,229,255,.16),rgba(138,43,255,.10));
+  border:1.5px solid #00e5ff;color:#eaf6ff;
+  box-shadow:0 0 10px rgba(0,229,255,.35),inset 0 0 12px rgba(0,229,255,.12);
+  text-shadow:0 0 6px rgba(0,229,255,.6)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .new-chat:hover{background:linear-gradient(180deg,rgba(0,229,255,.26),rgba(138,43,255,.16));
+  box-shadow:0 0 16px rgba(0,229,255,.55),inset 0 0 12px rgba(0,229,255,.14)}
+
+/* ── значки и бейджи ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .badge{background:rgba(255,43,214,.16);border:1px solid #ff2bd6;color:#ffd7f6;
+  box-shadow:0 0 8px rgba(255,43,214,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .badge.at{background:rgba(255,158,0,.16);border-color:#ff9e00;color:#ffd9a0;
+  box-shadow:0 0 8px rgba(255,158,0,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .badge.soft{background:rgba(0,229,255,.14);border-color:#00e5ff;color:#c9f9ff;
+  box-shadow:0 0 8px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .badge-dot{background:#ff3860;border-color:#160b2e;box-shadow:0 0 8px rgba(255,56,96,.8)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .tag-admin{color:#7df3ff;border-color:rgba(0,229,255,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .tag-grp{border-color:rgba(138,43,255,.5);color:#c4aef0}
+
+/* ── аватары: мягкое неоновое кольцо, кружок «в сети» светится ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .avatar{box-shadow:0 0 0 1px rgba(0,229,255,.35),0 0 10px rgba(138,43,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .av-wrap .status{background:#5a4a7a;border-color:#160b2e}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .av-wrap .status.on{background:#39ff14;border-color:#0d0221;box-shadow:0 0 8px rgba(57,255,20,.85)}
+
+/* ── шапка и лента ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #topbar{border-bottom:1px solid rgba(0,229,255,.25);box-shadow:0 4px 18px rgba(13,2,33,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .top-title h2{text-shadow:0 0 8px rgba(0,229,255,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .day span{background:rgba(138,43,255,.18);border:1px solid rgba(138,43,255,.5);
+  color:#d9c9ff;text-shadow:0 0 6px rgba(138,43,255,.5)}
+/* пузыри: стекло + неон-обводка; свои — розовые, чужие — голубые (как в макете) */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bubble{background:rgba(18,8,40,.78);border:1px solid rgba(0,229,255,.55);color:var(--text);
+  box-shadow:0 0 10px rgba(0,229,255,.22),inset 0 0 18px rgba(0,229,255,.05)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.mine .bubble{background:rgba(42,10,52,.78);border-color:rgba(255,43,214,.65);
+  box-shadow:0 0 10px rgba(255,43,214,.26),inset 0 0 18px rgba(255,43,214,.06)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg .who{color:#7df3ff;text-shadow:0 0 7px rgba(0,229,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.mine .who{color:#ff8ae8;text-shadow:0 0 7px rgba(255,43,214,.55)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg .time{color:#9d86c9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.mentioned .bubble{background:rgba(58,44,12,.8);border-color:rgba(255,158,0,.7);
+  box-shadow:0 0 12px rgba(255,158,0,.3),inset 3px 0 0 #ff9e00}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bubble a{color:#7df3ff;text-shadow:0 0 6px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bubble .m-at{color:#ffd97a;background:rgba(255,158,0,.16);text-shadow:0 0 6px rgba(255,158,0,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bubble img.att,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .att-vid{border:1px solid rgba(138,43,255,.65);
+  box-shadow:0 0 14px rgba(138,43,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .att-file,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .file-chip{background:rgba(31,17,64,.8);border:1px solid rgba(138,43,255,.45);color:var(--text)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .att-file:hover{border-color:#00e5ff;color:#7df3ff;box-shadow:0 0 10px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .att-file .ic,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .file-chip .ic{color:#00e5ff;filter:drop-shadow(0 0 4px rgba(0,229,255,.6))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .quote-card{background:rgba(138,43,255,.12);border-left:3px solid #00e5ff;
+  box-shadow:0 0 8px rgba(0,229,255,.18)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .quote-card:hover{background:rgba(138,43,255,.22)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .quote-card b{color:#7df3ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .quote-card .qc-text{color:#c9b8ea}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .quote-card.gone{background:rgba(31,17,64,.6);border-color:#4a3a70;color:var(--muted)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .meta{color:#a992d6}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .check{color:#00e5ff;filter:drop-shadow(0 0 4px rgba(0,229,255,.6))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .check.failed{color:#ff7d97;filter:drop-shadow(0 0 4px rgba(255,56,96,.6))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.failed .bubble{border-color:#ff3860;box-shadow:0 0 10px rgba(255,56,96,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .retry-send{color:#ff7d97;border-color:rgba(255,56,96,.6)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .retry-send:hover{background:rgba(255,56,96,.14)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .thread-btn{background:rgba(31,17,64,.8);border-color:rgba(138,43,255,.5);color:#7df3ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .thread-btn:hover{background:rgba(138,43,255,.2);box-shadow:0 0 10px rgba(138,43,255,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .tool{background:rgba(22,11,46,.92);border:1px solid rgba(138,43,255,.3);color:#cbb8f0}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .tool:hover{color:#7df3ff;border-color:rgba(0,229,255,.6);box-shadow:0 0 8px rgba(0,229,255,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .unread-line{color:#7df3ff;text-shadow:0 0 8px rgba(0,229,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .load-more{background:rgba(22,11,46,.9);border-color:rgba(0,229,255,.45);color:#7df3ff;
+  text-shadow:0 0 6px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .load-more:hover{background:rgba(0,229,255,.12);box-shadow:0 0 12px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sys{color:#b98bd9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .archive-banner{background:rgba(22,11,46,.9);border:1px solid rgba(138,43,255,.5);
+  box-shadow:0 0 18px rgba(138,43,255,.2)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .archive-banner-title{color:var(--text)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .empty-logo{filter:brightness(0) invert(1) drop-shadow(0 0 10px rgba(0,229,255,.55))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .empty h3{text-shadow:0 0 10px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) mark{background:#6a4d0e;color:#ffe9a8}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.hl .bubble{animation:swHl 2.4s ease forwards}
+@keyframes swHl{0%{box-shadow:0 0 0 3px rgba(255,217,138,.9),0 0 18px rgba(255,217,138,.6)}
+  100%{box-shadow:0 0 10px rgba(0,229,255,.22)}}
+
+/* ── поиск по чату, кнопка «вниз» ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #search-results{border-bottom:1px solid rgba(138,43,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sr:hover{background:rgba(0,229,255,.07)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sr .chip{background:rgba(0,229,255,.12);color:#7df3ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sr .m b{color:var(--text)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #scroll-bottom{background:rgba(22,11,46,.94);border:1px solid rgba(0,229,255,.5);color:#00e5ff;
+  box-shadow:0 4px 18px rgba(13,2,33,.7),0 0 12px rgba(0,229,255,.3)}
+
+/* ── поле ввода и отправка ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #composer,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #thread-composer{border-top:1px solid rgba(138,43,255,.45);
+  box-shadow:0 -6px 22px rgba(13,2,33,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .composer-row textarea{background:rgba(5,2,18,.7);border:1.5px solid rgba(0,229,255,.35);color:var(--text)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .composer-row textarea:focus{border-color:#00e5ff;box-shadow:0 0 12px rgba(0,229,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .composer-row textarea::placeholder{color:#6fa7c9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .send{background:linear-gradient(135deg,#ff2bd6,#8a2bff);box-shadow:0 0 12px rgba(255,43,214,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .send:hover{background:linear-gradient(135deg,#ff4ade,#9b45ff);box-shadow:0 0 18px rgba(255,43,214,.7)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .composer-row label.icon:hover,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .composer-row button.emoji-btn:hover{
+  background:rgba(0,229,255,.1);color:#7df3ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #quote-bar .qb-text{color:#c9b8ea}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #quote-bar b{color:#7df3ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #quote-bar .qb-line{background:#ff2bd6;box-shadow:0 0 8px rgba(255,43,214,.6)}
+
+/* ── всплывающие панели ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #mention-pop,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #thread-mention-pop{background:rgba(13,4,32,.97);
+  border:1.5px solid rgba(0,229,255,.55);box-shadow:0 0 18px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mention-item:hover,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mention-item.sel{background:rgba(0,229,255,.1)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .emoji-pop{background:rgba(13,4,32,.97);border:1.5px solid rgba(138,43,255,.6);
+  box-shadow:0 0 20px rgba(138,43,255,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .emoji-pop button:hover{background:rgba(0,229,255,.12)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx-pop{background:rgba(13,4,32,.97);border:1.5px solid rgba(0,229,255,.55);
+  box-shadow:0 0 16px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx-pop button:hover{background:rgba(0,229,255,.12)}
+
+/* ── реакции: неоновая зелень (как в макете) ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx{background:rgba(10,4,28,.7);border:1px solid rgba(57,255,20,.55);color:#d8ffd0;
+  box-shadow:0 0 8px rgba(57,255,20,.25)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx span{color:#a8e89a}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx:hover{border-color:#39ff14;box-shadow:0 0 12px rgba(57,255,20,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx.mine{background:rgba(57,255,20,.14);border-color:#39ff14;box-shadow:0 0 10px rgba(57,255,20,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx.mine span{color:#d8ffd0}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx-big-btn{background:rgba(22,11,46,.9)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rx-big-btn:active{background:rgba(0,229,255,.18)}
+
+/* ── правка сообщения ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .edit-box{background:rgba(22,11,46,.96);border:1px solid #00e5ff;
+  box-shadow:0 0 18px rgba(0,229,255,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .edit-area{background:rgba(5,2,18,.7);color:var(--text)}
+
+/* ── комментарии ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #thread{border-left:1px solid rgba(138,43,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .thread-head{border-bottom:1px solid rgba(138,43,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .thread-head h3{text-shadow:0 0 8px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .parent-card{background:rgba(22,11,46,.9);border-left:3px solid #ff2bd6;
+  box-shadow:0 0 12px rgba(255,43,214,.2)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .parent-card .who{color:#ff8ae8}
+
+/* ── выпадающее меню «⋯» ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop{background:rgba(8,3,22,.96);border:1.5px solid #00e5ff;box-shadow:0 0 18px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop button{color:#dffbff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop button:hover{background:rgba(0,229,255,.12);text-shadow:0 0 6px rgba(0,229,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop button [data-ic] .ic{color:#00e5ff;filter:drop-shadow(0 0 4px rgba(0,229,255,.6))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop button.danger{color:#ffb3c1;border-top:1px solid rgba(255,56,96,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop button.danger [data-ic] .ic{color:#ff3860;filter:drop-shadow(0 0 5px rgba(255,56,96,.7))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #drop button.danger:hover{background:rgba(255,56,96,.14);text-shadow:0 0 8px rgba(255,56,96,.7)}
+
+/* ── модальные окна и формы ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal{background:rgba(6,1,18,.66)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal-box{background:#150a30;border:1px solid rgba(138,43,255,.55);
+  box-shadow:0 30px 70px rgba(0,0,0,.6),0 0 40px rgba(138,43,255,.22)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal-head{background:#150a30;border-bottom:1px solid rgba(138,43,255,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal-head h3{text-shadow:0 0 8px rgba(0,229,255,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mrow{border-bottom-color:rgba(138,43,255,.25)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) label{color:#b98bd9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .hint{color:#a992d6}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .err{color:#ff7d97}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider{color:#d678c8}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider::before,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider::after{background:rgba(138,43,255,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=text],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=password],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=search],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea{
+  background:rgba(5,2,18,.7);border:1.5px solid rgba(0,229,255,.35);color:var(--text)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input:focus,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea:focus{border-color:#00e5ff;box-shadow:0 0 12px rgba(0,229,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input::placeholder,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea::placeholder{color:#6fa7c9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .rail-search input,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .search-wrap input{background:rgba(5,2,18,.7)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.primary{background:linear-gradient(180deg,rgba(255,43,214,.18),rgba(138,43,255,.12));
+  border:1.5px solid #ff2bd6;color:#ffeaf9;
+  box-shadow:0 0 10px rgba(255,43,214,.4),inset 0 0 12px rgba(255,43,214,.12);
+  text-shadow:0 0 6px rgba(255,43,214,.65)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.primary:hover{background:linear-gradient(180deg,rgba(255,43,214,.3),rgba(138,43,255,.2));
+  box-shadow:0 0 16px rgba(255,43,214,.6),inset 0 0 12px rgba(255,43,214,.14)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.primary.soft{background:rgba(31,17,64,.7);border-color:#6a5a9a;color:#d9ccf5;
+  text-shadow:none;box-shadow:none}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.primary.soft:hover{background:rgba(48,28,92,.85);box-shadow:0 0 10px rgba(138,43,255,.35)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.primary.soft.danger{border-color:rgba(255,56,96,.7);color:#ffb3c1}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.primary.soft.danger:hover{background:rgba(255,56,96,.14);box-shadow:0 0 10px rgba(255,56,96,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mini{background:linear-gradient(180deg,rgba(138,43,255,.18),rgba(10,4,28,.55));
+  border:1px solid rgba(138,43,255,.55);color:#f2eaff;text-shadow:0 0 6px rgba(138,43,255,.6)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mini:hover{color:#7df3ff;border-color:#00e5ff;box-shadow:0 0 10px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mini.danger{color:#ffb3c1;border-color:rgba(255,56,96,.6);text-shadow:0 0 6px rgba(255,56,96,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mini.danger:hover{color:#ffd3dc;border-color:#ff3860;box-shadow:0 0 10px rgba(255,56,96,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.ghost{background:linear-gradient(180deg,rgba(138,43,255,.14),rgba(10,4,28,.5));
+  border:1px solid rgba(138,43,255,.4);color:#eaf6ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.ghost:hover{background:rgba(0,229,255,.1);border-color:rgba(0,229,255,.6);
+  box-shadow:0 0 10px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.ghost.danger{color:#ffb3c1;border-color:rgba(255,56,96,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) button.icon:hover{background:rgba(0,229,255,.12);color:#7df3ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .file-btn{border-color:#6a4fa8;color:#b98bd9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .file-btn:hover{color:#7df3ff;border-color:#00e5ff;box-shadow:0 0 8px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .tabs,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .seg{background:rgba(5,2,18,.6);border-color:rgba(138,43,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .tab.active,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .seg .tab.active{background:rgba(138,43,255,.25);color:#7df3ff;
+  text-shadow:0 0 8px rgba(0,229,255,.5);box-shadow:0 0 10px rgba(138,43,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .toast{background:#0d0221;border:1px solid rgba(0,229,255,.55);color:#eaf6ff;
+  box-shadow:0 10px 30px rgba(0,0,0,.6),0 0 18px rgba(0,229,255,.3)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .toast.err{background:#3d0716;border-color:#ff3860;color:#ffe3e9;
+  box-shadow:0 10px 30px rgba(0,0,0,.6),0 0 18px rgba(255,56,96,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .lightbox{background:rgba(6,1,18,.94)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .lb-ava{box-shadow:0 10px 40px rgba(0,0,0,.6),0 0 24px rgba(138,43,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .warn{color:#ffc46b;background:rgba(255,158,0,.1);border:1px solid rgba(255,158,0,.45)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .archive-row{border-bottom-color:rgba(138,43,255,.25)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .archive-row.ghost .tiny{color:#ffc46b}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .menu-switch{background:rgba(31,17,64,.8);border-color:rgba(138,43,255,.45);color:var(--text)}
+
+/* ── настройки: строки и тумблеры ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .set-row{border-bottom-color:rgba(138,43,255,.25)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .set-row .t b{color:#f4ffff;text-shadow:0 0 7px rgba(0,229,255,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .set-row .t span{color:#d678c8}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .set-row .ico{color:#b98bd9}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sw .track{background:rgba(10,14,40,.85);
+  box-shadow:inset 0 0 8px rgba(0,0,0,.7),0 0 0 1.5px #44507a}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sw input:checked + .track{background:linear-gradient(90deg,#8a2bff,#ff2bd6);
+  box-shadow:0 0 12px rgba(255,43,214,.55),inset 0 0 10px rgba(255,43,214,.25)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sw .track::after{background:linear-gradient(180deg,#dfe8ff,#aab8e0);
+  box-shadow:0 0 6px rgba(160,190,255,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sw input:checked + .track::after{background:linear-gradient(180deg,#fff,#ffd7f6);
+  box-shadow:0 0 10px rgba(255,43,214,.8)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .pal.on{border-color:#fff;box-shadow:0 0 14px rgba(255,255,255,.55)}
+
+/* ── серверный дисплей (панель памяти): зелёная «электронная трубка» из макета ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory{background:#02060f;border:1.5px solid rgba(57,255,20,.55);
+  box-shadow:0 0 14px rgba(57,255,20,.28),inset 0 0 22px rgba(57,255,20,.07);
+  font-family:ui-monospace,"Courier New",Menlo,monospace;position:relative;overflow:hidden}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 2px,transparent 2px 4px)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory-top{color:#b8ffad;text-shadow:0 0 6px rgba(57,255,20,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #mem-pct{color:#d9ffc9;text-shadow:0 0 8px rgba(57,255,20,.7)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #ad-mem-main,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #ad-mem-parts{color:#8fdc7f}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory .bar{background:rgba(0,40,0,.55);border:1px solid rgba(57,255,20,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory .bar-fill{background:linear-gradient(90deg,#00e5ff,#ff2bd6);
+  box-shadow:0 0 10px rgba(255,43,214,.6)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory .bar-fill.hot{background:linear-gradient(90deg,#ff9e00,#ff3860);
+  box-shadow:0 0 10px rgba(255,56,96,.6)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .memory .warn{color:#ffc46b;background:rgba(255,158,0,.08);border-color:rgba(255,158,0,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .gear{background:rgba(10,4,28,.65);border:1px solid rgba(138,43,255,.55);color:#d678c8}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .gear:hover{color:#7df3ff;border-color:#00e5ff;box-shadow:0 0 14px rgba(0,229,255,.5)}
+
+/* ── шахматы: фиолетовая доска с неоновым свечением (фигуры читаются идеально) ── */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .board{border:1.5px solid #8a2bff;
+  box-shadow:0 0 18px rgba(138,43,255,.5),0 10px 30px rgba(0,0,0,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sq.light{background:#e9dcff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sq.dark{background:#9b6fd8}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sq.lm{box-shadow:inset 0 0 0 999px rgba(255,217,79,.4)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sq.sel{box-shadow:inset 0 0 0 3px #00e5ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sq.tgt::after{background:rgba(0,229,255,.5);box-shadow:0 0 8px rgba(0,229,255,.6)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .sq.cap::after{border-color:rgba(255,56,96,.75)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .pcimg{filter:drop-shadow(0 0 4px rgba(138,43,255,.45)) drop-shadow(0 1px 1px rgba(0,0,0,.5))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bp-head{color:#7df3ff;font-family:ui-monospace,"Courier New",monospace;
+  letter-spacing:.12em;text-transform:uppercase;text-shadow:0 0 8px rgba(0,229,255,.55)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bp-moves,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mv-line{color:#eaf6ff}
+/* pkg3-36: неоновый список ходов, короли-аватары и «дыхание» идущей партии */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .bp-moves-list{background:rgba(13,2,33,.55);border-color:#3a2170;color:#eaf6ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mrow-mv .last{color:#00e5ff}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .king-av.kw{box-shadow:0 0 0 2px #00e5ff,0 0 14px rgba(0,229,255,.8)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .king-av.kb{box-shadow:0 0 0 2px #ff2bd6,0 0 14px rgba(255,43,214,.8)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item.game-live{animation:gamePulseSynth 2.2s ease-in-out infinite}
+@keyframes gamePulseSynth{
+  0%,100%{background:transparent;box-shadow:0 1px 0 rgba(0,229,255,.12)}
+  50%{background:rgba(138,43,255,.3);box-shadow:0 0 16px rgba(0,229,255,.4)}
+}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .invite-card{background:rgba(31,17,64,.85);border:1px solid rgba(0,229,255,.45);
+  color:var(--text);box-shadow:0 0 14px rgba(0,229,255,.2)}
+
+/* ── мобильная плашка инструментов: неоновая рамка ── */
+@media (max-width:900px){
+  :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.show-tools .tools{background:rgba(22,11,46,.97);border:1px solid rgba(0,229,255,.5);
+    box-shadow:0 0 16px rgba(0,229,255,.28)}
+  :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.show-tools .tool{background:rgba(31,17,64,.9)}
 }

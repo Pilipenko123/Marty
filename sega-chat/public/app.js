@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-31';
+const BUILD = 'pkg3-37';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -81,6 +81,7 @@ function paintIcons(root) {
 // гаммы оформления: личная настройка устройства (id, название, пара цветов рендера)
 const PALS = [
   { id: 'classic', name: 'Классика', c1: '#2353a2', c2: '#2fc6f6' },
+  { id: 'synth', name: 'Синтвейв', c1: '#ff2bd6', c2: '#00e5ff' },
   { id: 'sea', name: 'Морская', c1: '#0f766e', c2: '#2dd4bf' },
   { id: 'lavender', name: 'Лаванда', c1: '#6d5bd0', c2: '#a78bfa' },
   { id: 'olive', name: 'Олива', c1: '#5f7a2e', c2: '#a3c14a' },
@@ -91,6 +92,15 @@ const PALS = [
   { id: 'graphite', name: 'Графит', c1: '#4b5563', c2: '#9aa5b1' }
 ];
 const palById = id => PALS.find(p => p.id === id) || PALS[0];
+// узоры фона чата: id + превью для кнопок выбора (pkg3-34: добавлены неоновые)
+const PATS = [
+  { id: 'dots', prev: 'radial-gradient(rgba(255,255,255,.6) 1.5px, transparent 1.6px)', bg: '#5c6f7c' },
+  { id: 'diag', prev: 'repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 2px, transparent 2px 8px)', bg: '#5c6f7c' },
+  { id: 'grid', prev: 'repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px)', bg: '#5c6f7c' },
+  { id: 'waves', prev: 'repeating-radial-gradient(circle at 0 8px, rgba(255,255,255,.4) 0 2px, transparent 2px 8px)', bg: '#5c6f7c' },
+  { id: 'neongrid', prev: 'repeating-linear-gradient(0deg, rgba(0,229,255,.65) 0 1px, transparent 1px 9px), repeating-linear-gradient(90deg, rgba(0,229,255,.65) 0 1px, transparent 1px 9px)', bg: '#160b2e' },
+  { id: 'sunset', prev: 'repeating-linear-gradient(0deg, rgba(255,43,214,.6) 0 2px, transparent 2px 9px)', bg: '#2a0f4c' }
+];
 // ─────────────────────────────────────────── современные эмодзи (Twemoji, CC-BY)
 // Картинки подтягиваются с CDN; если сети нет — onerror возвращает системный символ.
 const TW_URL = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/';
@@ -128,6 +138,7 @@ function mediaPlayerHtml(rec, id) {
   return `<a class="att-file" href="${url}" download="${escapeHtml(rec.name || 'file')}">${SV(ICONS.download)}<span>${escapeHtml(rec.name || 'файл')}</span><span class="tiny muted">${fmtBytes(rec.size || rec.blob.size || 0)} · из памяти устройства</span></a>`;
 }
 function twEmo(html) {
+  if (S.eco) return String(html);   // эконом-режим: никаких картинок-смайлов с CDN
   return String(html).replace(EMO_RE, seq => {
     const cp = [...seq].map(c => c.codePointAt(0).toString(16)).join('-');
     return `<img class="emo" src="${TW_URL}${cp}.png" alt="${seq}" loading="lazy" onerror="this.replaceWith(document.createTextNode(this.alt))">`;
@@ -216,7 +227,7 @@ const S = {
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
   usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
   attach: null, threadAttach: null, remember: true, timer: null, atBottom: true,
-  notify: { sound: true, muted: {}, desktop: false },
+  notify: { sound: true, muted: {}, desktop: true },   // pkg3-37: все движки оповещений по умолчанию включены
   retry: {},        // черновики своих сообщений, ещё не принятых сервером
   sig: '', railFilter: ''
 };
@@ -255,12 +266,25 @@ function clearSession() { localStorage.removeItem('sega.session'); sessionStorag
 function loadNotifySettings() {
   try {
     const raw = localStorage.getItem('sega.notify');
-    if (!raw) return;
+    if (!raw) return;   // pkg3-37: чистой установке — все движки включены
     const saved = JSON.parse(raw);
+    // pkg3-37: разовый переезд defaults — раньше звук и плашки могли остаться
+    // выключенными «с завода», хотя человек их осознанно не трогал
+    const migrated = !!localStorage.getItem('sega.notifyDef37');
+    if (!migrated) {
+      try { localStorage.setItem('sega.notifyDef37', '1'); } catch (e) {}
+      S.notify = {
+        sound: true,
+        muted: saved.muted && typeof saved.muted === 'object' ? saved.muted : {},
+        desktop: true
+      };
+      saveNotifySettings();
+      return;
+    }
     S.notify = {
       sound: saved.sound !== false,
       muted: saved.muted && typeof saved.muted === 'object' ? saved.muted : {},
-      desktop: !!saved.desktop
+      desktop: saved.desktop !== false
     };
   } catch (e) {}
 }
@@ -290,7 +314,20 @@ async function api(path, opts = {}) {
   if (opts.body !== undefined && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
   if (opts.body) headers['Content-Type'] = 'application/json';
   if (S.token) headers['Authorization'] = 'Bearer ' + S.token;
-  const res = await fetch(BASE + path, Object.assign({}, opts, { headers }));
+  const timeout = Number(opts.timeout || 25000);   // «висящий» запрос обрываем и пробуем ещё раз
+  const attempt = async () => {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeout);
+    try {
+      return await fetch(BASE + path, Object.assign({}, opts, { headers, signal: ac.signal }));
+    } finally { clearTimeout(t); }
+  };
+  let res;
+  try { res = await attempt(); }
+  catch (e) {
+    S.loadNote = 'соединение медленно — повторяю запрос…';
+    res = await attempt();
+  }
   if (res.status === 401 && S.token) { doLogout(true); throw new Error('Сессия истекла, войдите заново'); }
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('application/json')) {
@@ -679,7 +716,7 @@ async function startApp() {
   S.keyIssue = new Map();
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
-  S.resyncHappened = false; S.warm = false;
+  S.resyncHappened = false; S.warm = false; S.histReady = false; S.lastMergeGone = null;
   S.gapChecked = S.gapChecked || new Set();
 
   // ── локальная память: мгновенно показать то, что уже есть на устройстве ──
@@ -690,7 +727,7 @@ async function startApp() {
       const meta = await S.idb.peek(S.cacheFp);
       if (meta && typeof meta.seq === 'number') {
         const data = await S.idb.loadAll();
-        if (data && Array.isArray(data.messages)) warm = { meta, data };
+        if (data && Array.isArray(data.messages) && data.messages.length) warm = { meta, data };
       }
     } catch (e) { warm = null; }
   }
@@ -715,15 +752,23 @@ async function startApp() {
     await decryptLocal();
     loadUi.hide();                     // история уже на экране — фон работаем без шторки
     await sync(false);                 // дельта; при смене gen — полный дозагруз внутри
+    S.histReady = true;                // pkg3-37: память устройства + дельта доехали
     S.initialLoad = false;
     if (S.resyncHappened) persistAll();
     S.sig = ''; renderAll(); renderMessages(true);
     requestAnimationFrame(() => requestAnimationFrame(() => loadUi.hide()));
   } else {
-    S.initialLoad = true; S.loadRec = 0;
+    S.initialLoad = true; S.loadRec = 0; S.loadT0 = Date.now();
     loadUi.show('Загружаем историю', 0);
-    await sync(true);
+    const noteTimer = setInterval(() => {
+      if (!S.initialLoad) { clearInterval(noteTimer); return; }
+      const sec = Math.round((Date.now() - S.loadT0) / 1000);
+      const note = S.loadNote || (sec >= 8 ? 'сервер прогревается после простоя — это разовая задержка' : '');
+      loadUi.show(null, null, note ? note + ' · ' + sec + ' с' : sec + ' с');
+    }, 1000);
+    try { await sync(true); } finally { clearInterval(noteTimer); S.loadNote = ''; }
     S.initialLoad = false;
+    S.histReady = true;                // pkg3-37: история целиком на устройстве
     loadUi.show('Расшифровываем сообщения', 100);
     if (!S.view && S.chats.length) S.view = [...S.chats].sort((a, b) => b.lastTs - a.lastTs)[0].id;
     S.sig = ''; renderAll(); renderMessages(true);
@@ -780,7 +825,7 @@ function wake(why) {
     S.timer = setTimeout(() => { loopStep().finally(loop); }, 150);
   }
 }
-const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); wake('касание окна'); };
+const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); bootstrapNotifyEngines(); wake('касание окна'); };
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
@@ -835,11 +880,35 @@ function resetMessageStore() {
   S.messageIds = new Set();
   S.plain = new Map();
 }
+/** pkg3-37: атомарная замена истории при ресинке: сначала история дочитывается
+ * целиком, и только потом локальное хранилище заменяется одним движением —
+ * без «пустого чата» на экране и без повторной расшифровки того, что уже есть.
+ * Свои ещё не отправленные черновики (m.local) не трогаем. */
+function mergeFullStore(list) {
+  const keep = new Set();
+  for (const m of (list || [])) if (m && m.id) keep.add(m.id);
+  const keptMsgs = S.messages.filter(m => keep.has(m.id) || m.local);
+  const keptIds = new Set(keptMsgs.map(m => m.id));
+  const gone = [];
+  for (const m of S.messages) if (!keptIds.has(m.id)) gone.push(m.id);
+  for (const id of Array.from(S.plain.keys())) if (!keptIds.has(id)) S.plain.delete(id);
+  S.messages = keptMsgs;
+  S.messageIds = keptIds;
+  S.lastMergeGone = gone;   // pkg3-37: стереть удалённое сервером и из кэша устройства
+  return addMessages(list);
+}
 function addMessages(list) {
   if (!S.messageIds || S.messageIds.size !== S.messages.length) rebuildMessageIndex();
   const fresh = [];
   for (const m of (list || [])) {
     if (!m || !m.id || S.messageIds.has(m.id)) continue;
+    // pkg3-36: свой ещё не принятый черновик может долететь через опрос раньше
+    // ответа POST — узнаём его по точной копии шифроблоба и сразу «удочеряем»:
+    // черновик заменяется настоящей записью, дубля на доске не будет
+    if (m.blob && m.uid === (S.me || {}).id) {
+      const d = S.messages.find(x => x.local && x.blob === m.blob);
+      if (d) { adoptSent(d, m, (S.retry[d.id] || {}).payload); fresh.push(m); continue; }
+    }
     S.messageIds.add(m.id);
     S.messages.push(m);
     fresh.push(m);
@@ -910,11 +979,25 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
   let suppressNotify = false;
   const freshAll = [];
   if (!initial && (data.resync || data.gen !== S.gen || backfill)) {
+    // pkg3-37: ресинк без «пустого чата»: всю историю дочитываем ДО замены
+    // локального хранилища — экран продолжает показывать переписку из памяти
     S.resyncHappened = true;
-    resetMessageStore();
     suppressNotify = true;
-    data = await api('/api/sync?since=0&rsince=0&cchg=' + (data.chg || 0) + (document.hidden ? '' : '&active=1'));
-    await applySyncMeta(data);
+    let full = await api('/api/sync?since=0&rsince=0&cchg=' + (data.chg || 0) + (document.hidden ? '' : '&active=1'));
+    await applySyncMeta(full);
+    const accum = (full.messages || []).slice();
+    let guardFull = 0;
+    while (full.more && guardFull++ < 50) {
+      full = await api('/api/sync?since=' + full.seq + '&rsince=0&cchg=' + (full.chg || 0) + (document.hidden ? '' : '&active=1'));
+      await applySyncMeta(full);
+      accum.push(...(full.messages || []));
+    }
+    const merged = mergeFullStore(accum);
+    if (merged.length) {
+      await decryptSmart(merged);
+      freshAll.push(...merged);
+    }
+    data = Object.assign({}, full, { messages: [], more: false });
   }
 
   let fresh = addMessages(data.messages);
@@ -948,10 +1031,11 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
     S.idb.applySync(S.cacheFp, {
       resync: false,
       messages: freshAll.concat(data.changed || []).map(pickMsg),
-      gone: (data.gone || []).map(g => (g && g.id) || g),
+      gone: (data.gone || []).map(g => (g && g.id) || g).concat(S.lastMergeGone || []),
       chats: data.chats || [], users: data.users || [],
       meta: { me: S.uid, seq: S.seq, gen: S.gen, chg: S.chg, rsince: S.rsince }
     });
+    S.lastMergeGone = null;   // pkg3-37: стёртое уже передано кэшу — не повторяем
   }
   // друзья пишут — продлеваем бодрствование (спящее окно будит и этот путь)
   if (!initial && (freshAll.length || touched)) wake('новое в ленте');
@@ -961,7 +1045,7 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
   if (!initial) {
     notifyReactions();
     // долечиваем заглушки видимого окна на каждом опросе, пока ключи добираются
-    const pend = currentWindowIds().filter(id => !S.plain.has(id));
+    const pend = currentWindowIds().filter(id => plainBroken(id));
     if (pend.length) {
       const before = S.plain.size;
       ensureIds(pend).then(() => {
@@ -1031,11 +1115,14 @@ async function applyChangeDelta(data) {
 }
 
 /** Расшифровать конкретные сообщения, если ещё не расшифрованы. */
+/**PlainText ещё нет — или прежняя попытка расшифровки упала: такие записи
+ * считаем отсутствующими и честно повторяем расшифровку (раньше «🔒» залипал навечно). */
+const plainBroken = id => { const p = S.plain.get(id); return !p || !!p.broken; };
 async function ensureIds(ids) {
   try {
   const need = [];
   for (const id of ids) {
-    if (S.plain.has(id)) continue;
+    if (!plainBroken(id)) continue;
     const m = S.messages.find(x => x.id === id);
     if (m) need.push(m);
   }
@@ -1068,7 +1155,7 @@ async function decryptSmart(fresh) {
 }
 async function decryptAll(list) {
   for (const m of list) {
-    if (S.plain.has(m.id)) continue;
+    if (!plainBroken(m.id)) continue;
     let k = null;
     try { k = await chatKeyOf(chatById(m.chat)); } catch (e) { k = null; }
     // ключ ещё не доехал — НЕ ставим заглушку, пропускаем: повторим на следующем опросе
@@ -1133,7 +1220,11 @@ function showDesktopNotification(m) {
   if (!S.notify.desktop || !('Notification' in window) || Notification.permission !== 'granted') return;
   const c = chatById(m.chat), p = S.plain.get(m.id) || {};
   const author = userById(m.uid) || { name: p.author || 'Сообщение' };
-  const body = p.text ? `${author.name}: ${cut(p.text, 120)}` : `${author.name}: 📷 изображение`;
+  // pkg3-36: ходы и события партии подписываем по-человечески (раньше любое
+  // сообщение без текста показывалось как «📷 изображение»)
+  const body = p.k === 'move' ? `♟ ход ${p.san || (p.from + '–' + p.to)} · ${author.name}`
+    : p.k === 'game-event' ? `♟ ${p.text || 'событие игры'}`
+    : p.text ? `${author.name}: ${cut(p.text, 120)}` : `${author.name}: 📷 изображение`;
   try {
     const n = new Notification(chatTitle(c) || 'SEGA-CHAT', {
       body, tag: 'sega-chat-' + m.chat, icon: (BASE || '') + '/favicon.png', silent: true
@@ -1151,16 +1242,77 @@ function notifyNewMessages(list) {
   playNotifySound();
   showDesktopNotification(incoming[incoming.length - 1]);
 }
+/** pkg3-37: движки оповещений по умолчанию включены — но браузер разрешает
+ * попросить разрешение только в ответ на касание человека. Поэтому на первом
+ * касании окна один раз тихо пробуем включить всё сами: плашки браузера и
+ * пуш-подписку. Отказ или ручное выключение запоминаются — больше не пристаём. */
+let notifyBootstrapped = false;
+function bootstrapNotifyEngines() {
+  if (notifyBootstrapped || !S.me) return;
+  notifyBootstrapped = true;
+  if (S.notify.sound !== false && S.notify.desktop !== false
+    && 'Notification' in window && Notification.permission === 'default') {
+    requestDesktopNotifications();
+  }
+  maybeAutoPush();
+}
+async function maybeAutoPush() {
+  try {
+    if (localStorage.getItem('sega.pushAuto37')) return;      // уже пробовали или человек решил сам
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !window.isSecureContext) return;
+    const st = await pushState();
+    if (st !== 'off') return;                                 // пуш уже включён или недоступен
+    localStorage.setItem('sega.pushAuto37', 'tried');
+    await setPush(true);
+  } catch (e) {}
+}
 
 // ─────────────────────────────────────────── непрочитанное
+/** pkg3-36: видно ли сообщение в ленте. В игровом чате ходы живут на доске и
+ * в списке ходов, а не в ленте; нерасшифрованное там же тоже прячется — его
+ * вот-вот долечит boardSoon. Правило одно и для ленты, и для линии
+ * «Непрочитанные», и для фокуса при открытии чата. */
+function feedVisible(m) {
+  const c = chatById(m.chat);
+  if (!c || c.kind !== 'game') return true;
+  const p = S.plain.get(m.id);
+  return !!(p && !p.broken && p.k !== 'move');
+}
+/** pkg3-37: готовность истории чата на устройстве. Пока история не доехала и
+ * не расшифровалась целиком, НЕ показываем пустой чат и «исходную» расстановку
+ * фигур — вместо них крутится анимация загрузки.
+ *  'ready' — всё на устройстве, можно рисовать;
+ *  'load'  — ждём память устройства или сервер (крутим анимацию);
+ *  'nokey' — истории нет, потому что нет ключа: показываем плашку, не спиннер. */
+function chatHistState(chatId) {
+  if (S.keyIssue && chatId && S.keyIssue.has(chatId)) return 'nokey';
+  if (S.histReady) return 'ready';
+  if (!chatId) return 'load';
+  if (!S.warm) return 'load';                 // холодный старт: ждём первую синхронизацию
+  const list = S.messages.filter(m => m.chat === chatId && !m.parent);
+  if (!list.length) return 'load';            // чата нет в кэше — ждём дельту с сервера
+  return list.every(m => S.plain.has(m.id)) ? 'ready' : 'load';
+}
+const chatHistReady = chatId => chatHistState(chatId) === 'ready';
+/** pkg3-37: анимация процесса загрузки — колечко и подпись, чтобы было
+ * понятно: история едет, надо немного подождать. */
+function histLoadHtml(text) {
+  return `<div class="hist-load"><span class="hl-spin"></span><span>${escapeHtml(text || 'Загружаем…')}</span></div>`;
+}
 function unreadIn(chatId) {
   const reads = myReads();
+  const gchat = chatById(chatId);
   let total = 0, mentions = 0;
   for (const m of S.messages) {
     if (m.chat !== chatId || m.uid === S.me.id) continue;
     if (m.seq <= (reads[bucketOf(m)] || 0)) continue;
-    total++;
     const p = S.plain.get(m.id);
+    // pkg3-36: ходы партии — не «сообщения»: ни счётчика, ни красной линии.
+    // В игровом чате нерасшифрованное тоже не считаем: почти всегда это ход,
+    // а долечит его boardSoon в течение пары секунд.
+    if (p && p.k === 'move') continue;
+    if (gchat && gchat.kind === 'game' && (!p || p.broken)) continue;
+    total++;
     if (p && p.mentions && p.mentions.includes(S.me.id)) mentions++;
   }
   return { total, mentions };
@@ -1202,21 +1354,37 @@ function avColor(id) {
 function avatarHtml(user, cls, withStatus) {
   const u = user || {};
   let inner;
-  if (u.avatar) {
+  if (S.eco) {
+    inner = `<span class="avatar ${cls || ''} eco-av" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`;
+  } else if (u.avatar) {
     const hit = avatarCache.get(u.id);
     if (hit && hit.rev === u.avatar) inner = `<img class="avatar ${cls || ''}" src="${hit.src}" alt="">`;
     else { decodeAvatar(u); inner = `<span class="avatar ${cls || ''}" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`; }
   } else {
     inner = `<span class="avatar ${cls || ''}" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`;
   }
-  return `<span class="av-wrap" data-uid="${escapeHtml(u.id || '')}">${inner}${withStatus ? `<i class="status ${isOnline(u) ? 'on' : ''}"></i>` : ''}</span>`;
+  return `<span class="av-wrap" data-uid="${escapeHtml(u.id || '')}">${inner}${withStatus ? `<i class="status${cls === 'xs' ? ' xs' : ''}${isOnline(u) ? ' on' : ''}"></i>` : ''}</span>`;
+}
+/** pkg3-36: маячки «в сети» обновляются СИНХРОННО во всём готовом DOM —
+ * лента, списки чатов, участники, модалки. Раньше лента обновляла аватар
+ * только вместе со строкой сообщения, и один человек мог «светиться» в списке
+ * и «не светиться» в ленте. Теперь правило одно: смотрит чат — зелёный везде,
+ * не смотрит — погашен везде. */
+function paintStatuses() {
+  const wraps = document.querySelectorAll('.av-wrap[data-uid]');
+  for (const w of wraps) {
+    const st = w.querySelector('.status');
+    if (!st) continue;
+    st.classList.toggle('on', !!isOnline(userById(w.dataset.uid)));
+  }
 }
 function chatAvatarHtml(c, cls) {
   if (!c) return `<span class="av-wrap"><span class="avatar ${cls || ''}" style="background:#2353a2"><img class="av-logo" src="logo.png" alt=""></span></span>`;
   if (c.kind === 'dm') return avatarHtml(userById(dmPeer(c)), cls, true);
   const title = chatTitle(c);
   let inner = escapeHtml(initials(title));
-  if (c.iconRev) {
+  if (S.eco) { /* иконки чатов в эконом-режиме не подгружаются */ }
+  else if (c.iconRev) {
     const hit = iconCache.get(c.id);
     if (hit && hit.rev === c.iconRev && hit.data) inner = `<img src="${hit.data}" alt="">`;
     else if (!hit || hit.rev !== c.iconRev) fetchIcon(c);
@@ -1251,6 +1419,7 @@ function renderAll() {
   S.sig = sig;
   renderMe(); renderRail(); renderTopbar(); renderMessages(); renderThread(); renderMemory(); renderQuoteBar(); updateTitle();
   paintIcons(document);
+  paintStatuses();   // маячки «в сети» — одним проходом по всему экрану
 }
 
 function openProfileWithStatus() {
@@ -1295,18 +1464,39 @@ function gameTitle(c) {
   if (g.status === 'finished') return base + ' · завершена';
   return base;
 }
+/** pkg3-36: подпись в списке чатов у игры — не «последнее сообщение» (это ход,
+ * а ходы в ленте больше не живут), а состояние партии. «Последний ход и чей
+ * ход» пишем, только когда история целиком расшифрована: иначе позиция врёт. */
+function gameRailSub(c) {
+  const g = c.game || {};
+  if (g.status === 'invite') return 'ожидание соперника';
+  if (g.status === 'finished') {
+    return g.result && g.result.winner ? 'победил ' + userNameById(g.result.winner) : 'партия завершена';
+  }
+  const broken = S.messages.some(m => m.chat === c.id && !m.parent && plainBroken(m.id));
+  if (broken) return 'идёт партия…';
+  try {
+    const { eng, sans } = gameReplay(c);
+    const st = eng.status();
+    if (st === 'checkmate') return 'мат! партия решена';
+    if (st === 'stalemate' || st === 'draw50') return 'ничья';
+    const who = userNameById(eng.turn() === 'w' ? g.white : g.black);
+    return (sans.length ? sans[sans.length - 1] + ' · ' : '') + 'ход: ' + who;
+  } catch (e) { return 'идёт партия…'; }
+}
 function openGameTitle(g) {
   return userNameById(g.white) + ' против ' + userNameById(g.black);
 }
 function gameReplay(c) {
   const eng = createChess();
   const sans = [];
-  const msgs = S.messages.filter(m => m.chat === c.id && !m.parent).sort((a, b) => a.seq - b.seq);
+  let skipped = 0;
+  const msgs = S.messages.filter(m => m.chat === c.id && !m.parent && !m.failed).sort((a, b) => a.seq - b.seq);
   for (const m of msgs) {
     const p = S.plain.get(m.id);
-    if (p && p.k === 'move') { const san = eng.apply(p); if (san) sans.push(san); }
+    if (p && p.k === 'move') { const san = eng.apply(p); if (san) sans.push(san); else skipped++; }
   }
-  return { eng, sans };
+  return { eng, sans, skipped };
 }
 const myGameColor = c => (c.game || {}).white === S.me.id ? 'w' : (c.game || {}).black === S.me.id ? 'b' : null;
 function gameStatusText(c, eng, st) {
@@ -1354,14 +1544,127 @@ function layoutGame(on) {
     right.appendChild($('#scroll-bottom'));
     right.appendChild($('#composer'));
     main.classList.add('game-mode');
+    // pkg3-37: ручка сверху шторки чата: одно касание — раскрыть чат поверх
+    // доски, ещё одно — свернуть; потянул — выбрал нужный размер окна чата
+    if (!right.querySelector('#gm-grip')) {
+      right.insertAdjacentHTML('afterbegin',
+        '<div id="gm-grip" role="button" aria-label="Окно чата: коснитесь, чтобы раскрыть или свернуть; потяните, чтобы изменить размер"><i></i></div>');
+    }
+    applyGmChatSize();
   } else if (right) {
     const bw = $('#board-wrap');
     bw.after($('#search-results'), $('#messages'), $('#scroll-bottom'), $('#composer'));
     right.remove();
-    main.classList.remove('game-mode');
+    main.classList.remove('game-mode', 'gm-expanded', 'gm-sized', 'thread-collapsed');
   } else {
-    main.classList.remove('game-mode');
+    main.classList.remove('game-mode', 'gm-expanded', 'gm-sized', 'thread-collapsed');
   }
+}
+/** pkg3-37: вернуть выбранный перетаскиванием размер шторки чата (телефон, вертикально). */
+function applyGmChatSize() {
+  const main = $('#main'), right = $('#game-right');
+  if (!right) return;
+  if (!window.matchMedia('(max-width:959px) and (orientation:portrait)').matches) { clearGmSize(); return; }
+  let h = '';
+  try { h = localStorage.getItem('sega.gmChatH') || ''; } catch (e) {}
+  if (/^\d+(\.\d+)?px$/.test(h)) {
+    right.style.height = h;
+    main.classList.add('gm-sized');
+    main.classList.remove('gm-expanded', 'thread-collapsed');
+  } else clearGmSize();
+}
+function clearGmSize() {
+  const right = $('#game-right');
+  if (right) right.style.height = '';
+  $('#main').classList.remove('gm-sized');
+}
+// ── pkg3-37: ручка шторки чата на телефоне: касание — раскрыть/свернуть, тяга — размер ──
+(function initGmGrip() {
+  let drag = null;
+  document.addEventListener('pointerdown', e => {
+    const g = e.target.closest && e.target.closest('#gm-grip');
+    if (!g) return;
+    const right = $('#game-right');
+    if (!right) return;
+    e.preventDefault();
+    drag = { y: e.clientY, h: right.offsetHeight, moved: false };
+    if (g.setPointerCapture) { try { g.setPointerCapture(e.pointerId); } catch (err) {} }
+  }, { passive: false });
+  document.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dy = drag.y - e.clientY;
+    if (!drag.moved && Math.abs(dy) < 7) return;
+    drag.moved = true;
+    const right = $('#game-right'), main = $('#main');
+    if (!right) return;
+    const max = Math.round((window.innerHeight || 600) * 0.92);
+    const h = Math.max(120, Math.min(max, drag.h + dy));
+    main.classList.add('gm-sized');
+    main.classList.remove('gm-expanded', 'thread-collapsed');
+    right.style.height = h + 'px';
+  });
+  const finishGrip = () => {
+    if (!drag) return;
+    const moved = drag.moved;
+    drag = null;
+    const main = $('#main');
+    if (moved) {
+      const right = $('#game-right');
+      if (right) { try { localStorage.setItem('sega.gmChatH', right.style.height || ''); } catch (e) {} }
+      return;
+    }
+    // касание: свёрнутый → обычный; раскрытый → обычный; обычный → раскрытый поверх доски
+    if (main.classList.contains('thread-collapsed')) { main.classList.remove('thread-collapsed'); return; }
+    if (main.classList.contains('gm-expanded')) { main.classList.remove('gm-expanded'); clearGmSize(); return; }
+    clearGmSize();
+    main.classList.add('gm-expanded');
+  };
+  document.addEventListener('pointerup', finishGrip);
+  document.addEventListener('pointercancel', () => { drag = null; });
+})();
+window.addEventListener('resize', () => {
+  if ($('#main').classList.contains('game-mode')) applyGmChatSize();
+});
+/** pkg3-36: король на доске — аватар игрока (фото или кружок с инициалами).
+ * Пустая строка — аватар ещё грузится, тогда временно остаётся обычный король.
+ * В эконом-режиме (1 бит) фотографии запрещены — всегда обычный король. */
+function kingFaceHtml(p, g) {
+  if (S.eco) return '';
+  const uid = isWhitePiece(p) ? g.white : g.black;
+  const u = userById(uid);
+  if (!u) return '';
+  const side = isWhitePiece(p) ? ' kw' : ' kb';
+  const hit = avatarCache.get(u.id);
+  if (u.avatar) {
+    if (hit && hit.rev === u.avatar) return `<img class="pcimg king-av${side}" src="${hit.src}" alt="${escapeHtml(p)}" draggable="false">`;
+    decodeAvatar(u);
+    return '';
+  }
+  return `<span class="pcimg king-av king-init${side}" style="background:${avColor(u.id)}">${escapeHtml(initials(u.name))}</span>`;
+}
+/** Состояние аватаров королей — в сигнатуре доски: как только картинка
+ * доехала, доска перерисуется и король сменится аватаром. */
+function kingFaceSig(g) {
+  return [g.white, g.black].map(id => {
+    const u = userById(id);
+    if (!u) return '?';
+    if (!u.avatar) return 'i' + u.name;
+    const hit = avatarCache.get(u.id);
+    return (hit && hit.rev === u.avatar) ? 'y' : 'n';
+  }).join(',');
+}
+/** pkg3-36: компактная запись ВСЕЙ партии парами «1. e4 e5», последний ход
+ * подсвечен. Список живёт под доской и прокручивается отдельно от чата. */
+function movesListHtml(sans) {
+  if (!sans.length) return '<div class="tiny muted mv-empty">Ходов пока нет — партия вот-вот начнётся</div>';
+  let out = '';
+  for (let i = 0; i < sans.length; i += 2) {
+    const w = sans[i], bl = sans[i + 1];
+    out += `<div class="mrow-mv"><span class="mv-n">${i / 2 + 1}.</span>`
+      + `<span class="mv-w${i === sans.length - 1 ? ' last' : ''}">${escapeHtml(w)}</span>`
+      + `<span class="mv-b${bl && i + 1 === sans.length - 1 ? ' last' : ''}">${bl ? escapeHtml(bl) : ''}</span></div>`;
+  }
+  return out;
 }
 function renderBoard() {
   const wrap = $('#board-wrap');
@@ -1369,13 +1672,30 @@ function renderBoard() {
   const c = curChat();
   if (!c || c.kind !== 'game') { layoutGame(false); wrap.classList.add('hidden'); wrap.innerHTML = ''; return; }
   layoutGame(true);
-  const { eng, sans } = gameReplay(c);
+  // pkg3-37: ложная «исходная расстановка» больше не показывается: пока ходы
+  // не доехали и не расшифровались — анимация загрузки; нет ключа — плашка
+  const hst = chatHistState(c.id);
+  if (hst !== 'ready') {
+    const lsig = 'hist|' + hst + '|' + c.id + '|' + (S.eco ? 1 : 0);
+    if (S.boardSig !== lsig || wrap.dataset.chat !== c.id || !wrap.firstChild) {
+      S.boardSig = lsig; wrap.dataset.chat = c.id;
+      wrap.classList.remove('hidden');
+      wrap.innerHTML = `<div class="board-panel"><div class="bp-loading">`
+        + (hst === 'nokey'
+          ? `<span class="bp-load-ico">🔒</span><b>На устройстве нет ключа этой партии</b><span class="tiny muted">Доска откроется, когда ключ вернётся — плашка «Восстановить ключи» ждёт в ленте чата</span>`
+          : `<span class="hl-spin big"></span><b>Загружаем ходы партии…</b><span class="tiny muted">Положение фигур появится, как только история догрузится</span>`)
+        + `</div></div>`;
+    }
+    return;
+  }
+  const { eng, sans, skipped } = gameReplay(c);
   const st = eng.status();
   const my = myGameColor(c);
   const role = (c.roles || {})[S.me.id];
   const flip = my === 'b';
   const b = eng.board();
   const lm = eng.lastMove();
+  const g = c.game || {};
   let cells = '';
   for (let r = 7; r >= 0; r--) {
     for (let f = 0; f < 8; f++) {
@@ -1387,11 +1707,12 @@ function renderBoard() {
         + (S.selSq === name ? ' sel' : '')
         + ((S.selTargets || []).includes(name) ? (b[i] ? ' tgt cap' : ' tgt') : '');
       const p = b[i];
-      const img = p ? `<img class="pcimg" src="pieces/${isWhitePiece(p) ? 'w' : 'b'}${p.toUpperCase()}.svg" alt="${escapeHtml(p)}" draggable="false">` : '';
+      const face = p && p.toUpperCase() === 'K' ? kingFaceHtml(p, g) : '';
+      const img = p ? (face || `<img class="pcimg" src="pieces/${isWhitePiece(p) ? 'w' : 'b'}${p.toUpperCase()}.svg" alt="${escapeHtml(p)}" draggable="false">`) : '';
       cells += `<div class="${cls}" data-sq="${name}">${img}</div>`;
     }
   }
-  const g = c.game || {};
+  const ids_missing = S.messages.filter(m => m.chat === c.id && !m.parent && plainBroken(m.id)).length;
   const ctrl = [];
   if (role) {
     const label = role === 'viewer' ? 'Покинуть игру'
@@ -1402,17 +1723,35 @@ function renderBoard() {
   }
   if (role === 'player' && (c.knocks || []).length) ctrl.push(`<button class="mini" id="gm-knocks">Заявки зрителей: ${c.knocks.length}</button>`);
   ctrl.push('<button class="mini only-mobile" id="gm-thread">💬 чат: свернуть/развернуть</button>');
+  const showTurn = g.status === 'playing' && (st === 'playing' || st === 'check');
   const sig = [c.id, sans.length, st, S.selSq || '', (S.selTargets || []).join(','),
-    ctrl.join(','), (c.knocks || []).length, flip ? 1 : 0, gameStatusText(c, eng, st)].join('|');
+    ctrl.join(','), (c.knocks || []).length, flip ? 1 : 0, gameStatusText(c, eng, st),
+    kingFaceSig(g), S.eco ? 1 : 0].join('|');
   if (S.boardSig === sig && wrap.dataset.chat === c.id && wrap.firstChild) return;
+  // куда был прокручен список ходов — вернём позицию, если партия не изменилась
+  const prevGm = $('#game-moves');
+  const prevTop = prevGm ? prevGm.scrollTop : null;
+  const prevMoves = (S.movesShown && S.movesShown.chat === c.id) ? S.movesShown.len : -1;
   S.boardSig = sig; wrap.dataset.chat = c.id;
+  if (skipped) {
+    // ход есть в истории, но на доску не лёг: порядок или расшифровка сбоили
+    console.warn('[board] ходов не легло: ' + skipped + ' из ' + sans.length);
+    const guard = c.id + ':' + sans.length;
+    if (!ids_missing && S.reskipGuard !== guard) { S.reskipGuard = guard; sync(false).catch(() => {}); }
+  }
   wrap.classList.remove('hidden');
   wrap.innerHTML = `<div class="board-panel">
-    <div class="bp-head">${escapeHtml(gameStatusText(c, eng, st))}</div>
+    <div class="bp-head">${showTurn ? `<i class="tdot ${eng.turn()}"></i>` : ''}${escapeHtml(gameStatusText(c, eng, st))}</div>
     <div class="board" id="board">${cells}</div>
     <div class="bp-ctrl">${ctrl.join(' ')}</div>
-    <div class="bp-moves tiny muted">${escapeHtml(sans.slice(-14).join(' '))}</div>
+    <div class="bp-moves-list" id="game-moves">${movesListHtml(sans)}</div>
   </div>`;
+  const gm = $('#game-moves');
+  if (gm) {
+    if (prevMoves !== sans.length) gm.scrollTop = gm.scrollHeight;   // новый ход — следим за концом
+    else if (prevTop !== null) gm.scrollTop = prevTop;               // просто перерисовали — держим позицию
+    S.movesShown = { chat: c.id, len: sans.length };
+  }
 }
 async function onBoardClick(sq) {
   const c = curChat();
@@ -1436,18 +1775,53 @@ async function onBoardClick(sq) {
   } else { S.selSq = null; S.selTargets = []; }
   renderBoard();
 }
+/** pkg3-36: «быстрый ход» — фигура встаёт на доску МГНОВЕННО, а отправка на
+ * сервер идёт фоном. Черновик хода живёт как обычное локальное сообщение
+ * (tmp-идентификатор, local:true), поэтому лента, кэш и повторная доставка
+ * через опрос работают по уже обкатанным рельсам. */
 async function sendGameMove(c, mv) {
   const { eng } = gameReplay(c);
   const legal = eng.legalMoves().find(m => m.from === mv.from && m.to === mv.to && (m.promo || null) === (mv.promo || null));
   if (!legal) { toast('Так ходить нельзя', true); return; }
+  if (S.moveSending) return;   // предыдущий ход ещё летит — второй не накладываем
   const k = await chatKeyOf(c);
+  if (!k) { toast('Не удалось получить ключ шифрования для этой игры', true); return; }
   const payload = { k: 'move', from: mv.from, to: mv.to, promo: mv.promo || null, san: legal.san, author: S.me.name };
-  const r = await api('/api/messages', { method: 'POST', body: { chat: c.id, blob: await encryptJSON(k.key, payload) } });
-  S.plain.set(r.message.id, payload);
-  addMessages([r.message]);
-  cacheMsg(r.message);
-  S.sig = ''; renderMessages(); renderBoard(); renderRail();
+  let blob;
+  try { blob = await encryptJSON(k.key, payload); }
+  catch (ex) { toast(ex.message || 'Не удалось зашифровать ход', true); return; }
+  const tmpId = 'tmpmv' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const draft = {
+    id: tmpId, seq: nextLocalSeq(), uid: S.me.id, ts: Date.now(),
+    blob, bytes: blob.length, chat: c.id, parent: null, quote: null, local: true
+  };
+  S.retry[tmpId] = { blob, chat: c.id, parent: null, quote: null, payload };
+  addMessages([draft]);
+  S.plain.set(tmpId, payload);
+  S.moveSending = true;
+  S.sig = ''; renderBoard(); renderRail();
   wake('ход в игре');
+  postMove(draft);
+}
+/** Догоняющая отправка хода: успех — черновик заменяется настоящей записью,
+ * сбой — ход убирается с доски (позиция откатывается), иначе я и соперник
+ * видели бы разные доски. */
+async function postMove(draft) {
+  const rec = S.retry[draft.id] || {};
+  try {
+    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: rec.chat, blob: rec.blob } });
+    S.moveSending = false;
+    adoptSent(draft, r.message, rec.payload);
+    cacheMsg(r.message);
+    if (r.usage) S.usage = r.usage;
+    S.sig = ''; renderBoard(); renderRail();
+    sync(false).catch(() => {});
+  } catch (ex) {
+    S.moveSending = false;
+    removeLocal([draft.id]);
+    S.boardSig = ''; renderBoard(); renderRail();
+    toast('Ход не отправился (' + (ex.message || 'сбой сети') + ') — попробуйте ещё раз', true);
+  }
 }
 async function acceptGame(id, choice) {
   let color = undefined;
@@ -1571,14 +1945,17 @@ function renderRail() {
     });
 
   let html = '';
-  const games = chats.filter(c => c.kind === 'game');
+  // своя идущая партия — выше завершённых и приглашений внутри раздела
+  const games = chats.filter(c => c.kind === 'game').sort((a, b) =>
+    (((b.game || {}).status === 'playing') ? 1 : 0) - (((a.game || {}).status === 'playing') ? 1 : 0));
   const groups = chats.filter(c => c.kind === 'group');
   const dms = chats.filter(c => c.kind === 'dm');
   const chatRow = (c) => {
     const un = unreadIn(c.id);
     const last = lastMessageIn(c.id);
     const peer = c.kind === 'dm' ? userById(dmPeer(c)) : null;
-    const sub = last ? preview(last)
+    const sub = c.kind === 'game' ? gameRailSub(c)
+      : last ? preview(last)
       : (c.kind === 'dm' ? (isOnline(peer) ? 'в сети' : fmtAgo(peer && peer.lastSeen))
         : plural(c.members.length, 'участник', 'участника', 'участников'));
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
@@ -1592,6 +1969,22 @@ function renderRail() {
     </div>`;
   };
   if (games.length) html += `<div class="rail-group">Игры</div>` + games.map(chatRow).join('');
+  // pkg3-36: начавшиеся партии — всегда в самом верху списка. У игроков это
+  // их чат-игра (раздел «Игры» — первым), у остальных мессенджера — плашка
+  // «Сейчас играют» с плавным миганием, чтобы её замечали краем глаза.
+  const open = (S.games || []).filter(g => !S.chats.some(c => c.id === g.id));
+  if (open.length) {
+    html += `<div class="rail-group">Сейчас играют</div>`;
+    for (const g of open) {
+      html += `<div class="chat-item game-live">
+        <div class="ci-main">
+          <div class="ci-name">♟ ${escapeHtml(openGameTitle(g))}</div>
+          <div class="ci-last">идёт партия · ${plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
+        </div>
+        <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
+      </div>`;
+    }
+  }
   if (groups.length) html += `<div class="rail-group">Групповые чаты</div>` + groups.map(chatRow).join('');
   if (dms.length) html += `<div class="rail-group">Личные чаты</div>` + dms.map(chatRow).join('');
 
@@ -1607,19 +2000,6 @@ function renderRail() {
           <div class="ci-name">${escapeHtml(u.name)}${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}</div>
           <div class="ci-last">${isOnline(u) ? 'в сети' : escapeHtml(fmtAgo(u.lastSeen))}</div>
         </div>
-      </div>`;
-    }
-  }
-  const open = (S.games || []).filter(g => !S.chats.some(c => c.id === g.id));
-  if (open.length) {
-    html += `<div class="rail-group">Открытые игры</div>`;
-    for (const g of open) {
-      html += `<div class="chat-item">
-        <div class="ci-main">
-          <div class="ci-name">♟ ${escapeHtml(openGameTitle(g))}</div>
-          <div class="ci-last">ходов: ${g.moves || 0}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
-        </div>
-        <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
       </div>`;
     }
   }
@@ -1677,7 +2057,7 @@ function readersHtml(m) {
   if (m.failed) return `<span class="check failed" title="Не отправлено: ${escapeHtml(m.failed)}">⚠</span><button class="retry-send" data-retry="${m.id}" title="Отправить ещё раз">повторить</button>`;
   const rs = readersOf(m);
   if (!rs.length) return `<span class="check" title="Отправлено">✓</span>`;
-  const shown = rs.slice(0, 5).map(u => avatarHtml(u, 'xs')).join('');
+  const shown = rs.slice(0, 5).map(u => avatarHtml(u, 'xs', true)).join('');
   const names = rs.map(u => u.name).join(', ');
   return `<span class="check" title="Прочитали: ${escapeHtml(names)}">✓✓</span>
     <span class="readers" title="Прочитали: ${escapeHtml(names)}">${shown}${rs.length > 5 ? `<span class="tiny muted">+${rs.length - 5}</span>` : ''}</span>`;
@@ -1804,8 +2184,28 @@ function archiveBannerHtml(c) {
 let renderedIds = new Set(), renderedChat = null, renderedOnce = false;
 const WIN_SIZE = 30;   // сообщений в одном окне ленты (быстрее первый экран)
 
+/** Доска — только из полностью расшифрованной истории: если хоть один ход ещё
+ * «…» или однажды не расшифровался, сперва дошифровываем, потом рисуем.
+ * Иначе фигуры встанут не туда, пока следующий ход или перезагрузка не починят. */
+function boardSoon() {
+  const c = curChat();
+  if (!c || c.kind !== 'game') { renderBoard(); return; }
+  const hst = chatHistState(c.id);
+  if (hst === 'nokey') { renderBoard(); return; }
+  if (hst === 'load') {
+    // pkg3-37: история ещё не вся — рисуем анимацию загрузки и дошифровываем
+    // ходы в фоне; «исходную расстановку» вместо правды не показываем никогда
+    renderBoard();
+    const wait = S.messages.filter(m => m.chat === c.id && !m.parent && !S.plain.has(m.id)).map(m => m.id);
+    if (wait.length) ensureIds(wait).then(() => { if (S.view === c.id) renderBoard(); }).catch(() => {});
+    return;
+  }
+  const ids = S.messages.filter(m => m.chat === c.id && !m.parent && plainBroken(m.id)).map(m => m.id);
+  if (!ids.length) { renderBoard(); return; }
+  ensureIds(ids).then(() => renderBoard()).catch(() => renderBoard());
+}
 function renderMessages(force) {
-  setTimeout(renderBoard, 0);
+  setTimeout(boardSoon, 0);
   const box = $('#messages');
   if (renderedChat !== (S.view || null)) { renderedChat = S.view || null; renderedOnce = false; renderedIds = new Set(); }
   if (!S.view) {
@@ -1820,7 +2220,9 @@ function renderMessages(force) {
     if (b) b.addEventListener('click', openCreateChat);
     return;
   }
-  const full = S.messages.filter(m => m.chat === S.view && !m.parent);
+  // pkg3-36: ходы в ленту игры не попадают — они живут на доске и в списке
+  // ходов под ней (feedVisible — единое правило для ленты и счётчиков)
+  const full = S.messages.filter(m => m.chat === S.view && !m.parent && feedVisible(m));
   // лента подгружается окнами: сначала последние WIN_SIZE сообщений,
   // старше — кнопкой «Показать более ранние», чтобы не рисовать тысячи узлов
   const win = S.winSize || WIN_SIZE;
@@ -1834,7 +2236,16 @@ function renderMessages(force) {
   const c = curChat();
   const banner = archiveBannerHtml(c) + keyBannerHtml(c);
   if (!full.length) {
-    const emptyHint = `<div class="sys">${c && c.kind === 'dm'
+    // pkg3-37: пока история чата ещё едет с устройства или с сервера —
+    // никакого «пустого чата»: показываем анимацию загрузки
+    const hst = chatHistState(S.view);
+    if (hst === 'load') {
+      box.innerHTML = banner + histLoadHtml('Загружаем переписку…');
+      return;
+    }
+    const emptyHint = `<div class="sys">${c && c.kind === 'game'
+      ? 'Ходы партии — на доске и в списке ходов. Здесь — только обсуждение: напишите первое сообщение 👋'
+      : c && c.kind === 'dm'
       ? 'Личная переписка. Никто, кроме вас двоих, её не увидит.'
       : 'Сообщений пока нет. Напишите первое 👋'}</div>`;
     box.innerHTML = banner ? (banner + emptyHint) : emptyHint;
@@ -1880,7 +2291,7 @@ function renderMessages(force) {
   // и цикл «перерисовали → не расшифровали → перерисовали» крутился бы вечно, вешая страницу.
   // Поэтому при отсутствии ключа и после неудачной попытки берём паузу: следующую попытку
   // сделает опрос сервера (раз в 2,5 с) — как только ключ доедет, лента расшифруется сама.
-  const pending = list.slice(off).filter(m => !S.plain.has(m.id)).map(m => m.id);
+  const pending = list.slice(off).filter(m => plainBroken(m.id)).map(m => m.id);
   const keyBlocked = !!(S.view && S.keyIssue.has(S.view));
   const cooled = Date.now() < (S.healPauseUntil || 0);
   if (pending.length && !keyBlocked && !cooled && !S.healBusy) {
@@ -1950,16 +2361,20 @@ function renderMemory() {
   const fill = $('#mem-fill');
   fill.style.width = Math.max(pct, u.bytes > 0 ? 1.5 : 0) + '%';
   fill.classList.toggle('hot', pct >= 80);
-  const c = curChat();
-  $('#mem-text').textContent = `${fmtBytes(u.bytes)} из ${fmtBytes(u.limit)} · ${u.messages} сообщ.`
-    + (u.archives ? ` · ${plural(u.archives, 'архив', 'архива', 'архивов')}` : '')
-    + (c ? ` · этот чат ${fmtBytes(c.bytes)}` : '');
   $('#mem-warn').classList.toggle('hidden', pct < 80);
-  const parts = $('#mem-parts');
+  // подробности — в окне «Управление мессенджером», раздел «Память»:
+  // если оно открыто, строки обновляются на каждом опросе сервера
+  const mm = $('#ad-mem-main');
+  if (mm) {
+    const c = curChat();
+    mm.textContent = `Занято ${fmtBytes(u.bytes)} из ${fmtBytes(u.limit)} · ${u.messages} сообщ.`
+      + (u.archives ? ` · ${plural(u.archives, 'архив', 'архива', 'архивов')}` : '')
+      + (c ? ` · этот чат ${fmtBytes(c.bytes)}` : '');
+  }
+  const parts = $('#ad-mem-parts');
   if (parts) {
     const txt = usagePartsText(u);
-    parts.textContent = txt;
-    parts.classList.toggle('hidden', !txt);
+    parts.textContent = txt || '—';
   }
 }
 
@@ -2080,11 +2495,13 @@ async function openChat(id) {
   try {
     // ПЕРВЫМ ДЕЛОМ: расшифровать и нарисовать последние 30 сообщений
     const winIds = S.messages.filter(m => m.chat === id && !m.parent).slice(-WIN_SIZE).map(m => m.id);
+    S.programmatic = true;   // pkg3-37: пока ставим позицию — прокрутка не «человеческая»
     await ensureIds(winIds).catch(() => {});
     renderAll();
     renderMessages(!S.openMark);
     applyFocus();
   } finally {
+    requestAnimationFrame(() => { S.programmatic = false; });   // страховка, если фокус не поставился
     markRead();
     if (window.matchMedia('(min-width: 901px)').matches) $('#input').focus();
     // ПОТОМ ФОНОМ: остальная история и медиа — после первого экрана (гарантированно)
@@ -2098,7 +2515,7 @@ function scheduleDecryptRest(chatId) {
     const list = S.messages.filter(m => m.chat === chatId);
     for (let i = 0; i < list.length; i += 20) {
       if (S.view !== chatId) return;
-      const need = list.slice(i, i + 20).filter(m => m.id && !S.plain.has(m.id));
+      const need = list.slice(i, i + 20).filter(m => m.id && plainBroken(m.id));
       if (!need.length) continue;
       await decryptAll(need);
       renderMessages();          // «…» заменяются текстом, прокрутка сохраняется
@@ -2116,6 +2533,10 @@ function applyFocus() {
   } else {
     box.scrollTop = box.scrollHeight;
   }
+  // pkg3-37: позицию ставим мгновенно и сами помним, где низ ленты, —
+  // обработчик прокрутки в это время спит, поэтому «середина» не возникает
+  S.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+  $('#scroll-bottom').classList.toggle('hidden', S.atBottom);
   requestAnimationFrame(() => { S.programmatic = false; });
 }
 /** Если непрочитанных сообщений нет — ищем первое сообщение с новой реакцией
@@ -2139,7 +2560,8 @@ function firstUnseenMark(chatId) {
 function firstUnreadMark(chatId, count) {
   const reads = myReads();
   const list = S.messages
-    .filter(m => m.chat === chatId && !m.parent && m.uid !== S.me.id && m.seq > (reads[bucketOf(m)] || 0))
+    .filter(m => m.chat === chatId && !m.parent && m.uid !== S.me.id
+      && m.seq > (reads[bucketOf(m)] || 0) && feedVisible(m))
     .sort((a, b) => a.seq - b.seq);
   return list.length ? { chat: chatId, msgId: list[0].id, count } : null;
 }
@@ -2289,9 +2711,14 @@ $('#thread-body').addEventListener('click', handleMsgClick);
 $('#quote-cancel').addEventListener('click', () => { S.quote = null; renderQuoteBar(); });
 $('#messages').addEventListener('scroll', () => {
   const box = $('#messages');
-  if (!S.programmatic) { S.focusPending = false; S.userScrolled = true; }
-  S.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
-  $('#scroll-bottom').classList.toggle('hidden', S.atBottom);
+  // pkg3-37: пока позицию ставит сам чат (открытие, фокус на непрочитанном),
+  // обработчик спит — иначе мгновенные прыжки принимались бы за прокрутку
+  // человеком и лента «открывалась посередине»
+  if (!S.programmatic) {
+    S.focusPending = false; S.userScrolled = true;
+    S.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+    $('#scroll-bottom').classList.toggle('hidden', S.atBottom);
+  }
 });
 $('#messages').addEventListener('click', async e => {
   const lm = e.target.closest('#load-more');
@@ -2499,12 +2926,15 @@ function patSvg(kind) {
     dots: `<circle cx='6' cy='6' r='1.4' fill='${s}'/><circle cx='18' cy='18' r='1.4' fill='${s}'/>`,
     diag: `<path d='M-4 8 L8 -4 M4 20 L20 4 M12 28 L28 12' stroke='${s}' stroke-width='1.4'/>`,
     grid: `<path d='M0 8 H24 M0 16 H24 M8 0 V24 M16 0 V24' stroke='${s}' stroke-width='1'/>`,
-    waves: `<path d='M0 8 q6 -5 12 0 t12 0 M0 18 q6 -5 12 0 t12 0' stroke='${s}' stroke-width='1.4' fill='none'/>`
+    waves: `<path d='M0 8 q6 -5 12 0 t12 0 M0 18 q6 -5 12 0 t12 0' stroke='${s}' stroke-width='1.4' fill='none'/>`,
+    neongrid: `<path d='M0 8 H24 M0 16 H24 M8 0 V24 M16 0 V24' stroke='rgba(0,229,255,.5)' stroke-width='1'/><path d='M0 4 H24 M4 0 V24' stroke='rgba(255,43,214,.35)' stroke-width='1'/>`,
+    sunset: `<path d='M0 5 H24 M0 11 H24 M0 17 H24' stroke='rgba(255,43,214,.45)' stroke-width='1.6'/><circle cx='12' cy='12' r='4.4' fill='none' stroke='rgba(255,158,0,.55)' stroke-width='1.4'/>`
   }[kind] || '';
   return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'>${body}</svg>`)}")`;
 }
 async function applyWallBackground() {
   const box = $('#messages'), c = curChat();
+  if (S.eco) { box.style.background = ''; return; }   // эконом-режим: фонов нет
   if (!c || !c.wall || c.wall.type === 'none') { box.style.background = ''; return; }
   // страховка: цвета могли не сохраниться в старых версиях — подставляем дефолт
   const w = Object.assign({ type: 'grad', c1: '#eef2f4', c2: '#e8f4fe', a: 165, pat: 'dots' }, c.wall);
@@ -2529,7 +2959,7 @@ function wallEditor(c) {
     </div>
     <div id="w-pat" class="${w.type === 'pat' ? '' : 'hidden'}">
       <div class="pat-grid" id="w-pats">
-        ${['dots', 'diag', 'grid', 'waves'].map(p => `<button class="pat ${w.pat === p ? 'on' : ''}" data-pat="${p}" style="background:${p === 'dots' ? 'radial-gradient(rgba(255,255,255,.6) 1.5px, transparent 1.6px)' : p === 'diag' ? 'repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 2px, transparent 2px 8px)' : p === 'grid' ? 'repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, rgba(255,255,255,.4) 0 1px, transparent 1px 8px)' : 'repeating-radial-gradient(circle at 0 8px, rgba(255,255,255,.4) 0 2px, transparent 2px 8px)'};background-color:#5c6f7c"></button>`).join('')}
+        ${PATS.map(p => `<button class="pat ${w.pat === p.id ? 'on' : ''}" data-pat="${p.id}" style="background:${p.prev};background-color:${p.bg}"></button>`).join('')}
       </div>
     </div>
     <div id="w-photo" class="${w.type === 'photo' ? '' : 'hidden'}">
@@ -3084,6 +3514,7 @@ async function loadUpload(el) {
 }
 /** После перерисовки ленты уже закэшированные медиа подставляются сами, без клика. */
 async function upgradeMedia(box) {
+  if (S.eco) return;   // эконом-режим: медиа не разворачиваются
   const nodes = [...box.querySelectorAll('[data-upl]')];
   for (const el of nodes) {
     const rec = await idb.get(el.dataset.upl);
@@ -3165,15 +3596,19 @@ async function postMessage(draft, text, att, attachKey, quote) {
   }
 }
 
-/** Сервер принял сообщение: подменяем черновик настоящей записью. */
+/** Сервер принял сообщение: подменяем черновик настоящей записью.
+ * pkg3-36: настоящая запись к этому моменту могла уже прийти через опрос —
+ * тогда просто убираем черновик, не плодя дубль. */
 function adoptSent(draft, real, plain) {
   delete S.retry[draft.id];
   if (!real || !real.id) return;
   S.messageIds.delete(draft.id);
   S.plain.delete(draft.id);
   const i = S.messages.findIndex(m => m.id === draft.id);
-  if (i >= 0) S.messages[i] = real; else S.messages.push(real);
-  S.messageIds.add(real.id);
+  if (i >= 0) S.messages.splice(i, 1);
+  const j = S.messages.findIndex(m => m.id === real.id);
+  if (j >= 0) S.messages[j] = real;
+  else { S.messages.push(real); S.messageIds.add(real.id); }
   if (plain) S.plain.set(real.id, plain);
   S.messages.sort((a, b) => a.seq - b.seq);
   // курсор since НЕ двигаем: пусть его выставит ответ сервера, иначе можно
@@ -3373,6 +3808,12 @@ async function pickAttach(e, key) {
 const attLabel = a => !a ? '' : (typeof a === 'string' || a.kind === 'image' ? '📷 изображение' : a.kind === 'video' ? '🎬 видео' : '📎 ' + (a.name || 'файл'));
 function attHtml(a) {
   if (!a) return '';
+  if (S.eco) {
+    if (typeof a === 'string' || a.kind === 'image') return `<span class="att-file eco-hidden">${SV(ICONS.image)}<span>Картинка скрыта в экономном режиме</span></span>`;
+    if (a.kind === 'video' || a.kind === 'audio') return `<span class="att-file eco-hidden">${SV(ICONS[a.kind === 'video' ? 'play' : 'volume'])}<span>Медиа скрыто в экономном режиме</span></span>`;
+    if (a.upId) return `<span class="att-file" role="button" data-upl="${a.upId}" data-parts="${a.parts || 1}" data-kind="${a.kind}" data-name="${escapeHtml(a.name || 'файл')}" data-size="${a.size || 0}" data-mime="${escapeHtml(a.mime || '')}">${SV(ICONS[a.kind === 'video' ? 'play' : a.kind === 'audio' ? 'volume' : 'file'])}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)} · в экономном режиме не грузится автоматически; нажать — загрузить</span></span>`;
+    return `<span class="att-file eco-hidden">${SV(ICONS.file)}<span>Вложение скрыто в экономном режиме</span></span>`;
+  }
   if (typeof a === 'string') return `<img class="att" src="${a}" alt="вложение">`;
   if (a.kind === 'image') return `<img class="att" src="${a.data}" alt="вложение">`;
   if (a.upId) return `<span class="att-file" role="button" data-upl="${a.upId}" data-parts="${a.parts || 1}" data-kind="${a.kind}" data-name="${escapeHtml(a.name || 'файл')}" data-size="${a.size || 0}" data-mime="${escapeHtml(a.mime || '')}">${SV(ICONS[a.kind === 'video' ? 'play' : a.kind === 'audio' ? 'volume' : 'file'])}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)} · нажать для загрузки</span></span>`;
@@ -3720,8 +4161,9 @@ $('#btn-admin').addEventListener('click', async () => {
     <div class="err" id="ad-code-err"></div>
     <button class="primary" id="ad-code-save">Обновить фразу</button>
     <div class="divider"><span>Память</span></div>
-    <p class="hint">Занято ${fmtBytes(S.usage.bytes)} из ${fmtBytes(S.usage.limit)} (${S.usage.percent}%). Архивами управляет создатель каждого чата (меню «⋯» в чате).</p>
-    <p class="hint">Из чего состоит: ${usagePartsText(S.usage) || '—'}.</p>
+    <p class="hint" id="ad-mem-main">Занято ${fmtBytes(S.usage.bytes)} из ${fmtBytes(S.usage.limit)} (${S.usage.percent}%).</p>
+    <p class="hint" id="ad-mem-parts">Из чего состоит: ${usagePartsText(S.usage) || '—'}.</p>
+    <p class="hint">Шкала загрузки — слева под списком чатов; сюда подробности переехали, чтобы не мельтешили под рукой. Архивами управляет создатель каждого чата (меню «⋯» в чате).</p>
     <div class="divider"><span>Резервная копия</span></div>
     <p class="hint" id="ad-bk-where">Проверяю облачное хранилище…</p>
     <button class="primary" id="ad-bk-make">Сохранить копию в облако</button>
@@ -3729,12 +4171,13 @@ $('#btn-admin').addEventListener('click', async () => {
     <div id="ad-bk-list"></div>`);
   renderAdminUsers();
   initBackups();
+  renderMemory();
 
   $('#ad-users').addEventListener('click', async e => {
     const b = e.target.closest('button[data-id]'); if (!b) return;
     try {
       if (b.dataset.act === 'del') {
-        if (!confirm('Исключить участника из мессенджера? Он потеряет доступ ко всем чатам.')) return;
+        if (!confirm('Исключить участника из мессенджера? Он потеряет доступ ко всем чатам, а личные переписки и игры с ним удалятся безвозвратно.')) return;
         await api('/api/admin/users/' + b.dataset.id, { method: 'DELETE' });
       } else {
         await api('/api/admin/users/' + b.dataset.id + '/admin', { method: 'POST', body: { value: b.dataset.act === 'up' } });
@@ -3833,7 +4276,7 @@ async function restoreFromKey(key, name, btn) {
   if (!word) return;
   btn.disabled = true; btn.textContent = 'восстанавливаем…';
   try {
-    const r = await api('/api/admin/restore', { method: 'POST', body: { key, codeProof: await codeProofOf(word) } });
+    const r = await api('/api/admin/restore', { method: 'POST', timeout: 180000, body: { key, codeProof: await codeProofOf(word) } });
     toast('Готово: база заменена копией. Страховочная копия: ' + (r.safety || '—'));
     setTimeout(() => location.reload(), 1500);
   } finally {
@@ -3864,7 +4307,7 @@ async function restoreFromFile(file) {
     }
     if (btn) btn.textContent = 'восстанавливаем…';
     const r = await api('/api/admin/restore/upload', {
-      method: 'POST', body: { step: 'fin', id: init.id, codeProof: await codeProofOf(word) }
+      method: 'POST', timeout: 180000, body: { step: 'fin', id: init.id, codeProof: await codeProofOf(word) }
     });
     toast('Готово: база заменена копией из файла. Страховочная копия: ' + (r.safety || '—'));
     setTimeout(() => location.reload(), 1500);
@@ -3940,7 +4383,7 @@ async function initBackups() {
       const err = $('#ad-bk-err'); err.textContent = '';
       make.disabled = true; const was = make.textContent; make.textContent = 'Сохраняем…';
       try {
-        const r = await api('/api/admin/backup', { method: 'POST' });
+        const r = await api('/api/admin/backup', { method: 'POST', timeout: 180000 });
         const b = r.backup || {};
         toast(r.warn ? r.warn : 'Копия сохранена в облаке (' + fmtBytes(b.bytes || 0) + ')', !!r.warn);
         await initBackups();
@@ -4045,14 +4488,14 @@ function persistAll() {
 }
 /** Массовая локальная расшифровка со шкалой — для тёплого старта из кэша. */
 async function decryptLocal() {
-  const list = S.messages.filter(m => !S.plain.has(m.id) && m.blob);
+  const list = S.messages.filter(m => plainBroken(m.id) && m.blob);
   if (!list.length) return;
   for (let i = 0; i < list.length; i += 96) {
     const part = list.slice(i, i + 96);
     await decryptSmart(part);
     const done = Math.min(list.length, i + part.length);
     loadUi.show('Расшифровываем на устройстве', done / list.length * 100, done + ' из ' + list.length);
-    renderMessages(true);
+    renderMessages();   // pkg3-37: точечно заменяем «…» на текст, без прыжков ленты
   }
 }
 
@@ -4153,7 +4596,12 @@ document.addEventListener('click', async e => {
   const sq = e.target.closest('[data-sq]');
   if (sq) { await onBoardClick(sq.dataset.sq); return; }
   if (e.target.closest('#gm-leave')) { await leaveGameSmart(); return; }
-  if (e.target.closest('#gm-thread')) { $('#main').classList.toggle('thread-collapsed'); return; }
+  if (e.target.closest('#gm-thread')) {
+    const m = $('#main');
+    clearGmSize(); m.classList.remove('gm-expanded');   // pkg3-37: кнопка и ручка не спорят
+    m.classList.toggle('thread-collapsed');
+    return;
+  }
   if (e.target.closest('#gm-knocks')) { openKnocks(curChat()); return; }
   const acc = e.target.closest('[data-game-accept]');
   if (acc) {
@@ -4203,13 +4651,14 @@ $('#btn-dropcache').addEventListener('click', async () => {
 
 // ─────────────────────────────────────────── оформление: тема, плотность, гамма
 function currentPal() {
-  return document.documentElement.dataset.pal || 'classic';
+  return document.documentElement.dataset.pal || 'synth';   // pkg3-34: «Синтвейв» — гамма по умолчанию
 }
 function metaThemeColor() {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
   const dark = document.documentElement.dataset.theme === 'dark';
   const inApp = document.documentElement.dataset.inApp === '1';
+  if (inApp && currentPal() === 'synth') { meta.setAttribute('content', '#0d0221'); return; }
   meta.setAttribute('content', dark ? '#0b171d' : (inApp ? palById(currentPal()).c1 : '#2353A2'));
 }
 function applyTheme(theme) {
@@ -4220,20 +4669,21 @@ function applyTheme(theme) {
   if (sw) sw.checked = dark;
   metaThemeColor();
 }
-function applyDensity(mode) {
-  const compact = mode === 'compact';
-  if (compact) document.documentElement.dataset.density = 'compact';
-  else delete document.documentElement.dataset.density;
-  try {
-    if (compact) localStorage.setItem('sega.density', 'compact');
-    else localStorage.removeItem('sega.density');
-  } catch (e) {}
-  const sw = $('#sw-compact');
-  if (sw) sw.checked = compact;
+function applyEco(on, save) {
+  S.eco = !!on;
+  if (S.eco) document.documentElement.dataset.eco = '1';
+  else delete document.documentElement.dataset.eco;
+  if (save !== false) { try { localStorage.setItem('sega.eco', S.eco ? '1' : '0'); } catch (e) {} }
+  const sw = $('#sw-eco');
+  if (sw) sw.checked = S.eco;
+  if (S.view) { applyWallBackground(); S.sig = ''; renderMessages(true); }
+  renderRail();
 }
 function applyPalette(id, save) {
   const pal = palById(id);
   document.documentElement.dataset.pal = pal.id;
+  // «Синтвейв» живёт только в тёмной теме — включаем её вместе с гаммой (pkg3-34)
+  if (pal.id === 'synth' && document.documentElement.dataset.theme !== 'dark') applyTheme('dark');
   if (save !== false) { try { localStorage.setItem('sega.pal', pal.id); } catch (e) {} }
   paintPalettePickers();
   metaThemeColor();
@@ -4252,7 +4702,7 @@ function openSettings() {
   $('#rail').classList.remove('open');
   paintPalettePickers();
   const swD = $('#sw-dark'); if (swD) swD.checked = document.documentElement.dataset.theme === 'dark';
-  const swC = $('#sw-compact'); if (swC) swC.checked = document.documentElement.dataset.density === 'compact';
+  const swE = $('#sw-eco'); if (swE) swE.checked = !!S.eco;
   renderNotifyControls();
   show($('#sheet-settings'));
   const bt = $('#build-tag');
@@ -4267,9 +4717,22 @@ $('#sheet-settings').addEventListener('click', e => { if (e.target.id === 'sheet
 document.addEventListener('click', e => {
   if (e.target.closest('[data-close-sheet]')) closeSettings();
 }, true);
-$('#sw-dark').addEventListener('change', e => applyTheme(e.target.checked ? 'dark' : 'light'));
-$('#sw-compact').addEventListener('change', e => applyDensity(e.target.checked ? 'compact' : 'cozy'));
-$('#sw-push').addEventListener('change', e => setPush(e.target.checked));
+$('#sw-dark').addEventListener('change', e => {
+  if (!e.target.checked && currentPal() === 'synth') {
+    e.target.checked = true;
+    toast('Гамма «Синтвейв» бывает только тёмной. Сначала выберите другую гамму — тогда тему можно выключить.');
+    return;
+  }
+  applyTheme(e.target.checked ? 'dark' : 'light');
+});
+$('#sw-eco').addEventListener('change', e => {
+  applyEco(e.target.checked);
+  toast(e.target.checked ? 'Экономный режим включён: медиа, аватары и фоны не грузятся' : 'Экономный режим выключен');
+});
+$('#sw-push').addEventListener('change', e => {
+  try { localStorage.setItem('sega.pushAuto37', 'manual'); } catch (err) {}   // pkg3-37: решение человека — не перекрывать
+  setPush(e.target.checked);
+});
 $('#pals').addEventListener('click', e => {
   const b = e.target.closest('[data-pal]');
   if (!b) return;
@@ -4279,7 +4742,7 @@ $('#pals').addEventListener('click', e => {
 
 (function initAppearance() {
   applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
-  applyDensity(document.documentElement.dataset.density === 'compact' ? 'compact' : 'cozy');
+  applyEco(localStorage.getItem('sega.eco') === '1', false);
   applyPalette(currentPal(), false);
   paintIcons(document);
 })();

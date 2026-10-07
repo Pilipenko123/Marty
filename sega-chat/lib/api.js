@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-31';
+const BUILD = 'pkg3-37';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -220,6 +220,41 @@ function createApi(store, opts = {}) {
     db.gen++;
     save();
   }
+  /** Убирает «призраков»: личные чаты, оставшиеся вдвоём с исчезнувшим участником,
+   *  пустые групповые чаты и незавершённые игры без игрока. Такой чат всё равно
+   *  не открыть, а список он засоряет — поэтому стирается вместе с историей. */
+  function pruneGhostChats() {
+    const userIds = new Set(db.users.map(u => u.id));
+    const dead = [];
+    for (const c of db.chats) {
+      const before = (c.members || []).length;
+      c.members = (c.members || []).filter(id => userIds.has(id));
+      if (c.members.length !== before) {
+        if (c.keys) for (const k of Object.keys(c.keys)) if (!userIds.has(k)) delete c.keys[k];
+        if (c.roles) for (const k of Object.keys(c.roles)) if (!userIds.has(k)) delete c.roles[k];
+        c.knocks = (c.knocks || []).filter(id => userIds.has(id));
+      }
+      if (!c.members.length) dead.push(c.id);
+      else if (c.kind === 'dm' && c.members.length < 2) dead.push(c.id);
+      else if (c.kind === 'game') {
+        const g = c.game || {};
+        // приглашение живо, пока жив его создатель; начатая партия — пока оба игрока в составе;
+        // завершённую не трогаем: зрители и игроки могут перечитывать историю
+        if (g.status === 'invite') { if (!c.members.includes(c.ownerId)) dead.push(c.id); }
+        else if (g.status === 'playing') {
+          const players = [g.white, g.black].filter(Boolean);
+          if (players.length < 2 || players.some(pl => !c.members.includes(pl))) dead.push(c.id);
+        }
+      }
+    }
+    if (!dead.length) return 0;
+    for (const id of dead) dropChat(id);
+    db.chats = db.chats.filter(c => !dead.includes(c.id));
+    db.seq++;
+    save();
+    return dead.length;
+  }
+
   async function findMessage(id) {
     if (!id) return null;
     return db.messages.find(x => x.id === id) || await store.getMessage(id);
@@ -1207,9 +1242,7 @@ function createApi(store, opts = {}) {
             if (c.keys) delete c.keys[id];
             if (c.ownerId === id) c.ownerId = c.members[0] || null;
           }
-          const dead = db.chats.filter(c => !c.members.length).map(c => c.id);
-          db.chats = db.chats.filter(c => c.members.length);
-          for (const d of dead) dropChat(d);
+          pruneGhostChats();   // личные чаты с ним и брошенные игры стираются следом
           db.seq++;
           save();
           return J(200, { ok: true });
@@ -1563,6 +1596,7 @@ function createApi(store, opts = {}) {
   async function handle(req) {
     dirty = false;
     db = await store.load();
+    try { pruneGhostChats(); } catch (e) { /* чистка не должна ломать запрос */ }
     let out;
     try {
       out = await api(req);

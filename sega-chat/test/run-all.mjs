@@ -130,9 +130,22 @@ function startFunctionEmulator(handler, functionId) {
   console.log('\n  ' + (okBase ? '✓' : '✗ ПРОВАЛ:') + ' страница чата знает свой адрес в облаке');
   if (!okBase) failed++;
   const css = await fetch(base + '/styles.css');
+  const cssText = css.ok ? await css.text() : '';
   const okCss = css.ok && (css.headers.get('content-type') || '').includes('text/css');
   console.log('  ' + (okCss ? '✓' : '✗ ПРОВАЛ:') + ' оформление отдаётся облачной функцией');
   if (!okCss) failed++;
+  const okSynth = cssText.includes('[data-pal="synth"]') && cssText.includes('#00e5ff') && cssText.includes('#ff2bd6');
+  console.log('  ' + (okSynth ? '✓' : '✗ ПРОВАЛ:') + ' гамма «Синтвейв» есть в стилях (неон голубой + розовый)');
+  if (!okSynth) failed++;
+  const appJsText = await (await fetch(base + '/app.js')).text();
+  const okGameScroll = cssText.includes('grid-template-rows:auto minmax(0,1fr)')
+    && cssText.includes('#main.game-mode #game-right{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0;min-height:0;');
+  console.log('  ' + (okGameScroll ? '✓' : '✗ ПРОВАЛ:') + ' игровой чат на ПК умещается в экран: лента со своей полосой прокрутки');
+  if (!okGameScroll) failed++;
+  const okBoardHeal = appJsText.includes('const plainBroken') && appJsText.includes('function boardSoon')
+    && !page.includes('id="mem-text"') && appJsText.includes("$('#ad-mem-main')");
+  console.log('  ' + (okBoardHeal ? '✓' : '✗ ПРОВАЛ:') + ' доска рисуется только из расшифрованной истории; детали памяти — в «Управлении»');
+  if (!okBoardHeal) failed++;
 
   failed += await runFlow(base, 'Режим 3: облачная функция Yandex Cloud + Yandex Database',
     { STORE_CHECKED_ELSEWHERE: '1' });

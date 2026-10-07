@@ -73,11 +73,11 @@ async function createAdmin() {
   u.token = r.d.token; u.id = r.d.user.id; u.roomRaw = roomRaw;
   return u;
 }
-async function register(name, pass) {
+async function register(name, pass, code = CODE) {
   const st = (await call('/api/state')).d;
-  const codeProof = hex(await pbkdf2(CODE, st.codeProofSalt));
+  const codeProof = hex(await pbkdf2(code, st.codeProofSalt));
   const inv = (await call('/api/invite', { method: 'POST', body: { codeProof } })).d;
-  const roomRaw = await decB(await aesKey(CODE, inv.codeSalt), inv.wrappedKeyByCode);
+  const roomRaw = await decB(await aesKey(code, inv.codeSalt), inv.wrappedKeyByCode);
   const u = { name, pass, saltAuth: salt(), saltWrap: salt(), roomRaw };
   const wrapKey = await aesKey(pass, u.saltWrap);
   u.keys = await pair(wrapKey);
@@ -461,5 +461,19 @@ let quoteMsg = null;
   const s4 = await syncOf(friend);
   ok(!s4.chats.some(c => c.id === g4.d.chat.id), 'у приглашённого отменённой игры тоже нет');
 }
+}
+// ── pkg3-35: принудительное удаление участника не оставляет «призраков»
+{
+  const ghost = await register('Призрак', 'ghost-pass-5', 'new-club-phrase');  // фраза уже менялась выше
+  const rd = await call('/api/dm', { method: 'POST', body: { peer: ghost.id } }, admin.token);
+  ok(rd.status === 200 && rd.d.chat.kind === 'dm', 'личный чат с будущим удалённым участником создан');
+  const dmid = rd.d.chat.id;
+  const del = await call('/api/admin/users/' + ghost.id, { method: 'DELETE' }, admin.token);
+  ok(del.status === 200, 'администратор принудительно удалил участника');
+  const sa = await syncOf(admin);
+  ok(!sa.users.some(u => u.id === ghost.id), 'удалённый участник исчез из списка людей');
+  ok(!sa.chats.some(c => c.id === dmid), 'личная переписка с удалённым участником исчезла без следа');
+  const del2 = await call('/api/admin/users/' + ghost.id, { method: 'DELETE' }, admin.token);
+  ok(del2.status === 404, 'повторное удаление: сервер честно отвечает «не найден»');
 }
 console.log('\nГотово.');
