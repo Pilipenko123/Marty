@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-40';
+const BUILD = 'pkg3-42';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1252,8 +1252,10 @@ function showDesktopNotification(m) {
   const author = userById(m.uid) || { name: p.author || 'Сообщение' };
   // pkg3-36: ходы и события партии подписываем по-человечески (раньше любое
   // сообщение без текста показывалось как «📷 изображение»)
-  const body = p.k === 'move' ? `♟ ход ${p.san || (p.from + '–' + p.to)} · ${author.name}`
-    : p.k === 'game-event' ? `♟ ${p.text || 'событие игры'}`
+  // pkg3-41: значок — по игре чата, запись хода — по-русски
+  const gico = gameIcon(c);
+  const body = p.k === 'move' ? `${gico} ход ${rusSan(p.san) || (p.from + '–' + p.to)} · ${author.name}`
+    : p.k === 'game-event' ? `${gico} ${p.text || 'событие игры'}`
     : p.text ? `${author.name}: ${cut(p.text, 120)}` : `${author.name}: 📷 изображение`;
   try {
     const n = new Notification(chatTitle(c) || 'SEGA-CHAT', {
@@ -1472,9 +1474,11 @@ const lastMessageIn = chatId => {
 };
 function preview(m) {
   const gp = S.plain.get(m.id);
-  if (gp && gp.k === 'move') return '♟ ход ' + (gp.san || (gp.from + '–' + gp.to));
-  if (gp && gp.k === 'game-invite') return '♟ приглашение в игру';
-  if (gp && gp.k === 'game-event') return '♟ ' + (gp.text || 'событие игры');
+  // pkg3-41: значок и запись хода — по игре чата (шашки ●, шахматы ♟), ход по-русски
+  const gico = gameIcon(chatById(m.chat));
+  if (gp && gp.k === 'move') return gico + ' ход ' + (rusSan(gp.san) || (gp.from + '–' + gp.to));
+  if (gp && gp.k === 'game-invite') return gico + ' приглашение в игру';
+  if (gp && gp.k === 'game-event') return gico + ' ' + (gp.text || 'событие игры');
   if (!m) return '';
   const p = S.plain.get(m.id) || {};
   const who = m.uid === S.me.id ? 'Вы: ' : ((userById(m.uid) || {}).name || '') + ': ';
@@ -1482,21 +1486,40 @@ function preview(m) {
   return who + (m.parent ? '↳ ' : '') + body;
 }
 
-// ─────────────────────────────────────────── шахматы: доска и игры
+// ─────────────────────────────────────────── игры: доска и партии (шахматы и шашки)
 const PIECE_GLYPH = { P: '♙', N: '♘', B: '♗', R: '♖', Q: '♕', K: '♔', p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
 const isWhitePiece = p => p === p.toUpperCase();
 const sqIndex = name => 'abcdefgh'.indexOf(name[0]) + (Number(name[1]) - 1) * 8;
 const userNameById = id => (userById(id) || {}).name || '…';
+/** pkg3-41: в разделе «Игры» живут две игры — шахматы и русские шашки.
+ * Правила записаны в карточке игры (game.rules); старым партиям без метки
+ * считаем шахматами, поэтому история не ломается. */
+const gameRulesOf = c => ((c && c.game && c.game.rules) === 'checkers') ? 'checkers' : 'chess';
+const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : '♟';
+/** pkg3-41: русская шашка — кругляш с короной у дамки. Инлайн-SVG масштабируется
+ * под клетку; в эконом-режиме и в неоне перекрашивается правилами CSS. */
+function ckDiscHtml(p) {
+  const white = p === 'w' || p === 'W';
+  const king = p === p.toUpperCase();
+  const label = (white ? 'Белая ' : 'Чёрная ') + (king ? 'дамка' : 'шашка');
+  const crown = king ? '<path class="crc" d="M30 64 L34 44 L42 54 L50 38 L58 54 L66 44 L70 64 Z"/>' : '';
+  return `<span class="ckd ${white ? 'cw' : 'cb'}" role="img" aria-label="${label}" title="${label}">`
+    + `<svg viewBox="0 0 100 100"><circle class="cfl" cx="50" cy="50" r="46"/><circle class="crn" cx="50" cy="50" r="33"/>${crown}</svg></span>`;
+}
+/** pkg3-42: в заголовке партии союз «и» вместо «против» — «Пётр и Мария» короче,
+ * чем «Пётр против Марии», а на телефоне каждый знак на счету. Смысл не теряется:
+ * значок игры и подписи «приглашение» / «завершена» остались на месте. */
 function gameTitle(c) {
   const g = c.game || {};
-  const base = '♟ ' + userNameById(g.white) + ' против ' + userNameById(g.black);
+  const base = gameIcon(c) + ' ' + userNameById(g.white) + ' и ' + userNameById(g.black);
   if (g.status === 'invite') return base + ' · приглашение';
   if (g.status === 'finished') return base + ' · завершена';
   return base;
 }
 /** pkg3-36: подпись в списке чатов у игры — не «последнее сообщение» (это ход,
  * а ходы в ленте больше не живут), а состояние партии. «Последний ход и чей
- * ход» пишем, только когда история целиком расшифрована: иначе позиция врёт. */
+ * ход» пишем, только когда история целиком расшифрована: иначе позиция врёт.
+ * pkg3-41: ход показываем по-русски («Конь f3», «g4:e6»). */
 function gameRailSub(c) {
   const g = c.game || {};
   if (g.status === 'invite') return 'ожидание соперника';
@@ -1508,17 +1531,24 @@ function gameRailSub(c) {
   try {
     const { eng, sans } = gameReplay(c);
     const st = eng.status();
-    if (st === 'checkmate') return 'мат! партия решена';
-    if (st === 'stalemate' || st === 'draw50') return 'ничья';
+    if (gameRulesOf(c) === 'checkers') {
+      if (st === 'over') return 'партия решена';
+    } else {
+      if (st === 'checkmate') return 'мат! партия решена';
+      if (st === 'stalemate' || st === 'draw50') return 'ничья';
+    }
     const who = userNameById(eng.turn() === 'w' ? g.white : g.black);
-    return (sans.length ? sans[sans.length - 1] + ' · ' : '') + 'ход: ' + who;
+    return (sans.length ? rusSan(sans[sans.length - 1]) + ' · ' : '') + 'ход: ' + who;
   } catch (e) { return 'идёт партия…'; }
 }
 function openGameTitle(g) {
-  return userNameById(g.white) + ' против ' + userNameById(g.black);
+  return userNameById(g.white) + ' и ' + userNameById(g.black);   // pkg3-42: «и» вместо «против»
 }
+/** pkg3-41: партия разбирается тем движком, что записан в правилах игры:
+ * шашки — createCheckers, шахматы — createChess. Записи ходов в истории
+ * одинаковые ({k:'move', from, to, …}), движок просто свой. */
 function gameReplay(c) {
-  const eng = createChess();
+  const eng = gameRulesOf(c) === 'checkers' ? createCheckers() : createChess();
   const sans = [];
   let skipped = 0;
   const msgs = S.messages.filter(m => m.chat === c.id && !m.parent && !m.failed).sort((a, b) => a.seq - b.seq);
@@ -1535,14 +1565,21 @@ function gameStatusText(c, eng, st) {
   if (g.status === 'finished' && g.result) {
     return 'Партия окончена: победил ' + userNameById(g.result.winner) + ' (соперник сдался)';
   }
+  if (gameRulesOf(c) === 'checkers') {
+    if (st === 'over') return 'Партия окончена: победил ' + userNameById(eng.turn() === 'w' ? g.black : g.white) + ' — у соперника не осталось ходов';
+    return 'Ход: ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
+  }
   if (st === 'checkmate') return 'Мат! Победил ' + userNameById(eng.turn() === 'w' ? g.black : g.white);
   if (st === 'stalemate') return 'Пат — ничья';
   if (st === 'draw50') return 'Ничья: 50 ходов без взятий и шахов';
   return (st === 'check' ? 'Шах! ' : '') + 'Ход: ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
 }
-function gamePayloadHtml(p) {
+function gamePayloadHtml(p, chat) {
   if (!p || typeof p !== 'object' || !p.k) return '';
-  if (p.k === 'move') return `<div class="mv-line">♟ ${escapeHtml(p.san || (p.from + '–' + p.to))}</div>`;
+  const gc0 = chat || (p.game ? (S.chats || []).find(x => x.id === p.game) : null);
+  const rules = (gc0 && gc0.game && gc0.game.rules) || p.rules || 'chess';
+  const ico = rules === 'checkers' ? '●' : '♟';
+  if (p.k === 'move') return `<div class="mv-line">${ico} ${escapeHtml(rusSan(p.san) || (p.from + '–' + p.to))}</div>`;
   if (p.k === 'game-event') return `<div class="mv-sys">${escapeHtml(p.text || '')}</div>`;
   if (p.k === 'game-invite') {
     const mine = p.to === (S.me || {}).id;
@@ -1556,7 +1593,7 @@ function gamePayloadHtml(p) {
         <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}">Войти в игру</button>
         <button class="mini danger" data-game-decline="${escapeHtml(p.game)}">Отклонить</button></div>`;
     else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
-    return `<div class="invite-card">♟ <b>Приглашение в шахматы</b>
+    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : 'шахматы'}</b>
       <div class="tiny muted">${escapeHtml(p.note || '')}</div>${act}</div>`;
   }
   return '';
@@ -1660,6 +1697,7 @@ function clearGmSize() {
 })();
 window.addEventListener('resize', () => {
   if ($('#main').classList.contains('game-mode')) applyGmChatSize();
+  syncSearchVisibility();   // pkg3-42: повернули телефон / изменили размер — строка поиска могла скрыться
 });
 /** pkg3-36: король на доске — аватар игрока (фото или кружок с инициалами).
  * Пустая строка — аватар ещё грузится, тогда временно остаётся обычный король.
@@ -1690,12 +1728,15 @@ function kingFaceSig(g) {
   }).join(',');
 }
 /** pkg3-36: компактная запись ВСЕЙ партии парами «1. e4 e5», последний ход
- * подсвечен. Список живёт под доской и прокручивается отдельно от чата. */
+ * подсвечен. Список живёт под доской и прокручивается отдельно от чата.
+ * pkg3-41: ходы показываются по-русски — «Конь f3» вместо «Nf3»,
+ * «Короткая рокировка» вместо «O-O»; шашечная запись («c3-d4», «g4:e6»)
+ * и так русская, rusSan пропускает её как есть. */
 function movesListHtml(sans) {
   if (!sans.length) return '<div class="tiny muted mv-empty">Ходов пока нет — партия вот-вот начнётся</div>';
   let out = '';
   for (let i = 0; i < sans.length; i += 2) {
-    const w = sans[i], bl = sans[i + 1];
+    const w = rusSan(sans[i]), bl = sans[i + 1] ? rusSan(sans[i + 1]) : '';
     out += `<div class="mrow-mv"><span class="mv-n">${i / 2 + 1}.</span>`
       + `<span class="mv-w${i === sans.length - 1 ? ' last' : ''}">${escapeHtml(w)}</span>`
       + `<span class="mv-b${bl && i + 1 === sans.length - 1 ? ' last' : ''}">${bl ? escapeHtml(bl) : ''}</span></div>`;
@@ -1732,6 +1773,9 @@ function renderBoard() {
   const b = eng.board();
   const lm = eng.lastMove();
   const g = c.game || {};
+  const rules = gameRulesOf(c);
+  // pkg3-41: у шашек подсвечиваем всю цепочку взятия (откуда — посадки — куда)
+  const lmSqs = lm ? (lm.path && lm.path.length ? lm.path : [lm.from, lm.to]) : [];
   let cells = '';
   for (let r = 7; r >= 0; r--) {
     for (let f = 0; f < 8; f++) {
@@ -1739,31 +1783,49 @@ function renderBoard() {
       const i = rr * 8 + ff;
       const name = 'abcdefgh'[ff] + (rr + 1);
       const cls = 'sq ' + (((ff + rr) % 2) ? 'dark' : 'light')
-        + (lm && (lm.from === name || lm.to === name) ? ' lm' : '')
+        + (lmSqs.includes(name) ? ' lm' : '')
         + (S.selSq === name ? ' sel' : '')
         + ((S.selTargets || []).includes(name) ? (b[i] ? ' tgt cap' : ' tgt') : '');
       const p = b[i];
-      const face = p && p.toUpperCase() === 'K' ? kingFaceHtml(p, g) : '';
-      const img = p ? (face || `<img class="pcimg" src="pieces/${isWhitePiece(p) ? 'w' : 'b'}${p.toUpperCase()}.svg" alt="${escapeHtml(p)}" draggable="false">`) : '';
+      let img = '';
+      if (p) {
+        if (rules === 'checkers') img = ckDiscHtml(p);
+        else {
+          const face = p.toUpperCase() === 'K' ? kingFaceHtml(p, g) : '';
+          img = face || `<img class="pcimg" src="pieces/${isWhitePiece(p) ? 'w' : 'b'}${p.toUpperCase()}.svg" alt="${escapeHtml((window.PIECE_RUS || {})[p.toUpperCase()] || p)}" draggable="false">`;
+        }
+      }
       cells += `<div class="${cls}" data-sq="${name}">${img}</div>`;
     }
   }
   const ids_missing = S.messages.filter(m => m.chat === c.id && !m.parent && plainBroken(m.id)).length;
-  const ctrl = [];
+  /** pkg3-42: кнопки управления партией переехали из-под доски в заголовок над ней —
+   * слева и справа от надписи «чей ход». Так они не занимают отдельную строку,
+   * а на телефоне доска вместе с чатом умещается в экран без прокрутки.
+   * Подписи укорочены (полный текст — во всплывающей подсказке и в окне
+   * подтверждения, которое и так всё объясняет). */
+  const ctrlL = [], ctrlR = [];
   if (role) {
-    const label = role === 'viewer' ? 'Покинуть игру'
+    const label = role === 'viewer' ? 'Покинуть'
+      : g.status === 'playing' ? 'Сдаться'
+        : g.status === 'invite' ? 'Отменить приглашение'
+          : 'Удалить игру';
+    const full = role === 'viewer' ? 'Покинуть игру'
       : g.status === 'playing' ? 'Сдаться и выйти'
         : g.status === 'invite' ? 'Отменить приглашение и удалить игру'
           : 'Закрыть и удалить игру';
-    ctrl.push(`<button class="mini danger" id="gm-leave">${label}</button>`);
+    ctrlL.push(`<button class="mini danger" id="gm-leave" title="${escapeHtml(full)}">${label}</button>`);
   }
-  if (role === 'player' && (c.knocks || []).length) ctrl.push(`<button class="mini" id="gm-knocks">Заявки зрителей: ${c.knocks.length}</button>`);
+  if (role === 'player' && (c.knocks || []).length) {
+    ctrlR.push(`<button class="mini" id="gm-knocks" title="Заявки зрителей: ${c.knocks.length}">Заявки: ${c.knocks.length}</button>`);
+  }
+  const ctrl = ctrlL.concat(ctrlR);
   // pkg3-38: мобильная кнопка «чат: свернуть/развернуть» убрана по просьбе владельца —
   // на телефоне чат и так всегда внизу, а ручка-шторка над ним раскрывает и меняет размер
   const showTurn = g.status === 'playing' && (st === 'playing' || st === 'check');
   const sig = [c.id, sans.length, st, S.selSq || '', (S.selTargets || []).join(','),
     ctrl.join(','), (c.knocks || []).length, flip ? 1 : 0, gameStatusText(c, eng, st),
-    kingFaceSig(g), S.eco ? 1 : 0].join('|');
+    rules === 'checkers' ? 'ck' : kingFaceSig(g), S.eco ? 1 : 0].join('|');
   if (S.boardSig === sig && wrap.dataset.chat === c.id && wrap.firstChild) return;
   // куда был прокручен список ходов — вернём позицию, если партия не изменилась
   const prevGm = $('#game-moves');
@@ -1778,9 +1840,12 @@ function renderBoard() {
   }
   wrap.classList.remove('hidden');
   wrap.innerHTML = `<div class="board-panel">
-    <div class="bp-head">${showTurn ? `<i class="tdot ${eng.turn()}"></i>` : ''}${escapeHtml(gameStatusText(c, eng, st))}</div>
+    <div class="bp-head">
+      <div class="bph-l">${ctrlL.join(' ')}</div>
+      <div class="bph-m">${showTurn ? `<i class="tdot ${eng.turn()}"></i>` : ''}${escapeHtml(gameStatusText(c, eng, st))}</div>
+      <div class="bph-r">${ctrlR.join(' ')}</div>
+    </div>
     <div class="board" id="board">${cells}</div>
-    <div class="bp-ctrl">${ctrl.join(' ')}</div>
     <div class="bp-moves-list" id="game-moves">${movesListHtml(sans)}</div>
   </div>`;
   const gm = $('#game-moves');
@@ -1799,16 +1864,27 @@ async function onBoardClick(sq) {
   const my = myGameColor(c);
   if ((c.roles || {})[S.me.id] !== 'player' || eng.turn() !== my) return;
   if (S.selSq && (S.selTargets || []).includes(sq)) {
-    const promo = eng.legalMoves().some(m => m.from === S.selSq && m.to === sq && m.promo) ? 'q' : null;
-    const mv = { from: S.selSq, to: sq, promo };
+    let mv;
+    if (gameRulesOf(c) === 'checkers') {
+      // pkg3-41: у шашек from→to иногда мало (разные цепочки взятий ведут
+      // в одну клетку) — выбираем конкретную цепочку и передаём её путь
+      const legal = eng.legalMoves().find(m => m.from === S.selSq && m.to === sq);
+      mv = { from: S.selSq, to: sq, path: legal ? legal.path : null };
+    } else {
+      const promo = eng.legalMoves().some(m => m.from === S.selSq && m.to === sq && m.promo) ? 'q' : null;
+      mv = { from: S.selSq, to: sq, promo };
+    }
     S.selSq = null; S.selTargets = [];
     await sendGameMove(c, mv);
     return;
   }
   const p = eng.board()[sqIndex(sq)];
-  if (p && isWhitePiece(p) === (eng.turn() === 'w')) {
+  // pkg3-41: у шашек свои обозначения — 'w'/'W' (белые шашка/дамка), 'b'/'B' (чёрные);
+  // шахматное «регистр = цвет» к ним не подходит
+  const pWhite = gameRulesOf(c) === 'checkers' ? (p === 'w' || p === 'W') : isWhitePiece(p);
+  if (p && pWhite === (eng.turn() === 'w')) {
     S.selSq = sq;
-    S.selTargets = eng.legalMoves().filter(m => m.from === sq).map(m => m.to);
+    S.selTargets = [...new Set(eng.legalMoves().filter(m => m.from === sq).map(m => m.to))];
   } else { S.selSq = null; S.selTargets = []; }
   renderBoard();
 }
@@ -1818,12 +1894,17 @@ async function onBoardClick(sq) {
  * через опрос работают по уже обкатанным рельсам. */
 async function sendGameMove(c, mv) {
   const { eng } = gameReplay(c);
-  const legal = eng.legalMoves().find(m => m.from === mv.from && m.to === mv.to && (m.promo || null) === (mv.promo || null));
+  const ck = gameRulesOf(c) === 'checkers';
+  const samePath = (a, b) => (!a && !b) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
+  // pkg3-41: шахматный ход узнаём по from/to/promo, шашечный — по from/to и
+  // точному пути цепочки (path); лишний признак другой игре не мешает
+  const legal = eng.legalMoves().find(m => m.from === mv.from && m.to === mv.to
+    && (ck ? samePath(m.path || null, mv.path || null) : (m.promo || null) === (mv.promo || null)));
   if (!legal) { toast('Так ходить нельзя', true); return; }
   if (S.moveSending) return;   // предыдущий ход ещё летит — второй не накладываем
   const k = await chatKeyOf(c);
   if (!k) { toast('Не удалось получить ключ шифрования для этой игры', true); return; }
-  const payload = { k: 'move', from: mv.from, to: mv.to, promo: mv.promo || null, san: legal.san, author: S.me.name };
+  const payload = { k: 'move', from: mv.from, to: mv.to, promo: mv.promo || null, path: mv.path || null, san: legal.san, author: S.me.name };
   let blob;
   try { blob = await encryptJSON(k.key, payload); }
   catch (ex) { toast(ex.message || 'Не удалось зашифровать ход', true); return; }
@@ -1932,7 +2013,12 @@ async function openKnocks(c) {
 async function openNewGame() {
   const users = S.users.filter(u => u.id !== S.me.id);
   if (!users.length) { toast('Пока некого пригласить в игру', true); return; }
-  modal('Новая игра в шахматы', `
+  // pkg3-41: раздел «Игра» знает две игры — шахматы и русские шашки
+  modal('Новая игра', `
+    <label>Игра<select id="ng-rules">
+      <option value="chess">Шахматы</option>
+      <option value="checkers">Шашки (русские)</option>
+    </select></label>
     <label>Соперник<select id="ng-opp">${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}</select></label>
     <label>Ваш цвет<select id="ng-color">
       <option value="random">Случайно</option>
@@ -1943,7 +2029,7 @@ async function openNewGame() {
     <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
     <button class="primary" id="ng-go">Создать и пригласить</button>`);
   $('#ng-go').addEventListener('click', async () => {
-    const opp = $('#ng-opp').value, color = $('#ng-color').value;
+    const opp = $('#ng-opp').value, color = $('#ng-color').value, rules = $('#ng-rules').value;
     try {
       const raw = crypto.getRandomValues(new Uint8Array(32));
       const keys = {};
@@ -1952,14 +2038,14 @@ async function openNewGame() {
         if (!pk) throw new Error('У участника нет ключа шифрования — попросите его войти в чат');
         keys[id] = { blob: await aesEncryptBytes(pk, raw) };
       }
-      const r = await api('/api/games', { method: 'POST', body: { opponent: opp, color, keys } });
+      const r = await api('/api/games', { method: 'POST', body: { opponent: opp, color, keys, rules } });
       const gid = r.chat.id;
       S.chatKeys.set(gid, { key: await importAes(raw), raw });
       hide($('#modal'));
       const dm = (await api('/api/dm', { method: 'POST', body: { peer: opp } })).chat;
       const dk = await chatKeyOf(dm);
       const inv = {
-        k: 'game-invite', game: gid, to: opp, colorChoice: color,
+        k: 'game-invite', game: gid, to: opp, colorChoice: color, rules,
         note: 'Соперник: ' + S.me.name + (color === 'choice' ? ' · цвет выберете вы' : '')
       };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
@@ -2007,7 +2093,7 @@ function renderRail() {
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
       <div class="ci-main">
-        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? '<span class="tag-grp">♟</span>' : ''}</div>
+        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? `<span class="tag-grp" title="${gameRulesOf(c) === 'checkers' ? 'шашки' : 'шахматы'}">${gameIcon(c)}</span>` : ''}</div>
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
       ${seen}
@@ -2025,8 +2111,8 @@ function renderRail() {
     for (const g of open) {
       html += `<div class="chat-item game-live">
         <div class="ci-main">
-          <div class="ci-name">♟ ${escapeHtml(openGameTitle(g))}</div>
-          <div class="ci-last">идёт партия · ${plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
+          <div class="ci-name">${g.rules === 'checkers' ? '●' : '♟'} ${escapeHtml(openGameTitle(g))}</div>
+          <div class="ci-last">идёт партия${g.rules === 'checkers' ? ' в шашки' : ''} · ${plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
         </div>
         <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
       </div>`;
@@ -2191,7 +2277,7 @@ function messageHtml(m, opts = {}) {
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
-        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${gamePayloadHtml(p)}
+        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${gamePayloadHtml(p, chatById(m.chat))}
         ${p.att ? attHtml(p.att) : ''}
       </div>
       ${rxHtml}
@@ -2381,7 +2467,7 @@ function renderThread() {
   box.innerHTML = `<div class="parent-card">
       <div style="display:flex;gap:9px;align-items:center">${avatarHtml(author, 'sm', true)}
         <div><div class="who">${escapeHtml(author.name)}</div><div class="tiny muted">${fmtDay(parent.ts)}, ${fmtTime(parent.ts)}</div></div></div>
-      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${gamePayloadHtml(p)}
+      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${gamePayloadHtml(p, chatById(parent.chat))}
       ${p.att ? attHtml(p.att) : ''}
     </div>` + kids.map((k, i) => messageHtml(k, { noThread: true, continued: canGroup(kids[i - 1], k), continues: canGroup(k, kids[i + 1]) })).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;
@@ -2538,6 +2624,11 @@ async function openChat(id) {
   // начале переписки. Теперь перенос всегда происходит ДО постановки позиции,
   // а заодно сразу рисуется доска (или спиннер «загружаем ходы») — без пустой колонки.
   boardSoon();
+  // pkg3-42: строка поиска в мобильной игре скрыта — вместе с ней гасим результаты.
+  // При возврате в обычный чат поле снова видно: если запрос не пуст и история уже
+  // расшифрована, результаты возвращаются сразу, не дожидаясь следующего опроса.
+  if (searchBarHidden()) syncSearchVisibility();
+  else if ($('#search').value.trim() && S.searchReady) runSearch();
   // pkg3-38: возвращаемся в чат, где в этой сессии читали середину, —
   // окно ленты расширяем так, чтобы запомненное сообщение точно отрисовалось
   const pos = S.chatPos[id];
@@ -4124,8 +4215,22 @@ function chLabel(m) {
   const base = c.kind === 'dm' ? 'Лично: ' + chatTitle(c) : chatTitle(c);
   return base + (m.parent ? ' · комментарий' : '');
 }
+/** pkg3-42: на телефоне в чат-игре строка поиска скрыта (правило
+ * `#main.game-mode .search-wrap` в styles.css) — значит, и список результатов
+ * показывать нельзя: крестик «очистить» уехал вместе с полем, и список повис бы
+ * незакрываемым. Гасим его при входе в игру и при повороте экрана. */
+function searchBarHidden() {
+  const c = curChat();
+  return !!(c && c.kind === 'game' && window.matchMedia('(max-width:959px)').matches);
+}
+function syncSearchVisibility() {
+  if (!searchBarHidden()) return;
+  const box = $('#search-results');
+  hide(box); box.innerHTML = '';
+}
 async function runSearch() {
   const q = $('#search').value.trim().toLowerCase();
+  if (searchBarHidden()) { syncSearchVisibility(); return; }
   if (q && !S.searchReady) {
     toast('Готовлю поиск по всей истории…');
     await decryptAll(S.messages);

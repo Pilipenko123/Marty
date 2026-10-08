@@ -677,6 +677,16 @@ html,body{overflow-x:hidden}
 @media (max-width:959px){
   /* доска закреплена и никогда не уезжает в скролл; чат — шторка снизу */
   #main.game-mode{display:flex;flex-direction:column;height:100dvh;overflow:hidden;}
+  /* pkg3-42: на телефоне в чат-игре строка поиска не показывается — здесь она
+     занимает целую строку шапки (см. правило .search-wrap в @media 900px),
+     а место нужнее доске и чату. В обычных чатах и на широком экране поиск
+     остаётся как был; чтобы воспользоваться им во время партии на телефоне,
+     достаточно открыть любой другой чат — строка поиска вернётся. */
+  #main.game-mode .search-wrap{display:none;}
+  /* pkg3-42: на телефоне кнопки в заголовке доски компактнее — каждый пиксель
+     на счету, а длинная надпись «Ожидание соперника…» честно переносится */
+  #main.game-mode .bp-head{gap:4px;font-size:13px;}
+  #main.game-mode .bph-l .mini,#main.game-mode .bph-r .mini{font-size:11px;padding:4px 7px;}
   #main.game-mode #board-wrap{flex:0 0 auto;overflow:visible;padding:6px 8px 0;}
   #main.game-mode .board-panel{max-width:min(100%, 58dvh);}
   #main.game-mode #game-right{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;position:relative;}
@@ -715,8 +725,17 @@ html,body{overflow-x:hidden}
   #main.game-mode.thread-collapsed #composer{display:none;}
 }
 .board-panel{max-width:560px;margin:0 auto;}
-.bp-head{font-weight:600;margin:0 0 8px;text-align:center;}
-.bp-ctrl{display:flex;gap:6px;justify-content:center;margin:8px 0 4px;flex-wrap:wrap;}
+/* pkg3-42: заголовок над доской — три колонки: кнопки управления партией слева,
+   «чей ход» строго по центру, кнопки справа. Боковые колонки равной ширины
+   (flex:1 1 0), поэтому надпись остаётся по центру и когда кнопка одна,
+   и когда кнопок нет вовсе. Отдельная строка .bp-ctrl под доской больше не нужна —
+   место ушло доске и чату. */
+.bp-head{display:flex;align-items:center;gap:6px;font-weight:600;margin:0 0 8px;}
+.bph-l,.bph-r{flex:1 1 0;display:flex;align-items:center;gap:6px;min-width:0;}
+.bph-l{justify-content:flex-start;}
+.bph-r{justify-content:flex-end;}
+.bph-m{flex:0 1 auto;text-align:center;min-width:0;overflow-wrap:anywhere;}
+.bph-l .mini,.bph-r .mini{white-space:nowrap;}
 .bp-moves{text-align:center;min-height:16px;word-break:break-word;}
 .board{display:grid;grid-template-columns:repeat(8,1fr);border-radius:10px;overflow:hidden;
   box-shadow:0 10px 30px rgba(10,30,50,.25);user-select:none;}
@@ -731,6 +750,17 @@ html,body{overflow-x:hidden}
 .sq.cap::after{width:88%;padding-bottom:88%;background:transparent;border:4px solid rgba(35,83,162,.55);box-sizing:border-box;}
 .pcimg{position:absolute;left:50%;top:50%;width:86%;height:86%;transform:translate(-50%,-50%);
   pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));}
+/* ── pkg3-41: русские шашки — кругляши с короной у дамки (инлайн-SVG) ── */
+.ckd{position:absolute;left:50%;top:50%;width:82%;height:82%;transform:translate(-50%,-50%);
+  pointer-events:none;}
+.ckd svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.4));}
+.ckd .crn{fill:none;stroke-width:3;}
+.ckd.cw .cfl{fill:#f4e9cd;stroke:#8a7a58;stroke-width:4;}
+.ckd.cw .crn{stroke:#cbb887;}
+.ckd.cw .crc{fill:#7c5f2e;}
+.ckd.cb .cfl{fill:#2b3038;stroke:#0b0e12;stroke-width:4;}
+.ckd.cb .crn{stroke:#565e6a;}
+.ckd.cb .crc{fill:#e6d7ae;}
 .mv-line{font-weight:600;padding:2px 0;}
 .mv-sys{font-style:italic;opacity:.75;}
 .invite-card{border:1px solid #cfd9e0;border-radius:10px;padding:10px 12px;margin:6px 0;background:#f6f9fc;}
@@ -741,7 +771,9 @@ html,body{overflow-x:hidden}
 .mrow-mv{display:grid;grid-template-columns:2.6em 1fr 1fr;gap:2px 6px;padding:1px 2px;font-size:12.5px;}
 .mrow-mv:nth-child(odd){background:rgba(128,148,168,.08)}
 .mv-n{color:var(--muted);text-align:right;}
-.mv-w,.mv-b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* pkg3-41: русские названия («Длинная рокировка») и шашечные цепочки
+   («a1:c3:e5:g3») длиннее прежних — строка хода честно переносится */
+.mv-w,.mv-b{font-weight:600;white-space:normal;overflow-wrap:break-word;}
 .mrow-mv .last{color:var(--accent);font-weight:800;}
 .mv-empty{padding:3px 2px;text-align:center;}
 /* фишка «чей ход» в заголовке над доской */
@@ -884,6 +916,19 @@ html,body{overflow-x:hidden}
 :root[data-eco="1"][data-theme="dark"] .sq.lm,:root[data-eco="1"][data-theme="dark"] .sq.sel{box-shadow:inset 0 0 0 3px #fff;}
 :root[data-eco="1"][data-theme="dark"] .sq.tgt::after{background:#fff;}
 :root[data-eco="1"][data-theme="dark"] .board{border-color:#fff;}
+/* pkg3-41: шашки на «электронных чернилах» — строго чёрное и белое:
+   белая шашка — белый круг с чёрной каймой, чёрная — чёрный круг,
+   дамка отмечена короной противоположного цвета (в тёмной теме кайма белая) */
+:root[data-eco="1"] .ckd svg{filter:none;}
+:root[data-eco="1"] .ckd .crn{display:none;}
+:root[data-eco="1"] .ckd.cw .cfl{fill:#fff;stroke:#000;stroke-width:6;}
+:root[data-eco="1"] .ckd.cb .cfl{fill:#000;stroke:#000;stroke-width:6;}
+:root[data-eco="1"] .ckd.cw .crc{fill:#000;}
+:root[data-eco="1"] .ckd.cb .crc{fill:#fff;}
+:root[data-eco="1"][data-theme="dark"] .ckd.cw .cfl{fill:#fff;stroke:#fff;}
+:root[data-eco="1"][data-theme="dark"] .ckd.cb .cfl{fill:#000;stroke:#fff;}
+:root[data-eco="1"][data-theme="dark"] .ckd.cw .crc{fill:#000;}
+:root[data-eco="1"][data-theme="dark"] .ckd.cb .crc{fill:#fff;}
 :root[data-eco="1"] .rx,:root[data-eco="1"] .rx-big-btn{filter:grayscale(1);}
 /* pkg3-36: электронные чернила и шахматы — никаких полутонов: полосатость
    списка ходов убрана, последний ход подчёркнут, заявки мигают чёрным-по-белому,
@@ -1200,6 +1245,14 @@ html,body{overflow-x:hidden}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .mrow-mv .last{color:#00e5ff}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .king-av.kw{box-shadow:0 0 0 2px #00e5ff,0 0 14px rgba(0,229,255,.8)}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .king-av.kb{box-shadow:0 0 0 2px #ff2bd6,0 0 14px rgba(255,43,214,.8)}
+/* pkg3-41: неоновые шашки — мягкое свечение, кайма читаема на любом фоне */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd svg{filter:drop-shadow(0 0 5px rgba(138,43,255,.5)) drop-shadow(0 1px 1px rgba(0,0,0,.5))}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd.cw .cfl{fill:#f3e8ff;stroke:#00e5ff;}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd.cw .crn{stroke:#9b6fd8;}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd.cw .crc{fill:#8a2bff;}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd.cb .cfl{fill:#16082b;stroke:#ff2bd6;}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd.cb .crn{stroke:#6d3aa8;}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .ckd.cb .crc{fill:#00e5ff;}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .chat-item.game-live{animation:gamePulseSynth 2.2s ease-in-out infinite}
 @keyframes gamePulseSynth{
   0%,100%{background:transparent;box-shadow:0 1px 0 rgba(0,229,255,.12)}

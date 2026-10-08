@@ -271,6 +271,32 @@
     return n;
   }
 
+  /** pkg3-41: полные русские названия фигур — для показа записи партии.
+   * Английская нотация остаётся «внутренним языком» ходов (она лежит в
+   * зашифрованной истории и совместима со старыми выпусками), а на экране
+   * всё читается по-русски: «Nf3» → «Конь f3», «Bxe5» → «Слон : e5»,
+   * «O-O» → «Короткая рокировка», «e8=Q» → «e8 = Ферзь». */
+  const PIECE_RUS = { K: 'Король', Q: 'Ферзь', R: 'Ладья', B: 'Слон', N: 'Конь' };
+  function rusSan(s) {
+    if (!s) return s;
+    let t = String(s).trim();
+    let suf = '';
+    const cm = t.match(/([+#])$/);
+    if (cm) { suf = cm[1] === '+' ? ' +' : ' #'; t = t.slice(0, -1); }
+    if (t === 'O-O' || t === '0-0') return 'Короткая рокировка' + suf;
+    if (t === 'O-O-O' || t === '0-0-0') return 'Длинная рокировка' + suf;
+    let m;
+    if ((m = t.match(/^([KQRBN])(.*?)(x?)([a-h][1-8])$/))) {
+      let out = PIECE_RUS[m[1]];
+      if (m[2]) out += ' ' + m[2];
+      out += (m[3] === 'x' ? ' : ' : ' ') + m[4];
+      return out + suf;
+    }
+    if ((m = t.match(/^([a-h])x?([a-h][1-8])(=([QRBN]))?$/))) return m[1] + ' : ' + m[2] + (m[4] ? ' = ' + PIECE_RUS[m[4]] : '') + suf;
+    if ((m = t.match(/^([a-h][1-8])(=([QRBN]))?$/))) return m[1] + (m[3] ? ' = ' + PIECE_RUS[m[3]] : '') + suf;
+    return t + suf;   // незнакомая запись (например, шашечная «c3-d4») проходит как есть
+  }
+
   function createChess(fen) {
     let st = parseFen(fen);
     return {
@@ -297,5 +323,7 @@
 
   glob.createChess = createChess;
   glob.CHESS_START_FEN = START_FEN;
-  if (typeof module !== 'undefined' && module.exports) module.exports = { createChess, START_FEN, parseFen, toFen, perft, legalMoves, applyMove, isAttacked, kingSq, sqName, sqParse };
+  glob.rusSan = rusSan;
+  glob.PIECE_RUS = PIECE_RUS;
+  if (typeof module !== 'undefined' && module.exports) module.exports = { createChess, START_FEN, parseFen, toFen, perft, legalMoves, applyMove, isAttacked, kingSq, sqName, sqParse, rusSan, PIECE_RUS };
 })(typeof window !== 'undefined' ? window : globalThis);

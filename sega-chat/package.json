@@ -6,12 +6,15 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/run-all.mjs && node test/test-cluster.mjs && node test/test-backup.mjs && node test/chess-perft.mjs && node test/test-local-cache.mjs"
+    "test": "node test/run-all.mjs && node test/test-cluster.mjs && node test/test-backup.mjs && node test/chess-perft.mjs && node test/checkers.mjs && node test/test-local-cache.mjs && node test/dom42.mjs"
   },
   "engines": {
     "node": ">=16"
   },
   "dependencies": {
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }
