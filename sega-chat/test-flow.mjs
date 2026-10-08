@@ -73,17 +73,27 @@ async function createAdmin() {
   u.token = r.d.token; u.id = r.d.user.id; u.roomRaw = roomRaw;
   return u;
 }
-async function register(name, pass, code = CODE) {
-  const st = (await call('/api/state')).d;
-  const codeProof = hex(await pbkdf2(code, st.codeProofSalt));
-  const inv = (await call('/api/invite', { method: 'POST', body: { codeProof } })).d;
-  const roomRaw = await decB(await aesKey(code, inv.codeSalt), inv.wrappedKeyByCode);
+/** pkg3-45: приглашение создаёт тот, кто зовёт; секрет и конверт рождаются у него. */
+async function makeInviteAs(u) {
+  const secret = hex(getRandomValues(new Uint8Array(24)));
+  const invSalt = salt();
+  const wrappedRoomKey = await encB(await aesKey(secret, invSalt), u.roomRaw);
+  const secretHash = hex(await subtle.digest('SHA-256', enc.encode(secret)));
+  const r = await call('/api/invites', { method: 'POST', body: { invSalt, wrappedRoomKey, secretHash } }, u.token);
+  if (r.status !== 200) throw new Error('не удалось создать приглашение: ' + r.status + ' ' + JSON.stringify(r.d));
+  return r.d.invite.id + '.' + secret;
+}
+async function register(name, pass, inviter) {
+  const token = await makeInviteAs(inviter);
+  const info = (await call('/api/join-info?token=' + encodeURIComponent(token))).d;
+  const secret = token.slice(token.indexOf('.') + 1);
+  const roomRaw = await decB(await aesKey(secret, info.invSalt), info.wrappedRoomKey);
   const u = { name, pass, saltAuth: salt(), saltWrap: salt(), roomRaw };
   const wrapKey = await aesKey(pass, u.saltWrap);
   u.keys = await pair(wrapKey);
   const r = await call('/api/register', {
     method: 'POST', body: {
-      name, codeProof, saltAuth: u.saltAuth, saltWrap: u.saltWrap,
+      name, inviteToken: token, saltAuth: u.saltAuth, saltWrap: u.saltWrap,
       authKey: hex(await pbkdf2(pass, u.saltAuth)),
       wrappedKeyByPass: await encB(wrapKey, roomRaw),
       pub: u.keys.pub, wrappedPriv: u.keys.wrappedPriv
@@ -101,9 +111,9 @@ const st0 = (await call('/api/state')).d;
 if (!st0.setupRequired) { console.log('База не пустая — очистите хранилище и перезапустите сервер.'); process.exit(1); }
 
 const admin = await createAdmin();
-const friend = await register('Джеймс', 'friend-pass-2');
-const third = await register('Оскар', 'third-pass-3');
-const outsider = await register('Чужак', 'outsider-pass-4');
+const friend = await register('Джеймс', 'friend-pass-2', admin);
+const third = await register('Оскар', 'third-pass-3', friend);
+const outsider = await register('Чужак', 'outsider-pass-4', third);
 
 // ── страница и логотип: в облаке картинка едет отдельным ответом через base64
 {
@@ -480,7 +490,7 @@ let quoteMsg = null;
 }
 // ── pkg3-35: принудительное удаление участника не оставляет «призраков»
 {
-  const ghost = await register('Призрак', 'ghost-pass-5', 'new-club-phrase');  // фраза уже менялась выше
+  const ghost = await register('Призрак', 'ghost-pass-5', outsider);  // pkg3-45: зовёт последний вошедший (у каждого одна ссылка в сутки)
   const rd = await call('/api/dm', { method: 'POST', body: { peer: ghost.id } }, admin.token);
   ok(rd.status === 200 && rd.d.chat.kind === 'dm', 'личный чат с будущим удалённым участником создан');
   const dmid = rd.d.chat.id;
