@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-40';
+const BUILD = 'pkg3-42';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -167,6 +167,7 @@ function createApi(store, opts = {}) {
       .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing' && !c.members.includes(uid))
       .map(c => ({
         id: c.id, white: c.game.white, black: c.game.black,
+        rules: c.game.rules || 'chess',
         createdAt: c.createdAt, knocks: (c.knocks || []).length,
         moves: (db.stats.chats[c.id] || {}).n || 0
       }));
@@ -1035,7 +1036,7 @@ function createApi(store, opts = {}) {
       return J(200, { ok: true, usage: usage() });
     }
 
-    // --- чаты-игры: шахматы как чат (правила живут в клиентах, сервер слеп)
+    // --- чаты-игры: шахматы и шашки как чат (правила живут в клиентах, сервер слеп)
     if (pathname === '/api/games' && method === 'POST') {
       const b = req.body || {};
       const opp = db.users.find(u => u.id === String(b.opponent || ''));
@@ -1043,6 +1044,10 @@ function createApi(store, opts = {}) {
       if (opp.id === me.id) return E(400, 'Пригласите кого-то ещё, не себя');
       const color = String(b.color || 'random');
       if (!['white', 'black', 'random', 'choice'].includes(color)) return E(400, 'Цвет: white, black, random или choice');
+      // pkg3-41: сервер правила не понимает, только записывает; без метки — шахматы
+      // (старые клиенты создают игры как раньше и ничего не замечают)
+      const rules = b.rules === undefined ? 'chess' : String(b.rules);
+      if (!['chess', 'checkers'].includes(rules)) return E(400, 'Игра: chess или checkers');
       const keys = {};
       for (const id of [me.id, opp.id]) {
         const k = (b.keys || {})[id];
@@ -1059,7 +1064,7 @@ function createApi(store, opts = {}) {
       const chat = {
         id: uid(), kind: 'game', ownerId: me.id, createdAt: Date.now(),
         members: [me.id], roles: { [me.id]: 'player' }, keys, knocks: [],
-        game: { rules: 'chess', status: 'invite', invitee: opp.id, colorChoice: color, white, black, result: null }
+        game: { rules, status: 'invite', invitee: opp.id, colorChoice: color, white, black, result: null }
       };
       db.chats.push(chat);
       db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt };
