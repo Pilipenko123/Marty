@@ -147,6 +147,24 @@ function startFunctionEmulator(handler, functionId) {
   console.log('  ' + (okBoardHeal ? '✓' : '✗ ПРОВАЛ:') + ' доска рисуется только из расшифрованной истории; детали памяти — в «Управлении»');
   if (!okBoardHeal) failed++;
 
+  // ── pkg3-42: три правки интерфейса партии
+  const okNoSearch = cssText.includes('#main.game-mode .search-wrap{display:none;}')
+    && appJsText.includes('function searchBarHidden') && appJsText.includes('function syncSearchVisibility');
+  console.log('  ' + (okNoSearch ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: на телефоне в чат-игре строка поиска скрыта (и результаты гаснут вместе с ней)');
+  if (!okNoSearch) failed++;
+  const andCount = appJsText.split("userNameById(g.white) + ' и ' + userNameById(g.black)").length - 1;
+  const okAndTitle = andCount === 2 && !appJsText.includes("userNameById(g.white) + ' против '");
+  console.log('  ' + (okAndTitle ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: в заголовках партий союз «и» вместо «против» (найдено ' + andCount + ' из 2)');
+  if (!okAndTitle) failed++;
+  const okHeadCtrl = appJsText.includes('class="bph-l"') && appJsText.includes('class="bph-m"')
+    && appJsText.includes('class="bph-r"') && cssText.includes('.bp-head{display:flex')
+    && cssText.includes('.bph-l,.bph-r{flex:1 1 0;');
+  console.log('  ' + (okHeadCtrl ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: кнопки партии — в заголовке над доской, слева и справа от «чей ход»');
+  if (!okHeadCtrl) failed++;
+  const okNoOldCtrl = !appJsText.includes('bp-ctrl') && !cssText.includes('.bp-ctrl{');
+  console.log('  ' + (okNoOldCtrl ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: отдельная строка кнопок под доской убрана');
+  if (!okNoOldCtrl) failed++;
+
   failed += await runFlow(base, 'Режим 3: облачная функция Yandex Cloud + Yandex Database',
     { STORE_CHECKED_ELSEWHERE: '1' });
 
