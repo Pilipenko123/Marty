@@ -460,6 +460,22 @@ let quoteMsg = null;
   ok(lv3.status === 200 && lv3.d.wiped && !lv3.d.resigned, 'создатель отменил приглашение выходом — игра стёрта без сдачи');
   const s4 = await syncOf(friend);
   ok(!s4.chats.some(c => c.id === g4.d.chat.id), 'у приглашённого отменённой игры тоже нет');
+  // ── pkg3-41: вторая игра раздела — русские шашки (сервер правила не понимает, только записывает)
+  const g5 = await call('/api/games', { method: 'POST', body: { opponent: friend.id, color: 'white', keys, rules: 'checkers' } }, admin.token);
+  ok(g5.status === 200 && g5.d.chat.game.rules === 'checkers', 'pkg3-41: игра в шашки создана (rules=checkers)');
+  ok((await call('/api/games', { method: 'POST', body: { opponent: friend.id, color: 'white', keys, rules: 'poker' } }, admin.token)).status === 400,
+    'pkg3-41: незнакомая игра отклонена');
+  const g6 = await call('/api/games', { method: 'POST', body: { opponent: friend.id, color: 'white', keys } }, admin.token);
+  ok(g6.status === 200 && g6.d.chat.game.rules === 'chess', 'pkg3-41: без метки — шахматы (старые клиенты не ломаются)');
+  await call('/api/games/' + g5.d.chat.id + '/accept', { method: 'POST', body: {} }, friend.token);
+  const s5 = await syncOf(third);
+  const og5 = (s5.games || []).find(x => x.id === g5.d.chat.id);
+  ok(og5 && og5.rules === 'checkers', 'pkg3-41: плашка «Сейчас играют» знает, что это шашки');
+  await call('/api/games/' + g5.d.chat.id + '/leave', { method: 'POST', body: {} }, admin.token);
+  await call('/api/games/' + g5.d.chat.id + '/leave', { method: 'POST', body: {} }, friend.token);
+  await call('/api/games/' + g6.d.chat.id + '/leave', { method: 'POST', body: {} }, admin.token);
+  const s6 = await syncOf(friend);
+  ok(!s6.chats.some(c => c.id === g5.d.chat.id || c.id === g6.d.chat.id), 'pkg3-41: тестовые игры убрались без следа');
 }
 }
 // ── pkg3-35: принудительное удаление участника не оставляет «призраков»
