@@ -14,6 +14,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { startMock } from './mock-ydb.mjs';
 import { startMockS3 } from './mock-s3.mjs';
 import crypto from 'node:crypto';
@@ -166,7 +167,12 @@ const adminToken = r.d.token, adminId = r.d.user.id;
 r = await call(A, '/api/state');
 ok(r.d.build === BUILD, 'сервер сообщает отметку ' + BUILD + ' (пришло: ' + r.d.build + ')');
 
-r = await call(A, '/api/register', { method: 'POST', body: Object.assign(creds('Поля'), { codeProof: CODE_PROOF }) });
+const sha256hex = s => createHash('sha256').update(s).digest('hex');
+{
+  const secret = hex(24);
+  const ir = await call(A, '/api/invites', { method: 'POST', body: { invSalt: hex(), wrappedRoomKey: 'k:' + hex(), secretHash: sha256hex(secret) } }, adminToken);
+  r = await call(A, '/api/register', { method: 'POST', body: Object.assign(creds('Поля'), { inviteToken: ir.d.invite.id + '.' + secret }) });
+}
 ok(r.status === 200 && !!r.d.token, 'второй участник зарегистрировался');
 const guestToken = r.d.token, guestId = r.d.user.id;
 

@@ -10,6 +10,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { startMock } from './mock-ydb.mjs';
 import { startMockS3 } from './mock-s3.mjs';
 import crypto from 'node:crypto';
@@ -87,8 +88,16 @@ const admin = { token: r.d.token, id: r.d.user.id };
 // второй экземпляр должен сразу увидеть чужую регистрацию
 const st = await call(B, '/api/state');
 ok(st.d.setupRequired === false, 'экземпляр B увидел, что мессенджер уже настроен');
+const sha256hex = s => createHash('sha256').update(s).digest('hex');
+// pkg3-45: регистрация по одноразовому приглашению (шифрование здесь неважно)
+async function inviteTokenAs(token) {
+  const secret = hex(24);
+  const r2 = await call(A, '/api/invites', { method: 'POST', body: { invSalt: hex(), wrappedRoomKey: 'k:' + hex(), secretHash: sha256hex(secret) } }, token);
+  return r2.d.invite.id + '.' + secret;
+}
 const jamesCred = creds('Джеймс');
-r = await call(B, '/api/register', { method: 'POST', body: Object.assign({}, jamesCred, { codeProof: CODE_PROOF }) });
+const tok = await inviteTokenAs(admin.token);
+r = await call(B, '/api/register', { method: 'POST', body: Object.assign({}, jamesCred, { inviteToken: tok }) });
 ok(r.status === 200, 'экземпляр B зарегистрировал второго участника');
 const james = { token: r.d.token, id: r.d.user.id };
 ok((await syncOf(A, admin.token)).users.length === 2, 'экземпляр A увидел участника, созданного на B');

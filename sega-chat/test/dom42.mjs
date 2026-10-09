@@ -54,6 +54,22 @@ const narrow = mediaBlock(css, '(max-width:959px)');
 const rule = narrow.includes('#main.game-mode .search-wrap{display:none;}');
 ok(!!narrow, 'в стилях есть блок @media (max-width:959px) — узкий экран');
 ok(rule, 'внутри него — #main.game-mode .search-wrap{display:none;} (поиск скрыт только в игре на телефоне)');
+// все блоки узкого экрана разом: правило может жить в любом из них
+function mediaBlocks(text, query) {
+  const out = [];
+  let at = text.indexOf('@media ' + query + '{');
+  while (at >= 0) {
+    let i = text.indexOf('{', at), depth = 0;
+    for (let j = i; j < text.length; j++) {
+      if (text[j] === '{') depth++;
+      else if (text[j] === '}' && --depth === 0) { out.push(text.slice(i, j + 1)); break; }
+    }
+    at = text.indexOf('@media ' + query + '{', at + 1);
+  }
+  return out;
+}
+const mobs = mediaBlocks(css, '(max-width:959px)');
+ok(mobs.length >= 2, 'блоков @media (max-width:959px) несколько — найдено ' + mobs.length);
 
 // как только чат становится игровым, селектор обязан сработать
 main.classList.add('game-mode');
@@ -66,30 +82,93 @@ const scripts = [...d.querySelectorAll('script[src]')].map(s => s.getAttribute('
 ok(scripts.indexOf('chess-engine.js') < scripts.indexOf('app.js'), 'chess-engine.js подключён раньше app.js');
 ok(scripts.indexOf('checkers-engine.js') < scripts.indexOf('app.js'), 'checkers-engine.js подключён раньше app.js');
 
-// заголовок доски: три колонки, кнопки по краям, «чей ход» по центру
+// pkg3-43: заголовок доски — ДВЕ строки: состояние партии, под ним кнопки.
+// В pkg3-42 они делили одну строку, и при длинной надписи кнопка с nowrap
+// налезала на текст (видно в гамме «Синтвейв»: моноширинный капс с разрядкой).
 const panel = new JSDOM('<div class="board-panel"></div>').window.document;
 panel.querySelector('.board-panel').innerHTML = `
     <div class="bp-head">
-      <div class="bph-l"><button class="mini danger" id="gm-leave" title="Сдаться и выйти">Сдаться</button></div>
-      <div class="bph-m"><i class="tdot w"></i>Ход: Пётр</div>
-      <div class="bph-r"><button class="mini" id="gm-knocks" title="Заявки зрителей: 2">Заявки: 2</button></div>
+      <div class="bph-top"><i class="tdot w"></i><span class="bph-full">Ожидание соперника: приглашение отправлено</span><span class="bph-short">Ожидание соперника</span></div>
+      <div class="bph-btns"><button class="mini danger" id="gm-leave" title="Отменить приглашение и удалить игру">Отменить приглашение</button> <button class="mini" id="gm-knocks" title="Заявки зрителей: 2">Заявки: 2</button></div>
     </div>
     <div class="board" id="board"></div>
     <div class="bp-moves-list" id="game-moves"></div>`;
 const head = panel.querySelector('.bp-head');
-ok(head.children.length === 3, 'в заголовке над доской ровно три колонки');
-ok([...head.children].map(x => x.className).join(',') === 'bph-l,bph-m,bph-r', 'порядок колонок: кнопки слева, «чей ход» в центре, кнопки справа');
-ok(head.querySelector('.bph-l #gm-leave') && head.querySelector('.bph-r #gm-knocks'), 'кнопки «Сдаться» и «Заявки» лежат по краям от надписи');
-ok(!panel.querySelector('.bp-ctrl'), 'отдельной строки кнопок под доской больше нет');
-ok(head.querySelector('.bph-m').textContent.includes('Ход:'), 'надпись «чей ход» осталась в центре заголовка');
+ok(head.children.length === 2, 'в заголовке над доской ровно две строки');
+ok(head.children[0].className === 'bph-top' && head.children[1].className === 'bph-btns', 'порядок строк: состояние партии сверху, кнопки ниже');
+ok(head.querySelector('.bph-btns #gm-leave') && head.querySelector('.bph-btns #gm-knocks'), 'обе кнопки лежат во второй строке');
+ok(head.querySelector('.bph-top').textContent.includes('Ожидание соперника'), 'состояние партии — в первой строке');
+ok(!panel.querySelector('.bp-ctrl'), 'отдельной строки кнопок под доской по-прежнему нет');
+// главное: кнопки и надпись больше НЕ соседи по одной flex-строке — наехать нечем
+ok(!head.querySelector('.bph-top').contains(head.querySelector('#gm-leave')), 'кнопка не находится в одной строке с надписью — наложение исключено');
+ok(!css.includes('.bph-l{') && !css.includes('.bph-r{') && !css.includes('.bph-m{'), 'старых боковых колонок pkg3-42 в стилях не осталось');
 
-// стили трёх колонок на месте, боковые равной ширины — центр не уезжает
-ok(css.includes('.bph-l,.bph-r{flex:1 1 0;'), 'боковые колонки равной ширины (flex:1 1 0) — надпись строго по центру');
-ok(css.includes('.bph-m{flex:0 1 auto;text-align:center;'), 'центральная колонка не растягивается и центрирует текст');
-ok(css.includes('.bp-head{display:flex'), 'заголовок доски — гибкий контейнер');
-ok(!css.includes('.bp-ctrl{'), 'стиль старой строки кнопок удалён из таблицы стилей');
+// две строки оформлены в стилях: верх по центру с переносом, низ — ряд кнопок
+ok(css.includes('.bph-top{font-weight:600;text-align:center;overflow-wrap:anywhere;'), 'верхняя строка центрирована и переносится при любой длине');
+ok(css.includes('.bph-btns{display:flex;justify-content:center;'), 'нижняя строка — ряд кнопок по центру с зазором');
+// короткая подпись для телефона: на широком экране скрыта, на узком включается
+ok(css.includes('.bph-short{display:none;}'), 'короткая подпись по умолчанию скрыта (широкий экран)');
+const mob = mediaBlock(css, '(max-width:959px)');
+ok(mob.includes('.bph-full{display:none;}') && mob.includes('.bph-short{display:inline;}'), 'на узком экране длинная подпись заменяется короткой');
+ok(mob.includes('.bph-btns .mini{font-size:11px;padding:4px 7px;}'), 'на узком экране кнопки уплотнены');
+
+// pkg3-44: координаты ВЫНЕСЕНЫ ЗА ПРЕДЕЛЫ доски — колонка цифр и ряд букв
+const appJs = readFileSync(join(PUB, 'app.js'), 'utf8');
+ok(css.includes('.board-frame{display:grid;'), 'координаты живут в рамке вокруг доски, а не в клетках');
+ok(css.includes('.bf-ranks{grid-column:1;grid-row:1;') && css.includes('.bf-files{grid-column:2;grid-row:2;'), 'цифры — колонка слева, буквы — ряд снизу');
+ok(css.includes('.board{grid-column:2;grid-row:1;}'), 'доска стоит в рамке между цифрами и буквами');
+ok(mobs.some(b => b.includes('.bf-ranks,.bf-files{display:none;}')), 'на узком экране рамка координат скрыта');
+ok(!css.includes('.cd-r{') && !css.includes('.cd-f{') && !appJs.includes('class="cd-r"'), 'внутри клеток подписей координат больше нет');
+ok(appJs.includes("const rankLbl = [], fileLbl = [];"), 'подписи рядов и колонок собираются отдельно от клеток');
+ok(appJs.includes("for (let r = 7; r >= 0; r--) rankLbl.push((flip ? 7 - r : r) + 1);"), 'порядок цифр экранный, значения — с учётом переворота');
+ok(appJs.includes("for (let f = 0; f < 8; f++) fileLbl.push('abcdefgh'[flip ? 7 - f : f]);"), 'порядок букв экранный, значения — с учётом переворота');
+ok(appJs.includes('function gameStatusShortText'), 'короткая подпись состояния существует в клиенте');
+
+// pkg3-44: в чат-игре фона нет и редактор не предлагается
+ok(appJs.includes("if (c && c.kind === 'game') { box.style.background = ''; return; }"), 'applyWallBackground гасит фон в чат-игре');
+ok(appJs.includes("d.querySelector('[data-act=\"wall\"]').classList.toggle('hidden', c.kind === 'game');"), 'пункт меню «Фон и гамма» скрыт в игровых чатах');
+ok(appJs.includes("if (b.dataset.act === 'wall') { if (c.kind !== 'game') wallEditor(c); return; }"), 'редактор фона не открывается в игре даже в обход меню');
+ok(appJs.includes('applyWallBackground();\n  upgradeMedia(box);') && appJs.includes('applyWallBackground();\n  // pkg3-42'), 'фон гасится сразу при входе в чат, не дожидаясь отрисовки ленты');
+
+// pkg3-44: «Синтвейв» по умолчанию у всех (разовая миграция в index.html)
+ok(html.includes("localStorage.getItem('sega.palDef44')") && html.includes("localStorage.setItem('sega.pal', 'synth');"), 'в boot-скрипте разово возвращается «Синтвейв» для всех устройств');
+ok(html.includes("localStorage.setItem('sega.theme', 'dark');"), 'вместе с гаммой выставляется тёмная тема');
+
+// pkg3-44: процент памяти в «Синтвейве» читаемый
+const memSynth = css.includes('#mem-pct{position:relative;z-index:1;') && css.includes('text-shadow:none;')
+  && /#mem-pct\{[^}]*font-family:system-ui/.test(css) && /#mem-pct\{[^}]*font-weight:700/.test(css);
+ok(memSynth, 'процент памяти в «Синтвейве»: контрастная плашка, без свечения, читаемый шрифт');
+ok(css.includes('.memory-top{position:relative;z-index:1;'), 'подпись плашки памяти поднята над «сканлайновой» плёнкой');
+
+// pkg3-44: в играх все оповещения включены по умолчанию (разовая миграция)
+ok(appJs.includes('function migrateGameNotify44') && appJs.includes('migrateGameNotify44();'), 'разовая миграция снимает «без звука» с игровых чатов и включает движки');
+
+// pkg3-45: закрытая регистрация и персональные приглашения
+ok(html.includes('id="reg-closed"') && html.includes('id="reg-join"') && html.includes('id="reg-code-row"'), 'на экране регистрации есть полосы: приглашение / закрыто / аварийное окно');
+ok(scripts.indexOf('qrcode.js') >= 0 && scripts.indexOf('qrcode.js') < scripts.indexOf('app.js'), 'генератор QR подключён раньше app.js');
+ok(html.includes('id="btn-invite-friend"'), 'в настройках есть кнопка «Пригласить друга»');
+ok(html.includes('data-act="alias"'), 'в меню чата есть «Переименовать у себя…»');
+ok(appJs.includes('function refreshRegisterGate') && appJs.includes('function parseJoinToken'), 'экран регистрации решает, открыта ли дверь и чем');
+ok(appJs.includes('function openInviteFriend') && appJs.includes('function qrSvg'), 'окно приглашения рисует ссылку и QR без сети');
+ok(appJs.includes('function openAdminInvites'), 'администратору доступно дерево приглашений и блокировки');
+ok(appJs.includes('function openAliasEditor') && appJs.includes('function setAlias'), 'локальные псевдонимы редактируются и хранятся на устройстве');
+ok(appJs.includes('function loadAliases') && appJs.includes('aliases: loadAliases()'), 'псевдонимы читаются из памяти устройства при старте');
+ok(appJs.includes("const userByIdRaw = id => S.users.find(u => u.id === id);"), 'userById отдаёт имя с псевдонимом, не трогая данные синхронизации');
+ok(appJs.includes('rail-group">Приглашенные'), 'в списке чатов есть раздел «Приглашенные»');
+ok(css.includes('.qr-box{background:#fff;'), 'QR лежит на белой подложке — сканеру нужен контраст');
+ok(appJs.includes("api('/api/admin/emergency-reg'"), 'аварийное окно включается и выключается из админки');
+
+// pkg3-47: поиск по нику и запросы-согласия в «Приглашенные»
+ok(appJs.includes('function bondStateWith'), 'состояние связи «Приглашенных» считается одной функцией');
+ok(appJs.includes('data-bond-accept') && appJs.includes('data-bond-decline'), 'запросы решаются кнопками прямо в списке чатов');
+ok(appJs.includes('Запросы в «Приглашенные»'), 'входящие запросы видны отдельным разделом списка чатов');
+ok(appJs.includes('id="inv-find"') && appJs.includes('Найти по нику'), 'в окне приглашения есть поиск по нику по всему мессенджеру');
+ok(appJs.includes('data-find-bond') && appJs.includes('data-find-dm'), 'найденному можно написать или отправить запрос в «Приглашенные»');
+ok(appJs.includes('data-bond-ask'), 'запрос можно отправить участнику общей группы из списка участников');
+ok(appJs.includes('S.myBonds = new Set(data.myBonds || [])'), 'связи приезжают в синхронизации');
+ok(css.includes('.bond-btns{display:flex;gap:4px;flex-direction:column;}'), 'кнопки принять/отклонить сложены в столбик у карточки запроса');
 
 console.log('\n──────────────────────────────────────────────────');
-console.log(`  Разметка pkg3-42: ${good} ✓, провалов ${bad}`);
+console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');
 if (bad) process.exit(1);

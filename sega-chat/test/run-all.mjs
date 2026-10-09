@@ -30,16 +30,27 @@ async function waitReady(base, tries = 60) {
   throw new Error('сервер не поднялся: ' + base);
 }
 
-function runFlow(base, title, extraEnv) {
-  console.log('\n══════════════════════════════════════════════════');
-  console.log('  ' + title);
-  console.log('══════════════════════════════════════════════════');
+function runOne(file, base, extraEnv) {
   return new Promise(resolve => {
-    const p = spawn(process.execPath, ['test-flow.mjs'], {
+    const p = spawn(process.execPath, [file], {
       cwd: ROOT, stdio: 'inherit', env: Object.assign({}, process.env, { BASE: base }, extraEnv || {})
     });
     p.on('exit', code => resolve(code || 0));
   });
+}
+function runFlow(base, title, extraEnv) {
+  console.log('\n══════════════════════════════════════════════════');
+  console.log('  ' + title);
+  console.log('══════════════════════════════════════════════════');
+  return runOne('test-flow.mjs', base, extraEnv);
+}
+/** pkg3-45: сценарий приглашений идёт на ОТДЕЛЬНОМ сервере с пустой базой —
+ * ему нужна чистая комната, чтобы считать основателей и ссылки с нуля. */
+function runInvites(base, title, extraEnv) {
+  console.log('\n──────────────────────────────────────────────────');
+  console.log('  ' + title + ' · приглашения');
+  console.log('──────────────────────────────────────────────────');
+  return runOne('test/invites.mjs', base, extraEnv);
 }
 
 /** Сервер, который притворяется Yandex Cloud Functions: HTTP -> событие -> ответ. */
@@ -89,6 +100,16 @@ function startFunctionEmulator(handler, functionId) {
     { DATA_FILE: path.join(dir, 'db.json') });
   srv1.kill('SIGTERM');
 
+  // pkg3-45: приглашения — свой сервер и своя пустая база
+  const dir1b = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-inv-'));
+  const srv1b = spawn(process.execPath, ['server.js'], {
+    cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
+    env: Object.assign({}, process.env, { PORT: '8795', HOST: '127.0.0.1', DATA_DIR: dir1b, STORE: 'file', HTTPS: '' })
+  });
+  await waitReady('http://127.0.0.1:8795');
+  failed += await runInvites('http://127.0.0.1:8795', 'Режим 1', {});
+  srv1b.kill('SIGTERM');
+
   // ── 2. сервер + облачная база
   const mock = await startMock();
   const ydbEnv = {
@@ -113,6 +134,15 @@ function startFunctionEmulator(handler, functionId) {
   }
   srv2.kill('SIGTERM');
   console.log(`\n  обращений к базе за прогон: ${mock.counters.calls - before}`);
+
+  // pkg3-45: приглашения на облачной базе — своя таблица в той же заглушке
+  const srv2b = spawn(process.execPath, ['server.js'], {
+    cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
+    env: Object.assign({}, process.env, ydbEnv, { PORT: '8796', HOST: '127.0.0.1', HTTPS: '', YDB_TABLE: 'sega_inv' })
+  });
+  await waitReady('http://127.0.0.1:8796');
+  failed += await runInvites('http://127.0.0.1:8796', 'Режим 2', {});
+  srv2b.kill('SIGTERM');
   await mock.close();
 
   // ── 3. облачная функция целиком
@@ -156,11 +186,33 @@ function startFunctionEmulator(handler, functionId) {
   const okAndTitle = andCount === 2 && !appJsText.includes("userNameById(g.white) + ' против '");
   console.log('  ' + (okAndTitle ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: в заголовках партий союз «и» вместо «против» (найдено ' + andCount + ' из 2)');
   if (!okAndTitle) failed++;
-  const okHeadCtrl = appJsText.includes('class="bph-l"') && appJsText.includes('class="bph-m"')
-    && appJsText.includes('class="bph-r"') && cssText.includes('.bp-head{display:flex')
-    && cssText.includes('.bph-l,.bph-r{flex:1 1 0;');
-  console.log('  ' + (okHeadCtrl ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: кнопки партии — в заголовке над доской, слева и справа от «чей ход»');
+  const okHeadCtrl = appJsText.includes('class="bph-top"') && appJsText.includes('class="bph-btns"')
+    && cssText.includes('.bph-top{font-weight:600;text-align:center;overflow-wrap:anywhere;')
+    && cssText.includes('.bph-btns{display:flex;justify-content:center;')
+    && !cssText.includes('.bph-l{') && !appJsText.includes('class="bph-l"');
+  console.log('  ' + (okHeadCtrl ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-43: заголовок доски — две строки (состояние, под ним кнопки); наложение исключено');
   if (!okHeadCtrl) failed++;
+  const okCoords = appJsText.includes('class="bf-ranks"') && appJsText.includes('class="bf-files"')
+    && cssText.includes('.board-frame{display:grid;') && cssText.includes('.board{grid-column:2;grid-row:1;}')
+    && cssText.includes('.bf-ranks,.bf-files{display:none;}') && !cssText.includes('.cd-r{');
+  console.log('  ' + (okCoords ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-44: координаты вынесены за пределы доски и скрыты на телефоне');
+  if (!okCoords) failed++;
+  const okPkg44 = appJsText.includes("if (c && c.kind === 'game') { box.style.background = ''; return; }")
+    && appJsText.includes('function migrateGameNotify44')
+    && page.includes("sega.palDef44")
+    && cssText.includes('#mem-pct{position:relative;z-index:1;');
+  console.log('  ' + (okPkg44 ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-44: фон не наследуется в игру, оповещения в игре по умолчанию, «Синтвейв» у всех, процент памяти читаем');
+  if (!okPkg44) failed++;
+  const okPkg45 = appJsText.includes('function openInviteFriend') && appJsText.includes('function openAdminInvites')
+    && appJsText.includes('function openAliasEditor') && appJsText.includes('function refreshRegisterGate')
+    && page.includes('id="reg-closed"') && page.includes('src="qrcode.js"')
+    && cssText.includes('.qr-box{background:#fff;');
+  console.log('  ' + (okPkg45 ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-45: закрытая регистрация, приглашения с QR, дерево админа, псевдонимы');
+  if (!okPkg45) failed++;
+  const okPkg47 = appJsText.includes('function bondStateWith') && appJsText.includes('data-bond-accept')
+    && appJsText.includes('id="inv-find"') && cssText.includes('.bond-btns{');
+  console.log('  ' + (okPkg47 ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-47: поиск по нику и запросы-согласия в «Приглашенные»');
+  if (!okPkg47) failed++;
   const okNoOldCtrl = !appJsText.includes('bp-ctrl') && !cssText.includes('.bp-ctrl{');
   console.log('  ' + (okNoOldCtrl ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: отдельная строка кнопок под доской убрана');
   if (!okNoOldCtrl) failed++;
@@ -176,6 +228,19 @@ function startFunctionEmulator(handler, functionId) {
   console.log('  всего обращений к базе за прогон: ' + mock2.counters.calls);
   await emu.close();
   await mock2.close();
+
+  // pkg3-45: приглашения в облачной функции — своя заглушка базы.
+  // Модуль функции и её библиотеки читают окружение при загрузке, поэтому
+  // сбрасываем кэш require и загружаем функцию заново под новую заглушку.
+  const mock3 = await startMock();
+  Object.assign(process.env, ydbEnv, { YDB_ENDPOINT: mock3.endpoint, YDB_TABLE: 'sega_inv2' });
+  Object.keys(require.cache).forEach(k => { delete require.cache[k]; });
+  const fn2 = require(path.join(ROOT, 'cloud', 'index.js'));
+  const emu2 = await startFunctionEmulator(fn2.handler, FID);
+  failed += await runInvites(`http://127.0.0.1:${emu2.port}/${FID}`, 'Режим 3',
+    { STORE_CHECKED_ELSEWHERE: '1' });
+  await emu2.close();
+  await mock3.close();
 
   console.log('\n──────────────────────────────────────────────────');
   console.log(failed ? '  ЕСТЬ ПРОВАЛЫ' : '  Все режимы прошли проверку.');
