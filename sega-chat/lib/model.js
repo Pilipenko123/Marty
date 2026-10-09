@@ -22,6 +22,10 @@ function emptyDb() {
     sessions: {},   // token -> { uid, exp }
     invites: [],    // pkg3-45: { id, ownerId, secretHash, invSalt, wrappedRoomKey, createdAt,
                     //   expiresAt, usedBy, usedAt, revoked } — одноразовые ссылки-приглашения
+    bonds: [],      // pkg3-47: { owner, member, origin:'invite'|'request', at } — кто кого
+                    //   держит у себя в разделе «Приглашенные»; у участника может быть
+                    //   несколько таких связей, в отличие от единственного invitedBy
+    bondReqs: [],   // pkg3-47: { id, from, to, chat, createdAt, state:'pending'|'accepted'|'declined' }
     invitePolicy: null,  // pkg3-45: { globalOff, blockedUsers:[uid], blockedChats:[chatId] }
     adminLog: [],   // pkg3-45: журнал администратора { at, by, what }
     emergencyRegUntil: 0,  // pkg3-45: до какого момента открыта аварийная регистрация по кодовой фразе
@@ -101,6 +105,16 @@ function migrate(db) {
   // позвал»: у участников, пришедших до введения приглашений, приглашенческого
   // корня нет — помечаем их основателями ('root'). Секретов в этих полях нет.
   if (!Array.isArray(db.invites)) db.invites = [];
+  if (!Array.isArray(db.bonds)) db.bonds = [];
+  if (!Array.isArray(db.bondReqs)) db.bondReqs = [];
+  // pkg3-47: связи «приглашенные» до этого выпуска жили только в invitedBy;
+  // переносим их в таблицу связей, чтобы запросы-согласия могли добавлять новые
+  for (const u of db.users) {
+    if (u.invitedBy && u.invitedBy !== 'root' && u.invitedBy !== 'code'
+      && !db.bonds.some(b => b.owner === u.invitedBy && b.member === u.id)) {
+      db.bonds.push({ owner: u.invitedBy, member: u.id, origin: 'invite', at: u.createdAt || 0 });
+    }
+  }
   if (!db.invitePolicy || typeof db.invitePolicy !== 'object') {
     db.invitePolicy = { globalOff: false, blockedUsers: [], blockedChats: [] };
   }

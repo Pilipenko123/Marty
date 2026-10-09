@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-46';
+const BUILD = 'pkg3-47';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -613,7 +613,11 @@ function createApi(store, opts = {}) {
         createdAt: Date.now(), lastSeen: Date.now(), activeAt: Date.now()
       };
       db.users.push(user);
-      if (invite) { invite.usedBy = user.id; invite.usedAt = Date.now(); }
+      if (invite) {
+        invite.usedBy = user.id; invite.usedAt = Date.now();
+        // pkg3-47: связь «пригласивший держит приглашённого у себя в разделе»
+        db.bonds.push({ owner: invitedBy, member: user.id, origin: 'invite', at: Date.now() });
+      }
       const token = crypto.randomBytes(24).toString('hex');
       db.sessions[token] = { uid: user.id, exp: Date.now() + SESSION_TTL };
       save();
@@ -682,6 +686,44 @@ function createApi(store, opts = {}) {
         save();
       }
       return J(200, { ok: true });
+    }
+
+    // --- pkg3-47: запрос «возьми меня в свои Приглашенные» между участниками
+    // одной группы. Адресат решает; принятое запрос превращает в связь (bond),
+    // и запрашивающий появляется у адресата в разделе «Приглашенные».
+    if (pathname === '/api/bond-req' && method === 'POST') {
+      const b = req.body || {};
+      const to = db.users.find(u => u.id === String(b.to || ''));
+      if (!to) return E(404, 'Участник не найден');
+      if (to.id === me.id) return E(400, 'Нельзя запросить самого себя');
+      const chat = db.chats.find(c => c.id === String(b.chat || '') && c.kind === 'group'
+        && c.members.includes(me.id) && c.members.includes(to.id));
+      if (!chat) return E(403, 'Запрос возможен только между участниками одной группы');
+      if (db.bonds.some(x => x.owner === me.id && x.member === to.id)) {
+        return E(409, 'Этот человек уже у вас в «Приглашенных»');
+      }
+      if (db.bondReqs.some(r => r.from === me.id && r.to === to.id && r.state === 'pending')) {
+        return E(409, 'Запрос уже отправлен и ещё не решён');
+      }
+      const rq = { id: uid(), from: me.id, to: to.id, chat: chat.id, createdAt: Date.now(), state: 'pending' };
+      db.bondReqs.push(rq);
+      if (db.bondReqs.length > 1000) db.bondReqs.splice(0, db.bondReqs.length - 1000);
+      save();
+      return J(200, { ok: true, req: { id: rq.id, createdAt: rq.createdAt } });
+    }
+    const bondAct = pathname.match(/^\/api\/bond-req\/([\w-]+)\/(accept|decline)$/);
+    if (bondAct && method === 'POST') {
+      const rq = db.bondReqs.find(x => x.id === bondAct[1]);
+      if (!rq) return E(404, 'Запрос не найден');
+      if (rq.to !== me.id) return E(403, 'Решать может только адресат');
+      if (rq.state !== 'pending') return E(409, 'Запрос уже решён');
+      rq.state = bondAct[2] === 'accept' ? 'accepted' : 'declined';
+      rq.decidedAt = Date.now();
+      if (rq.state === 'accepted' && !db.bonds.some(b => b.owner === rq.from && b.member === rq.to)) {
+        db.bonds.push({ owner: rq.from, member: rq.to, origin: 'request', at: Date.now() });
+      }
+      save();
+      return J(200, { ok: true, state: rq.state });
     }
 
     if (pathname === '/api/logout' && method === 'POST') {
@@ -756,6 +798,10 @@ function createApi(store, opts = {}) {
         loadB: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).b || 0), 0),
         games: openGames(me.id),
         invites: openInvites(me.id),
+        // pkg3-47: кого я держу в «Приглашенных» (связи) и запросы, где я адресат/автор
+        myBonds: db.bonds.filter(b => b.owner === me.id).map(b => b.member),
+        bondReqs: db.bondReqs.filter(r => r.to === me.id || r.from === me.id)
+          .map(r => ({ id: r.id, from: r.from, to: r.to, chat: r.chat, createdAt: r.createdAt, state: r.state })),
         users: db.users.map(publicUser),
         usage: usage(),
         me: publicUser(me),
@@ -1392,6 +1438,8 @@ function createApi(store, opts = {}) {
             usedBy: i.usedBy || null, revoked: !!i.revoked
           })),
           policy: db.invitePolicy,
+          bonds: db.bonds.map(b => Object.assign({}, b)),
+          bondReqs: db.bondReqs.map(r => Object.assign({}, r)),
           emergencyRegUntil: db.emergencyRegUntil,
           log: db.adminLog.slice(-60)
         });
