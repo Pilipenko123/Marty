@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-46';
+const BUILD = 'pkg3-47';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1063,6 +1063,16 @@ async function applySyncMeta(data) {
   S.chats = data.chats;
   S.games = data.games || [];
   S.invites = data.invites || [];
+  // pkg3-47: мои связи «Приглашенные» и запросы-согласия
+  const prevReqs = S.bondReqs || [];
+  S.myBonds = new Set(data.myBonds || []);
+  S.bondReqs = data.bondReqs || [];
+  const freshReq = S.bondReqs.find(r => r.state === 'pending' && r.to === (S.me && S.me.id)
+    && !prevReqs.some(p => p.id === r.id));
+  if (freshReq && !initial) {
+    const from = userById(freshReq.from);
+    toast('Запрос в «Приглашенные»: ' + ((from && displayName(from)) || 'участник') + ' — решите в списке чатов');
+  }
   await prepareChats();
   migrateGameNotify44();   // pkg3-44: в играх все оповещения включены по умолчанию
 }
@@ -2269,10 +2279,30 @@ function renderRail() {
       </div>`;
     }
   }
-  // pkg3-45: раздел «Приглашенные» — те, кого позвал именно я. Запись ведёт
-  // в личный чат: если он уже есть — открываем, если нет — создастся по касанию
-  // (тот же механизм data-peer, что и в разделе «Все участники»).
-  const myInvitees = S.users.filter(u => u.invitedBy === S.me.id
+  // pkg3-47: запросы «возьми меня в свои Приглашенные», где я адресат.
+  // Видны прямо в списке чатов, с кнопками принять/отклонить.
+  const inReqs = (S.bondReqs || []).filter(r => r.state === 'pending' && r.to === S.me.id);
+  if (inReqs.length) {
+    html += `<div class="rail-group">Запросы в «Приглашенные»</div>` + inReqs.map(r => {
+      const u = userById(r.from);
+      if (!u) return '';
+      const ctx = chatById(r.chat);
+      return `<div class="chat-item bond-req">
+        <div class="ci-main">
+          <div class="ci-name">${escapeHtml(displayName(u))}</div>
+          <div class="ci-last">просит добавить в ваши приглашенные${ctx ? ' · из чата «' + escapeHtml(cut(chatTitle(ctx), 24)) + '»' : ''}</div>
+        </div>
+        <div class="bond-btns">
+          <button class="mini primary" data-bond-accept="${escapeHtml(r.id)}">принять</button>
+          <button class="mini" data-bond-decline="${escapeHtml(r.id)}">отклонить</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  // pkg3-45/47: раздел «Приглашенные» — те, кого я позвал ссылкой, и те, кто принял
+  // мой запрос на добавление. Запись ведёт в личный чат: если он уже есть —
+  // открываем, если нет — создастся по касанию (тот же механизм data-peer).
+  const myInvitees = S.users.filter(u => (u.invitedBy === S.me.id || (S.myBonds && S.myBonds.has(u.id)))
     && (!flt || displayName(u).toLowerCase().includes(flt)));
   if (myInvitees.length) {
     html += `<div class="rail-group">Приглашенные</div>` + myInvitees
@@ -2769,6 +2799,19 @@ function updateFavicon(total) {
 
 // ─────────────────────────────────────────── навигация
 $('#chat-list').addEventListener('click', async e => {
+  // pkg3-47: решить запрос «в мои Приглашенные»
+  const ba = e.target.closest('[data-bond-accept],[data-bond-decline]');
+  if (ba) {
+    const id = ba.dataset.bondAccept || ba.dataset.bondDecline;
+    const act = ba.dataset.bondAccept ? 'accept' : 'decline';
+    ba.disabled = true;
+    try {
+      await api('/api/bond-req/' + id + '/' + act, { method: 'POST', body: {} });
+      toast(act === 'accept' ? 'Принято: человек появился в ваших «Приглашенных»' : 'Запрос отклонён');
+      await sync(false); renderRail();
+    } catch (ex) { toast(ex.message, true); ba.disabled = false; }
+    return;
+  }
   const item = e.target.closest('[data-chat],[data-peer]');
   if (!item) return;
   $('#rail').classList.remove('open');
@@ -3577,6 +3620,13 @@ function openCreateChat() {
 $('#btn-new-chat').addEventListener('click', openCreateChat);
 
 // ─────────────────────────────────────────── участники чата
+/** pkg3-47: отношение меня и человека в смысле «Приглашенных»:
+ * 'mine' — уже у меня в разделе, 'pending' — мой запрос ещё не решён, иначе null. */
+function bondStateWith(uid) {
+  if ((S.myBonds && S.myBonds.has(uid)) || (userByIdRaw(uid) || {}).invitedBy === S.me.id) return 'mine';
+  if ((S.bondReqs || []).some(r => r.from === S.me.id && r.to === uid && r.state === 'pending')) return 'pending';
+  return null;
+}
 $('#btn-members').addEventListener('click', () => {
   const c = curChat();
   if (!c) return;
@@ -3586,6 +3636,8 @@ $('#btn-members').addEventListener('click', () => {
       <span class="nm">${escapeHtml(u.name)}${u.id === S.me.id ? ' <span class="muted">(вы)</span>' : ''}${c.ownerId === u.id ? '<span class="tag-admin">создатель</span>' : ''}
         <div class="tiny muted">${isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
       ${u.id !== S.me.id && c.kind === 'group' ? `<button class="mini" data-open-dm="${u.id}">лично</button>` : ''}
+      ${u.id !== S.me.id && c.kind === 'group' && !bondStateWith(u.id) ? `<button class="mini" data-bond-ask="${u.id}" title="Запрос добавить человека в ваши «Приглашенные» (с его согласия)">в мои приглашенные</button>` : ''}
+      ${u.id !== S.me.id && c.kind === 'group' && bondStateWith(u.id) === 'pending' ? `<span class="tiny muted">запрос отправлен</span>` : ''}
       ${isOwner(c) && u.id !== S.me.id ? `<button class="mini danger" data-kick="${u.id}">убрать</button>` : ''}
     </div>`).join('');
   const rest = S.users.filter(u => !c.members.includes(u.id));
@@ -3603,6 +3655,18 @@ $('#btn-members').addEventListener('click', () => {
       hide($('#modal'));
       const r = await api('/api/dm', { method: 'POST', body: { peer: dm.dataset.openDm } });
       await sync(); openChat(r.chat.id);
+      return;
+    }
+    // pkg3-47: запрос «возьми меня в свои Приглашенные»
+    const ask = e.target.closest('[data-bond-ask]');
+    if (ask) {
+      ask.disabled = true;
+      try {
+        await api('/api/bond-req', { method: 'POST', body: { to: ask.dataset.bondAsk, chat: c.id } });
+        toast('Запрос отправлен: человек решит, добавлять ли вас в список своих приглашенных');
+        await sync(false);
+        hide($('#modal'));
+      } catch (ex) { toast(ex.message, true); ask.disabled = false; }
       return;
     }
     const add = e.target.closest('[data-add]');
@@ -5189,7 +5253,51 @@ async function openInviteFriend() {
       <button class="mini" id="inv-copy">Скопировать</button></div>
     </div>
     <div class="divider"><span>Мои ссылки</span></div>
-    <div id="inv-list">${rows}</div>`);
+    <div id="inv-list">${rows}</div>
+    <div class="divider"><span>Найти по нику</span></div>
+    <p class="hint">Поиск идёт по всем участникам мессенджера: ник уникален,
+    поэтому найдётся именно тот человек. «Написать» открывает личный чат,
+    «в мои приглашенные» шлёт запрос с его согласием (нужна общая группа).</p>
+    <input id="inv-find" type="search" placeholder="ник или имя…" autocomplete="off">
+    <div id="inv-find-res" class="bp-moves-list" style="max-height:170px"><div class="mv-empty">Начните печатать</div></div>`);
+  const paintFind = () => {
+    const q = ($('#inv-find').value || '').trim().toLowerCase();
+    const box = $('#inv-find-res');
+    if (!q) { box.innerHTML = '<div class="mv-empty">Начните печатать</div>'; return; }
+    const hits = S.users.filter(u => u.id !== S.me.id
+      && (u.name.toLowerCase().includes(q) || displayName(u).toLowerCase().includes(q)))
+      .slice(0, 20);
+    box.innerHTML = hits.length ? hits.map(u => {
+      const shared = S.chats.find(c => c.kind === 'group' && c.members.includes(S.me.id) && c.members.includes(u.id));
+      const bs = bondStateWith(u.id);
+      return `<div class="mrow-mv"><span class="mv-w">${escapeHtml(displayName(u))}</span>
+        <span class="mv-b"><button class="mini" data-find-dm="${u.id}">написать</button>
+        ${bs === 'mine' ? '<span class="tiny muted">уже у вас</span>'
+          : bs === 'pending' ? '<span class="tiny muted">запрос отправлен</span>'
+            : shared ? `<button class="mini" data-find-bond="${u.id}" data-chat="${shared.id}">в мои приглашенные</button>`
+              : '<span class="tiny muted" title="Нужна общая группа: запрос разрешён только между её участниками">нет общей группы</span>'}
+        </span></div>`;
+    }).join('') : '<div class="mv-empty">Никого не нашёл по такому нику</div>';
+  };
+  $('#inv-find').addEventListener('input', paintFind);
+  $('#modal').addEventListener('click', async e => {
+    const fdm = e.target.closest('[data-find-dm]');
+    if (fdm) {
+      hide($('#modal'));
+      try { const r = await api('/api/dm', { method: 'POST', body: { peer: fdm.dataset.findDm } }); await sync(); openChat(r.chat.id); }
+      catch (ex) { toast(ex.message, true); }
+      return;
+    }
+    const fb = e.target.closest('[data-find-bond]');
+    if (fb) {
+      fb.disabled = true;
+      try {
+        await api('/api/bond-req', { method: 'POST', body: { to: fb.dataset.findBond, chat: fb.dataset.chat } });
+        toast('Запрос отправлен'); await sync(false); paintFind();
+      } catch (ex) { toast(ex.message, true); fb.disabled = false; }
+      return;
+    }
+  });
   let lastLink = '';
   const putLink = link => {
     lastLink = link;

@@ -809,6 +809,9 @@ html,body{overflow-x:hidden}
   overflow:hidden;text-overflow:ellipsis;background:var(--panel-2);color:var(--muted);}
 .inv-row,.tr-row{display:flex;gap:8px;align-items:center;padding:4px 2px;}
 .tr-row{font-size:12.5px;}
+/* pkg3-47: карточка запроса «в мои Приглашенные» в списке чатов */
+.bond-req{align-items:center;}
+.bond-btns{display:flex;gap:4px;flex-direction:column;}
 :root[data-theme="dark"] .qr-box{background:#fff;}
 :root[data-eco="1"] .qr-box{border:1px solid #000;}
 
