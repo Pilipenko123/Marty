@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-47';
+const BUILD = 'pkg3-50';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -180,8 +180,80 @@ function createApi(store, opts = {}) {
   const chatById = (id) => db.chats.find(c => c.id === id) || null;
   const isMember = (chat, userId) => !!chat && chat.members.includes(userId);
   const myChats = (userId) => db.chats.filter(c => c.members.includes(userId));
+  /** pkg3-49/50: личные чаты, которые участник держит у себя.
+   *  Раздел «Новые»: чат с незнакомцем живёт у адресата СУТКИ после появления
+   *  (или после нового письма, если срок уже истёк) и удаляется сам — но только
+   *  из списков адресата: у автора письма переписка остаётся навсегда.
+   *  Кнопка «Добавить пользователя в мои личные чаты» сохраняет чат безвременно.
+   *  pkg3-50: правило действует на всех одинаково, включая администратора —
+   *  владелец мессенджера тоже даёт согласие кнопкой. */
+  const NEW_DM_TTL = Number(process.env.NEW_DM_TTL || 24 * 60 * 60 * 1000);
+  /** Возвращает { chats, newUntil }: положенные участнику чаты и отметки
+   * «удалится сам» для его раздела «Новые». Отметки живут в отдельной карте —
+   * общие объекты чатов трогать нельзя: их видят и другие участники.
+   * pkg3-50: правило «Новых» действует и на администратора — владелец мессенджера
+   * сам решает кнопкой, пускать незнакомца в личные чаты или нет. Исключение
+   * осталось одно: автор письма и сохранивший чат видят его как обычный личный. */
+  const myVisibleChats = (userId, now) => {
+    const u = db.users.find(x => x.id === userId) || {};
+    const hidden = new Set(u.hiddenChats || []);
+    const t = now || Date.now();
+    const out = [], newUntil = {};
+    for (const c of db.chats) {
+      if (!c.members.includes(userId) || hidden.has(c.id)) continue;
+      // «Новые»: только адресат, который сам чат не создавал и не писал в него
+      if (c.kind === 'dm' && !(c.openedBy || []).includes(userId)
+        && !(c.savedBy || []).includes(userId)) {
+        const st = db.stats.chats[c.id] || { t: 0 };
+        const last = Math.max(c.createdAt || 0, st.t || 0);
+        const rec = (u.newChats || {})[c.id];
+        // новое письмо после истечения срока возвращает чат в «Новые» ещё на сутки
+        if (!rec || (rec.until < t && last > rec.until)) {
+          u.newChats = u.newChats || {};
+          u.newChats[c.id] = { at: t, until: t + NEW_DM_TTL };
+          save();
+        }
+        if (u.newChats[c.id].until < t) continue;   // сутки прошли — чат удалился сам
+        newUntil[c.id] = u.newChats[c.id].until;    // отметка для счётчика в интерфейсе
+      }
+      out.push(c);
+    }
+    return { chats: out, newUntil };
+  };
+  /** Те же чаты простым списком — для внутренних расчётов круга видимости. */
+  const myVisibleChatList = (userId, now) => myVisibleChats(userId, now).chats;
+  /** pkg3-48: кого видит участник. По умолчанию мессенджер больше не показывает
+   * весь список людей каждому: видны только участники своих чатов, связи
+   * «Приглашенных» (в обе стороны), собеседники по запросам и использованным
+   * ссылкам, а также игроки открытых партий и стучащиеся в мои игры.
+   * Остальных находим поиском по нику (/api/search) и добавляем личным чатом. */
+  function visibleUsers(me) {
+    const ids = new Set([me.id]);
+    for (const c of myVisibleChatList(me.id)) {
+      for (const m of c.members) ids.add(m);
+      for (const k of (c.knocks || [])) ids.add(k);
+    }
+    for (const b of db.bonds) {
+      if (b.owner === me.id) ids.add(b.member);
+      if (b.member === me.id) ids.add(b.owner);
+    }
+    for (const r of db.bondReqs) {
+      if (r.to === me.id) ids.add(r.from);
+      if (r.from === me.id) ids.add(r.to);
+    }
+    for (const i of db.invites) if (i.ownerId === me.id && i.usedBy) ids.add(i.usedBy);
+    // pkg3-49: игроки из плашки «Сейчас играют» в список людей НЕ добавляются —
+    // партию видно и так, а знакомиться положено поиском. Стучащиеся в мои
+    // партии видны мне всегда (иначе не пустить зрителя).
+    for (const c of db.chats) {
+      if (c.kind === 'game' && c.game && (c.game.white === me.id || c.game.black === me.id)) {
+        for (const k of (c.knocks || [])) ids.add(k);
+      }
+    }
+    return db.users.filter(u => ids.has(u.id));
+  }
 
-  function publicChat(c, meId) {
+  function publicChat(c, meId, newUntil) {
     const st = db.stats.chats[c.id] || { n: 0, b: 0, t: 0 };
     return {
       id: c.id, kind: c.kind, titleBlob: c.titleBlob || null, titlePlain: c.titlePlain || null,
@@ -196,7 +268,11 @@ function createApi(store, opts = {}) {
       clearedCount: c.clearedCount !== undefined && c.clearedCount !== null ? c.clearedCount : null,
       wall: c.wall || null, wallRev: c.wallRev || null, iconRev: c.iconRev || null,
       lastArchive: c.lastArchive || null,
-      roles: c.roles || null, game: c.game || null, knocks: c.knocks || null
+      roles: c.roles || null, game: c.game || null, knocks: c.knocks || null,
+      // pkg3-49: кто из двоих держит этот личный чат в своих «Личных чатах»
+      // и когда чат удалится сам, если он лежит в разделе «Новые»
+      savedBy: Array.isArray(c.savedBy) ? c.savedBy.slice() : [],
+      newUntil: newUntil || null
     };
   }
 
@@ -207,10 +283,42 @@ function createApi(store, opts = {}) {
       .map(c => ({ id: c.id, owner: c.ownerId, colorChoice: c.game.colorChoice, createdAt: c.createdAt }));
   }
 
-  /** Открытые игры для тех, кто не участник: справочник «постучаться в зрители». */
+  /** Открытые игры для тех, кто не участник: справочник «постучаться в зрители».
+   * pkg3-49: чужие партии больше не видны всем подряд — плашка появляется, только
+   * если ХОТЯ БЫ ОДИН игрок из моего тесного круга: собеседники по личным
+   * перепискам, «Приглашенные» в обе стороны и собеседники по запросам-согласиям.
+   * Совсем чужие люди (никогда не переписывались) в справочник не попадают.
+   * Администратор видит всё. */
   function openGames(uid) {
+    const me = db.users.find(u => u.id === uid);
+    if (!me) return [];
+    const circle = new Set([uid]);
+    if (!me.isAdmin) {
+      for (const c of db.chats) {
+        if (c.kind === 'dm' && c.members.includes(uid)) {
+          for (const m of c.members) circle.add(m);
+        }
+      }
+      for (const b of db.bonds) { if (b.owner === uid) circle.add(b.member); if (b.member === uid) circle.add(b.owner); }
+      for (const r of db.bondReqs) { if (r.to === uid) circle.add(r.from); if (r.from === uid) circle.add(r.to); }
+    }
     return db.chats
       .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing' && !c.members.includes(uid))
+      .filter(c => me.isAdmin || circle.has(c.game.white) || circle.has(c.game.black))
+      .map(c => ({
+        id: c.id, white: c.game.white, black: c.game.black,
+        rules: c.game.rules || 'chess',
+        createdAt: c.createdAt, knocks: (c.knocks || []).length,
+        moves: (db.stats.chats[c.id] || {}).n || 0
+      }));
+  }
+
+  /** pkg3-49: чужие заявки в МОИ партии — заявщик может быть не из моего круга,
+   * но мне нужно видеть, кто стучится, и кого пускать в зрители. */
+  function myKnockedGames(uid) {
+    return db.chats
+      .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing'
+        && (c.game.white === uid || c.game.black === uid) && (c.knocks || []).length)
       .map(c => ({
         id: c.id, white: c.game.white, black: c.game.black,
         rules: c.game.rules || 'chess',
@@ -223,12 +331,18 @@ function createApi(store, opts = {}) {
     const id = dmId(a, b);
     let c = chatById(id);
     if (!c) {
-      c = { id, kind: 'dm', members: [a, b].sort(), keys: {}, createdAt: Date.now() };
+      c = { id, kind: 'dm', members: [a, b].sort(), keys: {}, createdAt: Date.now(), savedBy: [], openedBy: [] };
       db.chats.push(c);
       db.stats.chats[id] = { n: 0, b: 0, t: c.createdAt };
       save();
     }
     return c;
+  }
+  /** pkg3-49: участник создал/открыл личный чат — для него чат обычный, не «Новый». */
+  function markDmOpened(chat, userId) {
+    if (!chat || chat.kind !== 'dm') return;
+    if (!Array.isArray(chat.openedBy)) chat.openedBy = [];
+    if (!chat.openedBy.includes(userId)) { chat.openedBy.push(userId); save(); }
   }
 
   // ------------------------------------------------------------- счётчики истории
@@ -280,6 +394,7 @@ function createApi(store, opts = {}) {
         if (c.keys) for (const k of Object.keys(c.keys)) if (!userIds.has(k)) delete c.keys[k];
         if (c.roles) for (const k of Object.keys(c.roles)) if (!userIds.has(k)) delete c.roles[k];
         c.knocks = (c.knocks || []).filter(id => userIds.has(id));
+        c.savedBy = (c.savedBy || []).filter(id => userIds.has(id));   // pkg3-49
       }
       if (!c.members.length) dead.push(c.id);
       else if (c.kind === 'dm' && c.members.length < 2) dead.push(c.id);
@@ -429,6 +544,10 @@ function createApi(store, opts = {}) {
       if (!m || m.chat !== chat.id) return E(404, 'Сообщение не найдено');
       const author = db.users.find(u => u.id === m.uid);
       if (author && author.id !== me.id) sent += await notifyPushTo(author, me, me.name + ' отреагировал(а) на ваше сообщение');
+    } else if (kind === 'saved') {
+      // pkg3-49: «я добавил вас в свои личные чаты» — короткий пуш собеседнику
+      const peer = db.users.find(u => u.id !== me.id && chat.members.includes(u.id));
+      if (peer) sent += await notifyPushTo(peer, me, me.name + ' добавил(а) вас в свои личные чаты');
     } else {
       return E(400, 'Непонятный тип уведомления');
     }
@@ -617,6 +736,16 @@ function createApi(store, opts = {}) {
         invite.usedBy = user.id; invite.usedAt = Date.now();
         // pkg3-47: связь «пригласивший держит приглашённого у себя в разделе»
         db.bonds.push({ owner: invitedBy, member: user.id, origin: 'invite', at: Date.now() });
+        // pkg3-48: личный чат пригласивший↔приглашённый создаётся сразу:
+        // приглашённый видит пригласившего в «Личных чатах» с первой минуты,
+        // а пригласивший — приглашённого в разделе «Приглашенные» и в чатах.
+        // Ключи чата пустые: первый открывший сгенерирует и раздаст их сам.
+        ensureDm(invitedBy, user.id);   // штатный личный чат (тот же id и счётчики, что при ручном создании)
+        // pkg3-49: этот чат сразу сохранён и открыт у ОБОИХ — он не попадает
+        // в «Новые» и не удалится через сутки: пригласивший видит приглашённого
+        // в разделе «Приглашенные» и в «Личных чатах», приглашённый — только этот чат.
+        const dm0 = chatById(dmId(invitedBy, user.id));
+        if (dm0) { dm0.savedBy = [invitedBy, user.id]; dm0.openedBy = [invitedBy, user.id]; }
       }
       const token = crypto.randomBytes(24).toString('hex');
       db.sessions[token] = { uid: user.id, exp: Date.now() + SESSION_TTL };
@@ -688,6 +817,22 @@ function createApi(store, opts = {}) {
       return J(200, { ok: true });
     }
 
+    // --- pkg3-48: поиск по нику по всему мессенджеру. Синхронизация больше не
+    // отдаёт весь список людей (виден только свой круг), поэтому знакомство
+    // начинается здесь: нашёл → написал → человек появился в личных чатах.
+    if (pathname === '/api/search' && method === 'GET') {
+      const q = String(query.get('q') || '').trim().toLowerCase();
+      if (!q) return J(200, { users: [] });
+      if (throttle('search:' + me.id)) return E(429, 'Слишком часто ищете: подождите немного');
+      const hits = db.users
+        .filter(u => u.id !== me.id && (u.nameLower || u.name.toLowerCase()).includes(q))
+        .slice(0, 30)
+        // pub — открытый ключ: без него найденному человеку нельзя написать
+        // шифрованное сообщение (ECDH), а секретов он не раскрывает
+        .map(u => ({ id: u.id, name: u.name, pub: u.pub || null, isAdmin: !!u.isAdmin, lastSeen: u.lastSeen || 0, activeAt: u.activeAt || 0 }));
+      return J(200, { users: hits });
+    }
+
     // --- pkg3-47: запрос «возьми меня в свои Приглашенные» между участниками
     // одной группы. Адресат решает; принятое запрос превращает в связь (bond),
     // и запрашивающий появляется у адресата в разделе «Приглашенные».
@@ -722,6 +867,10 @@ function createApi(store, opts = {}) {
       if (rq.state === 'accepted' && !db.bonds.some(b => b.owner === rq.from && b.member === rq.to)) {
         db.bonds.push({ owner: rq.from, member: rq.to, origin: 'request', at: Date.now() });
       }
+      // pkg3-49: принятое согласие — это взаимные «Приглашенные»: люди видят
+      // друг друга, а личный чат между ними живёт по общим правилам (кто первым
+      // написал — у того «Личные чаты», у адресата — «Новые» на сутки)
+      db.gen++;   // списки людей изменились — клиенты перечитают их сразу
       save();
       return J(200, { ok: true, state: rq.state });
     }
@@ -758,7 +907,11 @@ function createApi(store, opts = {}) {
       const rsince = Number(query.get('rsince') || 0);
       const cchg = query.get('cchg') === null ? undefined : Number(query.get('cchg'));
       if (query.get('active') === '1') { me.activeAt = rnow; store.touchPresence(me, true); }
-      const list = myChats(me.id);
+      // pkg3-49: сначала выясняем, какие чаты участнику вообще положены
+      // (скрытые и истёкшие «Новые» не отдают ни своих сообщений, ни собеседников)
+      const vis = myVisibleChats(me.id, rnow);
+      const mch = vis.chats;
+      const list = mch;
       await store.loadSince(list.map(c => c.id), since);
       const mine = new Set(list.map(c => c.id));
       const msgs = db.messages.filter(m => m.seq > since && mine.has(m.chat)).sort((a, b) => a.seq - b.seq);
@@ -787,22 +940,22 @@ function createApi(store, opts = {}) {
       if (process.env.CHG_DEBUG) console.error(`[chg] rsince=${rsince} cchg=${cchg} db.chg=${db.chg} changed=${changed.length} gone=${delta.gone.length} resync=${delta.resync}`);
       store.trimChanges().catch(() => {});
 
-      const mch = myChats(me.id);
       return J(200, {
         messages: out,
         changed, gone: delta.gone, rnow, chg: db.chg || 0, resync: delta.resync,
-        chats: mch.map(c => publicChat(c, me.id)),
+        chats: mch.map(c => publicChat(c, me.id, vis.newUntil[c.id])),
         seq: seqOut, more, gen: db.gen,
         // сколько всего истории у участника — клиент рисует честные проценты загрузки
         loadN: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).n || 0), 0),
         loadB: mch.reduce((a, c) => a + (((db.stats.chats || {})[c.id] || {}).b || 0), 0),
         games: openGames(me.id),
+        myKnocks: myKnockedGames(me.id),   // pkg3-49: чужие заявки в мои партии
         invites: openInvites(me.id),
         // pkg3-47: кого я держу в «Приглашенных» (связи) и запросы, где я адресат/автор
         myBonds: db.bonds.filter(b => b.owner === me.id).map(b => b.member),
         bondReqs: db.bondReqs.filter(r => r.to === me.id || r.from === me.id)
           .map(r => ({ id: r.id, from: r.from, to: r.to, chat: r.chat, createdAt: r.createdAt, state: r.state })),
-        users: db.users.map(publicUser),
+        users: visibleUsers(me).map(publicUser),   // pkg3-48: видим только свой круг, остальных ищет /api/search
         usage: usage(),
         me: publicUser(me),
         serverTime: rnow
@@ -856,6 +1009,7 @@ function createApi(store, opts = {}) {
       if (!peer) return E(404, 'Участник не найден');
       if (peer.id === me.id) return E(400, 'Нельзя писать самому себе');
       const chat = ensureDm(me.id, peer.id);
+      markDmOpened(chat, me.id);   // pkg3-49: автор видит чат сразу в «Личных чатах»
       return J(200, { chat: publicChat(chat, me.id) });
     }
 
@@ -866,6 +1020,35 @@ function createApi(store, opts = {}) {
       if (!chat) return E(404, 'Чат не найден');
       if (!isMember(chat, me.id)) return E(403, 'Вы не участник этого чата');
       const isOwner = chat.kind === 'group' && chat.ownerId === me.id;
+
+      // --- pkg3-48/49: убрать чат из своих списков (у собеседника всё остаётся).
+      // Для личного чата это «убрать из личных чатов»: отметка «сохранён» снимается,
+      // и чат возвращается в раздел «Новые» — живёт сутки, новое письмо собеседника
+      // возвращает его обратно ещё на сутки.
+      if (action === 'hide' && method === 'POST') {
+        const on = !!(req.body || {}).hidden;
+        me.hiddenChats = me.hiddenChats || [];
+        if (on && !me.hiddenChats.includes(chat.id)) me.hiddenChats.push(chat.id);
+        if (!on) me.hiddenChats = me.hiddenChats.filter(x => x !== chat.id);
+        if (on && chat.kind === 'dm') {
+          chat.savedBy = (chat.savedBy || []).filter(x => x !== me.id);
+        }
+        db.gen++;   // собеседник должен сразу увидеть смену статуса «в личных чатах»
+        save();
+        return J(200, { ok: true, hiddenChats: me.hiddenChats, chat: publicChat(chat, me.id) });
+      }
+
+      // --- pkg3-49/50: «Добавить пользователя в мои личные чаты» — чат из раздела «Новые»
+      // сохраняется безвременно, собеседник видит отметку «вы в его личных чатах».
+      if (action === 'save' && method === 'POST') {
+        if (chat.kind !== 'dm') return E(400, 'Сохранять можно только личную переписку');
+        if (me.hiddenChats) me.hiddenChats = me.hiddenChats.filter(x => x !== chat.id);
+        chat.savedBy = Array.from(new Set([...(chat.savedBy || []), me.id]));
+        if (me.newChats) delete me.newChats[chat.id];
+        db.gen++;   // оба списка чатов изменились — клиенты перечитают их сразу
+        save();
+        return J(200, { ok: true, chat: publicChat(chat, me.id) });
+      }
 
       if (action === 'title' && method === 'POST') {
         if (chat.kind !== 'group') return E(400, 'У личной переписки нет названия');
@@ -1135,6 +1318,20 @@ function createApi(store, opts = {}) {
       const m = { id: uid(), seq: await store.reserveSeq(), uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote, upId: b.upId || null };
       db.messages.push(m);
       addStat(m, 1);
+      // pkg3-48/49: новое письмо возвращает спрятанный личный чат в списки
+      // адресата (снятием скрытия); автор письма всегда остаётся «открывшим»
+      // чат и держит его у себя в «Личных чатах» — даже если раньше убрал
+      if (chat.kind === 'dm') {
+        markDmOpened(chat, me.id);
+        chat.savedBy = Array.from(new Set([...(chat.savedBy || []), me.id]));
+      }
+      for (const mem of chat.members) {
+        if (mem === me.id) continue;
+        const u = db.users.find(x => x.id === mem);
+        if (u && Array.isArray(u.hiddenChats) && u.hiddenChats.includes(chat.id)) {
+          u.hiddenChats = u.hiddenChats.filter(x => x !== chat.id);
+        }
+      }
       me.reads = me.reads || {};
       me.reads[parent ? 'thr:' + parent : chat.id] = m.seq;
       save();
@@ -1262,6 +1459,11 @@ function createApi(store, opts = {}) {
       };
       db.chats.push(chat);
       db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt };
+      // pkg3-49: приглашение в игру приходит в личный чат — чтобы адресат его
+      // не потерял, чат создаётся сразу и сохраняется у обоих (не «Новые»)
+      const gdm = ensureDm(me.id, opp.id);
+      gdm.savedBy = Array.from(new Set([...(gdm.savedBy || []), me.id, opp.id]));
+      gdm.openedBy = Array.from(new Set([...(gdm.openedBy || []), me.id, opp.id]));
       db.seq++; save();
       return J(200, { chat: publicChat(chat, me.id) });
     }
@@ -1437,7 +1639,9 @@ function createApi(store, opts = {}) {
             createdAt: i.createdAt, expiresAt: i.expiresAt,
             usedBy: i.usedBy || null, revoked: !!i.revoked
           })),
-          policy: db.invitePolicy,
+          // pkg3-48: политика всегда объектом — в старых облачных базах она
+          // могла лежать пустой (null), и клиентское окно не открывалось
+          policy: db.invitePolicy || { globalOff: false, blockedUsers: [], blockedChats: [] },
           bonds: db.bonds.map(b => Object.assign({}, b)),
           bondReqs: db.bondReqs.map(r => Object.assign({}, r)),
           emergencyRegUntil: db.emergencyRegUntil,

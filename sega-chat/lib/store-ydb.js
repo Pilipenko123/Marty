@@ -22,7 +22,7 @@
 
 const crypto = require('crypto');
 const { Ydb, YdbError, S, N, str, num } = require('./ydb');
-const { emptyDb } = require('./model');
+const { emptyDb, migrate } = require('./model');
 
 const CHUNK = 48000;               // символов в одном куске
 const pad = (n) => String(Math.max(0, Math.floor(Number(n) || 0))).padStart(12, '0');
@@ -169,7 +169,12 @@ function createYdbStore(opts = {}) {
   const coreFp = () => JSON.stringify({ v: db.version, c: db.createdAt, r: db.room, s: db.serverSecret, u: db.upBytes || 0,
     // pkg3-45: приглашения, политика блокировок и журнал живут в общей записи,
     // иначе в облачном режиме они терялись бы между экземплярами и перезапусками
-    i: db.invites, p: db.invitePolicy, l: db.adminLog, e: db.emergencyRegUntil || 0 });
+    i: db.invites, p: db.invitePolicy, l: db.adminLog, e: db.emergencyRegUntil || 0,
+    // pkg3-49: связи «Приглашенные» и запросы-согласия тоже должны жить в облачной
+    // записи — раньше они держались только в памяти экземпляра и терялись при
+    // перезапуске функции (в файле связи восстанавливались из invitedBy, а вот
+    // принятые запросы и нерешённые запросы исчезали бесследно)
+    b: db.bonds, q: db.bondReqs, x49: !!db.dmSaved49 });
 
   function takeSnapshot() {
     return {
@@ -254,6 +259,10 @@ function createYdbStore(opts = {}) {
     }
     if (Array.isArray(core.adminLog)) db.adminLog = core.adminLog;
     if (typeof core.emergencyRegUntil === 'number') db.emergencyRegUntil = core.emergencyRegUntil;
+    // pkg3-49: связи «Приглашенные» и запросы-согласия возвращаются из облачной записи
+    if (Array.isArray(core.bonds)) db.bonds = core.bonds;
+    if (Array.isArray(core.bondReqs)) db.bondReqs = core.bondReqs;
+    db.dmSaved49 = !!core.dmSaved49;
     db.seq = num(m.seq);
     db.gen = num(m.gen);
     db.chg = num(m.chg);
@@ -261,8 +270,12 @@ function createYdbStore(opts = {}) {
 
     const dv = num(m.dv), sv = num(m.sv);
     if (process.env.YDB_DEBUG) console.error(`[ydb] load dv=${dv} cache=${cache.dv} sv=${sv}/${cache.sv}`);
-    if (cache.dv !== dv) { await loadDirectory(); cache.dv = dv; }
-    if (cache.sv !== sv) { await loadStats(); cache.sv = sv; }
+    const cold = cache.dv !== dv;
+    if (cold) { await loadDirectory(); cache.dv = dv; }
+    // pkg3-49: на холодном старте счётчики читаем ДО migrate() — переносу старой
+    // базы нужно знать, в каких личных чатах есть история, чтобы сохранить их
+    // у обоих участников (иначе старая переписка свалилась бы в «Новые»)
+    if (cold || cache.sv !== sv) { await loadStats(); cache.sv = sv; }
     // версия сессий: сдвинулась — значит соседний экземпляр записал или удалил
     // сессию; свой тёплый кэш сбрасываем, чтобы не пустить никого по старому токену
     const zvNow = num(m.zv);
@@ -275,6 +288,10 @@ function createYdbStore(opts = {}) {
     }
     db.messages = [];
     db.sessions = {};
+    // pkg3-48: приведение старых баз к текущей схеме должно идти и в облачном
+    // режиме — раньше migrate() вызывался только файловым хранилищем, из-за чего
+    // в облаке не нормализовались политика приглашений и новые коллекции
+    migrate(db);
     loadedFull = new Set();
     snap = takeSnapshot();
     return db;
@@ -495,7 +512,8 @@ function createYdbStore(opts = {}) {
     if (coreFp() !== snap.core) {
       sets.push('#d = :d'); names['#d'] = 'd';
       values[':d'] = S(JSON.stringify({ version: db.version, createdAt: db.createdAt, room: db.room, serverSecret: db.serverSecret, upBytes: db.upBytes || 0,
-        invites: db.invites, invitePolicy: db.invitePolicy, adminLog: db.adminLog, emergencyRegUntil: db.emergencyRegUntil || 0 }));
+        invites: db.invites, invitePolicy: db.invitePolicy, adminLog: db.adminLog, emergencyRegUntil: db.emergencyRegUntil || 0,
+        bonds: db.bonds, bondReqs: db.bondReqs, dmSaved49: !!db.dmSaved49 }));   // pkg3-49: связи, запросы и флаг переноса — в облако
     }
     if (db.seq !== snap.seq) { adds.push('#seq :dseq'); names['#seq'] = 'seq'; values[':dseq'] = N(db.seq - snap.seq); }
     if (db.gen !== snap.gen) { adds.push('#gen :dgen'); names['#gen'] = 'gen'; values[':dgen'] = N(db.gen - snap.gen); }

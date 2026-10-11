@@ -17,7 +17,9 @@ function emptyDb() {
                     //   pub, wrappedPriv, avatar, avatarRev, avatarLen, reads, lastSeen, activeAt,
                     //   invitedBy }  // pkg3-45: ид пригласившего, 'root' у основателей
     chats: [],      // { id, kind:'group'|'dm', titleBlob, ownerId, members:[uid], keys:{uid:{by,blob}}, createdAt,
-                    //   archivedByName, archivedAt, archivedCount, lastArchive }
+                    //   archivedByName, archivedAt, archivedCount, lastArchive,
+                    //   savedBy:[uid],  // pkg3-49: кто держит личный чат в своих «Личных чатах»
+                    //   openedBy:[uid] }// pkg3-49: кто создавал/открывал чат — у автора он никогда не «Новый»
     messages: [],   // { id, seq, uid, ts, blob, bytes, chat, parent, quote }
     sessions: {},   // token -> { uid, exp }
     invites: [],    // pkg3-45: { id, ownerId, secretHash, invSalt, wrappedRoomKey, createdAt,
@@ -26,7 +28,7 @@ function emptyDb() {
                     //   держит у себя в разделе «Приглашенные»; у участника может быть
                     //   несколько таких связей, в отличие от единственного invitedBy
     bondReqs: [],   // pkg3-47: { id, from, to, chat, createdAt, state:'pending'|'accepted'|'declined' }
-    invitePolicy: null,  // pkg3-45: { globalOff, blockedUsers:[uid], blockedChats:[chatId] }
+    invitePolicy: { globalOff: false, blockedUsers: [], blockedChats: [] },  // pkg3-45/48
     adminLog: [],   // pkg3-45: журнал администратора { at, by, what }
     emergencyRegUntil: 0,  // pkg3-45: до какого момента открыта аварийная регистрация по кодовой фразе
     archives: [],   // { file, createdAt, count, bytes, chat }
@@ -35,6 +37,7 @@ function emptyDb() {
     chg: 0,         // счётчик мелких изменений (реакция, правка, удаление сообщения)
     changes: [],    // журнал «что изменилось»: { i: id, c: чат, r: отметка, d: 1 если удалено }
     backups: [],    // следы резервных копий в облачном хранилище: { key, bytes, rows, at, by }
+    dmSaved49: false, // pkg3-49: разовый перенос старых личных чатов в «сохранённые» выполнен
     serverSecret: null,
     stats: { bytes: 0, count: 0, chats: {} } // счётчики вместо пересчёта всей истории
   };
@@ -123,6 +126,42 @@ function migrate(db) {
   if (!Array.isArray(db.adminLog)) db.adminLog = [];
   if (typeof db.emergencyRegUntil !== 'number') db.emergencyRegUntil = 0;
   for (const u of db.users) if (u.invitedBy === undefined) u.invitedBy = 'root';
+  // pkg3-48: скрытые личные чаты — личный список «не показывать мне этот чат»
+  for (const u of db.users) if (!Array.isArray(u.hiddenChats)) u.hiddenChats = [];
+
+  // pkg3-49: «Новые» и «Личные чаты».
+  //  savedBy  — у самого чата: кто из двоих держит его в своих «Личных чатах»;
+  //  openedBy — кто из двоих создавал чат или писал в него: для автора
+  //              переписки чат обычный с первой минуты, «Новые» — для адресата;
+  //  newChats — у участника: какие чаты лежат в «Новых» и до какого момента
+  //              ({ 'dm:…': { at, until } }, «until» — самоудаление через сутки).
+  // Поля приводим у всех личных чатов (это безопасно повторять), а вот СТАРУЮ
+  // историю переносим ОДИН РАЗ под флагом dmSaved49: чаты с перепиской, которая
+  // была до этого выпуска, сохраняем обеим сторонам — прежнее поведение не
+  // меняется. Без флага перенос срабатывал бы после каждого письма и «спасал» бы
+  // чат у адресата, ломая правило суток. Пустые чаты-заготовки сохранёнными не
+  // считаем — они живут по общему правилу «Новых».
+  for (const c of db.chats) {
+    if (c.kind !== 'dm') continue;
+    if (!Array.isArray(c.savedBy)) c.savedBy = [];
+    if (!Array.isArray(c.openedBy)) c.openedBy = [];
+  }
+  if (!db.dmSaved49) {
+    const hasMsgs = {};
+    for (const m of db.messages || []) hasMsgs[m.chat] = true;
+    for (const c of db.chats) {
+      if (c.kind !== 'dm') continue;
+      const cnt = ((db.stats && db.stats.chats && db.stats.chats[c.id]) || {}).n || 0;
+      if (cnt > 0 || hasMsgs[c.id]) {
+        for (const id of (c.members || [])) {
+          if (!c.savedBy.includes(id)) c.savedBy.push(id);
+          if (!c.openedBy.includes(id)) c.openedBy.push(id);
+        }
+      }
+    }
+    db.dmSaved49 = true;
+  }
+  for (const u of db.users) if (!u.newChats || typeof u.newChats !== 'object') u.newChats = {};
 
   // аватар: теперь клиенту отдаётся только отпечаток, картинка скачивается отдельно
   for (const u of db.users) {
