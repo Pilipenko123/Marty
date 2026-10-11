@@ -168,6 +168,33 @@ ok(appJs.includes('data-bond-ask'), 'запрос можно отправить 
 ok(appJs.includes('S.myBonds = new Set(data.myBonds || [])'), 'связи приезжают в синхронизации');
 ok(css.includes('.bond-btns{display:flex;gap:4px;flex-direction:column;}'), 'кнопки принять/отклонить сложены в столбик у карточки запроса');
 
+// pkg3-48: админ-окно открывается и на старой облачной базе; виден только свой
+// круг; раздела «Написать лично» нет; поиск по нику спрашивает сервер
+ok(html.includes('data-act="bond"') && html.includes('data-act="hide"'), 'в меню чата есть «Взять в «Приглашенные»» и «Скрыть из личных чатов»');
+ok(appJs.includes("b.dataset.act === 'hide'") && appJs.includes("+ '/hide'"), 'скрытие личного чата идёт командой на сервер, а не только в памяти телефона');
+ok(!appJs.includes('rail-group">Написать лично'), 'раздела «Написать лично» со всем списком участников больше нет');
+ok(appJs.includes("api('/api/search?q='"), 'поиск по нику идёт через сервер (/api/search), а не по локальному списку');
+ok(appJs.includes('pol.blockedUsers = pol.blockedUsers || [];'), 'политика приглашений нормализуется — админ-окно открывается и при пустой базе облака');
+ok(appJs.includes('d.users = d.users || [];'), 'админ-окно защищено от неполного ответа сервера');
+ok(appJs.includes('findSeq') && appJs.includes('setTimeout(() => paintFind(), 350)'), 'поиск в окне «Пригласить друга» с задержкой и защитой от устаревших ответов');
+
+// pkg3-49: «Новые», сутки, сохранение и уборка личных чатов
+ok(appJs.includes('rail-group">Новые'), 'в списке чатов есть раздел «Новые»');
+ok(appJs.includes('function renderDmBanner') && html.includes('id="dm-banner"'), 'над лентой живёт баннер «Новых» с узлом #dm-banner');
+ok(appJs.includes('Добавить пользователя в мои личные чаты'), 'кнопка «Добавить пользователя в мои личные чаты» на месте (баннер и меню)');
+ok(html.includes('data-act="save"'), 'в меню чата есть пункт сохранения (data-act="save")');
+ok(html.includes('Убрать из моих личных чатов'), 'пункт меню теперь называется «Убрать из моих личных чатов»');
+ok(appJs.includes('/save') && appJs.includes('async function saveDmChat'), 'сохранение идёт командой на сервер (/api/chats/:id/save)');
+ok(appJs.includes('S.dmSaved = new Set(S.chats.filter'), 'список сохранённых чатов клиент считает по savedBy из синхронизации');
+ok(appJs.includes('const fmtLeft'), 'счётчик «осталось N ч» для раздела «Новые» считается одной функцией');
+ok(appJs.includes('data-newcd') && appJs.includes('data-bncd'), 'счетчики тикают и в списке чатов, и в баннере');
+ok(css.includes('.tag-new{'), 'плашка «новые · осталось» оформлена в стилях');
+ok(css.includes('#dm-banner{'), 'баннер «Новых» оформлен в стилях');
+ok(appJs.includes('chatsGone:'), 'исчезнувшие чаты стираются из локальной памяти устройства');
+ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои партии приходят отдельным списком');
+const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
+ok(sw.includes('sega-static-v42'), 'кэш статики поднят до v42');
+
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');

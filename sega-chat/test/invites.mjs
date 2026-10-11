@@ -246,6 +246,56 @@ const tree2 = (await call('/api/admin/invites', {}, admin.token)).d;
 ok((tree2.bonds || []).some(b => b.owner === b1.user.id && b.member === admin.id && b.origin === 'request'), 'дерево админа видит связь из запроса с пометкой «request»');
 ok((tree2.bonds || []).some(b => b.owner === admin.id && b.member === b1.user.id && b.origin === 'invite'), 'дерево админа видит связь из регистрации с пометкой «invite»');
 
+// посторонний участник для проверки видимости: ни чатов, ни связей с Борей
+await call('/api/admin/emergency-reg', { method: 'POST', body: { open: true } }, admin.token);
+const px = await registerByCode('ПетяНезнакомый', 'petya-pass-9');
+await call('/api/admin/emergency-reg', { method: 'POST', body: { open: false } }, admin.token);
+ok(px.status === 200, 'для проверки видимости зарегистрирован посторонний участник');
+
+// ── pkg3-48: узкий круг видимости, поиск по нику, скрытые личные чаты
+const sB = await call('/api/sync?since=0', {}, b1.user.token).then(r => r.d);
+ok((sB.users || []).some(u => u.id === admin.id), 'приглашённый видит своего пригласившего');
+ok(!(sB.users || []).some(u => u.id === px.user.id),
+  'приглашённый не видит людей, с которыми у него нет ни чата, ни связи');
+ok((sB.chats || []).some(c => c.kind === 'dm' && c.members.includes(admin.id)),
+  'у приглашённого сразу есть личный чат с пригласившим');
+const sA = await call('/api/sync?since=0', {}, admin.token).then(r => r.d);
+ok((sA.users || []).some(u => u.id === b1.user.id), 'пригласивший видит приглашённого');
+const sC = await call('/api/sync?since=0', {}, px.user.token).then(r => r.d);
+ok(!(sC.users || []).some(u => u.id === b1.user.id), 'посторонний не видит приглашённого в своём списке');
+
+const srch = await call('/api/search?q=' + encodeURIComponent('бор'), {}, px.user.token);
+const hit = (srch.d.users || []).find(u => u.id === b1.user.id);
+ok(srch.status === 200 && !!hit, 'посторонний нашёл приглашённого поиском по нику');
+ok(!!(hit && hit.pub), 'поиск отдаёт открытый ключ: найденному можно написать шифрованно');
+const empty = await call('/api/search?q=', {}, px.user.token);
+ok(empty.status === 200 && (empty.d.users || []).length === 0, 'пустой поиск никого не возвращает');
+
+const dmCB = await call('/api/dm', { method: 'POST', body: { peer: b1.user.id } }, px.user.token);
+ok(dmCB.status === 200 && dmCB.d.chat.kind === 'dm', 'личный чат с найденным человеком создан');
+const sC2 = await call('/api/sync?since=0', {}, px.user.token).then(r => r.d);
+ok((sC2.users || []).some(u => u.id === b1.user.id), 'после письма собеседник появился в списке');
+const sB2 = await call('/api/sync?since=0', {}, b1.user.token).then(r => r.d);
+ok((sB2.users || []).some(u => u.id === px.user.id), 'у адресата пишущий тоже появился в списке');
+
+const badHide = await call('/api/chats/' + dmCB.d.chat.id + '/hide', { method: 'POST', body: { hidden: true } }, admin.token);
+ok(badHide.status === 403, 'чужой личный чат скрыть нельзя');
+const hid = await call('/api/chats/' + dmCB.d.chat.id + '/hide', { method: 'POST', body: { hidden: true } }, px.user.token);
+ok(hid.status === 200, 'свой личный чат скрыт');
+const sC3 = await call('/api/sync?since=0', {}, px.user.token).then(r => r.d);
+ok(!(sC3.chats || []).some(c => c.id === dmCB.d.chat.id), 'скрытый чат не приходит в синхронизации');
+ok(!(sC3.users || []).some(u => u.id === b1.user.id), 'скрытый собеседник больше не в списке');
+const sB3 = await call('/api/sync?since=0', {}, b1.user.token).then(r => r.d);
+ok((sB3.chats || []).some(c => c.id === dmCB.d.chat.id), 'у собеседника чат остался видимым');
+await call('/api/messages', { method: 'POST', body: { blob: 'enc-hello', chat: dmCB.d.chat.id } }, b1.user.token);
+const sC4 = await call('/api/sync?since=0', {}, px.user.token).then(r => r.d);
+ok((sC4.chats || []).some(c => c.id === dmCB.d.chat.id), 'новое сообщение вернуло скрытый чат обратно');
+ok((sC4.users || []).some(u => u.id === b1.user.id), 'и собеседник снова виден');
+
+ok(tree2.policy && typeof tree2.policy === 'object' && Array.isArray(tree2.policy.blockedUsers)
+  && Array.isArray(tree2.policy.blockedChats),
+  'политика приглашений отдаётся объектом со списками — админ-окно открывается');
+
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Приглашения: ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');
