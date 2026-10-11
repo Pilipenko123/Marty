@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-47';
+const BUILD = 'pkg3-50';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -237,6 +237,10 @@ const S = {
   notify: { sound: true, muted: {}, desktop: true },   // pkg3-37: все движки оповещений по умолчанию включены
   aliases: loadAliases(),   // pkg3-45: локальные псевдонимы (только это устройство)
   retry: {},        // черновики своих сообщений, ещё не принятых сервером
+  dmSaved: new Set(),   // pkg3-49: какие личные чаты я сохранил у себя навсегда
+  savedSeen: {},        // pkg3-49: chatId -> кого я уже видел в «сохранивших» (без повторов плашек)
+  booted: false,       // pkg3-49: первый успешный опрос позади — можно показывать плашки
+  serverNow: Date.now(),// pkg3-49: время сервера — по нему тикают счётчики «Новых»
   sig: '', railFilter: ''
 };
 
@@ -834,6 +838,7 @@ async function startApp() {
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
   S.resyncHappened = false; S.warm = false; S.histReady = false; S.lastMergeGone = null;
+  S.dmSaved = new Set(); S.savedSeen = {}; S.booted = false;   // pkg3-49: новый вход — счётчики «Новых» с нуля
   S.gapChecked = S.gapChecked || new Set();
 
   // ── локальная память: мгновенно показать то, что уже есть на устройстве ──
@@ -855,7 +860,8 @@ async function startApp() {
   }
   if (warm) {
     S.warm = true;
-    S.chats = warm.data.chats || [];
+    // pkg3-49: истёкшие «Новые» из кэша не показываем — их на сервере уже нет
+    S.chats = (warm.data.chats || []).filter(c => !(c.kind === 'dm' && c.newUntil && c.newUntil < Date.now()));
     S.users = warm.data.users || [];
     addMessages(warm.data.messages || []);
     S.seq = warm.meta.seq || 0;
@@ -1062,14 +1068,34 @@ async function applySyncMeta(data) {
   S.usage = data.usage;
   S.chats = data.chats;
   S.games = data.games || [];
+  S.myKnocks = data.myKnocks || [];   // pkg3-49: чужие заявки в мои партии
   S.invites = data.invites || [];
+  if (typeof data.rnow === 'number') S.serverNow = data.rnow;   // pkg3-49: часы сервера
+  // pkg3-49: мои сохранённые личные чаты — по отметкам savedBy у самих чатов;
+  // заодно плашка «вас добавили в личные чаты», когда собеседник сохранил переписку
+  const meId0 = (S.me && S.me.id) || null;
+  S.dmSaved = new Set(S.chats.filter(c => c.kind === 'dm' && (c.savedBy || []).includes(meId0)).map(c => c.id));
+  for (const c of S.chats) {
+    if (c.kind !== 'dm') continue;
+    const peer = c.members.find(x => x !== (S.me && S.me.id));
+    const before = S.savedSeen[c.id];
+    const now = (c.savedBy || []).slice();
+    S.savedSeen[c.id] = now;
+    if (peer && S.booted && before && !before.includes(peer) && now.includes(peer)) {
+      toast((userById(peer) || { name: 'Собеседник' }).name + ' добавил(а) вас в свои личные чаты');
+    }
+  }
   // pkg3-47: мои связи «Приглашенные» и запросы-согласия
   const prevReqs = S.bondReqs || [];
   S.myBonds = new Set(data.myBonds || []);
   S.bondReqs = data.bondReqs || [];
   const freshReq = S.bondReqs.find(r => r.state === 'pending' && r.to === (S.me && S.me.id)
     && !prevReqs.some(p => p.id === r.id));
-  if (freshReq && !initial) {
+  // pkg3-49: починка pkg3-47 — здесь стояла необъявленная переменная initial,
+  // и первый же входящий запрос в «Приглашенные» роняал синхронизацию
+  // (в строгом режиме чтение необъявленной переменной — ошибка). Теперь
+  // «первый прогон» отмечает флаг S.booted, который ставит syncOnce.
+  if (freshReq && S.booted) {
     const from = userById(freshReq.from);
     toast('Запрос в «Приглашенные»: ' + ((from && displayName(from)) || 'участник') + ' — решите в списке чатов');
   }
@@ -1178,12 +1204,28 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
   if (touched) { S.sig = ''; if (S.view) renderMessages(); renderThread(); }
   if (typeof data.rnow === 'number') S.rsince = data.rnow;
   if (typeof data.chg === 'number') S.chg = data.chg;
+  S.booted = true;   // pkg3-49: первый опрос состоялся — плашки «вас добавили» разрешены
+  // pkg3-49: чат исчез из списка (истёкшие «Новые», убранный личный) — его
+  // сообщения больше не нужны ни на экране, ни в памяти устройства
+  const aliveChats = new Set(S.chats.map(c => c.id));
+  const orphanIds = [];
+  for (let i = S.messages.length - 1; i >= 0; i--) {
+    const m = S.messages[i];
+    if (!aliveChats.has(m.chat)) {
+      orphanIds.push(m.id);
+      S.messages.splice(i, 1);
+      S.messageIds.delete(m.id);
+      S.plain.delete(m.id);
+    }
+  }
   if (S.idb && S.cacheFp && !S.initialLoad) {
     S.idb.applySync(S.cacheFp, {
       resync: false,
       messages: freshAll.concat(data.changed || []).map(pickMsg),
-      gone: (data.gone || []).map(g => (g && g.id) || g).concat(S.lastMergeGone || []),
+      gone: (data.gone || []).map(g => (g && g.id) || g).concat(S.lastMergeGone || []).concat(orphanIds),
       chats: data.chats || [], users: data.users || [],
+      // pkg3-49: чаты, пропавшие из списка (истёкшие «Новые»), — долой из кэша
+      chatsGone: [...prevChatIds].filter(id => !(data.chats || []).some(c => c.id === id)),
       meta: { me: S.uid, seq: S.seq, gen: S.gen, chg: S.chg, rsince: S.rsince }
     });
     S.lastMergeGone = null;   // pkg3-37: стёртое уже передано кэшу — не повторяем
@@ -1570,7 +1612,7 @@ function renderAll() {
   ]);
   if (sig === S.sig) return;
   S.sig = sig;
-  renderMe(); renderRail(); renderTopbar(); renderMessages(); renderThread(); renderMemory(); renderQuoteBar(); updateTitle();
+  renderMe(); renderRail(); renderTopbar(); renderDmBanner(); renderMessages(); renderThread(); renderMemory(); renderQuoteBar(); updateTitle();
   paintIcons(document);
   paintStatuses();   // маячки «в сети» — одним проходом по всему экрану
 }
@@ -2236,8 +2278,13 @@ function renderRail() {
   // pkg3-38: в «Личных чатах» кто сейчас в сети — поднимаются наверх;
   // остальные остаются в прежнем порядке (по свежести сообщений).
   // Сортировка устойчивая: внутри групп порядок не ломается.
-  const dms = chats.filter(c => c.kind === 'dm').sort((a, b) =>
+  // pkg3-49: личные чаты делятся на сохранённые («Личные чаты») и чужие-новые
+  // («Новые» — живут сутки, потом удаляются сами, если их не сохранить).
+  const isNewDm = c => c.kind === 'dm' && !S.dmSaved.has(c.id);
+  const allDms = chats.filter(c => c.kind === 'dm').sort((a, b) =>
     (isOnline(userById(dmPeer(b))) ? 1 : 0) - (isOnline(userById(dmPeer(a))) ? 1 : 0));
+  const newDms = allDms.filter(isNewDm);
+  const dms = allDms.filter(c => !isNewDm(c));
   const chatRow = (c) => {
     const un = unreadIn(c.id);
     const last = lastMessageIn(c.id);
@@ -2254,7 +2301,7 @@ function renderRail() {
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
       <div class="ci-main">
-        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? `<span class="tag-grp" title="${gameRulesOf(c) === 'checkers' ? 'шашки' : 'шахматы'}">${gameIcon(c)}</span>` : ''}</div>
+        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${isNewDm(c) && c.newUntil ? `<span class="tag-new" data-newcd="${c.id}" title="Чат из раздела «Новые»: удалится сам, если не сохранить">новые · ${escapeHtml(fmtLeft(c.newUntil))}</span>` : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? `<span class="tag-grp" title="${gameRulesOf(c) === 'checkers' ? 'шашки' : 'шахматы'}">${gameIcon(c)}</span>` : ''}</div>
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
       ${seen}
@@ -2266,7 +2313,10 @@ function renderRail() {
   // pkg3-36: начавшиеся партии — всегда в самом верху списка. У игроков это
   // их чат-игра (раздел «Игры» — первым), у остальных мессенджера — плашка
   // «Сейчас играют» с плавным миганием, чтобы её замечали краем глаза.
-  const open = (S.games || []).filter(g => !S.chats.some(c => c.id === g.id));
+  // pkg3-49: чужие партии видны только из своего круга, зато заявки зрителей
+  // в МОИ партии (myKnocks) показываются мне всегда — иначе не пустить зрителя.
+  const live = (S.games || []).concat((S.myKnocks || []).filter(g => !(S.games || []).some(x => x.id === g.id)));
+  const open = live.filter(g => !S.chats.some(c => c.id === g.id));
   if (open.length) {
     html += `<div class="rail-group">Сейчас играют</div>`;
     for (const g of open) {
@@ -2318,24 +2368,19 @@ function renderRail() {
       }).join('');
   }
   if (groups.length) html += `<div class="rail-group">Групповые чаты</div>` + groups.map(chatRow).join('');
+  // pkg3-49: раздел «Новые» — личная переписка, которую начали со мной из поиска.
+  // Чат живёт здесь сутки (счётчик в плашке), потом удалится сам; кнопка
+  // «Добавить пользователя в мои личные чаты» (плашка внутри чата или меню «⋯») сохраняет навсегда.
+  if (newDms.length) html += `<div class="rail-group">Новые</div>` + newDms.map(chatRow).join('');
   if (dms.length) html += `<div class="rail-group">Личные чаты</div>` + dms.map(chatRow).join('');
 
-  const known = new Set(S.chats.filter(c => c.kind === 'dm').map(c => dmPeer(c)));
-  const others = S.users.filter(u => u.id !== S.me.id && !known.has(u.id) && (!flt || u.name.toLowerCase().includes(flt)))
-    .sort((a, b) => (isOnline(b) - isOnline(a)) || a.name.localeCompare(b.name, 'ru'));
-  if (others.length) {
-    html += `<div class="rail-group">Написать лично</div>`;
-    for (const u of others) {
-      html += `<div class="chat-item" data-peer="${u.id}">
-        ${avatarHtml(u, '', true)}
-        <div class="ci-main">
-          <div class="ci-name">${escapeHtml(u.name)}${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}</div>
-          <div class="ci-last">${isOnline(u) ? 'в сети' : escapeHtml(fmtAgo(u.lastSeen))}</div>
-        </div>
-      </div>`;
-    }
-  }
-  if (!html) html = `<div class="ci-last" style="padding:14px 10px">Никого нет — пригласите друзей по кодовой фразе.</div>`;
+  // pkg3-48/49: раздела «Написать лично» со всеми участниками больше нет —
+  // мессенджер не показывает весь список людей каждому. Новый собеседник
+  // находится поиском по нику (лупа вверху): у АВТОРА письма чат остаётся
+  // в «Личных чатах», а у адресата попадает в раздел «Новые» на сутки —
+  // сохранить его навсегда можно кнопкой «Добавить пользователя в мои личные чаты».
+  if (!html) html = `<div class="ci-last" style="padding:14px 10px">Здесь пока пусто. Пригласите друзей ссылкой
+    или найдите человека поиском по нику (лупа вверху) и напишите ему.</div>`;
   $('#chat-list').innerHTML = html;
 }
 
@@ -3707,6 +3752,19 @@ $('#btn-chat-menu').addEventListener('click', e => {
     d.querySelector('[data-act="icon"]').classList.toggle('hidden', c.kind !== 'group');
     // pkg3-44: в чат-игре фона нет и редактор не нужен — прячем пункт меню
     d.querySelector('[data-act="wall"]').classList.toggle('hidden', c.kind === 'game');
+    // pkg3-48: «Приглашенные» и «скрыть личный чат» — только в личных чатах
+    const bi = d.querySelector('[data-act="bond"]');
+    const peer = c.kind === 'dm' ? dmPeer(c) : null;
+    const st = peer ? bondStateWith(peer) : 'none';
+    if (peer && (st === '?' || st === 'in')) {
+      bi.innerHTML = '<span data-ic="users"></span> ' +
+        (st === 'in' ? 'Запросить в «Приглашенные»' : 'Взять в «Приглашенные»');
+    }
+    bi.classList.toggle('hidden', !(peer && (st === '?' || st === 'in')));
+    // pkg3-50: «Добавить пользователя в мои личные чаты» — для чата из раздела «Новые»,
+    // «Убрать из моих личных чатов» — для сохранённого личного чата
+    d.querySelector('[data-act="save"]').classList.toggle('hidden', !(c.kind === 'dm' && !S.dmSaved.has(c.id)));
+    d.querySelector('[data-act="hide"]').classList.toggle('hidden', !(c.kind === 'dm' && S.dmSaved.has(c.id)));
   }
 });
 document.addEventListener('click', e => {
@@ -3723,6 +3781,32 @@ $('#drop').addEventListener('click', e => {
   if (b.dataset.act === 'copy') { exportHtml(c); return; }
   if (b.dataset.act === 'wall') { if (c.kind !== 'game') wallEditor(c); return; }   // pkg3-44: в играх фона нет
   if (b.dataset.act === 'alias') return openAliasEditor();   // pkg3-45: локальные псевдонимы
+  // pkg3-48: «Приглашенные» и «скрыть личный чат» прямо из меню чата
+  if (b.dataset.act === 'bond') {
+    const peer = c.kind === 'dm' ? dmPeer(c) : null;
+    if (!peer) return;
+    const st = bondStateWith(peer);
+    if (st === 'in') return offerBond(peer);
+    if (st === '?') return requestBond(peer);
+    toast(st === 'asked' ? 'Запрос уже отправлен, ждём решения' : 'Человек уже у вас в «Приглашенных»');
+    return;
+  }
+  // pkg3-50: «Добавить пользователя в мои личные чаты» — сохранить чат из «Новых» навсегда
+  if (b.dataset.act === 'save') return saveDmChat(c);
+  if (b.dataset.act === 'hide') {
+    (async () => {
+      try {
+        await api('/api/chats/' + c.id + '/hide', { method: 'POST', body: { hidden: true } });
+        if (S.view === c.id) {
+          S.view = null; S.threadId = null; S.sig = '';
+          $('#messages').innerHTML = ''; renderTopbar(); renderDmBanner(); renderMessages(true);
+        }
+        await sync(false); renderRail();
+        toast('Чат убран из ваших личных чатов. Собеседник по-прежнему видит переписку у себя; его новое письмо вернёт чат в раздел «Новые» ещё на сутки');
+      } catch (ex) { toast(ex.message, true); }
+    })();
+    return;
+  }
   if (b.dataset.act === 'icon') return iconEditor(c);
   if (b.dataset.act === 'clear') return clearChatFlow(c);
   if (b.dataset.act === 'leave') return leaveChatFlow(c);
@@ -3790,7 +3874,7 @@ async function leaveChatFlow(c) {
   if (!confirm(confirmLeave)) return;
   try {
     await api('/api/chats/' + c.id + '/leave', { method: 'POST', body: {} });
-    hide($('#modal')); S.view = null; S.sig = ''; await sync(); renderMessages(true); toast('Вы покинули чат');
+    hide($('#modal')); S.view = null; S.sig = ''; await sync(); renderDmBanner(); renderMessages(true); toast('Вы покинули чат');
   } catch (ex) { toast(ex.message, true); }
 }
 
@@ -4482,6 +4566,10 @@ async function runSearch() {
   }
   const box = $('#search-results');
   if (!q) { hide(box); box.innerHTML = ''; return; }
+  // pkg3-48: людей ищем на сервере по всему мессенджеру — синхронизация отдаёт
+  // каждому только его круг, поэтому незнакомца видно лишь через поиск
+  let people = [];
+  try { people = (await api('/api/search?q=' + encodeURIComponent(q))).users || []; } catch (e) { people = []; }
   const words = q.split(/\s+/).filter(Boolean);
   const hits = [];
   for (let i = S.messages.length - 1; i >= 0 && hits.length < 300; i--) {
@@ -4490,7 +4578,19 @@ async function runSearch() {
     const low = p.text.toLowerCase();
     if (words.every(w => low.includes(w))) hits.push({ m, p });
   }
-  box.innerHTML = `<div class="sr-head">Найдено ${hits.length}${hits.length >= 300 ? '+' : ''} — нажмите, чтобы перейти</div>` +
+  box.innerHTML =
+    (people.length ? `<div class="sr-head">Люди по нику — ${people.length}</div>` + people.map(u => {
+      const st = bondStateWith(u.id);
+      return `<div class="sr" style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0">
+          <b>${escapeHtml(u.name)}</b>${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}
+          <span class="tiny muted">${isOnline(u) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</span>
+        </div>
+        <button class="btn sm" data-peer="${u.id}">написать</button>
+        ${st === '?' ? `<button class="btn sm" data-ask-bond="${u.id}">в Приглашенные</button>` : ''}
+      </div>`;
+    }).join('') : '') +
+    `<div class="sr-head">Найдено ${hits.length}${hits.length >= 300 ? '+' : ''} — нажмите, чтобы перейти</div>` +
     (hits.map(({ m, p }) => {
       let t = escapeHtml(p.text);
       words.forEach(w => { t = t.replace(new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'), '<mark>$1</mark>'); });
@@ -4502,8 +4602,24 @@ async function runSearch() {
   show(box);
 }
 $('#search-results').addEventListener('click', e => {
-  const el = e.target.closest('[data-go]');
-  if (el) goToMessage(el.dataset.go);
+  const go = e.target.closest('[data-go]');
+  if (go) { goToMessage(go.dataset.go); return; }
+  const peer = e.target.closest('[data-peer]');
+  if (peer) {
+    // пишем человеку, найденному поиском: создаётся личный чат, и после
+    // синхронизации собеседник попадает в «Личные чаты»
+    (async () => {
+      try {
+        const r = await api('/api/dm', { method: 'POST', body: { peer: peer.dataset.peer } });
+        hide($('#search-results')); $('#search').value = '';
+        await sync();
+        openChat(r.chat.id);
+      } catch (ex) { toast(ex.message, true); }
+    })();
+    return;
+  }
+  const ask = e.target.closest('[data-ask-bond]');
+  if (ask) requestBond(ask.dataset.askBond);
 });
 
 // ─────────────────────────────────────────── модальные окна
@@ -5221,6 +5337,58 @@ const fmtDur = ms => {
   const m = Math.max(1, Math.round(ms / 60000));
   return m >= 60 ? Math.floor(m / 60) + ' ч ' + (m % 60) + ' мин' : m + ' мин';
 };
+// pkg3-49: «осталось N ч» — счётчик суток в разделе «Новые»
+const fmtLeft = ms => {
+  const left = Math.max(0, ms - (S.serverNow || Date.now()));
+  const h = Math.floor(left / 3600000);
+  if (h >= 1) return 'осталось ' + h + ' ч';
+  return 'осталось ' + Math.max(1, Math.round(left / 60000)) + ' мин';
+};
+// pkg3-49: плашка над лентой личного чата из раздела «Новые»:
+// счётчик суток + кнопка «Добавить пользователя в мои личные чаты», а если сохранил
+// собеседник — отметка об этом.
+function renderDmBanner() {
+  const el = $('#dm-banner');
+  if (!el) return;
+  const c = curChat();
+  if (!c || c.kind !== 'dm' || S.dmSaved.has(c.id)) { hide(el); el.innerHTML = ''; return; }
+  const peer = userById(dmPeer(c));
+  const pname = peer ? displayName(peer) : 'Собеседник';
+  const theySaved = (c.savedBy || []).includes(peer && peer.id);
+  el.innerHTML =
+    `<div class="dm-bn-text">💬 ${escapeHtml(pname)} написал(а) вам впервые. Чат удалится сам через сутки` +
+    (c.newUntil ? ` <span data-bncd="${escapeHtml(c.id)}">(${escapeHtml(fmtLeft(c.newUntil))})</span>` : '') +
+    ` — у собеседника он сохранится в любом случае.</div>
+    <button class="mini primary" id="dm-save-btn">Добавить пользователя в мои личные чаты</button>
+    ${theySaved ? '<div class="dm-bn-note">✓ Вы в личных чатах у собеседника</div>' : ''}`;
+  show(el);
+}
+// pkg3-49: одна команда «сохранить чат» для плашки и для меню «⋯»
+async function saveDmChat(c) {
+  if (!c) return;
+  try {
+    await api('/api/chats/' + c.id + '/save', { method: 'POST', body: {} });
+    api('/api/notify', { method: 'POST', body: { kind: 'saved', chat: c.id } }).catch(() => {});
+    await sync(false);
+    renderAll();
+    toast('Чат добавлен в ваши личные чаты навсегда. Собеседник видит, что вы его сохранили');
+  } catch (ex) { toast(ex.message, true); }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('#dm-save-btn')) saveDmChat(curChat());
+});
+// счётчики «Новых» тикают раз в минуту без полной перерисовки списков
+setInterval(() => {
+  const c = curChat();
+  if (c && c.kind === 'dm' && c.newUntil && !S.dmSaved.has(c.id)) {
+    const b = document.querySelector('[data-bncd]');
+    if (b) b.textContent = '(' + fmtLeft(c.newUntil) + ')';
+  }
+  for (const t of document.querySelectorAll('[data-newcd]')) {
+    const ch = chatById(t.dataset.newcd);
+    if (ch && ch.newUntil) t.textContent = 'новых · ' + fmtLeft(ch.newUntil);
+  }
+}, 60000);
 function qrSvg(text) {
   // вендоренный qrcode-generator (MIT, Kazuhiko Arase): сеть не нужна
   const qr = window.qrcode(0, 'M');
@@ -5260,14 +5428,27 @@ async function openInviteFriend() {
     «в мои приглашенные» шлёт запрос с его согласием (нужна общая группа).</p>
     <input id="inv-find" type="search" placeholder="ник или имя…" autocomplete="off">
     <div id="inv-find-res" class="bp-moves-list" style="max-height:170px"><div class="mv-empty">Начните печатать</div></div>`);
-  const paintFind = () => {
-    const q = ($('#inv-find').value || '').trim().toLowerCase();
+  // pkg3-48: «Найти по нику» спрашивает СЕРВЕР (/api/search) — синхронизация
+  // отдаёт каждому только его круг, поэтому незнакомца в S.users больше нет.
+  // Часто печатать — не часто спрашивать: запрос уходит через 350 мс после
+  // последней буквы, а рисуется только самый свежий ответ (защита от гонки).
+  let findSeq = 0, findDone = '', findTimer = 0;
+  const paintFind = async (force) => {
     const box = $('#inv-find-res');
-    if (!q) { box.innerHTML = '<div class="mv-empty">Начните печатать</div>'; return; }
-    const hits = S.users.filter(u => u.id !== S.me.id
-      && (u.name.toLowerCase().includes(q) || displayName(u).toLowerCase().includes(q)))
-      .slice(0, 20);
-    box.innerHTML = hits.length ? hits.map(u => {
+    if (!box) return;
+    const q = ($('#inv-find').value || '').trim();
+    if (!q) { findSeq++; findDone = ''; box.innerHTML = '<div class="mv-empty">Начните печатать</div>'; return; }
+    if (!force && q.toLowerCase() === findDone) return;   // этот ник уже показан
+    const seq = ++findSeq;
+    box.innerHTML = '<div class="mv-empty">Ищу…</div>';
+    let people = [];
+    try { people = (await api('/api/search?q=' + encodeURIComponent(q))).users || []; }
+    catch (e) { if (seq === findSeq) box.innerHTML = '<div class="mv-empty">Не получилось поискать — попробуйте чуть позже</div>'; return; }
+    if (seq !== findSeq) return;                            // в пути уже более свежий запрос
+    if (($('#inv-find') || {}).value === undefined) return; // окно закрыли — рисовать негде
+    if ((($('#inv-find').value || '').trim()) !== q) return; // поле изменилось, пока ждали ответ
+    findDone = q.toLowerCase();
+    box.innerHTML = people.length ? people.map(u => {
       const shared = S.chats.find(c => c.kind === 'group' && c.members.includes(S.me.id) && c.members.includes(u.id));
       const bs = bondStateWith(u.id);
       return `<div class="mrow-mv"><span class="mv-w">${escapeHtml(displayName(u))}</span>
@@ -5279,7 +5460,7 @@ async function openInviteFriend() {
         </span></div>`;
     }).join('') : '<div class="mv-empty">Никого не нашёл по такому нику</div>';
   };
-  $('#inv-find').addEventListener('input', paintFind);
+  $('#inv-find').addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(() => paintFind(), 350); });
   $('#modal').addEventListener('click', async e => {
     const fdm = e.target.closest('[data-find-dm]');
     if (fdm) {
@@ -5293,7 +5474,7 @@ async function openInviteFriend() {
       fb.disabled = true;
       try {
         await api('/api/bond-req', { method: 'POST', body: { to: fb.dataset.findBond, chat: fb.dataset.chat } });
-        toast('Запрос отправлен'); await sync(false); paintFind();
+        toast('Запрос отправлен'); await sync(false); paintFind(true);
       } catch (ex) { toast(ex.message, true); fb.disabled = false; }
       return;
     }
@@ -5337,6 +5518,11 @@ async function openAdminInvites() {
   hide($('#sheet-settings'));
   let d;
   try { d = await api('/api/admin/invites'); } catch (e) { toast(e.message, true); return; }
+  // pkg3-48: защита от неполного ответа — раньше окно не открывалось вовсе, если
+  // в облачной базе политика приглашений лежала пустой (null)
+  d.users = d.users || []; d.invites = d.invites || []; d.log = d.log || [];
+  const pol = d.policy || { globalOff: false, blockedUsers: [], blockedChats: [] };
+  pol.blockedUsers = pol.blockedUsers || []; pol.blockedChats = pol.blockedChats || [];
   const nameOf = id => id === 'root' ? 'основатели' : id === 'code' ? 'аварийный вход'
     : (d.users.find(u => u.id === id) || {}).name || '?';
   const kids = {};
@@ -5363,11 +5549,11 @@ async function openAdminInvites() {
     <div class="divider"><span>Дерево приглашений</span></div>
     <div class="bp-moves-list" style="max-height:180px">${tree || '<div class="mv-empty">Пока пусто</div>'}</div>
     <div class="divider"><span>Кому запрещено приглашать</span></div>
-    <label class="row-check"><input type="checkbox" id="pol-global" ${d.policy.globalOff ? 'checked' : ''}>
+    <label class="row-check"><input type="checkbox" id="pol-global" ${pol.globalOff ? 'checked' : ''}>
       <span>Запретить всем, кроме администраторов</span></label>
-    ${d.users.filter(u => !u.isAdmin).map(u => `<label class="row-check"><input type="checkbox" data-pol-user="${u.id}" ${d.policy.blockedUsers.includes(u.id) ? 'checked' : ''}>
+    ${d.users.filter(u => !u.isAdmin).map(u => `<label class="row-check"><input type="checkbox" data-pol-user="${u.id}" ${pol.blockedUsers.includes(u.id) ? 'checked' : ''}>
       <span>Запретить: ${escapeHtml(u.name)}</span></label>`).join('')}
-    ${groups.map(c => `<label class="row-check"><input type="checkbox" data-pol-chat="${c.id}" ${d.policy.blockedChats.includes(c.id) ? 'checked' : ''}>
+    ${groups.map(c => `<label class="row-check"><input type="checkbox" data-pol-chat="${c.id}" ${pol.blockedChats.includes(c.id) ? 'checked' : ''}>
       <span>Запретить группе: ${escapeHtml(chatTitle(c))}</span></label>`).join('') || '<div class="tiny muted">Групп пока нет.</div>'}
     <button class="primary" id="pol-save">Сохранить блокировки</button>
     <div class="divider"><span>Аварийная регистрация по кодовой фразе</span></div>

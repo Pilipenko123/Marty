@@ -81,6 +81,9 @@
           (d.messages && d.messages.length)
             ? backend.putAll('msg', d.messages.map(m => ({ key: m.id, value: m }))) : null,
           (d.gone && d.gone.length) ? backend.delMany('msg', d.gone) : null,
+          // pkg3-49: чаты, которых больше нет у участника (истёкшие «Новые»,
+          // убранные из личных) — стираем из кэша вместе с их сообщениями
+          (d.chatsGone && d.chatsGone.length) ? backend.delMany('chat', d.chatsGone) : null,
           (d.chats && d.chats.length)
             ? backend.putAll('chat', d.chats.map(c => ({ key: c.id, value: c }))) : null,
           (d.users && d.users.length)
