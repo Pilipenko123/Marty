@@ -128,23 +128,39 @@ const outsider = await register('Чужак', 'outsider-pass-4', third);
      `логотип SEGA отдаётся целой картинкой (${buf.length} байт)`);
 }
 
-// ── нет никакого общего чата по умолчанию
+// ── нет никакого общего чата по умолчанию (pkg3-48: личные чаты с приглашёнными создаются сразу)
 {
   const s = await syncOf(admin);
-  ok(Array.isArray(s.chats) && s.chats.length === 0, 'после регистрации ни у кого нет предустановленного общего чата');
+  ok(Array.isArray(s.chats) && !s.chats.some(c => c.kind !== 'dm'),
+     'после регистрации нет предустановленного общего чата: у основателя только личные чаты');
+  const dms = s.chats.filter(c => c.kind === 'dm');
+  ok(dms.length === 1 && dms[0].members.includes(friend.id),
+     'приглашённый сразу виден пригласившему личным чатом');
 }
 
 // ── любой участник создаёт свой групповой чат
-const pubs = {};
-{
-  const users = (await syncOf(admin)).users;
-  for (const u of users) pubs[u.id] = u.pub;
+// pkg3-48: синхронизация отдаёт каждому только его круг людей, поэтому тест
+// знает открытые ключи участников сам (они получены при регистрации) и добирает
+// недостающие поиском по нику — как это делает настоящий клиент
+const names = { [admin.id]: admin.name, [friend.id]: friend.name, [third.id]: third.name, [outsider.id]: outsider.name };
+const pubs = {
+  [admin.id]: admin.keys.pub, [friend.id]: friend.keys.pub,
+  [third.id]: third.keys.pub, [outsider.id]: outsider.keys.pub
+};
+// pkg3-48: синхронизация отдаёт только свой круг людей, поэтому недостающие
+// открытые ключи берём из поиска по нику — ровно так же поступает настоящий клиент
+async function pubOf(viewer, id) {
+  if (pubs[id]) return pubs[id];
+  const r = await call('/api/search?q=' + encodeURIComponent(names[id] || ''), {}, viewer.token);
+  const hit = (r.d.users || []).find(u => u.id === id);
+  if (hit && hit.pub) pubs[id] = hit.pub;
+  return pubs[id];
 }
 async function makeGroup(creator, title, memberIds) {
   const raw = getRandomValues(new Uint8Array(32));
   const key = await importAes(raw);
   const keys = {};
-  for (const id of [creator.id, ...memberIds]) keys[id] = { blob: await encB(await pairKey(creator.keys.priv, pubs[id]), raw) };
+  for (const id of [creator.id, ...memberIds]) keys[id] = { blob: await encB(await pairKey(creator.keys.priv, await pubOf(creator, id)), raw) };
   const r = await call('/api/chats', {
     method: 'POST', body: { titleBlob: await encJ(key, { title }), members: memberIds, keys }
   }, creator.token);
@@ -169,7 +185,9 @@ const chat1 = bridge.r.d.chat.id, chat2 = cigars.r.d.chat.id;
 }
 {
   const s = await syncOf(outsider);
-  ok(s.chats.length === 0, 'посторонний участник не видит чужие чаты');
+  // pkg3-48: чужих чатов нет, но свой личный чат с пригласившим виден сразу
+  ok(s.chats.length === 1 && s.chats[0].kind === 'dm' && s.chats[0].members.includes(third.id),
+     'посторонний участник не видит чужие чаты: у него только личный чат с пригласившим');
   ok((await send(outsider, { blob: 'xxx', chat: chat1 })).status === 403, 'посторонний не может писать в чужой чат');
 }
 
