@@ -109,6 +109,12 @@ function startFunctionEmulator(handler, functionId) {
   await waitReady('http://127.0.0.1:8795');
   failed += await runInvites('http://127.0.0.1:8795', 'Режим 1', {});
   srv1b.kill('SIGTERM');
+  // pkg3-49: «Новые» и личные чаты — сценарий сам поднимает свои серверы
+  // (файловый с «короткими сутками» + облачный с холодными стартами)
+  console.log('\n──────────────────────────────────────────────────');
+  console.log('  pkg3-49: «Новые», сутки и облачная память связей');
+  console.log('──────────────────────────────────────────────────');
+  failed += await runOne('test/newchats.mjs', 'http://127.0.0.1:8795', {});
 
   // ── 2. сервер + облачная база
   const mock = await startMock();
