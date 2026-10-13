@@ -106,8 +106,8 @@
     <form id="form-register" class="hidden" autocomplete="off">
       <div id="reg-join" class="hint hidden"></div>
       <div id="reg-closed" class="hint hidden">Регистрация закрыта: мессенджер частный.
-        Попросите у участника персональную ссылку-приглашение (кнопка «Пригласить друга»
-        в его настройках) или отсканируйте его QR-код — и откройте её заново.</div>
+        Попросите у участника персональную ссылку-приглашение (у него в списке чатов:
+        кнопка «+» → «Пригласить по ссылке») или отсканируйте его QR-код — и откройте её заново.</div>
       <label id="reg-code-row" class="hidden">Кодовая фраза
         <input name="code" type="text" placeholder="аварийный ключ администратора" autocomplete="off"></label>
       <label>Придумайте ник<input name="name" type="text" required minlength="2" maxlength="32" autocomplete="username"></label>
@@ -141,9 +141,18 @@
     </div>
 
     <div class="rail-search">
-      <input id="chat-filter" type="search" placeholder="Найти чат или участника…" autocomplete="sega-nofill" name="sega-filter">
-      <button class="new-chat" id="btn-new-chat" title="Создать групповой чат"><span data-ic="plus"></span> Новый чат</button>
-        <button class="new-chat" id="btn-new-game" title="Новая игра: шахматы или шашки">♟ Игра</button>
+      <div class="rail-search-row">
+        <input id="chat-filter" type="search" placeholder="Найти чат или участника…" autocomplete="sega-nofill" name="sega-filter">
+        <button class="new-chat plus-btn" id="btn-plus" type="button"
+          title="Новая игра, групповой чат, приглашение по ссылке"
+          aria-haspopup="menu" aria-expanded="false"><span data-ic="plus"></span></button>
+      </div>
+      <!-- pkg3-52: быстрые действия одной кнопкой «+» (прежние «Новый чат» и «♟ Игра» убраны) -->
+      <div id="plus-menu" class="plus-menu hidden" role="menu" aria-label="Быстрые действия">
+        <button type="button" role="menuitem" data-plus="game"><span class="pm-ic">♟</span> Новая игра</button>
+        <button type="button" role="menuitem" data-plus="group"><span class="pm-ic" data-ic="users"></span> Создать групповой чат</button>
+        <button type="button" role="menuitem" data-plus="invite"><span class="pm-ic" data-ic="send"></span> Пригласить по ссылке</button>
+      </div>
     </div>
 
     <div class="rail-list" id="chat-list"></div>
@@ -244,9 +253,6 @@
   <div class="modal-box">
     <div class="modal-head"><h3>Настройки</h3><button class="icon" id="settings-close" title="Закрыть"><span data-ic="x"></span></button></div>
     <div class="modal-body">
-      <div class="set-row"><span class="ico" data-ic="plus"></span>
-        <div class="t"><b>Пригласить друга</b><span>персональная ссылка и QR: один человек, одни сутки</span></div>
-        <button class="mini" id="btn-invite-friend" type="button">Открыть</button></div>
       <div class="set-row" id="row-admin-invites" style="display:none"><span class="ico" data-ic="users"></span>
         <div class="t"><b>Приглашения: дерево и блокировки</b><span>кто кого позвал, кому запрещено звать</span></div>
         <button class="mini" id="btn-admin-invites" type="button">Открыть</button></div>

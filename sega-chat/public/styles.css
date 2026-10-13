@@ -1335,3 +1335,25 @@ html,body{overflow-x:hidden}
     box-shadow:0 0 16px rgba(0,229,255,.28)}
   :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .msg.show-tools .tool{background:rgba(31,17,64,.9)}
 }
+
+/* ───────── pkg3-52: кнопка «+» и меню быстрых действий ───────── */
+.rail-search{position:relative}
+.rail-search-row{display:flex;align-items:center;gap:8px}
+.rail-search-row input{flex:1;min-width:0}
+.plus-btn{flex:0 0 auto;width:40px;height:36px;padding:0}
+.plus-btn .ic{width:17px;height:17px}
+.plus-btn[aria-expanded="true"]{background:#1a3f7d}
+.plus-menu{position:absolute;top:calc(100% - 4px);right:12px;z-index:60;min-width:236px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:11px;padding:5px;
+  box-shadow:0 12px 32px rgba(0,0,0,.30);display:flex;flex-direction:column;gap:2px}
+.plus-menu button{display:flex;align-items:center;gap:9px;background:none;border:0;color:inherit;
+  padding:9px 10px;border-radius:8px;font-size:13px;font-weight:500;text-align:left;cursor:pointer;width:100%}
+.plus-menu button:hover{background:var(--accent-soft)}
+.plus-menu .pm-ic{display:inline-flex;width:17px;height:17px;align-items:center;justify-content:center;
+  font-size:14px;line-height:1;flex:0 0 auto}
+.plus-menu .pm-ic .ic{width:17px;height:17px}
+
+/* pkg3-52: участники, найденные строкой «Найти чат или участника» — ниже своих чатов */
+.rail-group.people{color:var(--accent)}
+.chat-item.person .ci-last{font-size:11.5px}
+.rail-note{padding:6px 10px;font-size:12px;color:var(--muted)}

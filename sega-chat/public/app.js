@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-51';
+const BUILD = 'pkg3-52';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -241,7 +241,12 @@ const S = {
   savedSeen: {},        // pkg3-49: chatId -> кого я уже видел в «сохранивших» (без повторов плашек)
   booted: false,       // pkg3-49: первый успешный опрос позади — можно показывать плашки
   serverNow: Date.now(),// pkg3-49: время сервера — по нему тикают счётчики «Новых»
-  sig: '', railFilter: ''
+  sig: '', railFilter: '',
+  // pkg3-52: строка «Найти чат или участника» ищет людей и на сервере
+  railPeople: [],      // кого вернул /api/search для текущего запроса
+  railPeopleQ: '',     // какой запрос этим результатам соответствует
+  railPeopleErr: '',   // не получилось спросить сервер (лимит, сеть)
+  railFindPending: ''  // запрос в пути — показать «Ищу…»
 };
 
 // pkg3-45: локальные псевдонимы. Любой ник можно переименовать У СЕБЯ: псевдоним
@@ -2310,7 +2315,7 @@ function renderRail() {
       ${un.total ? `<span class="badge">${un.total}</span>` : ''}
     </div>`;
   };
-  if (games.length) html += `<div class="rail-group">Игры</div>` + games.map(chatRow).join('');
+  if (games.length) html += `<div class="rail-group">Игровые чаты</div>` + games.map(chatRow).join('');
   // pkg3-36: начавшиеся партии — всегда в самом верху списка. У игроков это
   // их чат-игра (раздел «Игры» — первым), у остальных мессенджера — плашка
   // «Сейчас играют» с плавным миганием, чтобы её замечали краем глаза.
@@ -2380,8 +2385,30 @@ function renderRail() {
   // находится поиском по нику (лупа вверху): у АВТОРА письма чат остаётся
   // в «Личных чатах», а у адресата попадает в раздел «Новые» на сутки —
   // сохранить его навсегда можно кнопкой «Добавить пользователя в мои личные чаты».
+  // pkg3-52: ниже своих чатов — участники, которых строка поиска нашла на сервере
+  // (включая незнакомых: синхронизация отдаёт каждому только его круг, поэтому
+  // людей ищем именно сервером). Те, с кем уже есть личная переписка, не дублируются.
+  const qNow = flt.trim();
+  const meId = (S.me || {}).id;
+  const hasDmWith = (u) => S.chats.some(c => c.kind === 'dm' && c.members.includes(u.id) && meId && c.members.includes(meId));
+  if (qNow && S.railPeopleQ === qNow) {
+    const ppl = S.railPeople.filter(u => !hasDmWith(u));
+    html += `<div class="rail-group people">Участники — найдено ${S.railPeople.length}</div>`;
+    html += ppl.length ? ppl.map(u => `<div class="chat-item person" data-peer="${u.id}" title="Написать лично">
+          <div class="ci-main">
+            <div class="ci-name">${escapeHtml(displayName(u))}${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}</div>
+            <div class="ci-last">${isOnline(u) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))} · нажмите, чтобы написать</div>
+          </div>
+        </div>`).join('')
+      : `<div class="rail-note">${S.railPeople.length ? 'Все найденные уже есть в ваших чатах' : 'Никого не нашёл по такому нику'}</div>`;
+  } else if (qNow && S.railFindPending === qNow) {
+    html += `<div class="rail-group people">Участники</div><div class="rail-note">Ищу…</div>`;
+  }
+  if (qNow && S.railPeopleErr) html += `<div class="rail-note">${escapeHtml(S.railPeopleErr)}</div>`;
+
   if (!html) html = `<div class="ci-last" style="padding:14px 10px">Здесь пока пусто. Пригласите друзей ссылкой
-    или найдите человека поиском по нику (лупа вверху) и напишите ему.</div>`;
+    (кнопка «+» вверху списка) или найдите человека этой строкой поиска — она ищет
+    по всем участникам мессенджера, а не только по вашим чатам.</div>`;
   $('#chat-list').innerHTML = html;
 }
 
@@ -3031,7 +3058,33 @@ function firstUnreadMark(chatId, count) {
     .sort((a, b) => a.seq - b.seq);
   return list.length ? { chat: chatId, msgId: list[0].id, count } : null;
 }
-$('#chat-filter').addEventListener('input', e => { S.railFilter = e.target.value; S.sig = ''; renderAll(); });
+// pkg3-52: одна строка ищет и свои чаты (по названию, сразу, на устройстве),
+// и всех участников мессенджера (по нику, на сервере). Серверный запрос уходит
+// через 350 мс после последней буквы, а рисуется только самый свежий ответ —
+// та же защита от гонки, что в окне приглашения.
+let railFindSeq = 0, railFindTimer = 0;
+async function railFindPeople(q) {
+  const seq = ++railFindSeq;
+  let people = null;
+  try { people = (await api('/api/search?q=' + encodeURIComponent(q))).users || []; } catch (e) { people = null; }
+  if (seq !== railFindSeq) return;                                  // в пути более свежий запрос
+  const box = $('#chat-filter');
+  if (!box || (box.value || '').trim().toLowerCase() !== q) return; // поле изменилось, пока ждали
+  S.railPeople = people || [];
+  S.railPeopleQ = people ? q : '';
+  S.railPeopleErr = people ? '' : 'Не получилось поискать участников — попробуйте чуть позже';
+  S.railFindPending = '';
+  renderRail();
+}
+$('#chat-filter').addEventListener('input', e => {
+  S.railFilter = e.target.value; S.sig = '';
+  const q = (e.target.value || '').trim().toLowerCase();
+  clearTimeout(railFindTimer);
+  S.railPeople = []; S.railPeopleQ = ''; S.railPeopleErr = ''; S.railFindPending = '';
+  if (q) { S.railFindPending = q; railFindTimer = setTimeout(() => railFindPeople(q), 350); }
+  else railFindSeq++;                                              // устаревшие ответы — мимо
+  renderAll();
+});
 $('#btn-open-rail').addEventListener('click', () => $('#rail').classList.add('open'));
 $('#btn-close-rail').addEventListener('click', () => $('#rail').classList.remove('open'));
 
@@ -3663,7 +3716,32 @@ function openCreateChat() {
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Создать чат'; }
   });
 }
-$('#btn-new-chat').addEventListener('click', openCreateChat);
+// pkg3-52: одна кнопка «+» вместо прежних «Новый чат» и «♟ Игра».
+// Меню закрывается кликом мимо, по Escape и после выбора действия.
+function plusMenu(open) {
+  const m = $('#plus-menu'), b = $('#btn-plus');
+  if (!m || !b) return;
+  m.classList.toggle('hidden', !open);
+  b.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+$('#btn-plus').addEventListener('click', e => {
+  e.stopPropagation();
+  plusMenu($('#plus-menu').classList.contains('hidden'));
+});
+$('#plus-menu').addEventListener('click', e => {
+  const it = e.target.closest('[data-plus]');
+  if (!it) return;
+  plusMenu(false);
+  $('#rail').classList.remove('open');                 // на телефоне шторка списка закрывается
+  const act = it.dataset.plus;
+  if (act === 'game') return openNewGame();
+  if (act === 'group') return openCreateChat();
+  if (act === 'invite') return openInviteFriend();
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#plus-menu') && !e.target.closest('#btn-plus')) plusMenu(false);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') plusMenu(false); });
 
 // ─────────────────────────────────────────── участники чата
 /** pkg3-47: отношение меня и человека в смысле «Приглашенных»:
@@ -5261,7 +5339,6 @@ document.addEventListener('click', async e => {
     return;
   }
 });
-$('#btn-new-game').addEventListener('click', () => { $('#rail').classList.remove('open'); openNewGame(); });
 $('#btn-dropcache').addEventListener('click', async () => {
   if (!confirm('Стереть кэш переписки с этого устройства?\n\nПереписка останется в облаке; следующая загрузка вытянет её оттуда заново.')) return;
   if (S.idb) await S.idb.clear();
@@ -5332,7 +5409,6 @@ function openSettings() {
   refreshPushSwitch();
 }
 function closeSettings() { hide($('#sheet-settings')); }
-$('#btn-invite-friend').addEventListener('click', openInviteFriend);      // pkg3-45
 $('#btn-admin-invites').addEventListener('click', openAdminInvites);       // pkg3-45
 // ── pkg3-45: персональные приглашения (ссылка + QR + пересылка) ────────────
 const fmtDur = ms => {
@@ -5409,7 +5485,7 @@ async function openInviteFriend() {
       ${i.state === 'live' ? `<button class="mini danger" data-inv-revoke="${escapeHtml(i.id)}">отозвать</button>` : ''}
     </div>`).join('') || '<div class="tiny muted">Ссылок ещё не было.</div>';
   const wait = st.nextAt > Date.now();
-  modal('Пригласить друга', `
+  modal('Пригласить по ссылке', `
     <p class="hint">Ссылка персональная: по ней регистрируется <b>один</b> человек и только
     в течение суток. Секрет ссылки не хранится на сервере, поэтому показать её повторно
     нельзя — перешлите или скопируйте сразу.</p>
