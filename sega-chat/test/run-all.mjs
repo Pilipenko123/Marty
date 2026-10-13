@@ -115,6 +115,11 @@ function startFunctionEmulator(handler, functionId) {
   console.log('  pkg3-49: «Новые», сутки и облачная память связей');
   console.log('──────────────────────────────────────────────────');
   failed += await runOne('test/newchats.mjs', 'http://127.0.0.1:8795', {});
+  // pkg3-51: канал «основной → запасной» и переезд базы (сам поднимает серверы)
+  console.log('\n──────────────────────────────────────────────────');
+  console.log('  pkg3-51: запасной канал, слепки, переезд базы');
+  console.log('──────────────────────────────────────────────────');
+  failed += await runOne('test/standby.mjs', 'http://127.0.0.1:8795', {});
 
   // ── 2. сервер + облачная база
   const mock = await startMock();
