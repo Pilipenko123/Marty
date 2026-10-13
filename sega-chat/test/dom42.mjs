@@ -146,7 +146,7 @@ ok(appJs.includes('function migrateGameNotify44') && appJs.includes('migrateGame
 // pkg3-45: закрытая регистрация и персональные приглашения
 ok(html.includes('id="reg-closed"') && html.includes('id="reg-join"') && html.includes('id="reg-code-row"'), 'на экране регистрации есть полосы: приглашение / закрыто / аварийное окно');
 ok(scripts.indexOf('qrcode.js') >= 0 && scripts.indexOf('qrcode.js') < scripts.indexOf('app.js'), 'генератор QR подключён раньше app.js');
-ok(html.includes('id="btn-invite-friend"'), 'в настройках есть кнопка «Пригласить друга»');
+ok(!html.includes('id="btn-invite-friend"'), 'pkg3-52: из настроек убрана кнопка «Пригласить друга» — приглашение переехало в меню «+»');
 ok(html.includes('data-act="alias"'), 'в меню чата есть «Переименовать у себя…»');
 ok(appJs.includes('function refreshRegisterGate') && appJs.includes('function parseJoinToken'), 'экран регистрации решает, открыта ли дверь и чем');
 ok(appJs.includes('function openInviteFriend') && appJs.includes('function qrSvg'), 'окно приглашения рисует ссылку и QR без сети');
@@ -176,7 +176,7 @@ ok(!appJs.includes('rail-group">Написать лично'), 'раздела �
 ok(appJs.includes("api('/api/search?q='"), 'поиск по нику идёт через сервер (/api/search), а не по локальному списку');
 ok(appJs.includes('pol.blockedUsers = pol.blockedUsers || [];'), 'политика приглашений нормализуется — админ-окно открывается и при пустой базе облака');
 ok(appJs.includes('d.users = d.users || [];'), 'админ-окно защищено от неполного ответа сервера');
-ok(appJs.includes('findSeq') && appJs.includes('setTimeout(() => paintFind(), 350)'), 'поиск в окне «Пригласить друга» с задержкой и защитой от устаревших ответов');
+ok(appJs.includes('findSeq') && appJs.includes('setTimeout(() => paintFind(), 350)'), 'поиск в окне «Пригласить по ссылке» с задержкой и защитой от устаревших ответов');
 
 // pkg3-49: «Новые», сутки, сохранение и уборка личных чатов
 ok(appJs.includes('rail-group">Новые'), 'в списке чатов есть раздел «Новые»');
@@ -193,7 +193,35 @@ ok(css.includes('#dm-banner{'), 'баннер «Новых» оформлен в
 ok(appJs.includes('chatsGone:'), 'исчезнувшие чаты стираются из локальной памяти устройства');
 ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои партии приходят отдельным списком');
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
-ok(sw.includes('sega-static-v42'), 'кэш статики поднят до v42');
+ok(sw.includes('sega-static-v44'), 'кэш статики поднят до v44');
+
+// pkg3-52: одна строка поиска, кнопка «+» и переименованный раздел игр
+const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
+ok(html.includes('id="btn-plus"') && html.includes('id="plus-menu"'), 'рядом со строкой поиска живёт кнопка «+» с меню быстрых действий');
+ok(html.includes('data-plus="game"') && html.includes('data-plus="group"') && html.includes('data-plus="invite"'),
+  'в меню «+» три пункта: новая игра, групповой чат, приглашение по ссылке');
+ok(html.includes('Новая игра') && html.includes('Создать групповой чат') && html.includes('Пригласить по ссылке'),
+  'пункты меню «+» подписаны словами владельца');
+ok(!html.includes('id="btn-new-chat"') && !html.includes('id="btn-new-game"'), 'прежние кнопки «Новый чат» и «♟ Игра» убраны');
+ok(appJs.includes('function plusMenu') && appJs.includes('it.dataset.plus'), 'меню «+» открывается и вызывает нужное окно');
+ok(appJs.includes("e.key === 'Escape'") && appJs.includes("plusMenu(false)"), 'меню «+» закрывается по Escape и по клику мимо');
+ok(appJs.includes('rail-group">Игровые чаты'), 'раздел игр переименован в «Игровые чаты»');
+ok(!appJs.includes('rail-group">Игры<'), 'прежнего короткого названия «Игры» в списке чатов не осталось');
+ok(appJs.includes('function railFindPeople') && appJs.includes('railFindTimer'),
+  'строка «Найти чат или участника» ищет людей на сервере, а не только свои чаты');
+ok(appJs.includes('setTimeout(() => railFindPeople(q), 350)'), 'запрос участников уходит через 350 мс после последней буквы');
+ok(appJs.includes('seq !== railFindSeq'), 'устаревший ответ поиска не рисуется (защита от гонки)');
+ok(appJs.includes('rail-group people') && appJs.includes('Участники — найдено'), 'найденные люди показываются отдельным разделом ниже своих чатов');
+ok(appJs.includes('hasDmWith'), 'с кем уже есть личная переписка — не дублируются в найденных');
+ok(appJs.includes("data-peer=\"${u.id}\"") || appJs.includes('data-peer="${u.id}"'), 'клик по найденному человеку открывает личный чат (data-peer)');
+ok(css.includes('.plus-menu{'), 'меню «+» оформлено в стилях');
+ok(css.includes('.rail-group.people{'), 'раздел найденных участников оформлен в стилях');
+ok(html.includes('кнопка «+» → «Пригласить по ссылке»'), 'подсказка на экране входа ведёт в новое место приглашения');
+ok(!html.includes('в его настройках'), 'старой подсказки «кнопка в его настройках» не осталось');
+ok(apiJs.includes('SEARCH_LIMIT'), 'лимит поиска настраивается: центральный поиск дёргается чаще прежнего');
+ok(apiJs.includes("throttle('search:' + me.id, SEARCH_LIMIT)"), 'поиск участников работает по своему, более широкому лимиту');
+ok(apiJs.includes('function throttle(key, limit)'), 'вход и регистрация остались под строгим лимитом (25 за 10 минут)');
+ok(apiJs.includes('Number(limit) > 0 ? Number(limit) : 25'), 'предел по умолчанию не изменился: подбор пароля свободнее не стал');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

@@ -271,6 +271,17 @@ ok(!!(hit && hit.pub), 'поиск отдаёт открытый ключ: на�
 const empty = await call('/api/search?q=', {}, px.user.token);
 ok(empty.status === 200 && (empty.d.users || []).length === 0, 'пустой поиск никого не возвращает');
 
+// pkg3-52: поиск переехал в строку «Найти чат или участника» и стал центральным —
+// его лимит поднят (SEARCH_LIMIT, по умолчанию 60), прежних 25 за 10 минут уже
+// не хватало бы. Проверяем на живом сервере: 30 запросов подряд без отказа.
+let searchOk = 0, searchLimited = 0;
+for (let i = 0; i < 30; i++) {
+  const rr = await call('/api/search?q=' + encodeURIComponent('бо'), {}, px.user.token);
+  if (rr.status === 200) searchOk++; else if (rr.status === 429) searchLimited++;
+}
+ok(searchOk === 30 && searchLimited === 0,
+  'тридцать поисков подряд проходят — лимит поиска поднят под центральную строку (прежний был 25)');
+
 const dmCB = await call('/api/dm', { method: 'POST', body: { peer: b1.user.id } }, px.user.token);
 ok(dmCB.status === 200 && dmCB.d.chat.kind === 'dm', 'личный чат с найденным человеком создан');
 const sC2 = await call('/api/sync?since=0', {}, px.user.token).then(r => r.d);
