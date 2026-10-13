@@ -147,7 +147,9 @@ function createFileStore(opts = {}) {
           let st = null;
           try { st = fs.statSync(full); } catch (e) { continue; }
           const rel = prefix ? prefix + '/' + f : f;
-          if (st.isDirectory()) { if (depth > 0) walk(full, rel, depth - 1); continue; }
+          // pkg3-51: папка standby/ — это дорожная сумка канала «основной →
+          // запасной» (принятые слепки), а не данные мессенджера: в копию не идёт
+          if (st.isDirectory()) { if (depth > 0 && f !== 'standby') walk(full, rel, depth - 1); continue; }
           if (f.endsWith('.tmp') || f.endsWith('.broken')) continue;
           try { files[rel] = fs.readFileSync(full, 'utf8'); } catch (e) {}
           const group = rel.split('/')[0].replace(/-[\w.]+$/, '');

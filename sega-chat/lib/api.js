@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-50';
+const BUILD = 'pkg3-51';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -36,6 +36,37 @@ function createApi(store, opts = {}) {
   // ------------------------------------------------------------- ответы
   const J = (status, json, headers) => ({ status, json, headers });
   const E = (status, msg) => ({ status, json: { error: msg } });
+
+  // pkg3-51: где лежат принятые слепки канала «основной → запасной».
+  // В облаке — приватный бакет рядом с программой (папка standby/),
+  // в файловом режиме — папка standby/ рядом с базой. Имена относительные,
+  // всякие «../» из запроса наружу не выпускаем.
+  function stPath(rel) {
+    const fs = require('fs'), path = require('path'), os = require('os');
+    const base = path.join(store.dataDir || os.tmpdir(), 'standby');
+    const full = path.join(base, String(rel));
+    if (!full.startsWith(base + path.sep) && full !== base) throw new Error('Неверное имя');
+    return full;
+  }
+  async function stPut(rel, buf) {
+    if (backup.enabled()) return backup.s3().put('standby/' + rel, buf, 'application/octet-stream');
+    const fs = require('fs'), path = require('path');
+    const p = stPath(rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, buf);
+  }
+  async function stGet(rel) {
+    if (backup.enabled()) {
+      try { return await backup.s3().get('standby/' + rel); } catch (e) { return null; }
+    }
+    const fs = require('fs');
+    try { return fs.readFileSync(stPath(rel)); } catch (e) { return null; }
+  }
+  async function stDel(rel) {
+    if (backup.enabled()) return backup.s3().del('standby/' + rel);
+    const fs = require('fs');
+    fs.rmSync(stPath(rel), { force: true });
+  }
   const FILE = (text, name) => ({
     status: 200,
     body: Buffer.from(text),
@@ -605,8 +636,98 @@ function createApi(store, opts = {}) {
         // кодовая фраза принимает лишь пока открыто аварийное окно администратора
         registration: 'invite',
         emergencyOpen: db.emergencyRegUntil > Date.now(),
-        limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD
+        limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD,
+        // pkg3-51: подпись сервера («VPS (основной)» / «Яндекс (запасной)») —
+        // владелец ставит её переменной окружения SEGA_LABEL, чтобы в подвале
+        // было видно, КТО именно сейчас отвечает
+        serverLabel: process.env.SEGA_LABEL ? String(process.env.SEGA_LABEL) : null
       });
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // pkg3-51: канал «основной сервер → запасной». Оба сервера шлют друг
+    // другу шифрованные слепки базы поверх HTTPS; вход — по общему секрету
+    // SEGA_STANDBY_TOKEN (переменная окружения с обеих сторон). Без секрета
+    // маршрутов просто нет: посторонний получит «404».
+    //   POST /api/standby/receive  {token,id,i,data}   кусок слепка
+    //   POST /api/standby/receive  {token,id,fin,parts,sha256}  собрать куски
+    //   GET  /api/standby/snapshot?token=              последний принятый слепок
+    //   GET  /api/standby/ping?token=                  жив ли приёмник
+    //   GET  /api/standby/export?token=&key=&i=&size=  слепок СЕЙЧАС, зашифрованный
+    //                                                  одноразовым ключом key
+    // ─────────────────────────────────────────────────────────────────
+    if (pathname.startsWith('/api/standby/')) {
+      const want = String(process.env.SEGA_STANDBY_TOKEN || '');
+      const got = String(query.get('token') || (req.body && req.body.token) || '');
+      const okToken = !!want && !!got && Buffer.from(got).length === Buffer.from(want).length
+        && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
+      if (!okToken) return E(404, 'Нет такой страницы');
+
+      if (pathname === '/api/standby/ping' && method === 'GET') {
+        const last = await stGet('latest.sbgz');
+        return J(200, { ok: true, build: BUILD, at: Date.now(), has: !!last, bytes: last ? last.length : 0 });
+      }
+
+      if (pathname === '/api/standby/receive' && method === 'POST') {
+        const b = req.body || {};
+        const id = String(b.id || '');
+        if (!/^[a-f0-9]{8,64}$/.test(id)) return E(400, 'Неверный идентификатор передачи');
+        if (b.fin) {
+          const n = Math.max(1, Math.min(4000, Number(b.parts) || 0));
+          const chunks = [];
+          for (let i = 0; i < n; i++) {
+            const p = await stGet('parts-' + id + '/' + i);
+            if (!p) return E(400, 'Не все куски доехали — начните передачу заново');
+            chunks.push(p);
+          }
+          const blob = Buffer.concat(chunks);
+          const sha = crypto.createHash('sha256').update(blob).digest('hex');
+          if (String(b.sha256 || '') !== sha) return E(400, 'Слепок пришёл повреждённым — начните передачу заново');
+          await stPut('latest.sbgz', blob);
+          for (let i = 0; i < n; i++) await stDel('parts-' + id + '/' + i).catch(() => {});
+          return J(200, { ok: true, bytes: blob.length, sha256: sha, at: Date.now() });
+        }
+        const i = Number(b.i);
+        if (!Number.isInteger(i) || i < 0 || i > 3999) return E(400, 'Неверный номер куска');
+        const data = String(b.data || '');
+        if (!data || data.length > 8 * MB) return E(400, 'Неверный кусок');
+        const buf = Buffer.from(data, 'base64');
+        if (Math.abs(buf.length * 4 / 3 - data.length) > 8 && data.length % 4 !== 0) return E(400, 'Кусок пришёл повреждённым');
+        await stPut('parts-' + id + '/' + i, buf);
+        return J(200, { ok: true, i, bytes: buf.length });
+      }
+
+      if (pathname === '/api/standby/snapshot' && method === 'GET') {
+        const buf = await stGet('latest.sbgz');
+        if (!buf) return E(404, 'Слепка ещё нет');
+        return { status: 200, body: buf, headers: { 'Content-Type': 'application/octet-stream' } };
+      }
+
+      if (pathname === '/api/standby/export' && method === 'GET') {
+        const key = String(query.get('key') || '');
+        if (!/^[0-9a-f]{32,128}$/.test(key)) return E(400, 'Неверный одноразовый ключ');
+        const snap = await backup.makeSnapshot({ store, db, build: BUILD, secret: key });
+        const blob = snap.blob;
+        const iRaw = query.get('i');
+        if (iRaw === null || iRaw === '') {
+          if (blob.length > 3.2 * MB) return E(413, 'Слепок большой — забирайте его кусками (i, size)');
+          return J(200, {
+            data: blob.toString('base64'), i: 0, done: true,
+            bytes: blob.length, sha256: snap.sha256, rows: snap.rows, at: Date.now()
+          });
+        }
+        const i = Number(iRaw);
+        const size = Math.max(64 * 1024, Math.min(3 * MB, Number(query.get('size')) || 2 * MB));
+        if (!Number.isInteger(i) || i < 0 || i > 3999) return E(400, 'Неверный номер куска');
+        const piece = blob.subarray(i * size, (i + 1) * size);
+        if (!piece.length && i > 0) return E(404, 'Куска с таким номером нет');
+        return J(200, {
+          data: piece.toString('base64'), i, done: (i + 1) * size >= blob.length,
+          bytes: blob.length, sha256: snap.sha256, rows: snap.rows, at: Date.now()
+        });
+      }
+
+      return E(404, 'Нет такой страницы');
     }
 
     // --- pkg3-45: публичная справка по ссылке-приглашению (до регистрации):

@@ -130,18 +130,19 @@ function atFromKey(key, fallback) {
  * Сделать копию и положить её в бакет.
  * @returns {Promise<object>} { key, bytes, rawBytes, gzBytes, rows, counts, at, verify }
  */
-async function createBackup(opts) {
+/**
+ * Собрать сам слепок базы (сжатый и зашифрованный) без записи куда-либо.
+ * Нужен и резервной копии в бакет, и каналу «основной → запасной сервер»:
+ * запасной сервер получает ровно такой же шифрованный блок, только ключ
+ * шифрования на время пересылки может быть подменён на одноразовый.
+ */
+async function makeSnapshot(opts) {
   const { store, db, build } = opts;
-  const c = config();
-  if (!c.bucket) throw new Error('Облачное хранилище не настроено: у функции нет переменной CODE_BUCKET');
-  const client = opts.s3 || s3();
-
   // сначала сбрасываем в базу всё, что накопилось в памяти «тёплого» экземпляра,
   // иначе в копию не попадут самые свежие сообщения
   if (typeof store.flush === 'function') { try { await store.flush(db); } catch (e) {} }
   if (typeof store.dumpAll !== 'function') throw new Error('Хранилище не умеет выгружать копию');
 
-  const prefix = opts.prefix || c.prefix;   // страховочные копии перед восстановлением живут отдельно
   const dump = await store.dumpAll();
   const payload = {
     app: 'SEGA-CHAT',
@@ -160,7 +161,22 @@ async function createBackup(opts) {
     throw new Error('База слишком большая для одной копии (' + Math.round(raw.length / 1048576) + ' МБ) — сначала разгрузите архивы');
   }
   const gz = zlib.gzipSync(raw, { level: 9 });
-  const blob = encrypt(gz, db.serverSecret);
+  const blob = encrypt(gz, opts.secret || db.serverSecret);
+  return {
+    blob, rawBytes: raw.length, gzBytes: gz.length,
+    rows: countRecords(payload), counts: dump.counts || null, sha256: sha256(blob)
+  };
+}
+
+async function createBackup(opts) {
+  const { store, db } = opts;
+  const c = config();
+  if (!c.bucket) throw new Error('Облачное хранилище не настроено: у функции нет переменной CODE_BUCKET');
+  const client = opts.s3 || s3();
+
+  const prefix = opts.prefix || c.prefix;   // страховочные копии перед восстановлением живут отдельно
+  const snap = await makeSnapshot(opts);
+  const blob = snap.blob;
 
   const at = Date.now();
   const key = prefix + await freeName(client, prefix, stampName(new Date(at)));
@@ -176,9 +192,9 @@ async function createBackup(opts) {
   await trim(client, Object.assign({}, c, { prefix }));
 
   return {
-    key, at, bytes: blob.length, rawBytes: raw.length, gzBytes: gz.length,
-    rows: countRecords(payload), counts: dump.counts || null, verify,
-    sha256: sha256(blob)
+    key, at, bytes: blob.length, rawBytes: snap.rawBytes, gzBytes: snap.gzBytes,
+    rows: snap.rows, counts: snap.counts, verify,
+    sha256: snap.sha256
   };
 }
 
@@ -250,6 +266,6 @@ function safeKey(key, prefix) {
 }
 
 module.exports = {
-  FORMAT, config, enabled, s3, createBackup, listBackups, readBackup, deleteBackup,
+  FORMAT, config, enabled, s3, createBackup, makeSnapshot, listBackups, readBackup, deleteBackup,
   encrypt, decrypt, inspect, open, sha256, safeKey, stampName, atFromKey, countRecords, S3Error
 };
