@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-51';
+const BUILD = 'pkg3-52';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -455,12 +455,18 @@ function createApi(store, opts = {}) {
 
   // ------------------------------------------------------------- защита от перебора
   const attempts = new Map();
-  function throttle(key) {
+  // pkg3-52: лимит теперь настраивается per-ключ. Вход и регистрация остались
+  // строгими (25 попыток за 10 минут), а поиск участников стал центральным —
+  // он живёт в строке «Найти чат или участника» и дёргается при каждом запросе,
+  // поэтому ему разрешено больше (SEARCH_LIMIT, по умолчанию 60).
+  const SEARCH_LIMIT = Math.max(5, Number(process.env.SEARCH_LIMIT || 60));
+  function throttle(key, limit) {
+    const max = Number(limit) > 0 ? Number(limit) : 25;
     const now = Date.now();
     const rec = attempts.get(key) || { n: 0, t: now };
     if (now - rec.t > 10 * 60 * 1000) { rec.n = 0; rec.t = now; }
     rec.n++; attempts.set(key, rec);
-    return rec.n > 25; // больше 25 попыток за 10 минут — отказ
+    return rec.n > max; // больше max попыток за 10 минут — отказ
   }
 
   async function auth(req) {
@@ -944,7 +950,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/search' && method === 'GET') {
       const q = String(query.get('q') || '').trim().toLowerCase();
       if (!q) return J(200, { users: [] });
-      if (throttle('search:' + me.id)) return E(429, 'Слишком часто ищете: подождите немного');
+      if (throttle('search:' + me.id, SEARCH_LIMIT)) return E(429, 'Слишком часто ищете: подождите немного');
       const hits = db.users
         .filter(u => u.id !== me.id && (u.nameLower || u.name.toLowerCase()).includes(q))
         .slice(0, 30)
