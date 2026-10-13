@@ -305,6 +305,10 @@ env.update({                                            # и освежаем о
 })
 for k in ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"):
     if E(k, ""): env[k] = E(k)                          # явный экспорт важнее старого
+# pkg3-51: ключ канала «основной → запасной» и подпись сервера в подвале;
+# задаются в той же команде Cloud Shell: SEGA_STANDBY_TOKEN=… SEGA_LABEL=…
+for k in ("SEGA_STANDBY_TOKEN", "SEGA_LABEL"):
+    if E(k, ""): env[k] = E(k)
 if not env.get("VAPID_PRIVATE_KEY"):
     warnings.append("Ключей push нет: уведомления приходить не будут (на сам чат это не влияет).")
     line("   ⚠ ключей push нет — уведомления работать не будут")
