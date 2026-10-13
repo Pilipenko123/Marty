@@ -71,25 +71,38 @@ npm install --omit=dev --no-audit --no-fund >/dev/null
 echo "  код лежит в $APP/code, зависимости поставлены"
 
 say "5/8. Настройки (.env) и ключ канала к запасному серверу"
-OLD_TOKEN=""
+# pkg3-52: прежний .env БОЛЬШЕ НЕ ПЕРЕПИСЫВАЕТСЯ. В нём живут ключи уведомлений
+# (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT) и другие настройки,
+# которые владелец добавил руками; старый вариант файла их стирал при каждом
+# повторном запуске установщика. Теперь дописываем только недостающее.
+ensure_key() {   # ensure_key ИМЯ ЗНАЧЕНИЕ
+  grep -q "^$1=" "$APP/.env" 2>/dev/null || printf '%s=%s\n' "$1" "$2" >> "$APP/.env"
+}
 if [ -f "$APP/.env" ]; then
-  OLD_TOKEN="$(sed -n 's/^SEGA_STANDBY_TOKEN=//p' "$APP/.env" | head -1)"
-  echo "  .env уже был — ключ сохраняю прежний"
+  cp "$APP/.env" "$APP/.env.bak"
+  echo "  .env уже есть — оставляю как был (страховочная копия: $APP/.env.bak)"
+else
+  : > "$APP/.env"
+  echo "  .env создан"
 fi
-[ -n "$OLD_TOKEN" ] || OLD_TOKEN="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-cat > "$APP/.env" <<ENV
-PORT=3000
-HOST=127.0.0.1
-DATA_DIR=$APP/data
-STORE=file
-HTTPS=
-SEGA_ROLE=primary
-SEGA_LABEL="VPS (основной)"
-SEGA_STANDBY_TOKEN=$OLD_TOKEN
-SEGA_STANDBY_URL=
-ENV
+ensure_key PORT 3000
+ensure_key HOST 127.0.0.1
+ensure_key DATA_DIR "$APP/data"
+ensure_key STORE file
+ensure_key HTTPS ""
+ensure_key SEGA_ROLE primary
+ensure_key SEGA_LABEL '"VPS (основной)"'   # значение с пробелом — в кавычках, как и было
+ensure_key SEGA_STANDBY_URL ""
+ensure_key SEGA_STANDBY_TOKEN "$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
 chmod 600 "$APP/.env"
-echo "  .env записан (права 600)"
+OLD_TOKEN="$(sed -n 's/^SEGA_STANDBY_TOKEN=//p' "$APP/.env" | head -1)"
+if grep -q '^VAPID_PUBLIC_KEY=' "$APP/.env"; then
+  echo "  ключи уведомлений (VAPID) на месте — пуши продолжат работать"
+else
+  echo "  ВНИМАНИЕ: ключей уведомлений (VAPID_*) в .env нет — пуши работать не будут."
+  echo "  Как добавить: см. ИНСТРУКЦИЯ (три строки VAPID_* в $APP/.env и перезапуск службы)."
+fi
+echo "  .env готов (права 600), строк: $(wc -l < "$APP/.env")"
 
 say "6/8. Служба systemd"
 cat > /etc/systemd/system/sega-chat.service <<UNIT
@@ -112,7 +125,26 @@ systemctl daemon-reload
 systemctl enable sega-chat >/dev/null 2>&1 || true
 systemctl restart sega-chat
 sleep 2
-systemctl is-active sega-chat >/dev/null && echo "  служба работает" || { echo "Беда: служба не поднялась: journalctl -u sega-chat -n 30"; exit 1; }
+if systemctl is-active sega-chat >/dev/null; then
+  echo "  служба работает"
+else
+  # pkg3-52: сервер теперь живой, на нём настоящие участники — при неудаче
+  # сами откатываемся на прежний код и поднимаем службу обратно.
+  echo "  Беда: служба на новом коде не поднялась — откатываюсь на прежний код"
+  if [ -d "$APP/code.old" ]; then
+    rm -rf "$APP/code.failed"
+    mv "$APP/code" "$APP/code.failed"
+    mv "$APP/code.old" "$APP/code"
+    systemctl restart sega-chat
+    sleep 2
+    systemctl is-active sega-chat >/dev/null \
+      && echo "  прежний код снова в работе (неудачный лежит в $APP/code.failed)" \
+      || echo "  Беда: и прежний код не поднялся — journalctl -u sega-chat -n 30"
+  else
+    echo "  Прежнего кода нет — journalctl -u sega-chat -n 30"
+  fi
+  exit 1
+fi
 
 say "7/8. nginx на порту 80 для $DOMAIN"
 cat > /etc/nginx/sites-available/sega-chat <<NGX
