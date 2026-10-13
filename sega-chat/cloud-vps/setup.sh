@@ -54,13 +54,14 @@ else
 fi
 
 say "4/8. Код мессенджера с GitHub"
-rm -rf /tmp/marty-main /tmp/marty.zip
+rm -rf /tmp/marty.zip /tmp/marty-src
 curl -fsSL "$REPO_ZIP" -o /tmp/marty.zip
-unzip -q -o /tmp/marty.zip -d /tmp
-[ -d /tmp/marty-main/sega-chat ] || { echo "Беда: в архиве нет папки sega-chat."; exit 1; }
+unzip -q -o /tmp/marty.zip -d /tmp/marty-src
+SRC="$(find /tmp/marty-src -maxdepth 3 -type d -name sega-chat -print -quit)"
+[ -n "$SRC" ] || { echo "Беда: в архиве нет папки sega-chat."; exit 1; }
 mkdir -p "$APP"
 rm -rf "$APP/code.new" "$APP/code.old"
-mv /tmp/marty-main/sega-chat "$APP/code.new"
+mv "$SRC" "$APP/code.new"
 if [ -d "$APP/code" ]; then mv "$APP/code" "$APP/code.old"; fi
 mv "$APP/code.new" "$APP/code"
 mkdir -p "$APP/data"
