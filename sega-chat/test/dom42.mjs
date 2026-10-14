@@ -196,7 +196,22 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v46'), 'кэш статики поднят до v46');
+ok(sw.includes('sega-static-v47'), 'кэш статики поднят до v47');
+
+// pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
+ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
+ok(appJs.includes('1200 * Math.pow(2, i)'), 'пауза между попытками растёт');
+ok(appJs.includes('function netFailBox'), 'при неудаче показывается плашка с причинами, а не вечная шкала');
+ok(appJs.includes('белыми списками'), 'в плашке честно названы белые списки операторов');
+ok(appJs.includes('nf-retry'), 'у плашки есть кнопка «Повторить»');
+ok(css.includes('#net-fail{') && css.includes('.nf-box{'), 'плашка оформлена в стилях');
+const tune = readFileSync(join(HERE, '..', 'cloud-vps', 'net-tune.sh'), 'utf8');
+ok(tune.includes('--set-mss') && tune.includes('TCPMSS'), 'сетевая настройка уменьшает размер пакетов под туннели');
+ok(tune.includes('http2'), 'сетевая настройка включает HTTP/2 в nginx');
+ok(tune.includes('--ecdsa'), 'лёгкий сертификат ECDSA доступен флагом --ecdsa');
+ok(tune.includes('sega-net-tune.service'), 'правила переживают перезагрузку (страховочная единица)');
+const setupSh = readFileSync(join(HERE, '..', 'cloud-vps', 'setup.sh'), 'utf8');
+ok(setupSh.includes('net-tune.sh'), 'установщик применяет сетевую настройку сам');
 
 // pkg3-54: «Новые» на 7 суток, группы в «Новых», «Отклонить», лимиты
 ok(html.includes('data-act="decline"') && html.includes('Отклонить чат'), 'в меню чата есть «Отклонить чат»');
