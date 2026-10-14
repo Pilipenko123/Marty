@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-55';
+const BUILD = 'pkg3-56';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1731,7 +1731,7 @@ function createApi(store, opts = {}) {
       // pkg3-41: сервер правила не понимает, только записывает; без метки — шахматы
       // (старые клиенты создают игры как раньше и ничего не замечают)
       const rules = b.rules === undefined ? 'chess' : String(b.rules);
-      if (!['chess', 'checkers'].includes(rules)) return E(400, 'Игра: chess или checkers');
+      if (!['chess', 'checkers', 'seabattle'].includes(rules)) return E(400, 'Игра: chess, checkers или seabattle');
       // pkg3-54: не больше четырёх одновременных партий, где я игрок
       if (liveGamesOf(me.id) >= MAX_LIVE_GAMES) {
         return E(400, 'У вас уже ' + MAX_LIVE_GAMES + ' одновременные партии — завершите одну, чтобы начать новую');
