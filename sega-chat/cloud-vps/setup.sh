@@ -184,6 +184,12 @@ cat > /etc/cron.d/sega-standby <<CRON
 CRON
 echo "  слепки на запасной сервер: каждые 5 минут (пока получателю некуда — это нормально)"
 
+# pkg3-55: сразу применяем сетевую настройку под мобильные сети и VPN
+if [ -f "$APP/code/cloud-vps/net-tune.sh" ]; then
+  say "Дополнительно: сеть под мобильные сети и VPN"
+  bash "$APP/code/cloud-vps/net-tune.sh" || echo "  сетевая настройка не применилась — не страшно, запустите позже: bash $APP/code/cloud-vps/net-tune.sh"
+fi
+
 say "ГОТОВО"
 cat <<EOF
   Адрес чата (когда DNS дойдёт):   https://$DOMAIN
