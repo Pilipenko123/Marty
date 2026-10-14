@@ -1393,3 +1393,43 @@ html,body{overflow-x:hidden}
 .nf-list{margin:0 0 14px;padding-left:18px;font-size:13px;line-height:1.5;display:flex;flex-direction:column;gap:7px}
 .nf-list b{color:var(--accent)}
 #nf-retry{width:100%}
+
+/* ───────── pkg3-56: морской бой — два поля 10×10, точки и взрывы ───────── */
+.sb-panel .sb-tabs{display:none;gap:6px;justify-content:center;margin:2px 0 8px}
+.sb-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;justify-items:center}
+.sb-field{width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+.sb-cap{font-size:12px;font-weight:600;color:var(--muted);text-align:center}
+.sb-frame{display:grid;grid-template-columns:auto 1fr;grid-template-rows:1fr auto;gap:3px;width:100%;max-width:430px}
+.sbf-ranks{display:grid;grid-template-rows:repeat(10,1fr);align-items:center;justify-items:end;padding-right:2px}
+.sbf-ranks i,.sbf-files i{font-style:normal;font-size:10px;color:var(--muted);line-height:1}
+.sbf-files{grid-column:2;display:grid;grid-template-columns:repeat(10,1fr);justify-items:center;padding-top:2px}
+.sb-board{position:relative;display:grid;grid-template-columns:repeat(10,1fr);grid-template-rows:repeat(10,1fr);
+  aspect-ratio:1/1;width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.sb-board .sbc{position:relative;border-right:1px solid var(--line-2);border-bottom:1px solid var(--line-2);display:flex;align-items:center;justify-content:center}
+.sb-board .sbc.can{cursor:crosshair}
+.sb-board .sbc.can:hover{background:var(--accent-soft)}
+.sb-board.placing .sbc{cursor:pointer}
+.sb-board.placing .sbc:hover{background:var(--accent-soft)}
+.sb-dot{width:26%;height:26%;border-radius:50%;background:var(--muted);opacity:.75}
+.sb-boom{width:96%;height:96%;object-fit:contain;pointer-events:none}
+.sb-ships{position:absolute;inset:0;pointer-events:none}
+.sb-ship{position:absolute;object-fit:contain;filter:drop-shadow(0 1px 1px rgba(20,40,60,.25))}
+.sb-lock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  aspect-ratio:1/1;width:100%;max-width:430px;background:var(--panel-2);border:1px dashed var(--line);border-radius:6px;
+  color:var(--muted);font-size:20px;padding:10px;text-align:center}
+.sb-pal{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.sb-chip{display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);opacity:.55}
+.sb-chip img{height:16px;width:auto;object-fit:contain}
+.sb-chip b{font-size:12px;color:var(--muted)}
+.sb-chip.cur{opacity:1;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.sb-chip.done{opacity:.3}
+.sb-pal-btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.sb-hint{margin-top:6px;text-align:center}
+.sb-verifyrow{margin-top:6px;text-align:center}
+.sb-verify.ok{color:#2c7a3f;font-size:12px;font-weight:600}
+.sb-verify.bad{color:#c0392b;font-size:12px;font-weight:600}
+@media (max-width:699px){
+  .sb-panel .sb-tabs{display:flex}
+  .sb-fields{grid-template-columns:1fr}
+  .sb-field.sb-hide-m{display:none}
+}

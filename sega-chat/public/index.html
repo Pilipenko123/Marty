@@ -44,6 +44,45 @@
   } catch (e) {}
 })();
 </script>
+<script>
+/* pkg3-55.1: сторож недогрузки. Внешние файлы (стили, скрипты) могут не долезть
+   через туннель VPN или в часы белых списков операторов — тогда страница обязана
+   не молчать «белым экраном», а честно сказать, что случилось, и дать кнопку
+   «Повторить». Код сторожа встроен прямо в страницу: ему нечего догружать.
+   Если app.js стартовал (window.SEGA_BOOTED) — сторож молчит; если стартовал с
+   опозданием — app.js сам уберёт плашку. Задержка настраивается окном SEGA_WD_MS
+   (тесты ставят короткую). */
+(function () {
+  var MS = window.SEGA_WD_MS || 20000;
+  setTimeout(function () {
+    try {
+      if (window.SEGA_BOOTED || document.getElementById('segawd')) return;
+      var d = document.createElement('div');
+      d.id = 'segawd';
+      d.setAttribute('style', 'position:fixed;left:0;right:0;bottom:0;z-index:99;background:#fff;color:#111;border-top:4px solid #2353A2;padding:14px 16px calc(14px + env(safe-area-inset-bottom));font:15px/1.45 system-ui,sans-serif');
+      d.innerHTML = '<b>Страница загрузилась не полностью.</b> Каркас приехал, а оформление и программа — нет: путь до сервера сейчас узкий.'
+        + '<ul style="margin:8px 0;padding:0 0 0 18px">'
+        + '<li>Мобильный интернет ограничен белыми списками операторов — помогут Wi-Fi или VPN.</li>'
+        + '<li>VPN на телефоне мешает соединению: попробуйте выключить его или сменить режим/протокол в приложении VPN.</li>'
+        + '<li>Сервер перезапускается: подождите минуту.</li>'
+        + '</ul>'
+        + 'Переписки и партии в безопасности: они хранятся зашифрованными, ничего не потерялось.'
+        + ' <button type="button" id="segawd-retry" style="margin-left:8px;padding:8px 14px;border:0;border-radius:999px;background:#2353A2;color:#fff;font:inherit">Повторить</button>';
+      (document.body || document.documentElement).appendChild(d);
+      var b = document.getElementById('segawd-retry');
+      if (b) b.onclick = function () { location.reload(); };
+    } catch (e) {}
+  }, MS);
+})();
+</script>
+<style>
+/* pkg3-55.1: страховка «страница не разденется». Экраны прячет класс .hidden из
+   styles.css; если файл стилей не догрузился через туннель VPN или в часы белых
+   списков, страница показывала ВСЕ экраны друг под другом (включая «Первый
+   запуск») и пугала людей. Одно встроенное правило переживает любую недогрузку:
+   спрятанное остаётся спрятанным даже без внешних файлов. */
+.hidden{display:none!important}
+</style>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -301,6 +340,7 @@
 
 <script src="chess-engine.js"></script>
 <script src="checkers-engine.js"></script>
+<script src="seabattle-engine.js"></script>
 <script src="qrcode.js"></script>
 <script src="local-cache.js"></script>
 <script src="app.js"></script>

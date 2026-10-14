@@ -8,7 +8,14 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-55';
+const BUILD = 'pkg3-56';
+/* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
+   20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
+   белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
+   Раз скрипт выполняется — плашка не нужна: ставим признак и убираем её, если
+   она уже успела появиться (сеть могла доползти с опозданием). */
+window.SEGA_BOOTED = 1;
+(function () { const w = document.getElementById('segawd'); if (w) w.remove(); })();
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -1262,6 +1269,9 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
 
   const touched = await applyChangeDelta(data);
   if (touched) { S.sig = ''; if (S.view) renderMessages(); renderThread(); }
+  // pkg3-56: морской бой — если по нашему полю выстрелили, устройство с флотом
+  // отвечает само (и вскрывает флот в конце партии); без этого выстрел висит
+  sbAutoRespond().catch(() => {});
   if (typeof data.rnow === 'number') S.rsince = data.rnow;
   if (typeof data.chg === 'number') S.chg = data.chg;
   S.booted = true;   // pkg3-49: первый опрос состоялся — плашки «вас добавили» разрешены
@@ -1485,6 +1495,7 @@ function showDesktopNotification(m) {
   const gico = gameIcon(c);
   const body = p.k === 'move' ? `${gico} ход ${rusSan(p.san) || (p.from + '–' + p.to)} · ${author.name}`
     : p.k === 'game-event' ? `${gico} ${p.text || 'событие игры'}`
+    : (p.k && p.k.slice(0, 3) === 'sb-') ? `${gico} ${sbNote(p)} · ${author.name}`
     : p.text ? `${author.name}: ${cut(p.text, 120)}` : `${author.name}: 📷 изображение`;
   try {
     const n = new Notification(chatTitle(c) || 'SEGA-CHAT', {
@@ -1707,6 +1718,7 @@ function preview(m) {
   // pkg3-41: значок и запись хода — по игре чата (шашки ●, шахматы ♟), ход по-русски
   const gico = gameIcon(chatById(m.chat));
   if (gp && gp.k === 'move') return gico + ' ход ' + (rusSan(gp.san) || (gp.from + '–' + gp.to));
+  if (gp && gp.k && gp.k.slice(0, 3) === 'sb-') return gico + ' ' + sbNote(gp);
   if (gp && gp.k === 'game-invite') return gico + ' приглашение в игру';
   if (gp && gp.k === 'game-event') return gico + ' ' + (gp.text || 'событие игры');
   if (!m) return '';
@@ -1724,8 +1736,18 @@ const userNameById = id => (userById(id) || {}).name || '…';
 /** pkg3-41: в разделе «Игры» живут две игры — шахматы и русские шашки.
  * Правила записаны в карточке игры (game.rules); старым партиям без метки
  * считаем шахматами, поэтому история не ломается. */
-const gameRulesOf = c => ((c && c.game && c.game.rules) === 'checkers') ? 'checkers' : 'chess';
-const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : '♟';
+const gameRulesOf = c => ((c && c.game && c.game.rules) === 'checkers') ? 'checkers'
+  : ((c && c.game && c.game.rules) === 'seabattle') ? 'seabattle' : 'chess';
+const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : gameRulesOf(c) === 'seabattle' ? '⚓' : '♟';
+/** pkg3-56: человеческая подпись служебных писем морского боя (лента, превью, уведомления). */
+function sbNote(p) {
+  if (!p || !p.k) return 'морской бой';
+  if (p.k === 'sb-commit') return 'флот расставлен и запечатан';
+  if (p.k === 'sb-shot') return 'выстрел ' + SB.cellName(p.x, p.y);
+  if (p.k === 'sb-reply') return SB.cellName(p.x, p.y) + (p.r === 'hit' ? ': ранил' : p.r === 'sunk' ? ': потопил' : ': мимо');
+  if (p.k === 'sb-reveal') return 'флот открыт для проверки';
+  return 'морской бой';
+}
 /** pkg3-41: русская шашка — кругляш с короной у дамки. Инлайн-SVG масштабируется
  * под клетку; в эконом-режиме и в неоне перекрашивается правилами CSS. */
 function ckDiscHtml(p) {
@@ -1758,6 +1780,16 @@ function gameRailSub(c) {
   }
   const broken = S.messages.some(m => m.chat === c.id && !m.parent && plainBroken(m.id));
   if (broken) return 'идёт партия…';
+  // pkg3-56: морской бой — своя подпись: расстановка / чей выстрел / победа
+  if (gameRulesOf(c) === 'seabattle') {
+    try {
+      const { eng } = gameReplay(c);
+      const st = eng.status();
+      if (st === 'over') return 'весь флот потоплен — победил ' + userNameById(eng.winner() === 'w' ? g.white : g.black);
+      if (st === 'placing') return 'морской бой · расстановка флота';
+      return 'морской бой · стреляет ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
+    } catch (e) { return 'морской бой…'; }
+  }
   try {
     const { eng, sans } = gameReplay(c);
     const st = eng.status();
@@ -1778,6 +1810,24 @@ function openGameTitle(g) {
  * шашки — createCheckers, шахматы — createChess. Записи ходов в истории
  * одинаковые ({k:'move', from, to, …}), движок просто свой. */
 function gameReplay(c) {
+  // pkg3-56: морской бой разбирается своим движком; сторона письма — по цвету
+  // игрока («белый» стреляет первым), как в шахматах и шашках
+  if (gameRulesOf(c) === 'seabattle') {
+    const eng = createSeabattle();
+    const g = c.game || {};
+    const sans = [];
+    let skipped = 0;
+    const msgs = S.messages.filter(m => m.chat === c.id && !m.parent && !m.failed).sort((a, b) => a.seq - b.seq);
+    for (const m of msgs) {
+      const p = S.plain.get(m.id);
+      if (!p || !p.k || p.k.slice(0, 3) !== 'sb-') continue;
+      const side = m.uid === g.white ? 'w' : m.uid === g.black ? 'b' : null;
+      const line = side ? eng.apply(p, side) : null;
+      if (line) sans.push(line);
+      else if (p.k === 'sb-reply' || p.k === 'sb-shot') skipped++;
+    }
+    return { eng, sans, skipped };
+  }
   const eng = gameRulesOf(c) === 'checkers' ? createCheckers() : createChess();
   const sans = [];
   let skipped = 0;
@@ -1795,6 +1845,7 @@ function gameStatusText(c, eng, st) {
   if (g.status === 'finished' && g.result) {
     return 'Партия окончена: победил ' + userNameById(g.result.winner) + ' (соперник сдался)';
   }
+  if (gameRulesOf(c) === 'seabattle') return sbStatusText(c, eng, false);
   if (gameRulesOf(c) === 'checkers') {
     if (st === 'over') return 'Партия окончена: победил ' + userNameById(eng.turn() === 'w' ? g.black : g.white) + ' — у соперника не осталось ходов';
     return 'Ход: ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
@@ -1811,6 +1862,7 @@ function gameStatusShortText(c, eng, st) {
   const g = c.game || {};
   if (g.status === 'invite') return 'Ожидание соперника';
   if (g.status === 'finished' && g.result) return 'Победил ' + userNameById(g.result.winner);
+  if (gameRulesOf(c) === 'seabattle') return sbStatusText(c, eng, true);
   if (gameRulesOf(c) === 'checkers') {
     if (st === 'over') return 'Победил ' + userNameById(eng.turn() === 'w' ? g.black : g.white);
     return 'Ход: ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
@@ -1824,7 +1876,8 @@ function gamePayloadHtml(p, chat) {
   if (!p || typeof p !== 'object' || !p.k) return '';
   const gc0 = chat || (p.game ? (S.chats || []).find(x => x.id === p.game) : null);
   const rules = (gc0 && gc0.game && gc0.game.rules) || p.rules || 'chess';
-  const ico = rules === 'checkers' ? '●' : '♟';
+  const ico = rules === 'checkers' ? '●' : rules === 'seabattle' ? '⚓' : '♟';
+  if (p.k && p.k.slice(0, 3) === 'sb-') return `<div class="mv-line">${ico} ${escapeHtml(sbNote(p))}</div>`;
   if (p.k === 'move') return `<div class="mv-line">${ico} ${escapeHtml(rusSan(p.san) || (p.from + '–' + p.to))}</div>`;
   if (p.k === 'game-event') return `<div class="mv-sys">${escapeHtml(p.text || '')}</div>`;
   if (p.k === 'game-invite') {
@@ -1839,7 +1892,7 @@ function gamePayloadHtml(p, chat) {
         <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}">Войти в игру</button>
         <button class="mini danger" data-game-decline="${escapeHtml(p.game)}">Отклонить</button></div>`;
     else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
-    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : 'шахматы'}</b>
+    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : 'шахматы'}</b>
       <div class="tiny muted">${escapeHtml(p.note || '')}</div>${act}</div>`;
   }
   return '';
@@ -2020,6 +2073,8 @@ function renderBoard() {
   const lm = eng.lastMove();
   const g = c.game || {};
   const rules = gameRulesOf(c);
+  // pkg3-56: морской бой рисуется своей панелью (два поля 10×10 вместо доски 8×8)
+  if (rules === 'seabattle') return renderSeabattle(wrap, c, eng, st, sans, role, my);
   // pkg3-41: у шашек подсвечиваем всю цепочку взятия (откуда — посадки — куда)
   const lmSqs = lm ? (lm.path && lm.path.length ? lm.path : [lm.from, lm.to]) : [];
   let cells = '';
@@ -2125,9 +2180,373 @@ function renderBoard() {
     S.movesShown = { chat: c.id, len: sans.length };
   }
 }
+// ─────────────────────────────────────────── pkg3-56: морской бой ─────────────────
+/** Порядок расстановки: сначала крупные, как на листочке. */
+const SB_ORD = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+function sbLocalGet(id) { try { return JSON.parse(localStorage.getItem('sega.sb.' + id)) || null; } catch (e) { return null; } }
+function sbLocalSet(id, v) { try { localStorage.setItem('sega.sb.' + id, JSON.stringify(v)); } catch (e) {} }
+async function sbSha(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function sbPlace(c) {
+  S.sbPlace = S.sbPlace || {};
+  if (!S.sbPlace[c.id]) S.sbPlace[c.id] = { fleet: [], horiz: true };
+  return S.sbPlace[c.id];
+}
+/** pkg3-56: состояние морского боя словами — в заголовок панели и на телефон. */
+function sbStatusText(c, eng, short) {
+  const g = c.game || {};
+  const my = myGameColor(c);
+  const nameOf = s => userNameById(s === 'w' ? g.white : g.black);
+  if (g.status === 'invite') return short ? 'Ожидание соперника' : 'Ожидание соперника: приглашение отправлено';
+  if (g.status === 'finished' && g.result) {
+    return (short ? '' : 'Партия окончена: ') + 'победил ' + userNameById(g.result.winner) + (short ? '' : ' (соперник сдался)');
+  }
+  const st = eng.status();
+  if (st === 'over') return (short ? '' : 'Весь флот потоплен! ') + 'Победил ' + nameOf(eng.winner());
+  if (st === 'placing') {
+    if (!my) return short ? 'Расстановка' : 'Игроки расставляют флот';
+    if (!eng.committed(my)) return short ? 'Расставьте флот' : 'Расставьте флот: корабли не касаются друг друга даже углами. Потом — «В бой!»';
+    if (!eng.committed(SB.other(my))) return short ? 'Ждём соперника' : 'Ваш флот запечатан. Ждём расстановку соперника…';
+    return short ? 'Вот-вот начнём' : 'Оба флота запечатаны — сейчас начнём';
+  }
+  if (!my) return short ? 'Идёт партия' : 'Стреляет ' + nameOf(eng.turn());
+  const pen = eng.pendingShot();
+  if (pen) {
+    return pen.side === my
+      ? (short ? 'Ждём ответ' : 'Ваш выстрел отправлен — ждём ответ устройства соперника')
+      : (short ? 'Соперник стреляет' : 'Соперник стреляет по вашему полю…');
+  }
+  if (eng.turn() === my) return short ? 'Ваш выстрел' : 'Ваш выстрел! Выберите клетку на чужом поле';
+  return short ? 'Стреляет соперник' : 'Стреляет соперник: ' + nameOf(eng.turn());
+}
+/** Рамка поля 10×10 с подписями рядов и колонок, как в бумажной игре. */
+function sbFrameHtml(boardHtml) {
+  const ranks = Array.from({ length: 10 }, (_, i) => `<i>${i + 1}</i>`).join('');
+  const files = SB.COLS.map(l => `<i>${l}</i>`).join('');
+  return `<div class="sb-frame"><div class="sbf-ranks" aria-hidden="true">${ranks}</div>${boardHtml}<div class="sbf-files" aria-hidden="true">${files}</div></div>`;
+}
+function sbShipImg(s) {
+  const w = s.horiz ? s.len * 10 : 10, h = s.horiz ? 10 : s.len * 10;
+  return `<img class="sb-ship" src="img/sb-ship${s.len}${s.horiz ? 'h' : ''}.png" alt="${escapeHtml(SB.SHIP_NAMES[s.len] || 'корабль')}" draggable="false"
+    style="left:${s.x * 10}%;top:${s.y * 10}%;width:${w}%;height:${h}%">`;
+}
+/**
+ * Поле стороны boardSide: сетка с отметками (точка — промах, взрыв — ранение,
+ * взрыв по всему кораблю + точки вокруг — потопил) и кораблими поверх:
+ * своими всегда, чужими — только потопленные и после вскрытия флота.
+ */
+function sbBoardHtml(c, eng, boardSide, meSide, opts) {
+  const o = opts || {};
+  const v = eng.viewOf(boardSide);
+  const reveal = eng.revealOf(boardSide);
+  const fleet = reveal && reveal.fleet ? reveal.fleet : (boardSide === meSide && o.loc ? o.loc.fleet : null);
+  const canShoot = !!o.shoot && eng.status() === 'playing' && !eng.pendingShot() && eng.turn() === meSide && boardSide !== meSide;
+  let cells = '';
+  for (let y = 0; y < 10; y++) {
+    for (let x = 0; x < 10; x++) {
+      const gs = v.grid[y * 10 + x];
+      const cls = 'sbc' + (canShoot && !gs ? ' can' : '') + (o.place ? ' place' : '');
+      const mark = gs === 'miss' ? '<i class="sb-dot" title="мимо"></i>'
+        : gs === 'hit' ? '<img class="sb-boom" src="img/sb-boom.png" alt="ранил" draggable="false">'
+          : gs === 'sunk' ? '<img class="sb-boom" src="img/sb-boom.png" alt="потопил" draggable="false">' : '';
+      cells += `<div class="${cls}" data-sbcell="${x},${y}" data-sbboard="${boardSide}">${mark}</div>`;
+    }
+  }
+  let ships = '';
+  if (fleet) {
+    for (const s of fleet) {
+      const isSunkShip = v.sunk.some(sn => (sn.cells || []).length === s.len
+        && sn.cells.every(cc => SB.shipCells(s).some(k => k.x === cc.x && k.y === cc.y)));
+      if (boardSide !== meSide && !isSunkShip && !reveal) continue;   // чужой флот до вскрытия не показываем
+      ships += sbShipImg(s) + (isSunkShip ? '' : '');
+    }
+  }
+  return sbFrameHtml(`<div class="sb-board${o.place ? ' placing' : ''}">${cells}<div class="sb-ships">${ships}</div></div>`);
+}
+function sbLogHtml(c, sans) {
+  if (!sans.length) return '<div class="tiny muted mv-empty">Выстрелов пока нет — флоты расставляются</div>';
+  const g = c.game || {};
+  let out = '';
+  for (let i = 0; i < sans.length; i++) {
+    const [side, text] = [sans[i].slice(0, 1), sans[i].slice(2)];
+    const who = userNameById(side === 'w' ? g.white : g.black);
+    out += `<div class="mrow-mv"><span class="mv-n">${i + 1}.</span><span class="mv-w">${escapeHtml(who)}: ${escapeHtml(text)}</span></div>`;
+  }
+  return out;
+}
+/** Значок честности: сверяем вскрытый флот с печатью sb-commit. */
+function sbVerifyBadge(c, eng, side, meSide) {
+  const rev = eng.revealOf(side);
+  if (!rev || !rev.fleet) return '';
+  const key = c.id + '|' + side;
+  S.sbVerify = S.sbVerify || {};
+  const cur = S.sbVerify[key];
+  if (cur === undefined) {
+    S.sbVerify[key] = '…';
+    (async () => {
+      const hex = await sbSha(SB.canon(rev.fleet, rev.salt));
+      const shots = eng._state().shots.filter(s => s.side === SB.other(side) && s.r);
+      S.sbVerify[key] = SB.checkReveal(rev, eng.commitOf(side), hex, shots) ? 'ok' : 'bad';
+      S.boardSig = ''; renderBoard();
+    })().catch(() => { S.sbVerify[key] = 'bad'; });
+    return '<span class="tiny muted">проверка…</span>';
+  }
+  if (cur === 'ok') return '<span class="sb-verify ok">' + (side === meSide ? 'ваш флот совпал с печатью ✓' : 'флот соперника честен ✓') + '</span>';
+  if (cur === 'bad') return '<span class="sb-verify bad">флот не совпал с печатью — соперник мухлевал!</span>';
+  return '<span class="tiny muted">проверка…</span>';
+}
+function renderSeabattle(wrap, c, eng, st, sans, role, my) {
+  const g = c.game || {};
+  const opp = SB.other(my || 'w');
+  const nameOf = s => userNameById(s === 'w' ? g.white : g.black);
+  const ctrlL = [], ctrlR = [];
+  if (role) {
+    const label = role === 'viewer' ? 'Покинуть'
+      : g.status === 'playing' ? 'Сдаться'
+        : g.status === 'invite' ? 'Отменить приглашение'
+          : 'Удалить игру';
+    const full = role === 'viewer' ? 'Покинуть игру'
+      : g.status === 'playing' ? 'Сдаться и выйти'
+        : g.status === 'invite' ? 'Отменить приглашение и удалить игру'
+          : 'Закрыть и удалить игру';
+    ctrlL.push(`<button class="mini danger" id="gm-leave" title="${escapeHtml(full)}">${label}</button>`);
+  }
+  if (role === 'player' && (c.knocks || []).length) {
+    ctrlR.push(`<button class="mini" id="gm-knocks" title="Заявки зрителей: ${c.knocks.length}">Заявки: ${c.knocks.length}</button>`);
+  }
+  const btnsRow = ctrlL.concat(ctrlR).length ? `<div class="bph-btns">${ctrlL.concat(ctrlR).join(' ')}</div>` : '';
+  const P = sbPlace(c);
+  const loc = sbLocalGet(c.id);
+  const myCommitted = my ? eng.committed(my) : false;
+  const placing = role === 'player' && !!my && !myCommitted && g.status === 'playing';
+  const tab = S.sbTab || 'enemy';
+  const over = st === 'over' || g.status === 'finished';
+  const sig = ['sb', c.id, sans.length, st, eng.turn(), JSON.stringify(eng.pendingShot() || 0),
+    myCommitted ? 1 : 0, P.fleet.length, P.horiz ? 1 : 0, tab, (c.knocks || []).length, role || '-',
+    g.status, JSON.stringify(S.sbVerify || {}), loc ? 1 : 0, S.eco ? 1 : 0].join('|');
+  if (S.boardSig === sig && wrap.dataset.chat === c.id && wrap.firstChild) return;
+  const prevGm = $('#game-moves');
+  const prevTop = prevGm ? prevGm.scrollTop : null;
+  const prevMoves = (S.movesShown && S.movesShown.chat === c.id) ? S.movesShown.len : -1;
+  S.boardSig = sig; wrap.dataset.chat = c.id;
+  wrap.classList.remove('hidden');
+
+  let mineInner, enemyInner;
+  if (placing) {
+    const left = {};
+    for (const len of SB_ORD) left[len] = (left[len] || 0) + 1;
+    for (const s of P.fleet) left[s.len]--;
+    const curLen = SB_ORD[P.fleet.length] || 0;
+    const chips = [4, 3, 2, 1].map(len => `<span class="sb-chip${len === curLen ? ' cur' : ''}${left[len] ? '' : ' done'}" title="${escapeHtml(SB.SHIP_NAMES[len])}: осталось ${left[len] || 0}">
+        <img src="img/sb-ship${len}h.png" alt="${escapeHtml(SB.SHIP_NAMES[len])}" draggable="false"><b>×${left[len] || 0}</b></span>`).join('');
+    mineInner = sbBoardHtml(c, eng, my, my, { loc: { fleet: P.fleet }, place: true })
+      + `<div class="sb-pal">${chips}</div>
+         <div class="sb-pal-btns">
+           <button class="mini" id="sb-rot" title="Повернуть корабль">Повернуть: ${P.horiz ? 'горизонтально' : 'вертикально'}</button>
+           <button class="mini" id="sb-rand" title="Расставить случайно">Случайно</button>
+           <button class="mini" id="sb-clear" title="Убрать все корабли">Очистить</button>
+           <button class="mini primary" id="sb-go" ${P.fleet.length === 10 ? '' : 'disabled'} title="Запечатать флот и начать бой">В бой!</button>
+         </div>
+         <div class="tiny muted sb-hint">Коснитесь клетки — корабль встанет туда носом (${curLen ? SB.SHIP_NAMES[curLen] + ', ' + curLen + ' кл.' : 'все расставлены'}). Коснитесь своего корабля — он вернётся в запас.</div>`;
+    enemyInner = `<div class="sb-lock">🔒<span class="tiny muted">Поле соперника откроется, когда оба флота будут запечатаны</span></div>`;
+  } else {
+    enemyInner = sbBoardHtml(c, eng, opp, my, { shoot: role === 'player' })
+      + (over ? `<div class="sb-verifyrow">${sbVerifyBadge(c, eng, opp, my)}</div>` : '');
+    mineInner = sbBoardHtml(c, eng, my, my, { loc })
+      + (!loc && myCommitted ? '<div class="tiny muted sb-hint">Расстановка хранится на устройстве, где вы ставили флот. Отметки выстрелов соперника видны здесь.</div>' : '')
+      + (over ? `<div class="sb-verifyrow">${sbVerifyBadge(c, eng, my, my)}</div>` : '');
+  }
+  const tabs = `<div class="sb-tabs">
+      <button class="mini${tab === 'enemy' ? ' primary' : ''}" data-sb-tab="enemy">Поле соперника</button>
+      <button class="mini${tab === 'mine' ? ' primary' : ''}" data-sb-tab="mine">Моё поле</button>
+    </div>`;
+  const enemyCap = `Поле соперника · ${escapeHtml(nameOf(opp))}`;
+  const mineCap = `Моё поле · ${escapeHtml(nameOf(my || 'w'))}`;
+  wrap.innerHTML = `<div class="board-panel sb-panel">
+    <div class="bp-head">
+      <div class="bph-top"><span class="bph-full">${escapeHtml(gameStatusText(c, eng, st))}</span><span class="bph-short">${escapeHtml(gameStatusShortText(c, eng, st))}</span></div>
+      ${btnsRow}
+    </div>
+    ${tabs}
+    <div class="sb-fields">
+      <div class="sb-field${tab !== 'enemy' ? ' sb-hide-m' : ''}"><div class="sb-cap">${enemyCap}</div>${enemyInner}</div>
+      <div class="sb-field${tab !== 'mine' ? ' sb-hide-m' : ''}"><div class="sb-cap">${mineCap}</div>${mineInner}</div>
+    </div>
+    <div class="bp-moves-list" id="game-moves">${sbLogHtml(c, sans)}</div>
+  </div>`;
+  const gm = $('#game-moves');
+  if (gm) {
+    if (prevMoves !== sans.length) gm.scrollTop = gm.scrollHeight;
+    else if (prevTop !== null) gm.scrollTop = prevTop;
+    S.movesShown = { chat: c.id, len: sans.length };
+  }
+}
+async function onSbCell(el) {
+  const c = curChat();
+  if (!c || c.kind !== 'game' || gameRulesOf(c) !== 'seabattle') return;
+  if ((c.roles || {})[S.me.id] !== 'player') return;
+  const { eng } = gameReplay(c);
+  const my = myGameColor(c);
+  if (!my) return;
+  const board = el.dataset.sbboard;
+  const [x, y] = String(el.dataset.sbcell).split(',').map(Number);
+  if (board === my) {
+    if (eng.committed(my) || (c.game || {}).status !== 'playing') return;   // запечатано — не трогаем
+    const P = sbPlace(c);
+    const at = P.fleet.findIndex(s => SB.shipCells(s).some(k => k.x === x && k.y === y));
+    if (at >= 0) P.fleet.splice(at, 1);
+    else {
+      const len = SB_ORD[P.fleet.length];
+      if (!len) return;
+      if (!SB.canPlace(P.fleet, x, y, len, P.horiz)) { toast('Здесь не встанет: корабли не касаются друг друга даже углами', true); return; }
+      P.fleet.push({ x, y, len, horiz: P.horiz });
+    }
+    S.boardSig = ''; renderBoard();
+    return;
+  }
+  if (eng.status() !== 'playing' || eng.turn() !== my || eng.pendingShot()) return;
+  const v = eng.viewOf(board);
+  if (v.grid[y * 10 + x]) { toast('Сюда уже стреляли', true); return; }
+  await sendSb(c, { k: 'sb-shot', x, y });
+}
+/** Письмо морского боя уходит так же, как ход шахмат: черновик на доске сразу, доставка фоном. */
+async function sendSb(c, payload) {
+  if (S.sbSending) return;
+  const k = await chatKeyOf(c);
+  if (!k) { toast('Не удалось получить ключ шифрования для этой игры', true); return; }
+  let blob;
+  try { blob = await encryptJSON(k.key, payload); }
+  catch (ex) { toast(ex.message || 'Не удалось зашифровать', true); return; }
+  const tmpId = 'tmpsb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const draft = {
+    id: tmpId, seq: nextLocalSeq(), uid: S.me.id, ts: Date.now(),
+    blob, bytes: blob.length, chat: c.id, parent: null, quote: null, local: true
+  };
+  S.retry[tmpId] = { blob, chat: c.id, parent: null, quote: null, payload };
+  addMessages([draft]);
+  S.plain.set(tmpId, payload);
+  S.sbSending = true;
+  S.sig = ''; renderBoard(); renderRail();
+  wake('ход морского боя');
+  postSb(draft);
+}
+async function postSb(draft) {
+  const rec = S.retry[draft.id] || {};
+  try {
+    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: rec.chat, blob: rec.blob } });
+    S.sbSending = false;
+    adoptSent(draft, r.message, rec.payload);
+    cacheMsg(r.message);
+    if (r.usage) S.usage = r.usage;
+    S.sig = ''; renderBoard(); renderRail();
+    sync(false).catch(() => {});
+  } catch (ex) {
+    S.sbSending = false;
+    removeLocal([draft.id]);
+    S.boardSig = ''; renderBoard(); renderRail();
+    toast('Не отправилось (' + (ex.message || 'сбой сети') + ') — попробуйте ещё раз', true);
+  }
+}
+async function sbCommitSend() {
+  const c = curChat();
+  if (!c || gameRulesOf(c) !== 'seabattle') return;
+  const P = sbPlace(c);
+  if (P.fleet.length !== 10) { toast('Расставьте все десять кораблей', true); return; }
+  const salt = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const commit = await sbSha(SB.canon(P.fleet, salt));
+  sbLocalSet(c.id, { fleet: P.fleet, salt, commit });
+  delete S.sbPlace[c.id];
+  S.boardSig = '';
+  await sendSb(c, { k: 'sb-commit', commit });
+}
+function sbToggleRot() {
+  const c = curChat(); if (!c) return;
+  const P = sbPlace(c); P.horiz = !P.horiz;
+  S.boardSig = ''; renderBoard();
+}
+function sbRandom() {
+  const c = curChat(); if (!c) return;
+  const f = SB.randomFleet();
+  if (!f) { toast('Не удалось расставить — попробуйте ещё раз', true); return; }
+  sbPlace(c).fleet = f;
+  S.boardSig = ''; renderBoard();
+}
+function sbClear() {
+  const c = curChat(); if (!c) return;
+  sbPlace(c).fleet = [];
+  S.boardSig = ''; renderBoard();
+}
+/**
+ * pkg3-56: устройство, на котором хранится флот, отвечает на выстрелы само —
+ * человеку не нужно ни нажимать ничего, ни (главное) «подыгрывать» себе:
+ * ответ считается из настоящей расстановки. В конце партии флот вскрывается
+ * для сверки с печатью.
+ */
+async function sbAutoRespond() {
+  if (!S.me || !S.chats || !S.chats.length) return;
+  for (const c of S.chats) {
+    if (c.kind !== 'game' || (c.game || {}).rules !== 'seabattle' || (c.game || {}).status !== 'playing') continue;
+    if ((c.roles || {})[S.me.id] !== 'player') continue;
+    const my = myGameColor(c);
+    if (!my) continue;
+    const { eng } = gameReplay(c);
+    const st = eng.status();
+    const loc = sbLocalGet(c.id);
+    const pen = eng.pendingShot();
+    if (st === 'playing' && pen && pen.side !== my && loc && loc.fleet && !S.sbBusy) {
+      S.sbBusy = c.id + ':' + pen.x + ',' + pen.y;
+      try {
+        const ship = SB.shipAt(loc.fleet, pen.x, pen.y);
+        let r = 'miss', cells = null, aura = null;
+        if (ship) {
+          const v = eng.viewOf(my);
+          const hits = new Set();
+          for (let i = 0; i < 100; i++) if (v.grid[i] === 'hit' || v.grid[i] === 'sunk') hits.add(SB.ck(i % 10, Math.floor(i / 10)));
+          hits.add(SB.ck(pen.x, pen.y));
+          if (SB.isSunk(ship, hits)) {
+            r = 'sunk';
+            cells = SB.shipCells(ship).map(k => SB.ck(k.x, k.y));
+            aura = SB.auraOf(ship);
+          } else r = 'hit';
+        }
+        const k = await chatKeyOf(c);
+        if (k) {
+          const payload = { k: 'sb-reply', x: pen.x, y: pen.y, r, cells, aura };
+          const blob = await encryptJSON(k.key, payload);
+          const rr = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: c.id, blob } });
+          S.plain.set(rr.message.id, payload);
+          addMessages([rr.message]);
+          cacheMsg(rr.message);
+          S.sig = ''; renderBoard(); renderRail();
+        }
+      } catch (e) { /* повторим на следующей синхронизации */ }
+      S.sbBusy = null;
+    }
+    if (st === 'over' && loc && loc.fleet && !eng.revealOf(my) && !S.sbRevealBusy) {
+      S.sbRevealBusy = c.id;
+      try {
+        const k = await chatKeyOf(c);
+        if (k) {
+          const payload = { k: 'sb-reveal', fleet: loc.fleet, salt: loc.salt };
+          const blob = await encryptJSON(k.key, payload);
+          const rr = await api('/api/messages', { method: 'POST', body: { chat: c.id, blob } });
+          S.plain.set(rr.message.id, payload);
+          addMessages([rr.message]);
+          cacheMsg(rr.message);
+          S.sig = ''; renderBoard();
+        }
+      } catch (e) { /* повторим на следующей синхронизации */ }
+      S.sbRevealBusy = null;
+    }
+  }
+}
+
 async function onBoardClick(sq) {
   const c = curChat();
   if (!c || c.kind !== 'game') return;
+  if (gameRulesOf(c) === 'seabattle') return;   // pkg3-56: у морского боя свои клики
   const { eng } = gameReplay(c);
   const st = eng.status();
   if (st !== 'playing' && st !== 'check') return;
@@ -2228,7 +2647,10 @@ async function acceptGame(id, choice) {
   if (c) {
     const ck = await chatKeyOf(c);
     if (ck) {
-      const payload = { k: 'game-event', text: 'Партия началась: ' + userNameById(c.game.white) + ' (белые) против ' + userNameById(c.game.black) + ' (чёрные)' };
+      const sbGame = (c.game || {}).rules === 'seabattle';
+      const payload = { k: 'game-event', text: sbGame
+        ? 'Партия началась: ' + userNameById(c.game.white) + ' стреляет первым. Расставьте флот и жмите «В бой!»'
+        : 'Партия началась: ' + userNameById(c.game.white) + ' (белые) против ' + userNameById(c.game.black) + ' (чёрные)' };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: id, blob: await encryptJSON(ck.key, payload) } });
       S.plain.set(rr.message.id, payload);
       addMessages([rr.message]);
@@ -2288,6 +2710,7 @@ async function openNewGame() {
     <label>Игра<select id="ng-rules">
       <option value="chess">Шахматы</option>
       <option value="checkers">Шашки (русские)</option>
+      <option value="seabattle">Морской бой</option>
     </select></label>
     <label>Соперник<select id="ng-opp">${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}</select></label>
     <label>Ваш цвет<select id="ng-color">
@@ -2298,6 +2721,15 @@ async function openNewGame() {
     </select></label>
     <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
     <button class="primary" id="ng-go">Создать и пригласить</button>`);
+  // pkg3-56: в морском бое «цвет» определяет, кто стреляет первым, — подпись честная
+  const ngColorLbl = $('#ng-color') ? $('#ng-color').parentElement : null;
+  const ngLblSync = () => {
+    if (!ngColorLbl || !ngColorLbl.firstChild) return;
+    const sb = $('#ng-rules').value === 'seabattle';
+    if (ngColorLbl.firstChild.nodeType === 3) ngColorLbl.firstChild.nodeValue = sb ? 'Кто стреляет первым' : 'Ваш цвет';
+  };
+  $('#ng-rules').addEventListener('change', ngLblSync);
+  ngLblSync();
   $('#ng-go').addEventListener('click', async () => {
     const opp = $('#ng-opp').value, color = $('#ng-color').value, rules = $('#ng-rules').value;
     try {
@@ -2371,7 +2803,7 @@ function renderRail() {
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
       <div class="ci-main">
-        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${isNewChat(c) && c.newUntil ? `<span class="tag-new" data-newcd="${c.id}" title="Чат из раздела «Новые»: удалится сам, если не сохранить">новые · ${escapeHtml(fmtLeft(c.newUntil))}</span>` : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? `<span class="tag-grp" title="${gameRulesOf(c) === 'checkers' ? 'шашки' : 'шахматы'}">${gameIcon(c)}</span>` : ''}</div>
+        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${isNewChat(c) && c.newUntil ? `<span class="tag-new" data-newcd="${c.id}" title="Чат из раздела «Новые»: удалится сам, если не сохранить">новые · ${escapeHtml(fmtLeft(c.newUntil))}</span>` : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? `<span class="tag-grp" title="${gameRulesOf(c) === 'checkers' ? 'шашки' : gameRulesOf(c) === 'seabattle' ? 'морской бой' : 'шахматы'}">${gameIcon(c)}</span>` : ''}</div>
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
       ${seen}
@@ -2406,8 +2838,8 @@ function renderRail() {
     // pkg3-54: «Сейчас играют» сворачивается, как остальные разделы
     const liveRows = open.map(g => `<div class="chat-item game-live">
         <div class="ci-main">
-          <div class="ci-name">${g.rules === 'checkers' ? '●' : '♟'} ${escapeHtml(openGameTitle(g))}</div>
-          <div class="ci-last">идёт партия${g.rules === 'checkers' ? ' в шашки' : ''} · ${plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
+          <div class="ci-name">${g.rules === 'checkers' ? '●' : g.rules === 'seabattle' ? '⚓' : '♟'} ${escapeHtml(openGameTitle(g))}</div>
+          <div class="ci-last">идёт партия${g.rules === 'checkers' ? ' в шашки' : g.rules === 'seabattle' ? ' · морской бой' : ''} · ${plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
         </div>
         <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
       </div>`).join('');
@@ -5552,6 +5984,15 @@ $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из 
 document.addEventListener('click', async e => {
   const sq = e.target.closest('[data-sq]');
   if (sq) { await onBoardClick(sq.dataset.sq); return; }
+  // pkg3-56: морской бой — свои клетки и кнопки
+  const sbc = e.target.closest('[data-sbcell]');
+  if (sbc) { await onSbCell(sbc); return; }
+  if (e.target.closest('#sb-rot')) { sbToggleRot(); return; }
+  if (e.target.closest('#sb-rand')) { sbRandom(); return; }
+  if (e.target.closest('#sb-clear')) { sbClear(); return; }
+  if (e.target.closest('#sb-go')) { await sbCommitSend(); return; }
+  const sbt = e.target.closest('[data-sb-tab]');
+  if (sbt) { S.sbTab = sbt.dataset.sbTab; S.boardSig = ''; renderBoard(); return; }
   if (e.target.closest('#gm-leave')) { await leaveGameSmart(); return; }
   if (e.target.closest('#gm-knocks')) { openKnocks(curChat()); return; }
   const acc = e.target.closest('[data-game-accept]');
