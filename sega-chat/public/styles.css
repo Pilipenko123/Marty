@@ -1361,7 +1361,14 @@ html,body{overflow-x:hidden}
 /* ───────── pkg3-53: сворачиваемые разделы и свои папки ───────── */
 .rail-group.fold{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
 .rail-group.fold:hover{color:var(--accent)}
-.rail-group.fold .fold-ic{flex:0 0 auto;width:10px;font-size:9px;color:var(--muted)}
+/* pkg3-54: треугольник сворачивания рисуется стилями и стал заметно крупнее */
+.rail-group.fold .fold-ic{flex:0 0 auto;width:0;height:0;
+  border-left:10px solid currentColor;border-top:7px solid transparent;border-bottom:7px solid transparent;
+  opacity:.85;transition:transform .12s}
+.rail-group.fold:not(.folded) .fold-ic{transform:rotate(90deg)}
+/* pkg3-54: служебная строка события («N добавил этот чат в свои разделы») */
+.sys.svc{margin:10px auto;max-width:86%;text-align:center;font-size:11.5px;color:var(--muted);
+  border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);padding:4px 8px}
 .rail-group.fold .fold-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fold-badge{flex:0 0 auto;background:#e5484d;color:#fff;border-radius:9px;padding:1px 6px;
   font-size:10px;font-weight:700;letter-spacing:0}
