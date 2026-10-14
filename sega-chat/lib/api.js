@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-52';
+const BUILD = 'pkg3-53';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -219,6 +219,9 @@ function createApi(store, opts = {}) {
    *  pkg3-50: правило действует на всех одинаково, включая администратора —
    *  владелец мессенджера тоже даёт согласие кнопкой. */
   const NEW_DM_TTL = Number(process.env.NEW_DM_TTL || 24 * 60 * 60 * 1000);
+  // pkg3-53: пользовательские разделы (папки) — личные, хранят КОПИИ ссылок на чаты
+  const MAX_SECTIONS = Math.max(1, Number(process.env.MAX_SECTIONS || 20));
+  const MAX_SECTION_CHATS = Math.max(1, Number(process.env.MAX_SECTION_CHATS || 300));
   /** Возвращает { chats, newUntil }: положенные участнику чаты и отметки
    * «удалится сам» для его раздела «Новые». Отметки живут в отдельной карте —
    * общие объекты чатов трогать нельзя: их видят и другие участники.
@@ -1080,6 +1083,9 @@ function createApi(store, opts = {}) {
         invites: openInvites(me.id),
         // pkg3-47: кого я держу в «Приглашенных» (связи) и запросы, где я адресат/автор
         myBonds: db.bonds.filter(b => b.owner === me.id).map(b => b.member),
+        // pkg3-53: мои разделы-папки. Чужих в ответе нет: это личная раскладка
+        mySections: (Array.isArray(me.sections) ? me.sections : [])
+          .map(x => ({ id: x.id, name: x.name, chats: (x.chats || []).slice() })),
         bondReqs: db.bondReqs.filter(r => r.to === me.id || r.from === me.id)
           .map(r => ({ id: r.id, from: r.from, to: r.to, chat: r.chat, createdAt: r.createdAt, state: r.state })),
         users: visibleUsers(me).map(publicUser),   // pkg3-48: видим только свой круг, остальных ищет /api/search
@@ -1140,6 +1146,53 @@ function createApi(store, opts = {}) {
       return J(200, { chat: publicChat(chat, me.id) });
     }
 
+    // --------------------------------------- pkg3-53: свои разделы (папки) чатов
+    // Разделы личные: хранят КОПИИ ссылок на чаты (сам чат остаётся и в системном
+    // разделе), видны только своему владельцу и не влияют на чужие списки.
+    if (pathname === '/api/sections' || pathname.startsWith('/api/sections/')) {
+      const parts = pathname.split('/');                  // '', api, sections, :id?, действие?
+      const sid = parts[3] ? decodeURIComponent(parts[3]) : '';
+      const act = parts[4] || '';
+      if (!Array.isArray(me.sections)) me.sections = [];
+      const cleanName = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+
+      if (method === 'GET') return J(200, { sections: me.sections });
+
+      if (!sid && method === 'POST') {
+        if (throttle('section:' + me.id)) return E(429, 'Слишком часто: подождите немного');
+        const name = cleanName((req.body || {}).name);
+        if (name.length < 1 || name.length > 32) return E(400, 'Название раздела: от 1 до 32 символов');
+        if (me.sections.length >= MAX_SECTIONS) return E(400, 'Разделов достаточно (' + MAX_SECTIONS + ') — удалите лишний');
+        if (me.sections.some(x => (x.name || '').toLowerCase() === name.toLowerCase())) return E(409, 'Раздел с таким названием уже есть');
+        me.sections.push({ id: uid(), name, createdAt: Date.now(), chats: [] });
+        save();
+        return J(200, { ok: true, sections: me.sections });
+      }
+
+      const sec = me.sections.find(x => x.id === sid);
+      if (!sec) return E(404, 'Раздел не найден');
+
+      // Переименование и удаление — через POST: тело запроса сервер читает только
+      // у POST/PUT (server.js:67), поэтому PATCH/DELETE пришли бы пустыми.
+      if (act === 'rename' && method === 'POST') {
+        const name = cleanName((req.body || {}).name);
+        if (name.length < 1 || name.length > 32) return E(400, 'Название раздела: от 1 до 32 символов');
+        if (me.sections.some(x => x.id !== sid && (x.name || '').toLowerCase() === name.toLowerCase())) {
+          return E(409, 'Раздел с таким названием уже есть');
+        }
+        sec.name = name;
+        save();
+        return J(200, { ok: true, sections: me.sections });
+      }
+      if (act === 'delete' && method === 'POST') {
+        // удаляется ТОЛЬКО папка: чаты остаются в своих системных разделах
+        me.sections = me.sections.filter(x => x.id !== sid);
+        save();
+        return J(200, { ok: true, sections: me.sections });
+      }
+      return E(404, 'Нет такой команды для разделов');
+    }
+
     if (pathname.startsWith('/api/chats/')) {
       const parts = pathname.split('/'); // '', api, chats, :id, action?
       const chat = chatById(decodeURIComponent(parts[3] || ''));
@@ -1175,6 +1228,30 @@ function createApi(store, opts = {}) {
         db.gen++;   // оба списка чатов изменились — клиенты перечитают их сразу
         save();
         return J(200, { ok: true, chat: publicChat(chat, me.id) });
+      }
+
+      // --- pkg3-53: копия чата в свой раздел (папку); section=null — убрать из всех папок.
+      // Чат остаётся в системном разделе: разделы дублируют, а не перемещают.
+      if (action === 'section' && method === 'POST') {
+        const b = req.body || {};
+        if (!Array.isArray(me.sections)) me.sections = [];
+        const raw = b.section;
+        const target = (raw === null || raw === undefined || raw === '') ? null : String(raw);
+        if (target) {
+          const sec = me.sections.find(x => x.id === target);
+          if (!sec) return E(404, 'Раздел не найден');
+          if (!Array.isArray(sec.chats)) sec.chats = [];
+          if (!sec.chats.includes(chat.id)) {
+            if (sec.chats.length >= MAX_SECTION_CHATS) {
+              return E(400, 'В разделе уже ' + MAX_SECTION_CHATS + ' чатов — больше не поместится');
+            }
+            sec.chats.push(chat.id);
+          }
+        } else {
+          for (const x of me.sections) x.chats = (x.chats || []).filter(id => id !== chat.id);
+        }
+        save();
+        return J(200, { ok: true, sections: me.sections });
       }
 
       if (action === 'title' && method === 'POST') {

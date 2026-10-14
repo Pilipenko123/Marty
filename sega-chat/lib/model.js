@@ -104,6 +104,21 @@ function migrate(db) {
   // Push-подписки добавлены без изменения старых ключей и сообщений.
   for (const u of db.users) if (!Array.isArray(u.pushSubs)) u.pushSubs = [];
 
+  // pkg3-53: пользовательские разделы (папки). Поле личное: хранит копии ссылок
+  // на чаты, системные разделы не заменяет. У старых записей поля нет — добавляем
+  // пустой список и заодно приводим содержимое к одному виду (защита от мусора).
+  for (const u of db.users) {
+    if (!Array.isArray(u.sections)) u.sections = [];
+    u.sections = u.sections
+      .filter(x => x && typeof x === 'object' && x.id)
+      .map(x => ({
+        id: String(x.id),
+        name: (String(x.name == null ? '' : x.name).replace(/\s+/g, ' ').trim().slice(0, 32)) || 'Без названия',
+        createdAt: Number(x.createdAt) || 0,
+        chats: (Array.isArray(x.chats) ? x.chats : []).map(String).slice(0, 300)
+      }));
+  }
+
   // pkg3-45: закрытая регистрация и приглашения. Новые коллекции и дерево «кто кого
   // позвал»: у участников, пришедших до введения приглашений, приглашенческого
   // корня нет — помечаем их основателями ('root'). Секретов в этих полях нет.
