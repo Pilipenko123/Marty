@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-54';
+const BUILD = 'pkg3-55';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -449,6 +449,51 @@ const screen = name => {
   }
 };
 
+// ─────────────────────────────────────────── pkg3-55: терпеливый старт
+// Сеть может быть ограничена (белые списки операторов в часы беспилотной
+// опасности) или туннель VPN может рвать рукопожатие HTTPS. Поэтому не сдаёмся
+// после первой неудачи: несколько попыток с растущей паузой и честной стадией
+// на шкале, а потом — понятная плашка с причинами и кнопкой «Повторить».
+async function fetchStateWithRetry() {
+  const tries = 4;
+  let lastErr = null;
+  for (let i = 0; i < tries; i++) {
+    try { return await api('/api/state'); }
+    catch (e) {
+      lastErr = e;
+      if (i < tries - 1) {
+        loadUi.show('Сервер не отвечает — попытка ' + (i + 2) + ' из ' + tries + '…', null,
+          'проверяем сеть заново');
+        await new Promise(r => setTimeout(r, 1200 * Math.pow(2, i)));
+      }
+    }
+  }
+  throw lastErr;
+}
+/** Плашка «сервер не отвечает»: три честные причины и кнопка повторить. */
+function netFailBox(message) {
+  loadUi.hide();
+  const old = document.getElementById('net-fail');
+  if (old) old.remove();
+  const d = document.createElement('div');
+  d.id = 'net-fail';
+  d.innerHTML = `<div class="nf-box">
+    <h3>Сервер не отвечает</h3>
+    <p class="nf-msg">${escapeHtml(message || '')}</p>
+    <ul class="nf-list">
+      <li><b>Мобильный интернет ограничен белыми списками</b> операторов (часы
+        беспилотной опасности): частные серверы в такие часы не пропускаются.
+        Подключитесь к Wi-Fi или включите VPN.</li>
+      <li><b>VPN на телефоне мешает соединению.</b> Попробуйте выключить VPN
+        или переключить его режим/протокол в приложении VPN.</li>
+      <li><b>Сервер перезапускается.</b> Подождите минуту и нажмите «Повторить».</li>
+    </ul>
+    <button class="primary" id="nf-retry" type="button">Повторить</button>
+  </div>`;
+  document.body.appendChild(d);
+  $('#nf-retry').addEventListener('click', () => { d.remove(); boot(); });
+}
+
 // ─────────────────────────────────────────── запуск
 async function boot() {
   if (!subtle) {
@@ -461,7 +506,8 @@ async function boot() {
   }
   let st;
   loadUi.show('Соединяемся с облаком…', null);
-  try { st = await api('/api/state'); } catch (e) { loadUi.hide(); toast('Сервер недоступен: ' + e.message, true); return; }
+  try { st = await fetchStateWithRetry(); }
+  catch (e) { netFailBox('Подробности: ' + ((e && e.message) || e)); return; }
   S.maxUpload = Number(st.maxUpload || DEFAULT_MAX_UPLOAD);
   S.codeProofSalt = st.codeProofSalt || null;   // для проверки кодового слова архивов
   S.serverBuild = st.build || 'без метки (старше pkg2-3)';
