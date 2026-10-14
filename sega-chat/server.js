@@ -64,7 +64,14 @@ const handler = async (req, res) => {
   const { base, path: pathname } = splitBase(url.pathname);
   try {
     if (pathname.startsWith('/api/')) {
-      const body = (req.method === 'POST' || req.method === 'PUT') ? await readBody(req) : {};
+      // pkg3-53: тело читаем у всех методов, которые могут его принести. Раньше
+      // здесь были только POST и PUT — из-за этого DELETE с телом (отписка от
+      // уведомлений: /api/push/subscribe) приходил пустым и молча не срабатывал.
+      // В облачном входе (cloud/index.js) тело читается всегда, поэтому расхождение
+      // было видно только на своём сервере.
+      const withBody = req.method === 'POST' || req.method === 'PUT'
+        || req.method === 'PATCH' || req.method === 'DELETE';
+      const body = withBody ? await readBody(req) : {};
       const out = await app.handle({
         method: req.method, path: pathname, query: url.searchParams,
         headers: req.headers, body,
