@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-52';
+const BUILD = 'pkg3-53';
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const enc = new TextEncoder();
@@ -243,6 +243,8 @@ const S = {
   serverNow: Date.now(),// pkg3-49: время сервера — по нему тикают счётчики «Новых»
   sig: '', railFilter: '',
   // pkg3-52: строка «Найти чат или участника» ищет людей и на сервере
+  sections: [],        // pkg3-53: мои разделы-папки (приезжают в синхронизации)
+  collapsed: loadFolds(),  // pkg3-53: какие разделы свёрнуты — помнит это устройство
   railPeople: [],      // кого вернул /api/search для текущего запроса
   railPeopleQ: '',     // какой запрос этим результатам соответствует
   railPeopleErr: '',   // не получилось спросить сервер (лимит, сеть)
@@ -258,6 +260,9 @@ function loadAliases() {
   catch (e) { return {}; }
 }
 function saveAliases() { try { localStorage.setItem('sega.aliases', JSON.stringify(S.aliases)); } catch (e) {} }
+// pkg3-53: какие разделы свёрнуты — помнит только это устройство (на сервер не уходит)
+function loadFolds() { try { return JSON.parse(localStorage.getItem('sega.folds') || '{}') || {}; } catch (e) { return {}; } }
+function saveFolds() { try { localStorage.setItem('sega.folds', JSON.stringify(S.collapsed || {})); } catch (e) {} }
 function setAlias(uid, name) {
   S.aliases = S.aliases || {};
   if (name) S.aliases[uid] = name; else delete S.aliases[uid];
@@ -1075,6 +1080,8 @@ async function applySyncMeta(data) {
   S.chats = data.chats;
   S.games = data.games || [];
   S.myKnocks = data.myKnocks || [];   // pkg3-49: чужие заявки в мои партии
+  // pkg3-53: мои разделы-папки. Чужих сервер не отдаёт — раскладка личная.
+  if (Array.isArray(data.mySections)) S.sections = data.mySections;
   S.invites = data.invites || [];
   if (typeof data.rnow === 'number') S.serverNow = data.rnow;   // pkg3-49: часы сервера
   // pkg3-49: мои сохранённые личные чаты — по отметкам savedBy у самих чатов;
@@ -1613,6 +1620,7 @@ function renderAll() {
   if (!S.me) return;
   const sig = JSON.stringify([
     S.seq, S.messages.length, S.view, S.threadId, S.quote, S.highlight, S.usage.bytes, S.railFilter,
+    (S.sections || []).map(x => [x.id, x.name, (x.chats || []).length]),
     S.chats.map(c => [c.id, c.members.length, chatTitle(c), c.lastTs, c.archivedByName, c.archivedAt]),
     S.users.map(u => [u.id, u.name, u.isAdmin, !!u.avatar, isOnline(u), u.reads])
   ]);
@@ -2315,7 +2323,22 @@ function renderRail() {
       ${un.total ? `<span class="badge">${un.total}</span>` : ''}
     </div>`;
   };
-  if (games.length) html += `<div class="rail-group">Игровые чаты</div>` + games.map(chatRow).join('');
+  // pkg3-53: все разделы чатов сворачиваются; на свёрнутом разделе — красная
+  // точка с числом непрочитанных. При поиске разделы раскрыты, иначе результат
+  // не увидеть. Состояние «свёрнут/развёрнут» помнит это устройство.
+  const openSec = (key) => !!flt || !S.collapsed[key];
+  const unreadSum = (list) => list.reduce((a, c) => a + (((unreadIn(c.id) || {}).total) || 0), 0);
+  const foldBadge = (n) => n ? `<span class="fold-badge" title="Непрочитанные в свёрнутом разделе">${n > 99 ? '99+' : n}</span>` : '';
+  const foldHead = (key, title, list, extra, cls) => {
+    const open = openSec(key);
+    return `<div class="rail-group fold ${cls || ''} ${open ? '' : 'folded'}" data-fold="${key}" title="Нажмите, чтобы свернуть или развернуть">`
+      + `<span class="fold-ic">${open ? '\u25be' : '\u25b8'}</span><span class="fold-t">${escapeHtml(title)}</span>`
+      + (open ? '' : foldBadge(unreadSum(list))) + (extra || '') + `</div>`;
+  };
+  const sec = (key, title, list, extra, cls) => list.length
+    ? foldHead(key, title, list, extra, cls) + (openSec(key) ? list.map(chatRow).join('') : '')
+    : '';
+  if (games.length) html += sec('game', 'Игровые чаты', games);
   // pkg3-36: начавшиеся партии — всегда в самом верху списка. У игроков это
   // их чат-игра (раздел «Игры» — первым), у остальных мессенджера — плашка
   // «Сейчас играют» с плавным миганием, чтобы её замечали краем глаза.
@@ -2373,12 +2396,25 @@ function renderRail() {
         </div>`;
       }).join('');
   }
-  if (groups.length) html += `<div class="rail-group">Групповые чаты</div>` + groups.map(chatRow).join('');
+  if (groups.length) html += sec('group', 'Групповые чаты', groups);
   // pkg3-49: раздел «Новые» — личная переписка, которую начали со мной из поиска.
   // Чат живёт здесь сутки (счётчик в плашке), потом удалится сам; кнопка
   // «Добавить пользователя в мои личные чаты» (плашка внутри чата или меню «⋯») сохраняет навсегда.
-  if (newDms.length) html += `<div class="rail-group">Новые</div>` + newDms.map(chatRow).join('');
-  if (dms.length) html += `<div class="rail-group">Личные чаты</div>` + dms.map(chatRow).join('');
+  if (newDms.length) html += sec('new', 'Новые', newDms);
+  if (dms.length) html += sec('dm', 'Личные чаты', dms);
+
+  // pkg3-53: свои разделы-папки — ниже системных. Пустой раздел тоже виден:
+  // иначе его не найти, чтобы переименовать, удалить или положить в него чат.
+  for (const sn of (S.sections || [])) {
+    const key = 'sec:' + sn.id;
+    const list = chats.filter(c => (sn.chats || []).includes(c.id));
+    const dots = `<button class="sec-dots" data-sec-menu="${sn.id}" title="Раздел: переименовать или удалить">\u22ee</button>`;
+    html += foldHead(key, sn.name, list, dots, 'custom fold-mark-folder');
+    if (openSec(key)) {
+      html += list.length ? list.map(chatRow).join('')
+        : `<div class="rail-note">В разделе пусто. Откройте нужный чат, нажмите «⋯» и выберите «Переместить в раздел».</div>`;
+    }
+  }
 
   // pkg3-48/49: раздела «Написать лично» со всеми участниками больше нет —
   // мессенджер не показывает весь список людей каждому. Новый собеседник
@@ -2883,6 +2919,17 @@ $('#chat-list').addEventListener('click', async e => {
       toast(act === 'accept' ? 'Принято: человек появился в ваших «Приглашенных»' : 'Запрос отклонён');
       await sync(false); renderRail();
     } catch (ex) { toast(ex.message, true); ba.disabled = false; }
+    return;
+  }
+  // pkg3-53: три точки на разделе — его меню; клик по заголовку — свернуть/развернуть
+  const sm = e.target.closest('[data-sec-menu]');
+  if (sm) { e.stopPropagation(); openSectionMenu(sm.dataset.secMenu); return; }
+  const fold = e.target.closest('[data-fold]');
+  if (fold) {
+    const k = fold.dataset.fold;
+    if (S.collapsed[k]) delete S.collapsed[k]; else S.collapsed[k] = 1;
+    saveFolds();
+    renderRail();
     return;
   }
   const item = e.target.closest('[data-chat],[data-peer]');
@@ -3737,11 +3784,133 @@ $('#plus-menu').addEventListener('click', e => {
   if (act === 'game') return openNewGame();
   if (act === 'group') return openCreateChat();
   if (act === 'invite') return openInviteFriend();
+  if (act === 'section') return openCreateSection();
 });
 document.addEventListener('click', e => {
   if (!e.target.closest('#plus-menu') && !e.target.closest('#btn-plus')) plusMenu(false);
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') plusMenu(false); });
+
+// ─────────────────────────────────────────── pkg3-53: свои разделы (папки) чатов
+// Раздел — личная папка: в неё кладётся КОПИЯ чата, из системного раздела чат не
+// исчезает. Удаление раздела убирает только папку. Список разделов приходит в
+// синхронизации (mySections) и обновляется после каждого действия.
+async function reloadSections() {
+  try {
+    const r = await api('/api/sections');
+    S.sections = r.sections || [];
+  } catch (e) { /* останутся прежние из синхронизации */ }
+  S.sig = '';
+  renderRail();
+}
+function sectionForm(title, hint, value, submitLabel, onSubmit) {
+  modal(title, `
+    <form class="card" id="form-section" autocomplete="off">
+      <label>Название раздела
+        <input name="name" type="text" maxlength="32" required placeholder="Например: работа, семья, шахматы" value="${escapeHtml(value || '')}">
+      </label>
+      <p class="hint">${hint}</p>
+      <div class="err" id="sec-err"></div>
+      <button class="primary" type="submit">${submitLabel}</button>
+    </form>`);
+  const f = $('#form-section');
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = String(new FormData(f).get('name') || '').trim();
+    const err = $('#sec-err'), btn = f.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+    try {
+      await onSubmit(name);
+      hide($('#modal'));
+      await reloadSections();
+    } catch (ex) {
+      if (err) err.textContent = ex.message || 'Не получилось';
+      if (btn) btn.disabled = false;
+    }
+  });
+  setTimeout(() => { const i = f.querySelector('input[name=name]'); if (i) i.focus(); }, 30);
+}
+function openCreateSection() {
+  sectionForm('Новый раздел',
+    'Раздел — ваша личная папка: в неё можно положить копию любого чата, из системных разделов чат не исчезнет. Раздел виден только вам.',
+    '', 'Создать раздел', async (name) => {
+      await api('/api/sections', { method: 'POST', body: { name } });
+      toast('Раздел «' + name + '» создан');
+    });
+}
+function openRenameSection(id) {
+  const s = (S.sections || []).find(x => x.id === id);
+  if (!s) return;
+  sectionForm('Переименовать раздел', 'Название раздела видно только вам.', s.name, 'Сохранить',
+    async (name) => {
+      await api('/api/sections/' + encodeURIComponent(id) + '/rename', { method: 'POST', body: { name } });
+      toast('Раздел переименован');
+    });
+}
+/** Три точки на заголовке раздела: переименовать или удалить. */
+function openSectionMenu(id) {
+  const s = (S.sections || []).find(x => x.id === id);
+  if (!s) return;
+  const n = (s.chats || []).length;
+  modal('Раздел «' + s.name + '»', `
+    <div class="card">
+      <p class="hint">В разделе ${n} ${plural(n, 'чат', 'чата', 'чатов')}. Раздел виден только вам.</p>
+      <div class="set-row"><span class="ico" data-ic="pencil"></span>
+        <div class="t"><b>Переименовать</b><span>другое название папки</span></div>
+        <button class="mini" id="sec-rename" type="button">Открыть</button></div>
+      <div class="set-row"><span class="ico" data-ic="trash"></span>
+        <div class="t"><b>Удалить раздел</b><span>чаты останутся в своих разделах</span></div>
+        <button class="mini" id="sec-delete" type="button">Удалить</button></div>
+    </div>`);
+  $('#sec-rename').addEventListener('click', () => openRenameSection(id));
+  $('#sec-delete').addEventListener('click', async () => {
+    if (!confirm('Удалить раздел «' + s.name + '»?' + String.fromCharCode(10, 10)
+      + 'Удалится только папка: чаты останутся в своих разделах.')) return;
+    try {
+      await api('/api/sections/' + encodeURIComponent(id) + '/delete', { method: 'POST' });
+      hide($('#modal'));
+      await reloadSections();
+      toast('Раздел удалён; чаты остались на своих местах');
+    } catch (ex) { toast(ex.message || 'Не получилось удалить', true); }
+  });
+}
+/** Меню чата «Переместить в раздел…»: положить копию в папку или убрать её. */
+function openChatSections(c) {
+  const has = (id) => (S.sections || []).some(s => s.id === id && (s.chats || []).includes(c.id));
+  const rows = (S.sections || []).map(s => `
+      <div class="set-row"><span class="ico">📁</span>
+        <div class="t"><b>${escapeHtml(s.name)}</b><span>${plural((s.chats || []).length, 'чат', 'чата', 'чатов')} в разделе</span></div>
+        <button class="mini" data-sec-pick="${s.id}" type="button">${has(s.id) ? 'Убрать' : 'Положить'}</button></div>`).join('');
+  modal('Переместить чат в раздел', `
+    <div class="card">
+      <p class="hint">Раздел хранит копию чата: из «Личных», «Групповых» или «Игровых» чатов он не исчезнет.</p>
+      <div id="sec-pick-list">${rows || '<p class="hint">Разделов пока нет — создайте первый.</p>'}</div>
+      <div class="err" id="sec-err"></div>
+      <button class="primary" id="sec-create-here" type="button">Создать раздел</button>
+    </div>`);
+  // слушатель вешаем на СВЕЖУЮ карточку окна: она пересоздаётся каждый раз,
+  // поэтому обработчики не накапливаются и не срабатывают дважды
+  const card = $('#modal-body').querySelector('.card');
+  card.addEventListener('click', async e => {
+    if (e.target.closest('#sec-create-here')) { openCreateSection(); return; }
+    const b = e.target.closest('[data-sec-pick]');
+    if (!b) return;
+    b.disabled = true;
+    const id = b.dataset.secPick, wasThere = has(id);
+    try {
+      await api('/api/chats/' + encodeURIComponent(c.id) + '/section', {
+        method: 'POST', body: { section: wasThere ? null : id }
+      });
+      await reloadSections();
+      hide($('#modal'));
+      toast(wasThere ? 'Копия убрана из раздела' : 'Копия чата положена в раздел');
+    } catch (ex) {
+      const err = $('#sec-err');
+      if (err) err.textContent = ex.message || 'Не получилось';
+      b.disabled = false;
+    }
+  });
+}
 
 // ─────────────────────────────────────────── участники чата
 /** pkg3-47: отношение меня и человека в смысле «Приглашенных»:
@@ -3871,6 +4040,7 @@ $('#drop').addEventListener('click', e => {
     return;
   }
   // pkg3-50: «Добавить пользователя в мои личные чаты» — сохранить чат из «Новых» навсегда
+  if (b.dataset.act === 'section') return openChatSections(c);   // pkg3-53: копия чата в свою папку
   if (b.dataset.act === 'save') return saveDmChat(c);
   if (b.dataset.act === 'hide') {
     (async () => {
