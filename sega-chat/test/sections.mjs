@@ -89,7 +89,7 @@ console.log('  1. Старые записи базы');
 // ══════════════════════════════ 2. живой сервер
 console.log('\n  2. Сервер: разделы, копии чатов и приватность');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-sec-'));
-const env = { STORE: 'file', DATA_DIR: dir, HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0' };
+const env = { STORE: 'file', DATA_DIR: dir, HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0', NEW_INVITE_DELAY: '0' };
 let A = up(await freePort(), env);
 await waitReady(A.base);
 
@@ -217,6 +217,22 @@ for (let i = 0; i < 25; i++) {
   else if (rr.status === 429) { refused = -1; break; }
 }
 ok(created === 20 && refused === 1, 'разделов больше 20 создать нельзя (создано ' + created + ', отказ получен)');
+
+// ── pkg3-54: перестановка своих разделов местами
+{
+  const rr = await call(A.base, '/api/sections', {}, admin);
+  const names = rr.d.sections.map(x => x.name);
+  const first = rr.d.sections[0].id, second = rr.d.sections[1].id;
+  const mv = await call(A.base, '/api/sections/' + first + '/move', { method: 'POST', body: { dir: 'down' } }, admin);
+  ok(mv.status === 200 && mv.d.sections[1].id === first, 'раздел сдвинулся вниз');
+  const back = await call(A.base, '/api/sections/' + first + '/move', { method: 'POST', body: { dir: 'up' } }, admin);
+  ok(back.status === 200 && back.d.sections[0].id === first, 'и вернулся вверх');
+  const edge = await call(A.base, '/api/sections/' + first + '/move', { method: 'POST', body: { dir: 'up' } }, admin);
+  ok(edge.status === 400, 'выше верхнего края не двигает (400)');
+  const badDir = await call(A.base, '/api/sections/' + second + '/move', { method: 'POST', body: { dir: 'sideways' } }, admin);
+  ok(badDir.status === 400, 'неизвестное направление отклонено');
+  ok(names.length === rr.d.sections.length, 'перестановка не теряет разделы');
+}
 
 // ── холодный перезапуск: разделы пережили
 A.proc.kill('SIGTERM');

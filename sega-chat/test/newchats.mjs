@@ -154,7 +154,7 @@ const dirA = mkdtempSync(join(tmpdir(), 'sega-nc-a-'));
 const PORT_A = 8961 + Math.floor(Math.random() * 200);
 const srvA = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-  env: Object.assign({}, process.env, { PORT: String(PORT_A), HOST: '127.0.0.1', DATA_DIR: dirA, STORE: 'file', HTTPS: '', NEW_DM_TTL: '1200' })
+  env: Object.assign({}, process.env, { PORT: String(PORT_A), HOST: '127.0.0.1', DATA_DIR: dirA, STORE: 'file', HTTPS: '', NEW_DM_TTL: '1200', NEW_INVITE_DELAY: '0' })
 });
 B = 'http://127.0.0.1:' + PORT_A;
 for (let i = 0; i < 60; i++) { try { if ((await fetch(B + '/api/state')).ok) break; } catch (e) {} await wait(250); }
@@ -253,7 +253,18 @@ ok(!!chatK && !chatK.newUntil && (chatK.savedBy || []).includes(klava.id), 'тр
 sB2 = await syncOf(borya);
 chatB = (sB2.chats || []).find(c => c.id === dmBK.id);
 ok(!!chatB && (chatB.savedBy || []).includes(klava.id), 'требование 3: Боря видит «его добавили в личные чаты» (savedBy с Клавой)');
-ok((await call('/api/chats/' + grp.d.chat.id + '/save', { method: 'POST', body: {} }, klava.token)).status === 400, 'сохранять можно только личную переписку (группа — 400)');
+// pkg3-54: групповой чат тоже можно принять — он выходит из «Новых», а в ленте
+// появляется служебная строка; прежний запрет (400) снят намеренно
+{
+  const gSave = await call('/api/chats/' + grp.d.chat.id + '/save', { method: 'POST', body: {} }, klava.token);
+  ok(gSave.status === 200, 'pkg3-54: групповой чат принимается кнопкой сохранения (не 400)');
+  const sK3 = await syncOf(klava);
+  const gK = (sK3.chats || []).find(c => c.id === grp.d.chat.id);
+  ok(!!gK && !gK.newUntil, 'pkg3-54: после принятия группа вышла из «Новых» у Клавы');
+  const sM3 = await syncOf(martin);
+  ok((sM3.messages || []).some(m => m.chat === grp.d.chat.id && m.svc === 'saved' && m.uid === klava.id),
+    'pkg3-54: в ленте группы появилась служебная строка «Клава добавила этот чат»');
+}
 
 // ══ требование 3+4: сутки прошли — чат удалился сам; автор не пострадал ══
 console.log('\n  ── сутки: самоудаление у адресата, вечность у автора');
@@ -371,7 +382,7 @@ srvA.kill('SIGTERM');
 await wait(400);
 const srvA2 = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-  env: Object.assign({}, process.env, { PORT: String(PORT_A), HOST: '127.0.0.1', DATA_DIR: dirA, STORE: 'file', HTTPS: '' })
+  env: Object.assign({}, process.env, { PORT: String(PORT_A), HOST: '127.0.0.1', DATA_DIR: dirA, STORE: 'file', HTTPS: '', NEW_INVITE_DELAY: '0' })
 });
 for (let i = 0; i < 60; i++) { try { if ((await fetch(B + '/api/state')).ok) break; } catch (e) {} await wait(250); }
 sB2 = await syncOf(borya);
@@ -391,7 +402,7 @@ const PORT_Y = PORT_A + 1;
 const B_Y = 'http://127.0.0.1:' + PORT_Y;
 const srvY = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000' })
+  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000', NEW_INVITE_DELAY: '0' })
 });
 const Bsave = B; B = B_Y;
 for (let i = 0; i < 60; i++) { try { if ((await fetch(B + '/api/state')).ok) break; } catch (e) {} await wait(250); }
@@ -425,7 +436,7 @@ srvY.kill('SIGTERM');
 await wait(400);
 const srvY2 = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000' })
+  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000', NEW_INVITE_DELAY: '0' })
 });
 for (let i = 0; i < 60; i++) { try { if ((await fetch(B + '/api/state')).ok) break; } catch (e) {} await wait(250); }
 sA2 = await syncOf(admin2);
@@ -451,7 +462,7 @@ srvY2.kill('SIGTERM');
 await wait(400);
 const srvY3 = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000' })
+  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000', NEW_INVITE_DELAY: '0' })
 });
 for (let i = 0; i < 60; i++) { try { if ((await fetch(B + '/api/state')).ok) break; } catch (e) {} await wait(250); }
 sA2 = await syncOf(admin2);
@@ -468,7 +479,7 @@ sA2 = null;
 // связь, принятая ДО перезапуска, тоже должна пережить следующий холодный старт
 const srvY4 = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000' })
+  env: Object.assign({}, process.env, ydbEnv, { PORT: String(PORT_Y), HOST: '127.0.0.1', HTTPS: '', NEW_DM_TTL: '3600000', NEW_INVITE_DELAY: '0' })
 });
 for (let i = 0; i < 60; i++) { try { if ((await fetch(B + '/api/state')).ok) break; } catch (e) {} await wait(250); }
 sA2 = await syncOf(admin2);

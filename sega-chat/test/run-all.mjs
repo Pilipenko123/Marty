@@ -93,7 +93,7 @@ function startFunctionEmulator(handler, functionId) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-file-'));
   const srv1 = spawn(process.execPath, ['server.js'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-    env: Object.assign({}, process.env, { PORT: '8791', HOST: '127.0.0.1', DATA_DIR: dir, STORE: 'file', HTTPS: '' })
+    env: Object.assign({}, process.env, { PORT: '8791', HOST: '127.0.0.1', DATA_DIR: dir, STORE: 'file', HTTPS: '', NEW_INVITE_DELAY: '0' })
   });
   await waitReady('http://127.0.0.1:8791');
   failed += await runFlow('http://127.0.0.1:8791', 'Режим 1: данные в файлах (свой компьютер)',
@@ -104,7 +104,7 @@ function startFunctionEmulator(handler, functionId) {
   const dir1b = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-inv-'));
   const srv1b = spawn(process.execPath, ['server.js'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-    env: Object.assign({}, process.env, { PORT: '8795', HOST: '127.0.0.1', DATA_DIR: dir1b, STORE: 'file', HTTPS: '' })
+    env: Object.assign({}, process.env, { PORT: '8795', HOST: '127.0.0.1', DATA_DIR: dir1b, STORE: 'file', HTTPS: '', NEW_INVITE_DELAY: '0' })
   });
   await waitReady('http://127.0.0.1:8795');
   failed += await runInvites('http://127.0.0.1:8795', 'Режим 1', {});
@@ -130,7 +130,7 @@ function startFunctionEmulator(handler, functionId) {
   };
   const srv2 = spawn(process.execPath, ['server.js'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-    env: Object.assign({}, process.env, ydbEnv, { PORT: '8792', HOST: '127.0.0.1', HTTPS: '' })
+    env: Object.assign({}, process.env, ydbEnv, { PORT: '8792', HOST: '127.0.0.1', HTTPS: '', NEW_INVITE_DELAY: '0' })
   });
   await waitReady('http://127.0.0.1:8792');
   const before = mock.counters.calls;
@@ -149,7 +149,7 @@ function startFunctionEmulator(handler, functionId) {
   // pkg3-45: приглашения на облачной базе — своя таблица в той же заглушке
   const srv2b = spawn(process.execPath, ['server.js'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'],
-    env: Object.assign({}, process.env, ydbEnv, { PORT: '8796', HOST: '127.0.0.1', HTTPS: '', YDB_TABLE: 'sega_inv' })
+    env: Object.assign({}, process.env, ydbEnv, { PORT: '8796', HOST: '127.0.0.1', HTTPS: '', YDB_TABLE: 'sega_inv', NEW_INVITE_DELAY: '0' })
   });
   await waitReady('http://127.0.0.1:8796');
   failed += await runInvites('http://127.0.0.1:8796', 'Режим 2', {});
@@ -158,7 +158,7 @@ function startFunctionEmulator(handler, functionId) {
 
   // ── 3. облачная функция целиком
   const mock2 = await startMock();
-  Object.assign(process.env, ydbEnv, { YDB_ENDPOINT: mock2.endpoint, YDB_TABLE: 'sega_chat' });
+  Object.assign(process.env, ydbEnv, { YDB_ENDPOINT: mock2.endpoint, YDB_TABLE: 'sega_chat', NEW_INVITE_DELAY: '0' });
   const fn = require(path.join(ROOT, 'cloud', 'index.js'));
   const FID = 'd4e0alt0gentlemen0000';
   const emu = await startFunctionEmulator(fn.handler, FID);

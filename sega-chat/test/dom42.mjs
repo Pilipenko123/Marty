@@ -181,7 +181,8 @@ ok(appJs.includes('findSeq') && appJs.includes('setTimeout(() => paintFind(), 35
 // pkg3-49: «Новые», сутки, сохранение и уборка личных чатов
 ok(appJs.includes("sec('new', 'Новые'"), 'в списке чатов есть раздел «Новые»');
 ok(appJs.includes('function renderDmBanner') && html.includes('id="dm-banner"'), 'над лентой живёт баннер «Новых» с узлом #dm-banner');
-ok(appJs.includes('Добавить пользователя в мои личные чаты'), 'кнопка «Добавить пользователя в мои личные чаты» на месте (баннер и меню)');
+ok(appJs.includes('Добавить в мои личные чаты') && html.includes('Добавить в мои личные чаты'),
+  'pkg3-54: кнопка сохранения называется «Добавить в мои личные чаты» (баннер и меню)');
 ok(html.includes('data-act="save"'), 'в меню чата есть пункт сохранения (data-act="save")');
 ok(html.includes('Убрать из моих личных чатов'), 'пункт меню теперь называется «Убрать из моих личных чатов»');
 ok(appJs.includes('/save') && appJs.includes('async function saveDmChat'), 'сохранение идёт командой на сервер (/api/chats/:id/save)');
@@ -193,8 +194,31 @@ ok(css.includes('#dm-banner{'), 'баннер «Новых» оформлен в
 ok(appJs.includes('chatsGone:'), 'исчезнувшие чаты стираются из локальной памяти устройства');
 ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои партии приходят отдельным списком');
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
-ok(sw.includes('sega-static-v45'), 'кэш статики поднят до v45');
-const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');   // pkg3-52/53: проверки серверной части
+const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
+const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
+ok(sw.includes('sega-static-v46'), 'кэш статики поднят до v46');
+
+// pkg3-54: «Новые» на 7 суток, группы в «Новых», «Отклонить», лимиты
+ok(html.includes('data-act="decline"') && html.includes('Отклонить чат'), 'в меню чата есть «Отклонить чат»');
+ok(appJs.includes('function declineChat'), 'отклонение идёт командой на сервер и снимает чат у меня');
+ok(appJs.includes("'/decline'"), 'клиент зовёт маршрут /api/chats/:id/decline');
+ok(appJs.includes('const isNewChat = (c) => !!c.newUntil && !S.dmSaved.has(c.id)'), 'в «Новых» теперь и личные, и групповые чаты');
+ok(appJs.includes("sec('new', 'Новые', newChatsList)"), 'раздел «Новые» рисуется общим списком личных и групповых');
+ok(appJs.includes('Оставить в моих чатах'), 'у группового чата из «Новых» своя плашка с принятием');
+ok(appJs.includes('через 7 суток'), 'срок «Новых» в плашке назван честно: 7 суток');
+ok(appJs.includes("m.svc"), 'служебная строка события рисуется в ленте отдельно от переписки');
+ok(css.includes('.sys.svc{'), 'служебная строка оформлена в стилях');
+ok(appJs.includes("foldHead('live', 'Сейчас играют'"), 'блок «Сейчас играют» тоже сворачивается');
+ok(css.includes('border-left:10px solid currentColor'), 'треугольник сворачивания стал заметно крупнее (рисуется стилями)');
+ok(appJs.includes('#sec-up') && appJs.includes('#sec-down'), 'в меню раздела есть перестановка «выше/ниже»');
+ok(apiJs.includes('7 * 24 * 60 * 60 * 1000'), 'срок «Новых» по умолчанию — 7 суток');
+ok(apiJs.includes('NEW_INVITE_DELAY'), 'приглашённый первые сутки не может приглашать (настраивается)');
+ok(apiJs.includes('MAX_LIVE_GAMES'), 'не больше четырёх одновременных партий, где участник — игрок');
+ok(apiJs.includes("action === 'decline' && method === 'POST'"), 'маршрут отклонения на сервере');
+ok(apiJs.includes("act === 'move' && method === 'POST'"), 'маршрут перестановки разделов на сервере');
+ok(apiJs.includes("u.declined.includes(chat.id)) continue"), 'отклонённый чат не возрождается новым письмом');
+ok(modelJs.includes('Math.abs((e.until - e.at) - OLD_TTL)'), 'идущие суточные таймеры продлеваются до 7 суток при переносе');
+   // pkg3-52/53: проверки серверной части
 
 // pkg3-53: разделы-папки, сворачивание и красная точка непрочитанных
 ok(html.includes('data-plus="section"') && html.includes('Создать раздел'), 'в меню «+» появился пункт «Создать раздел»');
