@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-53';
+const BUILD = 'pkg3-54';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -218,7 +218,13 @@ function createApi(store, opts = {}) {
    *  Кнопка «Добавить пользователя в мои личные чаты» сохраняет чат безвременно.
    *  pkg3-50: правило действует на всех одинаково, включая администратора —
    *  владелец мессенджера тоже даёт согласие кнопкой. */
-  const NEW_DM_TTL = Number(process.env.NEW_DM_TTL || 24 * 60 * 60 * 1000);
+  // pkg3-54: «Новые» живут 7 суток (по ТЗ), а не сутки, как в pkg3-49/50
+  const NEW_DM_TTL = Number(process.env.NEW_DM_TTL || 7 * 24 * 60 * 60 * 1000);
+  // pkg3-54: не больше четырёх одновременных партий, где участник — игрок
+  const MAX_LIVE_GAMES = Math.max(1, Number(process.env.MAX_LIVE_GAMES || 4));
+  // pkg3-54: приглашённый первые сутки не может приглашать сам; 0 — выключено (для проверок)
+  const NEW_INVITE_DELAY = Number(process.env.NEW_INVITE_DELAY === undefined
+    ? 24 * 60 * 60 * 1000 : process.env.NEW_INVITE_DELAY);
   // pkg3-53: пользовательские разделы (папки) — личные, хранят КОПИИ ссылок на чаты
   const MAX_SECTIONS = Math.max(1, Number(process.env.MAX_SECTIONS || 20));
   const MAX_SECTION_CHATS = Math.max(1, Number(process.env.MAX_SECTION_CHATS || 300));
@@ -228,16 +234,27 @@ function createApi(store, opts = {}) {
    * pkg3-50: правило «Новых» действует и на администратора — владелец мессенджера
    * сам решает кнопкой, пускать незнакомца в личные чаты или нет. Исключение
    * осталось одно: автор письма и сохранивший чат видят его как обычный личный. */
+  /** pkg3-54: сколько одновременных партий, где участник — игрок (ещё не завершено). */
+  const liveGamesOf = (id) => db.chats.filter(c => c.kind === 'game'
+    && (c.roles || {})[id] === 'player'
+    && ['invite', 'playing'].includes(((c.game || {}).status))).length;
   const myVisibleChats = (userId, now) => {
     const u = db.users.find(x => x.id === userId) || {};
-    const hidden = new Set(u.hiddenChats || []);
+    // pkg3-54: отклонённый чат скрыт даже от возрождения новым письмом
+    const hidden = new Set([...(u.hiddenChats || []), ...(u.declined || [])]);
     const t = now || Date.now();
     const out = [], newUntil = {};
     for (const c of db.chats) {
       if (!c.members.includes(userId) || hidden.has(c.id)) continue;
-      // «Новые»: только адресат, который сам чат не создавал и не писал в него
-      if (c.kind === 'dm' && !(c.openedBy || []).includes(userId)
-        && !(c.savedBy || []).includes(userId)) {
+      // «Новые»: адресат, который сам чат не создавал и не сохранял.
+      // pkg3-54: правило действует и на групповые чаты, куда меня добавил кто-то
+      // другой, — маркер newChats ставится при создании группы и при добавлении.
+      // Старые группы (без маркера) видны как раньше: правило их не трогает.
+      const saved = (c.savedBy || []).includes(userId);
+      const dmNew = c.kind === 'dm' && !(c.openedBy || []).includes(userId) && !saved;
+      const grpNew = c.kind === 'group' && (c.ownerId || null) !== userId && !saved
+        && !!((u.newChats || {})[c.id]);
+      if (dmNew || grpNew) {
         const st = db.stats.chats[c.id] || { t: 0 };
         const last = Math.max(c.createdAt || 0, st.t || 0);
         const rec = (u.newChats || {})[c.id];
@@ -908,6 +925,12 @@ function createApi(store, opts = {}) {
             : 'Участникам одной из ваших групп запрещено создавать приглашения');
       }
       const now = Date.now();
+      // pkg3-54: приглашённый первые сутки не может приглашать сам
+      if (NEW_INVITE_DELAY > 0 && me.invitedBy && me.invitedBy !== 'root' && me.invitedBy !== 'code'
+        && now - (me.createdAt || 0) < NEW_INVITE_DELAY) {
+        const mins = Math.max(1, Math.ceil((NEW_INVITE_DELAY - (now - (me.createdAt || 0))) / 60000));
+        return E(403, 'Первые сутки после регистрации приглашать нельзя — осталось ' + mins + ' мин');
+      }
       const nextAt = inviteNextAt(me.id, now);
       if (nextAt) {
         const mins = Math.max(1, Math.ceil((nextAt - now) / 60000));
@@ -1130,6 +1153,14 @@ function createApi(store, opts = {}) {
         members, keys, createdAt: Date.now()
       };
       db.chats.push(chat);
+      // pkg3-54: каждый добавленный (кроме создателя) встречает группу в «Новых»
+      for (const mid of members) {
+        if (mid === me.id) continue;
+        const mu = db.users.find(x => x.id === mid);
+        if (!mu) continue;
+        mu.newChats = mu.newChats || {};
+        mu.newChats[chat.id] = { at: chat.createdAt, until: chat.createdAt + NEW_DM_TTL };
+      }
       db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt };
       db.seq++;
       save();
@@ -1190,6 +1221,21 @@ function createApi(store, opts = {}) {
         save();
         return J(200, { ok: true, sections: me.sections });
       }
+      // pkg3-54: перестановка своих разделов местами (кнопки «выше»/«ниже» в меню раздела)
+      if (act === 'move' && method === 'POST') {
+        const dirRaw = String((req.body || {}).dir || '');
+        const dir = dirRaw === 'up' ? -1 : dirRaw === 'down' ? 1 : 0;
+        if (!dir) return E(400, 'Направление: up или down');
+        const i = me.sections.findIndex(x => x.id === sid);
+        const j = i + dir;
+        if (i < 0) return E(404, 'Раздел не найден');
+        if (j < 0 || j >= me.sections.length) return E(400, 'Крайний раздел дальше не двигается');
+        const tmp = me.sections[i];
+        me.sections[i] = me.sections[j];
+        me.sections[j] = tmp;
+        save();
+        return J(200, { ok: true, sections: me.sections });
+      }
       return E(404, 'Нет такой команды для разделов');
     }
 
@@ -1221,13 +1267,43 @@ function createApi(store, opts = {}) {
       // --- pkg3-49/50: «Добавить пользователя в мои личные чаты» — чат из раздела «Новые»
       // сохраняется безвременно, собеседник видит отметку «вы в его личных чатах».
       if (action === 'save' && method === 'POST') {
-        if (chat.kind !== 'dm') return E(400, 'Сохранять можно только личную переписку');
+        // pkg3-54: сохранять можно и групповой чат — это «я принял его, оставьте у меня»
+        if (chat.kind !== 'dm' && chat.kind !== 'group') {
+          return E(400, 'Сохранять можно только личную переписку и групповые чаты');
+        }
         if (me.hiddenChats) me.hiddenChats = me.hiddenChats.filter(x => x !== chat.id);
+        if (me.declined) me.declined = me.declined.filter(x => x !== chat.id);
         chat.savedBy = Array.from(new Set([...(chat.savedBy || []), me.id]));
         if (me.newChats) delete me.newChats[chat.id];
+        // pkg3-54: в групповом чате появляется служебная строка «N добавил этот чат».
+        // Содержимого в ней нет — шифровать нечего: это открытое для участников событие.
+        if (chat.kind === 'group') {
+          const svc = {
+            id: uid(), seq: await store.reserveSeq(), uid: me.id, ts: Date.now(),
+            chat: chat.id, parent: null, quote: null, upId: null, svc: 'saved', bytes: 0
+          };
+          db.messages.push(svc);
+          addStat(svc, 1);
+          db.seq++;
+        }
         db.gen++;   // оба списка чатов изменились — клиенты перечитают их сразу
         save();
         return J(200, { ok: true, chat: publicChat(chat, me.id) });
+      }
+
+      // --- pkg3-54: «Отклонить» — чат из «Новых» удаляется у меня и больше не
+      // возвращается сам: новое письмо собеседника его не поднимет. Вернуть можно,
+      // только найдя человека поиском и написав ему самому (см. /api/messages).
+      if (action === 'decline' && method === 'POST') {
+        me.declined = Array.isArray(me.declined) ? me.declined : [];
+        if (!me.declined.includes(chat.id)) me.declined.push(chat.id);
+        me.hiddenChats = Array.isArray(me.hiddenChats) ? me.hiddenChats : [];
+        if (!me.hiddenChats.includes(chat.id)) me.hiddenChats.push(chat.id);
+        if (me.newChats) delete me.newChats[chat.id];
+        if (chat.kind === 'dm') chat.savedBy = (chat.savedBy || []).filter(x => x !== me.id);
+        db.gen++;
+        save();
+        return J(200, { ok: true, declined: me.declined, chat: publicChat(chat, me.id) });
       }
 
       // --- pkg3-53: копия чата в свой раздел (папку); section=null — убрать из всех папок.
@@ -1298,6 +1374,11 @@ function createApi(store, opts = {}) {
           if (chat.members.length >= MAX_MEMBERS) return E(400, 'Слишком много участников');
           if (!chat.members.includes(u.id)) chat.members.push(u.id);
           chat.keys[u.id] = { by: me.id, blob: String(a.blob).slice(0, 4096) };
+          // pkg3-54: нового участника готовой группы тоже встречаем «Новыми»
+          if (!(chat.savedBy || []).includes(u.id)) {
+            u.newChats = u.newChats || {};
+            u.newChats[chat.id] = { at: Date.now(), until: Date.now() + NEW_DM_TTL };
+          }
         }
         for (const id of (b.remove || [])) {
           if (!isOwner) return E(403, 'Исключать может только создатель чата');
@@ -1532,9 +1613,17 @@ function createApi(store, opts = {}) {
       for (const mem of chat.members) {
         if (mem === me.id) continue;
         const u = db.users.find(x => x.id === mem);
-        if (u && Array.isArray(u.hiddenChats) && u.hiddenChats.includes(chat.id)) {
+        if (!u) continue;
+        // pkg3-54: отклонённый чат не возвращается сам — ни снятием скрытия, ни новым сроком
+        if (Array.isArray(u.declined) && u.declined.includes(chat.id)) continue;
+        if (Array.isArray(u.hiddenChats) && u.hiddenChats.includes(chat.id)) {
           u.hiddenChats = u.hiddenChats.filter(x => x !== chat.id);
         }
+      }
+      // pkg3-54: сам написал в отклонённый чат — вернул его себе (восстановление поиском)
+      if (Array.isArray(me.declined) && me.declined.includes(chat.id)) {
+        me.declined = me.declined.filter(x => x !== chat.id);
+        if (Array.isArray(me.hiddenChats)) me.hiddenChats = me.hiddenChats.filter(x => x !== chat.id);
       }
       me.reads = me.reads || {};
       me.reads[parent ? 'thr:' + parent : chat.id] = m.seq;
@@ -1643,6 +1732,10 @@ function createApi(store, opts = {}) {
       // (старые клиенты создают игры как раньше и ничего не замечают)
       const rules = b.rules === undefined ? 'chess' : String(b.rules);
       if (!['chess', 'checkers'].includes(rules)) return E(400, 'Игра: chess или checkers');
+      // pkg3-54: не больше четырёх одновременных партий, где я игрок
+      if (liveGamesOf(me.id) >= MAX_LIVE_GAMES) {
+        return E(400, 'У вас уже ' + MAX_LIVE_GAMES + ' одновременные партии — завершите одну, чтобы начать новую');
+      }
       const keys = {};
       for (const id of [me.id, opp.id]) {
         const k = (b.keys || {})[id];
@@ -1677,6 +1770,10 @@ function createApi(store, opts = {}) {
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
       if (chat.game.status !== 'invite' || chat.game.invitee !== me.id) {
         return E(403, 'Приглашение адресовано не вам или уже обработано');
+      }
+      // pkg3-54: принять пятую одновременную партию нельзя
+      if (liveGamesOf(me.id) >= MAX_LIVE_GAMES) {
+        return E(400, 'У вас уже ' + MAX_LIVE_GAMES + ' одновременные партии — примите новую, когда завершите одну');
       }
       const b = req.body || {};
       if (chat.game.colorChoice === 'choice') {
