@@ -179,7 +179,7 @@ ok(appJs.includes('d.users = d.users || [];'), 'админ-окно защище
 ok(appJs.includes('findSeq') && appJs.includes('setTimeout(() => paintFind(), 350)'), 'поиск в окне «Пригласить по ссылке» с задержкой и защитой от устаревших ответов');
 
 // pkg3-49: «Новые», сутки, сохранение и уборка личных чатов
-ok(appJs.includes('rail-group">Новые'), 'в списке чатов есть раздел «Новые»');
+ok(appJs.includes("sec('new', 'Новые'"), 'в списке чатов есть раздел «Новые»');
 ok(appJs.includes('function renderDmBanner') && html.includes('id="dm-banner"'), 'над лентой живёт баннер «Новых» с узлом #dm-banner');
 ok(appJs.includes('Добавить пользователя в мои личные чаты'), 'кнопка «Добавить пользователя в мои личные чаты» на месте (баннер и меню)');
 ok(html.includes('data-act="save"'), 'в меню чата есть пункт сохранения (data-act="save")');
@@ -193,10 +193,34 @@ ok(css.includes('#dm-banner{'), 'баннер «Новых» оформлен в
 ok(appJs.includes('chatsGone:'), 'исчезнувшие чаты стираются из локальной памяти устройства');
 ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои партии приходят отдельным списком');
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
-ok(sw.includes('sega-static-v44'), 'кэш статики поднят до v44');
+ok(sw.includes('sega-static-v45'), 'кэш статики поднят до v45');
+const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');   // pkg3-52/53: проверки серверной части
+
+// pkg3-53: разделы-папки, сворачивание и красная точка непрочитанных
+ok(html.includes('data-plus="section"') && html.includes('Создать раздел'), 'в меню «+» появился пункт «Создать раздел»');
+ok(html.includes('data-act="section"') && html.includes('Переместить в раздел'), 'в меню чата есть «Переместить в раздел…»');
+ok(appJs.includes('function loadFolds') && appJs.includes('sega.folds'), 'свёрнутые разделы помнит устройство (localStorage)');
+ok(appJs.includes('data-fold=') && appJs.includes('fold-badge'), 'заголовки разделов сворачиваются, на свёрнутом виден счётчик непрочитанных');
+ok(appJs.includes('const openSec = (key) => !!flt || !S.collapsed[key]'), 'при поиске разделы раскрываются — иначе результат не увидеть');
+ok(appJs.includes('sec-dots') && appJs.includes('data-sec-menu'), 'у своего раздела есть три точки для меню');
+ok(appJs.includes('function openCreateSection') && appJs.includes('function openRenameSection'), 'раздел можно создать и переименовать');
+ok(appJs.includes('function openSectionMenu') && appJs.includes('Удалить раздел'), 'в меню раздела есть «Переименовать» и «Удалить»');
+ok(appJs.includes('function openChatSections') && appJs.includes('data-sec-pick'), 'чат можно положить в раздел и убрать из него');
+ok(appJs.includes('function reloadSections') && appJs.includes("api('/api/sections')"), 'список разделов перечитывается после каждого действия');
+ok(appJs.includes('data.mySections'), 'разделы приезжают в синхронизации');
+ok(appJs.includes("/rename'") && appJs.includes("/delete'"), 'переименование и удаление идут через POST: тело запроса читается только у POST/PUT');
+ok(css.includes('.rail-group.fold{') && css.includes('.fold-badge{'), 'сворачивание и счётчик оформлены в стилях');
+ok(css.includes('.rail-group.custom{') && css.includes('fold-mark-folder'), 'свой раздел визуально отличается от системных');
+ok(apiJs.includes("'/api/sections'") && apiJs.includes('MAX_SECTIONS'), 'на сервере есть разделы и предел их числа');
+ok(apiJs.includes('mySections:'), 'сервер отдаёт разделы только их владельцу');
+ok(apiJs.includes('MAX_SECTION_CHATS'), 'в разделе не может быть бесконечно много чатов');
+ok(apiJs.includes("act === 'rename' && method === 'POST'") && apiJs.includes("act === 'delete' && method === 'POST'"),
+  'разделы переименовываются и удаляются через POST — у него сервер точно читает тело');
+const srvJs = readFileSync(join(HERE, '..', 'server.js'), 'utf8');
+ok(srvJs.includes("'PATCH'") && srvJs.includes("'DELETE'"),
+  'локальный сервер читает тело запроса у PATCH и DELETE (отписка от уведомлений больше не теряется)');
 
 // pkg3-52: одна строка поиска, кнопка «+» и переименованный раздел игр
-const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 ok(html.includes('id="btn-plus"') && html.includes('id="plus-menu"'), 'рядом со строкой поиска живёт кнопка «+» с меню быстрых действий');
 ok(html.includes('data-plus="game"') && html.includes('data-plus="group"') && html.includes('data-plus="invite"'),
   'в меню «+» три пункта: новая игра, групповой чат, приглашение по ссылке');
@@ -205,7 +229,7 @@ ok(html.includes('Новая игра') && html.includes('Создать гру�
 ok(!html.includes('id="btn-new-chat"') && !html.includes('id="btn-new-game"'), 'прежние кнопки «Новый чат» и «♟ Игра» убраны');
 ok(appJs.includes('function plusMenu') && appJs.includes('it.dataset.plus'), 'меню «+» открывается и вызывает нужное окно');
 ok(appJs.includes("e.key === 'Escape'") && appJs.includes("plusMenu(false)"), 'меню «+» закрывается по Escape и по клику мимо');
-ok(appJs.includes('rail-group">Игровые чаты'), 'раздел игр переименован в «Игровые чаты»');
+ok(appJs.includes("sec('game', 'Игровые чаты'"), 'раздел игр называется «Игровые чаты»');
 ok(!appJs.includes('rail-group">Игры<'), 'прежнего короткого названия «Игры» в списке чатов не осталось');
 ok(appJs.includes('function railFindPeople') && appJs.includes('railFindTimer'),
   'строка «Найти чат или участника» ищет людей на сервере, а не только свои чаты');
