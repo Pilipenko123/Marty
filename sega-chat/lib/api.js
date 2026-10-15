@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-58';
+const BUILD = 'pkg3-59';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -222,6 +222,14 @@ function createApi(store, opts = {}) {
   const NEW_DM_TTL = Number(process.env.NEW_DM_TTL || 7 * 24 * 60 * 60 * 1000);
   // pkg3-54: не больше четырёх одновременных партий, где участник — игрок
   const MAX_LIVE_GAMES = Math.max(1, Number(process.env.MAX_LIVE_GAMES || 4));
+  // pkg3-59: «бан на сутки» по жалобе — срок в тестах укорачивают переменной
+  const BAN_MS = Math.max(1000, Number(process.env.BAN_MS || 24 * 60 * 60 * 1000));
+  /** pkg3-59: одинаковый честный отказ забаненному — и при входе, и при опросе.
+   * Клиент по коду 'banned' показывает уведомление о жалобе и срок. */
+  const banError = until => ({
+    status: 403,
+    json: { error: 'Поступила жалоба — доступ ограничен на сутки', code: 'banned', until }
+  });
   // pkg3-54: приглашённый первые сутки не может приглашать сам; 0 — выключено (для проверок)
   const NEW_INVITE_DELAY = Number(process.env.NEW_INVITE_DELAY === undefined
     ? 24 * 60 * 60 * 1000 : process.env.NEW_INVITE_DELAY);
@@ -503,6 +511,8 @@ function createApi(store, opts = {}) {
     }
     const u = db.users.find(x => x.id === s.uid);
     if (!u) return null;
+    // pkg3-59: забаненный не проходит ни на один маршрут — но узнаёт причину
+    if (u.bannedUntil && u.bannedUntil > Date.now()) return { banned: u.bannedUntil };
     u.lastSeen = Date.now();
     store.touchPresence(u);
     return { user: u, token };
@@ -823,6 +833,8 @@ function createApi(store, opts = {}) {
       if (!u || !b.authKey || !timingEqual(hashSecret(b.authKey, u.saltAuth), u.authHash)) {
         return E(403, 'Неверное имя или пароль');
       }
+      // pkg3-59: забаненный при входе получает честную причину и срок
+      if (u.bannedUntil && u.bannedUntil > Date.now()) return banError(u.bannedUntil);
       const token = crypto.randomBytes(24).toString('hex');
       db.sessions[token] = { uid: u.id, exp: Date.now() + SESSION_TTL };
       u.lastSeen = Date.now();
@@ -908,6 +920,7 @@ function createApi(store, opts = {}) {
 
     // ------------------------------------------------ дальше только с токеном
     const session = await auth(req);
+    if (session && session.banned) return banError(session.banned);
     if (!session) return E(401, 'Нужен вход');
     const me = session.user;
 
@@ -1967,7 +1980,8 @@ function createApi(store, opts = {}) {
         return J(200, {
           users: db.users.map(u => ({
             id: u.id, name: u.name, isAdmin: !!u.isAdmin,
-            invitedBy: u.invitedBy || 'root', createdAt: u.createdAt || 0
+            invitedBy: u.invitedBy || 'root', createdAt: u.createdAt || 0,
+            bannedUntil: u.bannedUntil || 0   // pkg3-59: отметка действующего бана
           })),
           invites: db.invites.map(i => ({
             id: i.id, ownerId: i.ownerId, state: inviteState(i, now),
@@ -2013,6 +2027,13 @@ function createApi(store, opts = {}) {
         if (!u) return E(404, 'Участник не найден');
         if (method === 'DELETE') {
           if (u.id === me.id) return E(400, 'Нельзя удалить самого себя');
+          // pkg3-59: стираем ВСЁ, что принадлежало участнику: связи «Приглашенные»,
+          // запросы-согласия и его живые ссылки-приглашения (дерево помнит его
+          // как родителя приглашённых — имя в дереве заменяется на «?»)
+          db.bonds = db.bonds.filter(b => b.owner !== id && b.member !== id);
+          db.bondReqs = db.bondReqs.filter(r => r.from !== id && r.to !== id);
+          db.invites = db.invites.filter(i => i.ownerId !== id);
+          adminLogAdd(me.id, 'удалил участника «' + u.name + '» навсегда');
           db.users = db.users.filter(x => x.id !== id);
           store.dropUser(id);
           await store.loadSessions();
@@ -2034,6 +2055,20 @@ function createApi(store, opts = {}) {
           u.isAdmin = !!b.value;
           save();
           return J(200, { user: publicUser(u) });
+        }
+        // pkg3-59: бан на сутки по жалобе (on:false — снять досрочно)
+        if (method === 'POST' && action === 'ban') {
+          if (u.id === me.id) return E(400, 'Нельзя ограничить самого себя');
+          const on = !!((req.body || {}).on);
+          if (on) {
+            u.bannedUntil = Date.now() + BAN_MS;
+            adminLogAdd(me.id, 'ограничил доступ «' + u.name + '» на сутки (жалоба)');
+          } else {
+            u.bannedUntil = 0;
+            adminLogAdd(me.id, 'снял ограничение доступа с «' + u.name + '»');
+          }
+          save();
+          return J(200, { ok: true, bannedUntil: u.bannedUntil || 0 });
         }
       }
 
