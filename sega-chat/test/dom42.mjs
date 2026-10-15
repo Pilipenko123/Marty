@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v51'), 'кэш статики поднят до v51');
+ok(sw.includes('sega-static-v52'), 'кэш статики поднят до v52');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -332,6 +332,25 @@ ok(appJs.includes("k: 'sb-commit', commit, fleet: P.fleet, salt"), 'кнопка
 ok(appJs.includes('eng.openMode && eng.openMode()'), 'в открытом режиме письмо вскрытия не отправляется (старому сопернику — отправляется)');
 ok(appJs.includes('eng.revealOf(side) || (eng.fleetOf ? eng.fleetOf(side) : null)'), 'значок честности берёт флот из печати, когда вскрытия не было');
 ok(sbEng.includes('sb-reply'), 'прежний протокол «выстрел — ответ» сохранён для старых клиентов и идущих партий');
+
+// pkg3-59: меню «⋮» у участника в админ-дереве — запрет приглашать, бан, удаление
+ok(appJs.includes('data-umenu=') && appJs.includes('function adminTreeClick') && appJs.includes('function openUserAdmin'),
+  'в дереве приглашений у каждого участника меню «⋮» (data-umenu → openUserAdmin)');
+ok(appJs.includes('Запрещено приглашать других пользователей'), 'в меню есть галочка «Запрещено приглашать других пользователей»');
+ok(appJs.includes('Бан на сутки') && appJs.includes('Снять бан'), 'в меню есть бан на сутки и досрочное снятие');
+ok(appJs.includes('поступившей жалобе') || appJs.includes('Поступила жалоба'), 'бан сопровождается уведомлением о жалобе');
+ok(appJs.includes('Удалить из мессенджера навсегда'), 'в меню есть удаление участника навсегда (с предупреждением)');
+ok(appJs.includes("data.code === 'banned'") && appJs.includes('function banNotice'),
+  'забаненное окно получает честную карточку «Доступ ограничен» и выходит на экран входа');
+ok(appJs.includes('⛔ бан') && appJs.includes('🚫 звать'), 'в дереве видны значки действующего бана и запрета приглашать');
+ok(apiJs.includes("action === 'ban'") && apiJs.includes('BAN_MS'), 'сервер: маршрут бана на сутки (срок настраивается BAN_MS)');
+ok(apiJs.includes('banError') && apiJs.includes("code: 'banned'"), 'сервер: забаненный отклоняется везде с кодом banned (заслонка и вход)');
+ok(apiJs.includes('Поступила жалоба — доступ ограничен на сутки'), 'сервер сообщает причину честно: жалоба');
+ok(apiJs.includes('Нельзя ограничить самого себя') && apiJs.includes('Нельзя удалить самого себя'), 'себя администратор забанить/удалить не может');
+ok(apiJs.includes("adminLogAdd(me.id, 'удалил участника") && apiJs.includes('(жалоба)'), 'действия администратора пишутся в журнал');
+ok(apiJs.includes('db.bondReqs.filter(r => r.from !== id && r.to !== id)') && apiJs.includes('db.invites.filter(i => i.ownerId !== id)'),
+  'удаление стирает связи, запросы-согласия и живые ссылки удалённого');
+ok(modelJs.includes('u.bannedUntil'), 'модель: migrate() добавляет bannedUntil с дефолтом');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
