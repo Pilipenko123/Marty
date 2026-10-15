@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v49'), 'кэш статики поднят до v49');
+ok(sw.includes('sega-static-v50'), 'кэш статики поднят до v50');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -285,6 +285,40 @@ ok(apiJs.includes('SEARCH_LIMIT'), 'лимит поиска настраивае
 ok(apiJs.includes("throttle('search:' + me.id, SEARCH_LIMIT)"), 'поиск участников работает по своему, более широкому лимиту');
 ok(apiJs.includes('function throttle(key, limit)'), 'вход и регистрация остались под строгим лимитом (25 за 10 минут)');
 ok(apiJs.includes('Number(limit) > 0 ? Number(limit) : 25'), 'предел по умолчанию не изменился: подбор пароля свободнее не стал');
+
+// pkg3-57: шесть доработок «Морского боя»
+ok(appJs.includes('sb-marks') && css.includes('.sb-marks{') && css.includes('.sbm{'),
+  'отметки (точки и взрывы) живут отдельным верхним слоем — поверх кораблей');
+ok(css.includes('.sb-ships{position:absolute;inset:0;pointer-events:none;z-index:1}'),
+  'слой кораблей — средний (ниже отметок, выше сетки)');
+ok(appJs.includes('function sbShipFromCells'), 'потопленный корабль соперника рисуется по клеткам из ответа «потопил»');
+ok(appJs.includes('const isGameLetter') && appJs.includes('!isGameLetter(p)'),
+  'выстрелы морского боя не попадают в ленту чата (единое правило с ходами шахмат)');
+ok(appJs.includes('const SB_GAME_MS') && appJs.includes('function sbOnScreen'),
+  'при открытой доске морского боя лента опрашивается чаще (SB_GAME_MS)');
+ok(appJs.includes("now - lastWakeSync > 600"), 'сигнал пуша заставляет бодрствующее окно добирать ленту сразу (порог 600 мс)');
+ok(appJs.includes('function sbFleetOnDevice'), 'без пуша устройство с флотом держит окно бодрым — отвечает на выстрелы');
+ok(appJs.includes('async function sbSelfKey') && appJs.includes('async function sbFleetUpload') && appJs.includes('async function sbRestoreFleets'),
+  'слепок флота шифруется личным ключом, кладётся на сервер и возвращается на другие свои устройства');
+ok(appJs.includes("commit !== loc.commit"), 'слепок принимается, только если совпал с печатью sb-commit');
+ok(appJs.includes('досылаем его с устройства'), 'партия, начатая до обновления, получает слепок автоматически (досылка с устройства с флотом)');
+ok(appJs.includes('data.mySbFleets'), 'синхронизация приносит мои слепки флота (mySbFleets)');
+ok(apiJs.includes('/sbfleet') && apiJs.includes('mySbFleets'),
+  'сервер хранит слепок флота (POST /api/games/:id/sbfleet) и отдаёт только владельцу');
+ok(apiJs.includes("NOTIFY_BODIES") && apiJs.includes('Ход в игре — откройте партию'),
+  'письма игры будят устройство соперника пушем с готовой подписью (без свободного текста)');
+ok(apiJs.includes("u.sbFleets[chatId]"), 'при удалении игры слепки флота стираются');
+ok(modelJs.includes('u.sbFleets'), 'перенос старых записей добавляет поле sbFleets с дефолтом');
+ok(css.includes('@media (max-width:959px){\n  .sb-panel .sb-tabs{display:flex}') || css.includes('.sb-panel .sb-tabs{display:flex}'),
+  'кнопки «Поле соперника» / «Моё поле» работают на всей мобильной ширине (до 959 px), включая горизонталь');
+ok(!css.includes('@media (max-width:699px)'), 'прежняя узкая граница 699 px для полей морского боя убрана');
+ok(css.includes('#main.game-mode .sb-panel{max-width:min(100%,calc(100dvh - 200px));}'),
+  'в горизонтали телефона размер поля считается от высоты экрана');
+ok(appJs.includes('Я стреляю первым') && appJs.includes('Соперник стреляет первым'),
+  'в приглашении на морской бой варианты честные: «Я стреляю первым» / «Соперник стреляет первым»');
+ok(appJs.includes('Стреляю первым я') && appJs.includes('Первым стреляет соперник'),
+  'принимающий приглашение выбирает: «Стреляю первым я» / «Первым стреляет соперник»');
+ok(appJs.includes('data-rules='), 'кнопка «Войти в игру» знает правила — окно выбора говорит по-человечески');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
