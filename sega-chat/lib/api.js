@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-59';
+const BUILD = 'pkg3-60';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -258,8 +258,13 @@ function createApi(store, opts = {}) {
       // pkg3-54: правило действует и на групповые чаты, куда меня добавил кто-то
       // другой, — маркер newChats ставится при создании группы и при добавлении.
       // Старые группы (без маркера) видны как раньше: правило их не трогает.
+      // pkg3-60: ЖИВОЙ отсчёт «Новых» важнее отметки «открывал»: чат, возвращённый
+      // новым письмом после удаления/отклонения, попадает в «Новые», даже если
+      // участник когда-то в нём писал (сценарий «убрал знакомого — он написал»).
       const saved = (c.savedBy || []).includes(userId);
-      const dmNew = c.kind === 'dm' && !(c.openedBy || []).includes(userId) && !saved;
+      const dmRec = (u.newChats || {})[c.id];
+      const dmNew = c.kind === 'dm' && !saved
+        && ((dmRec && dmRec.until >= t) || !(c.openedBy || []).includes(userId));
       const grpNew = c.kind === 'group' && (c.ownerId || null) !== userId && !saved
         && !!((u.newChats || {})[c.id]);
       if (dmNew || grpNew) {
@@ -1313,9 +1318,10 @@ function createApi(store, opts = {}) {
         return J(200, { ok: true, chat: publicChat(chat, me.id) });
       }
 
-      // --- pkg3-54: «Отклонить» — чат из «Новых» удаляется у меня и больше не
-      // возвращается сам: новое письмо собеседника его не поднимет. Вернуть можно,
-      // только найдя человека поиском и написав ему самому (см. /api/messages).
+      // --- pkg3-54/60: «Отклонить» — чат из «Новых» удаляется у меня.
+      // pkg3-60 (решение владельца): новое письмо собеседника возвращает его
+      // обратно в «Новые» с новым отсчётом — «призраков» (оповещения есть,
+      // чата нет) больше не бывает. Своё письмо возвращает чат сразу.
       if (action === 'decline' && method === 'POST') {
         me.declined = Array.isArray(me.declined) ? me.declined : [];
         if (!me.declined.includes(chat.id)) me.declined.push(chat.id);
@@ -1636,10 +1642,24 @@ function createApi(store, opts = {}) {
         if (mem === me.id) continue;
         const u = db.users.find(x => x.id === mem);
         if (!u) continue;
-        // pkg3-54: отклонённый чат не возвращается сам — ни снятием скрытия, ни новым сроком
-        if (Array.isArray(u.declined) && u.declined.includes(chat.id)) continue;
+        const wasDeclined = Array.isArray(u.declined) && u.declined.includes(chat.id);
+        // pkg3-54: отклонённый ГРУППОВОЙ чат не возвращается сам (участников
+        // много, письма частые — иначе отклонение ничего бы не значило)
+        if (wasDeclined && chat.kind !== 'dm') continue;
+        // pkg3-60: новое письмо собеседника возвращает отклонённый или убранный
+        // ЛИЧНЫЙ чат — снова в «Новые» с новым отсчётом. Прежнее поведение
+        // (отклонённый не возвращается; убранный возвращается только если ему
+        // никогда не отвечали) рождало «призраков»: оповещения о письмах
+        // приходят, а чата нет ни в одном разделе. Решение владельца.
+        if (wasDeclined) u.declined = u.declined.filter(x => x !== chat.id);
         if (Array.isArray(u.hiddenChats) && u.hiddenChats.includes(chat.id)) {
           u.hiddenChats = u.hiddenChats.filter(x => x !== chat.id);
+        }
+        // адресат ещё не решил (никогда не писал в чат и не сохранял его) —
+        // свежий отсчёт «Новых» с каждого его нового письма
+        if (chat.kind === 'dm' && !(chat.savedBy || []).includes(mem)) {
+          u.newChats = u.newChats || {};
+          u.newChats[chat.id] = { at: Date.now(), until: Date.now() + NEW_DM_TTL };
         }
       }
       // pkg3-54: сам написал в отклонённый чат — вернул его себе (восстановление поиском)
