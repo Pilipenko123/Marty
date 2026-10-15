@@ -146,8 +146,44 @@ else
   exit 1
 fi
 
-say "7/8. nginx на порту 80 для $DOMAIN"
-cat > /etc/nginx/sites-available/sega-chat <<NGX
+say "7/8. nginx для $DOMAIN (порт 80, а при готовом сертификате — сразу и HTTPS)"
+# pkg3-60: прежняя версия перезаписывала настройку вариантом «только порт 80»,
+# а шаг 8 возвращала HTTPS через certbot. Если certbot не запускался (например,
+# «Another instance of Certbot is already running» — гонка с системным
+# продлением), сайт оставался БЕЗ HTTPS до ручного лечения. Теперь:
+#  • прежняя настройка сохраняется в .bak-setup (откат при неудаче);
+#  • если сертификат уже выпущен, конфиг сразу пишется вместе с блоком 443 —
+#    HTTPS не пропадает ни на секунду, даже если certbot не запустится.
+LIVE="/etc/letsencrypt/live/$DOMAIN"
+NGCONF="/etc/nginx/sites-available/sega-chat"
+[ -f "$NGCONF" ] && cp -f "$NGCONF" "$NGCONF.bak-setup"
+if [ -f "$LIVE/fullchain.pem" ] && [ -f "$LIVE/privkey.pem" ]; then
+cat > "$NGCONF" <<NGX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN;
+    location / { return 301 https://\$host\$request_uri; }
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name $DOMAIN;
+    ssl_certificate $LIVE/fullchain.pem;
+    ssl_certificate_key $LIVE/privkey.pem;
+    client_max_body_size 30m;
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 120s;
+    }
+}
+NGX
+else
+cat > "$NGCONF" <<NGX
 server {
     listen 80;
     listen [::]:80;
@@ -163,18 +199,46 @@ server {
     }
 }
 NGX
-ln -sf /etc/nginx/sites-available/sega-chat /etc/nginx/sites-enabled/sega-chat
-nginx -t >/dev/null && systemctl reload nginx
-echo "  nginx настроен"
+fi
+ln -sf "$NGCONF" /etc/nginx/sites-enabled/sega-chat
+if nginx -t >/dev/null 2>&1; then
+  systemctl reload nginx
+  echo "  nginx настроен"
+else
+  echo "  новая настройка nginx не прошла проверку — возвращаю прежнюю"
+  if [ -f "$NGCONF.bak-setup" ]; then
+    cp -f "$NGCONF.bak-setup" "$NGCONF"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx
+  fi
+fi
 
 say "8/8. Сертификат HTTPS (нужна DNS-запись на этот сервер)"
 VPS_IP="$(ip -4 addr show scope global 2>/dev/null | grep -oE 'inet [0-9.]+' | awk '{print $2}' | head -1)"
 RES="$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -1 || true)"
 echo "  адрес сервера: ${VPS_IP:-?}, домен сейчас указывает на: ${RES:-никуда}"
 if [ -n "$RES" ] && [ "$RES" = "$VPS_IP" ]; then
-  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect \
-    && echo "  сертификат получен, HTTPS работает" \
-    || echo "  сертификат НЕ получен — позже: bash $APP/code/cloud-vps/cert.sh"
+  # pkg3-60: ждём, пока системный certbot (автопродление) освободит замок —
+  # именно столкновение с ним оставило сайт без HTTPS при установке pkg3-57
+  i=0
+  while pgrep -f certbot >/dev/null 2>&1 && [ $i -lt 36 ]; do
+    i=$((i + 1))
+    echo "  ждём завершения системного certbot… ($i/36)"
+    sleep 5
+  done
+  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+    echo "  сертификат получен/проверен, HTTPS работает"
+  else
+    echo "  certbot не сработал — повторяю через минуту"
+    sleep 60
+    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+      echo "  сертификат получен/проверен, HTTPS работает"
+    elif [ -f "$LIVE/fullchain.pem" ]; then
+      echo "  сертификат уже выпущен — HTTPS продолжит работать (настройка nginx сохранена);"
+      echo "  продление проверит системный таймер, а вручную можно позже: bash $APP/code/cloud-vps/cert.sh"
+    else
+      echo "  сертификат НЕ получен — позже: bash $APP/code/cloud-vps/cert.sh"
+    fi
+  fi
 else
   echo "  DNS ещё не смотрит сюда — сертификат получим позже: bash $APP/code/cloud-vps/cert.sh"
 fi
