@@ -315,6 +315,21 @@ sK3 = await syncOf(klava);
 const chatK4 = (sK3.chats || []).find(c => c.id === dmBK.id);
 ok(!!chatK4 && !!chatK4.newUntil, 'требование 4: новое письмо вернуло чат Клаве — в «Новые» на сутки');
 
+// pkg3-60: сценарий владельца — отвечала, добавила, убрала; новое письмо снова
+// возвращает чат в «Новые» с новым отсчётом (раньше мешала отметка «открывал»)
+ok((await sendDm(klava, borya, dmBK.id, 'Да, я тут!')).status === 200, 'Клава ответила Боре');
+sK3 = await syncOf(klava);
+const chatK5 = (sK3.chats || []).find(c => c.id === dmBK.id);
+ok(!!chatK5 && !chatK5.newUntil && (chatK5.savedBy || []).includes(klava.id),
+  'своё письмо вернуло чат в «Личные» (не в «Новых»)');
+await call('/api/chats/' + dmBK.id + '/hide', { method: 'POST', body: { hidden: true } }, klava.token);
+sK3 = await syncOf(klava);
+ok(!(sK3.chats || []).some(c => c.id === dmBK.id), 'чат убран из списков Клавы');
+ok((await sendDm(borya, klava, dmBK.id, 'Клава, вы снова пропали?')).status === 200, 'Боря написал снова');
+sK3 = await syncOf(klava);
+const chatK6 = (sK3.chats || []).find(c => c.id === dmBK.id);
+ok(!!chatK6 && !!chatK6.newUntil, 'требование владельца (pkg3-60): убранный чат, в котором была переписка, новое письмо вернуло в «Новые» с новым отсчётом');
+
 // pkg3-50: правило «Новых» действует и на администратора — владелец тоже даёт
 // согласие кнопкой. Сначала обычное: Мартин написал первым — он автор, чат
 // сразу в его «Личных чатах».

@@ -154,23 +154,23 @@ ok(appJs.includes('function openAdminInvites'), 'администратору д
 ok(appJs.includes('function openAliasEditor') && appJs.includes('function setAlias'), 'локальные псевдонимы редактируются и хранятся на устройстве');
 ok(appJs.includes('function loadAliases') && appJs.includes('aliases: loadAliases()'), 'псевдонимы читаются из памяти устройства при старте');
 ok(appJs.includes("const userByIdRaw = id => S.users.find(u => u.id === id);"), 'userById отдаёт имя с псевдонимом, не трогая данные синхронизации');
-ok(appJs.includes('rail-group">Приглашенные'), 'в списке чатов есть раздел «Приглашенные»');
+ok(!appJs.includes('rail-group">Приглашенные'), 'pkg3-60: раздел «Приглашенные» убран из списка чатов (владелец: довольно «Личных чатов»)');
 ok(css.includes('.qr-box{background:#fff;'), 'QR лежит на белой подложке — сканеру нужен контраст');
 ok(appJs.includes("api('/api/admin/emergency-reg'"), 'аварийное окно включается и выключается из админки');
 
-// pkg3-47: поиск по нику и запросы-согласия в «Приглашенные»
-ok(appJs.includes('function bondStateWith'), 'состояние связи «Приглашенных» считается одной функцией');
-ok(appJs.includes('data-bond-accept') && appJs.includes('data-bond-decline'), 'запросы решаются кнопками прямо в списке чатов');
-ok(appJs.includes('Запросы в «Приглашенные»'), 'входящие запросы видны отдельным разделом списка чатов');
+// pkg3-47/60: поиск по нику остался; запросы-согласия «в Приглашенные» убраны из интерфейса
+ok(!appJs.includes('function bondStateWith'), 'pkg3-60: состояние связи «Приглашенных» больше не считается (раздел снят)');
+ok(!appJs.includes('data-bond-accept') && !appJs.includes('data-bond-decline'), 'pkg3-60: кнопок принять/отклонить запрос «в Приглашенные» больше нет');
+ok(!appJs.includes('rail-group">Запросы'), 'pkg3-60: раздела «Запросы в «Приглашенные»» больше нет');
 ok(appJs.includes('id="inv-find"') && appJs.includes('Найти по нику'), 'в окне приглашения есть поиск по нику по всему мессенджеру');
-ok(appJs.includes('data-find-bond') && appJs.includes('data-find-dm'), 'найденному можно написать или отправить запрос в «Приглашенные»');
-ok(appJs.includes('data-bond-ask'), 'запрос можно отправить участнику общей группы из списка участников');
-ok(appJs.includes('S.myBonds = new Set(data.myBonds || [])'), 'связи приезжают в синхронизации');
-ok(css.includes('.bond-btns{display:flex;gap:4px;flex-direction:column;}'), 'кнопки принять/отклонить сложены в столбик у карточки запроса');
+ok(!appJs.includes('data-find-bond') && appJs.includes('data-find-dm'), 'pkg3-60: найденному можно только написать — кнопки «в Приглашенные» нет');
+ok(!appJs.includes('data-bond-ask'), 'pkg3-60: в списке участников общей группы запросов «в приглашенные» больше нет');
+ok(appJs.includes('S.myBonds = new Set(data.myBonds || [])'), 'связи по-прежнему приезжают в синхронизации (круг видимости на сервере)');
+ok(!css.includes('.bond-btns{'), 'pkg3-60: стили карточек запросов убраны');
 
 // pkg3-48: админ-окно открывается и на старой облачной базе; виден только свой
 // круг; раздела «Написать лично» нет; поиск по нику спрашивает сервер
-ok(html.includes('data-act="bond"') && html.includes('data-act="hide"'), 'в меню чата есть «Взять в «Приглашенные»» и «Скрыть из личных чатов»');
+ok(!html.includes('data-act="bond"') && html.includes('data-act="hide"'), 'pkg3-60: пункта «Взять в «Приглашенные»» в меню чата нет; «Убрать из моих личных чатов» осталось');
 ok(appJs.includes("b.dataset.act === 'hide'") && appJs.includes("+ '/hide'"), 'скрытие личного чата идёт командой на сервер, а не только в памяти телефона');
 ok(!appJs.includes('rail-group">Написать лично'), 'раздела «Написать лично» со всем списком участников больше нет');
 ok(appJs.includes("api('/api/search?q='"), 'поиск по нику идёт через сервер (/api/search), а не по локальному списку');
@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v52'), 'кэш статики поднят до v52');
+ok(sw.includes('sega-static-v53'), 'кэш статики поднят до v53');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -231,7 +231,9 @@ ok(apiJs.includes('NEW_INVITE_DELAY'), 'приглашённый первые с
 ok(apiJs.includes('MAX_LIVE_GAMES'), 'не больше четырёх одновременных партий, где участник — игрок');
 ok(apiJs.includes("action === 'decline' && method === 'POST'"), 'маршрут отклонения на сервере');
 ok(apiJs.includes("act === 'move' && method === 'POST'"), 'маршрут перестановки разделов на сервере');
-ok(apiJs.includes("u.declined.includes(chat.id)) continue"), 'отклонённый чат не возрождается новым письмом');
+// pkg3-60 (было pkg3-54): правило изменилось по решению владельца — отклонённый
+// ЛИЧНЫЙ чат новое письмо возвращает в «Новые»; навсегда отклоняется только групповой
+ok(apiJs.includes("if (wasDeclined && chat.kind !== 'dm') continue;"), 'отклонённый групповой чат новым письмом не возрождается; личный — возвращается в «Новые»');
 ok(modelJs.includes('Math.abs((e.until - e.at) - OLD_TTL)'), 'идущие суточные таймеры продлеваются до 7 суток при переносе');
    // pkg3-52/53: проверки серверной части
 
@@ -351,6 +353,21 @@ ok(apiJs.includes("adminLogAdd(me.id, 'удалил участника") && apiJ
 ok(apiJs.includes('db.bondReqs.filter(r => r.from !== id && r.to !== id)') && apiJs.includes('db.invites.filter(i => i.ownerId !== id)'),
   'удаление стирает связи, запросы-согласия и живые ссылки удалённого');
 ok(modelJs.includes('u.bannedUntil'), 'модель: migrate() добавляет bannedUntil с дефолтом');
+
+// pkg3-60: четыре правки владельца + лечение установщика
+ok(css.includes('.tr-row .sec-dots{opacity:1}'), 'меню «⋮» в админ-дереве видно и на ПК (точки не прячутся)');
+ok(!appJs.includes('data-pol-user'), 'список галочек «Запретить: …» из админ-окна убран (запрет — в меню «⋮»)');
+ok(appJs.includes('Отдельному участнику запрет ставится в меню'), 'в админ-окне подсказка: запрет участнику — в меню «⋮»');
+ok(appJs.includes('const blockedUsers = pol.blockedUsers || [];'), '«Сохранить блокировки» не затирает запреты, поставленные через меню');
+ok(apiJs.includes('pkg3-60: новое письмо собеседника возвращает отклонённый'), 'сервер: новое письмо возвращает отклонённый/убранный личный чат');
+ok(apiJs.includes("if (wasDeclined && chat.kind !== 'dm') continue;"), 'отклонённый групповой чат письмом не возвращается (их много и письма частые)');
+ok(apiJs.includes('u.newChats[chat.id] = { at: Date.now(), until: Date.now() + NEW_DM_TTL };'), 'возвращённый чат получает свежий отсчёт «Новых»');
+ok(apiJs.includes('dmRec && dmRec.until >= t'), 'живой отсчёт «Новых» важнее отметки «открывал» — чат снова в «Новых»');
+ok(appJs.includes('вернётся в раздел «Новые»'), 'подтверждение «Отклонить» честно говорит о возвращении новым письмом');
+ok(appJs.includes('вернёт чат в раздел «Новые» ещё на 7 суток'), 'подсказка «Убрать из моих личных чатов» обещает 7 суток, а не сутки');
+ok(setupSh.includes('ждём завершения системного certbot') && setupSh.includes('.bak-setup') && setupSh.includes('listen 443 ssl'),
+  'установщик: ждёт системный certbot, хранит откат и не гасит HTTPS при готовом сертификате');
+ok(setupSh.includes('повторяю через минуту'), 'установщик повторяет попытку сертификата при неудаче');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

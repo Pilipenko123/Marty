@@ -220,9 +220,13 @@ function startFunctionEmulator(handler, functionId) {
     && cssText.includes('.qr-box{background:#fff;');
   console.log('  ' + (okPkg45 ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-45: закрытая регистрация, приглашения с QR, дерево админа, псевдонимы');
   if (!okPkg45) failed++;
-  const okPkg47 = appJsText.includes('function bondStateWith') && appJsText.includes('data-bond-accept')
-    && appJsText.includes('id="inv-find"') && cssText.includes('.bond-btns{');
-  console.log('  ' + (okPkg47 ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-47: поиск по нику и запросы-согласия в «Приглашенные»');
+  // pkg3-47/60: поиск по нику в окне приглашения остался; раздел «Приглашенные»
+  // и запросы-согласия убраны из интерфейса по решению владельца (серверные
+  // связи bonds живы — круг видимости использует их)
+  const okPkg47 = appJsText.includes('id="inv-find"')
+    && !appJsText.includes('function bondStateWith') && !appJsText.includes('data-bond-accept')
+    && !cssText.includes('.bond-btns{');
+  console.log('  ' + (okPkg47 ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-47/60: поиск по нику на месте, «Приглашенные» убраны из интерфейса');
   if (!okPkg47) failed++;
   const okNoOldCtrl = !appJsText.includes('bp-ctrl') && !cssText.includes('.bp-ctrl{');
   console.log('  ' + (okNoOldCtrl ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: отдельная строка кнопок под доской убрана');
