@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-58';
+const BUILD = 'pkg3-59';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -407,8 +407,34 @@ async function api(path, opts = {}) {
     return res;
   }
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Ошибка запроса');
+    err.code = data.code || null;
+    err.until = data.until || 0;
+    // pkg3-59: бан по жалобе — показываем честное уведомление и выходим
+    if (data.code === 'banned') banNotice(data);
+    throw err;
+  }
   return data;
+}
+
+/** pkg3-59: пользователь, попавший под бан на сутки, узнаёт причину честно:
+ * жалоба, срок, и что данные сохранятся. Показывается один раз — при входе
+ * ошибку выведет форма входа (бан без активной сессии здесь молчит). */
+let banNoticeShown = false;
+function banNotice(d) {
+  if (banNoticeShown) return;
+  if (!S.token) return;                 // форма входа сама покажет причину
+  banNoticeShown = true;
+  doLogout(true);
+  const until = Number((d && d.until) || 0);
+  modal('Доступ ограничен', `
+    <p>На вас поступила жалоба администратору мессенджера.</p>
+    <p class="hint">Доступ ограничен на сутки${until ? ' — до ' + fmtDay(until) + ', ' + fmtTime(until) : ''}.
+    Переписка и партии сохранятся: после окончания срока можно войти прежним паролем.</p>
+    <button class="primary" id="ban-ok" type="button">Понятно</button>`);
+  const b = $('#ban-ok');
+  if (b) b.addEventListener('click', () => hide($('#modal')));
 }
 
 // ─────────────────────────────────────────── шкала первой загрузки
@@ -707,6 +733,7 @@ $('#form-register').addEventListener('submit', async e => {
 
 async function enterWith(r, roomKeyRaw, saltAuth, saltWrap, pair) {
   S.token = r.token; S.me = r.user;
+  banNoticeShown = false;   // pkg3-59: новый вход — уведомление о бане можно показать снова
   S.roomKeyRaw = roomKeyRaw instanceof Uint8Array ? roomKeyRaw : new Uint8Array(roomKeyRaw);
   S.roomKey = await importAes(S.roomKeyRaw);
   if (pair) { S.priv = pair.priv; S.privRaw = pair.pkcs8; S.pub = pair.pub; }
@@ -6491,24 +6518,31 @@ async function openAdminInvites() {
   d.users = d.users || []; d.invites = d.invites || []; d.log = d.log || [];
   const pol = d.policy || { globalOff: false, blockedUsers: [], blockedChats: [] };
   pol.blockedUsers = pol.blockedUsers || []; pol.blockedChats = pol.blockedChats || [];
+  S.adminInv = d;   // pkg3-59: данные окна — для меню «⋮» у участника
   const nameOf = id => id === 'root' ? 'основатели' : id === 'code' ? 'аварийный вход'
     : (d.users.find(u => u.id === id) || {}).name || '?';
   const kids = {};
   for (const u of d.users) (kids[u.invitedBy] = kids[u.invitedBy] || []).push(u);
+  // pkg3-59: значки состояния и меню «⋮» рядом с каждым участником дерева
+  const meId0 = (S.me && S.me.id) || null;
+  const uMarks = u => ((u.bannedUntil || 0) > Date.now() ? ' <span class="tag-new" title="Доступ ограничен на сутки по жалобе">⛔ бан</span>' : '')
+    + (pol.blockedUsers.includes(u.id) ? ' <span class="tag-grp" title="Запрещено приглашать других">🚫 звать</span>' : '');
+  const uMenu = u => u.id === meId0 ? ''
+    : ` <button class="sec-dots" data-umenu="${escapeHtml(u.id)}" title="Управление участником">⋮</button>`;
   let tree = '';
   const walk = (id, depth) => (kids[id] || [])
     .sort((a, b) => a.createdAt - b.createdAt)
     .forEach(u => {
       tree += `<div class="tr-row" style="padding-left:${depth * 14}px">↳ ${escapeHtml(u.name)}
-        <span class="tiny muted">· ${fmtDay(u.createdAt)}</span></div>`;
+        <span class="tiny muted">· ${fmtDay(u.createdAt)}</span>${uMarks(u)}${uMenu(u)}</div>`;
       walk(u.id, depth + 1);
     });
   (kids.root || []).forEach(u => {
-    tree += `<div class="tr-row"><b>${escapeHtml(u.name)}</b> <span class="tiny muted">· основатель</span></div>`;
+    tree += `<div class="tr-row"><b>${escapeHtml(u.name)}</b> <span class="tiny muted">· основатель</span>${uMarks(u)}${uMenu(u)}</div>`;
     walk(u.id, 1);
   });
   (kids.code || []).forEach(u => {
-    tree += `<div class="tr-row">↳ ${escapeHtml(u.name)} <span class="tiny muted">· аварийный вход</span></div>`;
+    tree += `<div class="tr-row">↳ ${escapeHtml(u.name)} <span class="tiny muted">· аварийный вход</span>${uMarks(u)}${uMenu(u)}</div>`;
     walk(u.id, 1);
   });
   const groups = S.chats.filter(c => c.kind === 'group');
@@ -6531,6 +6565,11 @@ async function openAdminInvites() {
     <div class="divider"><span>Журнал</span></div>
     <div class="bp-moves-list" style="max-height:140px">${d.log.slice().reverse().map(e =>
       `<div class="mrow-mv"><span class="mv-w">${fmtDay(e.at)} ${fmtTime(e.at)}</span><span class="mv-b">${escapeHtml((d.users.find(u => u.id === e.by) || {}).name || '?')}</span><span>${escapeHtml(e.what)}</span></div>`).join('') || '<div class="mv-empty">Журнал пуст</div>'}</div>`);
+  // pkg3-59: «⋮» в строках дерева — слушатель на карточке окна, со снятием
+  // прежнего (иначе накапливается и меню открывается дважды — урок pkg3-53)
+  const mEl = $('#modal');
+  mEl.removeEventListener('click', adminTreeClick);
+  mEl.addEventListener('click', adminTreeClick);
   $('#pol-save').addEventListener('click', async () => {
     const blockedUsers = [...document.querySelectorAll('[data-pol-user]')].filter(x => x.checked).map(x => x.dataset.polUser);
     const blockedChats = [...document.querySelectorAll('[data-pol-chat]')].filter(x => x.checked).map(x => x.dataset.polChat);
@@ -6545,6 +6584,79 @@ async function openAdminInvites() {
       toast(emOpen ? 'Аварийное окно закрыто' : 'Аварийное окно открыто на 1 час');
       openAdminInvites();
     } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ── pkg3-59: меню «⋮» у участника дерева приглашений ──
+function adminTreeClick(e) {
+  const b = e.target.closest('[data-umenu]');
+  if (b) openUserAdmin(b.dataset.umenu);
+}
+/** Карточка управления участником: запрет приглашать (галочка), бан на сутки
+ * с уведомлением о жалобе, удаление из мессенджера навсегда. */
+function openUserAdmin(id) {
+  const d = S.adminInv;
+  if (!d) return;
+  const u = (d.users || []).find(x => x.id === id);
+  if (!u) return;
+  const pol = d.policy || { globalOff: false, blockedUsers: [], blockedChats: [] };
+  const blocked = (pol.blockedUsers || []).includes(id);
+  const banned = (u.bannedUntil || 0) > Date.now();
+  modal('Участник «' + u.name + '»', `
+    <div class="card">
+      <label class="row-check"><input type="checkbox" id="ua-noinvite" ${blocked ? 'checked' : ''}>
+        <span>Запрещено приглашать других пользователей</span></label>
+      <div class="set-row">
+        <div class="t"><b>${banned ? 'Доступ ограничен по жалобе' : 'Бан на сутки'}</b>
+          <span>${banned
+            ? 'до ' + fmtDay(u.bannedUntil) + ', ' + fmtTime(u.bannedUntil) + ' — можно снять досрочно'
+            : 'пользователь получит уведомление о поступившей жалобе'}</span></div>
+        <button class="mini ${banned ? '' : 'danger'}" id="ua-ban" type="button">${banned ? 'Снять бан' : 'Забанить'}</button>
+      </div>
+      <div class="set-row">
+        <div class="t"><b>Удалить из мессенджера навсегда</b>
+          <span>все данные участника стираются с сервера; возврат — только по новому приглашению и новой регистрацией</span></div>
+        <button class="mini danger" id="ua-del" type="button">Удалить</button>
+      </div>
+    </div>`);
+  $('#ua-noinvite').addEventListener('change', async e => {
+    const list = new Set(pol.blockedUsers || []);
+    if (e.target.checked) list.add(id); else list.delete(id);
+    try {
+      await api('/api/admin/invite-policy', {
+        method: 'POST',
+        body: { globalOff: !!pol.globalOff, blockedUsers: [...list], blockedChats: pol.blockedChats || [] }
+      });
+      toast(e.target.checked ? '«' + u.name + '» больше не может приглашать' : '«' + u.name + '» снова может приглашать');
+      openAdminInvites();
+    } catch (ex) { toast(ex.message, true); }
+  });
+  $('#ua-ban').addEventListener('click', async () => {
+    try {
+      if (banned) {
+        await api('/api/admin/users/' + encodeURIComponent(id) + '/ban', { method: 'POST', body: { on: false } });
+        toast('Бан снят: доступ возвращён');
+      } else {
+        if (!confirm('Ограничить «' + u.name + '» доступ на сутки? Пользователь получит уведомление о поступившей жалобе.')) return;
+        await api('/api/admin/users/' + encodeURIComponent(id) + '/ban', { method: 'POST', body: { on: true } });
+        toast('Доступ ограничен на сутки');
+      }
+      openAdminInvites();
+    } catch (ex) { toast(ex.message, true); }
+  });
+  $('#ua-del').addEventListener('click', async () => {
+    if (!confirm('Удалить «' + u.name + '» из мессенджера НАВСЕГДА?\n\n'
+      + 'Профиль, ключи и настройки будут стёрты с сервера, личные чаты с ним удалены у обеих сторон, '
+      + 'его приглашения погаснут. В групповых чатах его сообщения останутся с подписью «Бывший участник». '
+      + 'Вернуться он сможет только по новому приглашению и новой регистрацией — прежнее не восстановится.')) return;
+    try {
+      await api('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' });
+      toast('Участник удалён навсегда');
+      hide($('#modal'));
+      await sync(false).catch(() => {});
+      S.sig = ''; renderAll();
+      openAdminInvites();
+    } catch (ex) { toast(ex.message, true); }
   });
 }
 
