@@ -156,6 +156,155 @@ function play() {
   ok(/^b\|.+— ранил! выстрел ещё раз$/.test(l2 || ''), 'строка списка: попадание');
 }
 
+console.log('── морской бой: открытый режим (pkg3-58) ──');
+function playOpen(fw = fleetW, fb = fleetB) {
+  const eng = createSeabattle();
+  const send = (p, side) => eng.apply(p, side);
+  send({ k: 'sb-commit', commit: sha(SB.canon(fw, saltW)), fleet: fw, salt: saltW }, 'w');
+  send({ k: 'sb-commit', commit: sha(SB.canon(fb, saltB)), fleet: fb, salt: saltB }, 'b');
+  return { eng, send };
+}
+{
+  const { eng } = playOpen();
+  ok(eng.openMode() === true, 'печати с флотами включают открытый режим');
+  ok(!!eng.fleetOf('w') && eng.fleetOf('w').fleet.length === 10, 'флот стороны w известен движку');
+  ok(eng.fleetOf('w').salt === saltW, 'соль печати сохранена вместе с флотом');
+}
+{
+  // мгновенный разбор: ответ без письма sb-reply
+  const { eng, send } = playOpen();
+  const v0 = eng.viewOf('b');
+  let miss = null;
+  for (let y = 0; y < 10 && !miss; y++) for (let x = 0; x < 10; x++) if (!v0.grid[y * 10 + x] && !SB.shipAt(fleetB, x, y)) { miss = { x, y }; break; }
+  const l1 = send({ k: 'sb-shot', x: miss.x, y: miss.y }, 'w');
+  ok(eng.pendingShot() === null && l1 !== null, 'выстрел решён мгновенно: строка списка есть, ожидания ответа нет');
+  ok(eng.turn() === 'b', 'промах в открытом режиме передаёт ход');
+  // теперь стреляет b — по флоту w; клетка берётся из флота w (ранение)
+  const cell = SB.shipCells(fleetW[0])[0];
+  const l2 = send({ k: 'sb-shot', x: cell.x, y: cell.y }, 'b');
+  ok(/— ранил! выстрел ещё раз$/.test(l2 || '') && eng.turn() === 'b', 'ранил — стрелявший ходит ещё раз (без письма-ответа)');
+}
+{
+  // потопление: клетки и ореол появляются из разбора, а не из письма
+  const { eng, send } = playOpen();
+  const ship = fleetB.find(s => s.len === 1) || fleetB[fleetB.length - 1];
+  const cells = SB.shipCells(ship);
+  const l = send({ k: 'sb-shot', x: cells[0].x, y: cells[0].y }, 'w');
+  ok(/— потопил!$/.test(l || ''), 'однопалубник потоплен одним выстрелом (строка сразу)');
+  const v = eng.viewOf('b');
+  ok(v.grid[cells[0].y * 10 + cells[0].x] === 'sunk', 'клетка потопленного помечена');
+  const aura = SB.auraOf(ship);
+  ok(aura.every(k => { const [x, y] = k.split(',').map(Number); return v.grid[y * 10 + x] === 'miss'; }), 'ореол вокруг потопленного проставился сам');
+  const st = eng._state().shots[0];
+  ok(Array.isArray(st.cells) && st.cells.length === cells.length && Array.isArray(st.aura), 'в записи выстрела есть клетки корабля и ореол');
+}
+{
+  // победа в открытом режиме: топим весь флот b одними выстрелами w
+  const { eng, send } = playOpen();
+  const order = [];
+  for (const s of fleetB) for (const c of SB.shipCells(s)) order.push(c);
+  let last = null;
+  for (const c of order) {
+    if (eng.winner()) break;
+    last = send({ k: 'sb-shot', x: c.x, y: c.y }, 'w');
+    // после промаха ход перешёл бы к b — в этом флоте промахов нет (стреляем по клеткам)
+  }
+  ok(eng.status() === 'over' && eng.winner() === 'w', 'победа за 20 попаданий без единого письма-ответа');
+  ok(eng.hitsOn('b') === 20, 'все 20 клеток флота b учтены');
+  const after = send({ k: 'sb-shot', x: 0, y: 0 }, 'w');
+  ok(after === null, 'после победы выстрелы не принимаются');
+}
+{
+  // смешанная партия: одна печать старая (без флота) — прежний протокол
+  const eng = createSeabattle();
+  eng.apply({ k: 'sb-commit', commit: commitW }, 'w');                       // старый клиент
+  eng.apply({ k: 'sb-commit', commit: commitB, fleet: fleetB, salt: saltB }, 'b');
+  ok(eng.openMode() === false, 'если хоть одна печать без флота — режим прежний');
+  eng.apply({ k: 'sb-shot', x: 1, y: 1 }, 'w');
+  ok(eng.pendingShot() !== null, 'выстрел ждёт письма-ответа, как раньше');
+  eng.apply({ k: 'sb-reply', x: 1, y: 1, r: SB.shipAt(fleetB, 1, 1) ? 'hit' : 'miss' }, 'b');
+  ok(eng.pendingShot() === null, 'ответ закрыл выстрел');
+}
+{
+  // мусорный флот в печати игнорируется
+  const eng = createSeabattle();
+  eng.apply({ k: 'sb-commit', commit: 'x', fleet: [{ x: 0, y: 0, len: 9, horiz: true }], salt: 's' }, 'w');
+  const eng2 = createSeabattle();
+  eng2.apply({ k: 'sb-commit', commit: 'x', fleet: fleetW.slice(0, 9), salt: 's' }, 'w');   // девять кораблей
+  const eng3 = createSeabattle();
+  const touch = fleetW.slice(); touch[9] = { x: touch[0].x, y: touch[0].y + 1, len: 1, horiz: true };  // вплотную к линкору
+  eng3.apply({ k: 'sb-commit', commit: 'x', fleet: touch, salt: 's' }, 'w');
+  ok(eng.fleetOf('w') === null && eng2.fleetOf('w') === null && eng3.fleetOf('w') === null,
+    'неполный, несуществующий и касающийся флот в печати игнорируются (остаются ответы)');
+}
+{
+  // лишний sb-reply в открытом режиме игнорируется (старое устройство могло дослать)
+  const { eng, send } = playOpen();
+  const v0 = eng.viewOf('b');
+  let miss = null;
+  for (let y = 0; y < 10 && !miss; y++) for (let x = 0; x < 10; x++) if (!v0.grid[y * 10 + x] && !SB.shipAt(fleetB, x, y)) { miss = { x, y }; break; }
+  send({ k: 'sb-shot', x: miss.x, y: miss.y }, 'w');
+  const dup = send({ k: 'sb-reply', x: miss.x, y: miss.y, r: 'sunk', cells: ['0,0', '1,0', '2,0', '3,0'], aura: [] }, 'b');
+  ok(dup === null && eng._state().shots.length === 1 && eng._state().shots[0].r === 'miss',
+    'поздний ответ с враньём («потопил») в открытом режиме игнорируется');
+}
+{
+  // идентичность режимов: одна и та же партия в открытом и прежнем режиме
+  const seq = [];
+  const v0 = eng => eng.viewOf('b');
+  {
+    const eng = createSeabattle();
+    eng.apply({ k: 'sb-commit', commit: commitW, fleet: fleetW, salt: saltW }, 'w');
+    eng.apply({ k: 'sb-commit', commit: commitB, fleet: fleetB, salt: saltB }, 'b');
+    let side = 'w';
+    for (let i = 0; i < 60 && !eng.winner(); i++) {
+      const def = SB.other(side);
+      const fleet = def === 'b' ? fleetB : fleetW;
+      const v = eng.viewOf(def);
+      let cell = null;
+      for (let y = 0; y < 10 && !cell; y++) for (let x = 0; x < 10; x++) if (!v.grid[y * 10 + x]) { cell = { x, y }; break; }
+      if (!cell) break;
+      eng.apply({ k: 'sb-shot', x: cell.x, y: cell.y }, side);
+      seq.push([side, cell.x, cell.y]);
+      if (eng.turn() !== side) side = eng.turn();
+      if (eng.winner()) { var openLog = eng.log().join('\n'), openWinner = eng.winner(); break; }
+    }
+    if (!openLog) { openLog = eng.log().join('\n'); openWinner = eng.winner(); }
+  }
+  {
+    // та же последовательность через прежний протокол (выстрел + ответ устройства)
+    const eng = createSeabattle();
+    eng.apply({ k: 'sb-commit', commit: commitW }, 'w');
+    eng.apply({ k: 'sb-commit', commit: commitB }, 'b');
+    for (const [side, x, y] of seq) {
+      eng.apply({ k: 'sb-shot', x, y }, side);
+      const def = SB.other(side);
+      const fleet = def === 'b' ? fleetB : fleetW;
+      const ship = SB.shipAt(fleet, x, y);
+      let r = 'miss', cells = null, aura = null;
+      if (ship) {
+        const v = eng.viewOf(def);
+        const hits = new Set();
+        for (let i = 0; i < 100; i++) if (v.grid[i] === 'hit' || v.grid[i] === 'sunk') hits.add(i % 10 + ',' + Math.floor(i / 10));
+        hits.add(x + ',' + y);
+        if (SB.isSunk(ship, hits)) { r = 'sunk'; cells = SB.shipCells(ship).map(c => c.x + ',' + c.y); aura = SB.auraOf(ship); }
+        else r = 'hit';
+      }
+      eng.apply({ k: 'sb-reply', x, y, r, cells, aura }, def);
+    }
+    ok(eng.log().join('\n') === openLog, 'открытый и прежний режимы дают одинаковый список ходов');
+    ok(eng.winner() === openWinner, 'победитель в обоих режимах один и тот же');
+  }
+}
+{
+  // значок честности без письма вскрытия: флот из печати сверяется с хэшем
+  const { eng } = playOpen();
+  const rev = eng.fleetOf('b');
+  const shots = eng._state().shots.filter(s => s.side === 'w' && s.r);
+  ok(SB.checkReveal(rev, eng.commitOf('b'), sha(SB.canon(rev.fleet, rev.salt)), shots) === true,
+    'флот из печати проходит сверку честности (checkReveal) без sb-reveal');
+}
+
 console.log('');
 console.log(bad ? `ПРОВАЛ: ${bad} из ${n}` : `все проверки пройдены: ${n}`);
 process.exit(bad ? 1 : 0);

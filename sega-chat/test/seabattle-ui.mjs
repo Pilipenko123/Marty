@@ -241,6 +241,53 @@ ok(/флот не совпал/.test(doc.querySelector('.sb-panel').innerHTML) =
 ok(ev('S.sbPlaying') === false, 'после победы частый опрос выключен (S.sbPlaying = false)');
 ok(ev('pollDelay()') !== ev('SB_GAME_MS'), 'на завершённой партии опрос снова обычный');
 
+// ── pkg3-58: открытый режим — печати несут флоты, ответы не нужны ──
+ev(`(function(){
+  S.messages = []; S.plain = new Map();
+  let seq = 1;
+  const add = (uid, p) => { const id = 'o' + (seq++); S.messages.push({ id, seq, uid, ts: seq, chat: 'sb1', parent: null }); S.plain.set(id, p); };
+  add('me', { k: 'sb-commit', commit: ${JSON.stringify(commitW)}, fleet: ${JSON.stringify(fleetW)}, salt: 'sw' });
+  add('opp', { k: 'sb-commit', commit: ${JSON.stringify(commitB)}, fleet: ${JSON.stringify(fleetB)}, salt: 'sb' });
+  // выстрел в клетку корабля соперника — и НИКАКОГО письма-ответа
+  const cell = SB.shipCells(${JSON.stringify(fleetB)}[0])[0];
+  add('me', { k: 'sb-shot', x: cell.x, y: cell.y });
+  window.__cell = cell;
+  S.sbVerify = {};   // значок честности должен пересчитаться по-новому (флот из печати)
+  S.boardSig = ''; renderBoard();
+})()`);
+doc = w.document;
+{
+  const fields = doc.querySelectorAll('.sb-field');
+  ok(fields[0].querySelectorAll('.sb-marks .sb-boom').length === 1,
+    'открытый режим: попадание нарисовано сразу, письма-ответа в ленте нет');
+  ok(ev(`(function(){ const { eng } = gameReplay(S.chats[0]); return eng.pendingShot() === null && eng.openMode(); })()`),
+    'движок решил выстрел сам: ожидания ответа нет, режим открытый');
+  ok(/Ваш выстрел/.test(doc.querySelector('.bph-full').textContent), 'ранил — снова «Ваш выстрел» без ожидания');
+  ok(fields[0].querySelectorAll('.sbc.can').length === 99, 'после попадания можно стрелять ещё раз (99 свободных клеток)');
+  ok(/— ранил! выстрел ещё раз/.test(doc.querySelector('#game-moves').textContent), 'строка хода появилась вместе с выстрелом');
+}
+ev(`(function(){
+  // добираем оставшиеся палубы флота соперника — одними выстрелами, без ответов
+  let seq = S.messages.length + 1;
+  const add = (uid, p) => { const id = 'o' + (seq++); S.messages.push({ id, seq, uid, ts: seq, chat: 'sb1', parent: null }); S.plain.set(id, p); };
+  const done = new Set(S.messages.filter(m => (S.plain.get(m.id) || {}).k === 'sb-shot').map(m => { const p = S.plain.get(m.id); return p.x + ',' + p.y; }));
+  for (const s of ${JSON.stringify(fleetB)}) {
+    for (const c of SB.shipCells(s)) {
+      const k = c.x + ',' + c.y;
+      if (!done.has(k)) { add('me', { k: 'sb-shot', x: c.x, y: c.y }); done.add(k); }
+    }
+  }
+  S.boardSig = ''; renderBoard();
+})()`);
+await new Promise(r => setTimeout(r, 300));
+ev('S.boardSig=""; renderBoard();');
+doc = w.document;
+ok(/Победил Я/.test(doc.querySelector('.bph-full').textContent), 'открытый режим: победа наступила без единого письма-ответа');
+ok(/флот соперника честен/.test(doc.querySelector('.sb-panel').innerHTML),
+  'значок честности в открытом режиме сверяет флот из печати (письма вскрытия не было)');
+ok(ev(`(function(){ const { eng } = gameReplay(S.chats[0]); return eng._state().shots.every(s => s.r); })()`),
+  'все выстрелы разобраны — «висящих» нет');
+
 // ── pkg3-57: честные подписи «я / соперник» вместо «белые / чёрные» ──
 ev('openNewGame()');
 doc = w.document;

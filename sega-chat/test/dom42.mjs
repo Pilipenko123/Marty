@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v50'), 'кэш статики поднят до v50');
+ok(sw.includes('sega-static-v51'), 'кэш статики поднят до v51');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -319,6 +319,19 @@ ok(appJs.includes('Я стреляю первым') && appJs.includes('Сопе�
 ok(appJs.includes('Стреляю первым я') && appJs.includes('Первым стреляет соперник'),
   'принимающий приглашение выбирает: «Стреляю первым я» / «Первым стреляет соперник»');
 ok(appJs.includes('data-rules='), 'кнопка «Войти в игру» знает правила — окно выбора говорит по-человечески');
+
+// pkg3-58: мгновенные ответы «Морского боя» — печать несёт флот
+const sbEng = readFileSync(join(PUB, 'seabattle-engine.js'), 'utf8');
+ok(sbEng.includes('fleet: { w: null, b: null }'), 'движок хранит флоты из печатей (открытый режим)');
+ok(sbEng.includes('function validFleet'), 'флот из письма проверяется по правилам, мусор игнорируется');
+ok(sbEng.includes('function resolveShot'), 'выстрел разбирается самим движком — мгновенно, без письма-ответа');
+ok(sbEng.includes('const openMode'), 'режим партии выбирается по наличию флотов в обеих печатях');
+ok(sbEng.includes('fleetOf: side => st.fleet[side]') && sbEng.includes('openMode,'), 'движок отдаёт fleetOf/openMode наружу');
+ok(sbEng.includes('if (openMode()) return resolveShot(shot, st.fleet[other(side)].fleet);'), 'в открытом режиме ответ не ждёт устройства соперника');
+ok(appJs.includes("k: 'sb-commit', commit, fleet: P.fleet, salt"), 'кнопка «В бой!» отправляет печать вместе с флотом (шифрованным письмом)');
+ok(appJs.includes('eng.openMode && eng.openMode()'), 'в открытом режиме письмо вскрытия не отправляется (старому сопернику — отправляется)');
+ok(appJs.includes('eng.revealOf(side) || (eng.fleetOf ? eng.fleetOf(side) : null)'), 'значок честности берёт флот из печати, когда вскрытия не было');
+ok(sbEng.includes('sb-reply'), 'прежний протокол «выстрел — ответ» сохранён для старых клиентов и идущих партий');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
