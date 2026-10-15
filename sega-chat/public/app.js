@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-59';
+const BUILD = 'pkg3-60';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -1225,20 +1225,13 @@ async function applySyncMeta(data) {
       toast((userById(peer) || { name: 'Собеседник' }).name + ' добавил(а) вас в свои личные чаты');
     }
   }
-  // pkg3-47: мои связи «Приглашенные» и запросы-согласия
-  const prevReqs = S.bondReqs || [];
+  // pkg3-47: мои связи «Приглашенные» и запросы-согласия.
+  // pkg3-60: раздел «Приглашенные» из интерфейса убран по решению владельца —
+  // знакомство идёт через личные чаты и «Новые»; данные связей по-прежнему
+  // приходят (круг видимости на сервере их учитывает), но тосты о запросах
+  // и разделы больше не рисуются.
   S.myBonds = new Set(data.myBonds || []);
   S.bondReqs = data.bondReqs || [];
-  const freshReq = S.bondReqs.find(r => r.state === 'pending' && r.to === (S.me && S.me.id)
-    && !prevReqs.some(p => p.id === r.id));
-  // pkg3-49: починка pkg3-47 — здесь стояла необъявленная переменная initial,
-  // и первый же входящий запрос в «Приглашенные» роняал синхронизацию
-  // (в строгом режиме чтение необъявленной переменной — ошибка). Теперь
-  // «первый прогон» отмечает флаг S.booted, который ставит syncOnce.
-  if (freshReq && S.booted) {
-    const from = userById(freshReq.from);
-    toast('Запрос в «Приглашенные»: ' + ((from && displayName(from)) || 'участник') + ' — решите в списке чатов');
-  }
   await prepareChats();
   migrateGameNotify44();   // pkg3-44: в играх все оповещения включены по умолчанию
 }
@@ -3042,44 +3035,10 @@ function renderRail() {
       </div>`).join('');
     html += foldHead('live', 'Сейчас играют', []) + (openSec('live') ? liveRows : '');
   }
-  // pkg3-47: запросы «возьми меня в свои Приглашенные», где я адресат.
-  // Видны прямо в списке чатов, с кнопками принять/отклонить.
-  const inReqs = (S.bondReqs || []).filter(r => r.state === 'pending' && r.to === S.me.id);
-  if (inReqs.length) {
-    html += `<div class="rail-group">Запросы в «Приглашенные»</div>` + inReqs.map(r => {
-      const u = userById(r.from);
-      if (!u) return '';
-      const ctx = chatById(r.chat);
-      return `<div class="chat-item bond-req">
-        <div class="ci-main">
-          <div class="ci-name">${escapeHtml(displayName(u))}</div>
-          <div class="ci-last">просит добавить в ваши приглашенные${ctx ? ' · из чата «' + escapeHtml(cut(chatTitle(ctx), 24)) + '»' : ''}</div>
-        </div>
-        <div class="bond-btns">
-          <button class="mini primary" data-bond-accept="${escapeHtml(r.id)}">принять</button>
-          <button class="mini" data-bond-decline="${escapeHtml(r.id)}">отклонить</button>
-        </div>
-      </div>`;
-    }).join('');
-  }
-  // pkg3-45/47: раздел «Приглашенные» — те, кого я позвал ссылкой, и те, кто принял
-  // мой запрос на добавление. Запись ведёт в личный чат: если он уже есть —
-  // открываем, если нет — создастся по касанию (тот же механизм data-peer).
-  const myInvitees = S.users.filter(u => (u.invitedBy === S.me.id || (S.myBonds && S.myBonds.has(u.id)))
-    && (!flt || displayName(u).toLowerCase().includes(flt)));
-  if (myInvitees.length) {
-    html += `<div class="rail-group">Приглашенные</div>` + myInvitees
-      .sort((a, b) => (isOnline(b) - isOnline(a)) || displayName(a).localeCompare(displayName(b), 'ru'))
-      .map(u => {
-        const dmChat = S.chats.find(c => c.kind === 'dm' && c.members.includes(u.id) && c.members.includes(S.me.id));
-        return `<div class="chat-item ${dmChat && S.view === dmChat.id ? 'active' : ''}" ${dmChat ? `data-chat="${dmChat.id}"` : `data-peer="${u.id}"`}>
-          <div class="ci-main">
-            <div class="ci-name">${escapeHtml(displayName(u))}${u.aliasOf ? `<span class="tag-grp" title="локальный псевдоним: настоящая запись — ${escapeHtml(u.aliasOf)}">↻</span>` : ''}</div>
-            <div class="ci-last">${isOnline(u) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div>
-          </div>
-        </div>`;
-      }).join('');
-  }
+  // pkg3-60: разделы «Запросы в «Приглашенные»» и «Приглашенные» убраны по
+  // решению владельца: приглашённый и так появляется у пригласившего в
+  // «Личных чатах», а знакомиться удобнее через поиск и «Новые». Серверные
+  // связи (bonds) продолжают жить — круг видимости использует их, как прежде.
   if (groups.length) html += sec('group', 'Групповые чаты', groups);
   // pkg3-49: раздел «Новые» — личная переписка, которую начали со мной из поиска.
   // Чат живёт здесь сутки (счётчик в плашке), потом удалится сам; кнопка
@@ -3598,19 +3557,8 @@ function updateFavicon(total) {
 
 // ─────────────────────────────────────────── навигация
 $('#chat-list').addEventListener('click', async e => {
-  // pkg3-47: решить запрос «в мои Приглашенные»
-  const ba = e.target.closest('[data-bond-accept],[data-bond-decline]');
-  if (ba) {
-    const id = ba.dataset.bondAccept || ba.dataset.bondDecline;
-    const act = ba.dataset.bondAccept ? 'accept' : 'decline';
-    ba.disabled = true;
-    try {
-      await api('/api/bond-req/' + id + '/' + act, { method: 'POST', body: {} });
-      toast(act === 'accept' ? 'Принято: человек появился в ваших «Приглашенных»' : 'Запрос отклонён');
-      await sync(false); renderRail();
-    } catch (ex) { toast(ex.message, true); ba.disabled = false; }
-    return;
-  }
+  // pkg3-60: запросов «в мои Приглашенные» в интерфейсе больше нет (раздел убран
+  // по решению владельца) — прежний обработчик accept/decline удалён вместе с ним
   // pkg3-53: три точки на разделе — его меню; клик по заголовку — свернуть/развернуть
   const sm = e.target.closest('[data-sec-menu]');
   if (sm) { e.stopPropagation(); openSectionMenu(sm.dataset.secMenu); return; }
@@ -4620,13 +4568,9 @@ function openChatSections(c) {
 }
 
 // ─────────────────────────────────────────── участники чата
-/** pkg3-47: отношение меня и человека в смысле «Приглашенных»:
- * 'mine' — уже у меня в разделе, 'pending' — мой запрос ещё не решён, иначе null. */
-function bondStateWith(uid) {
-  if ((S.myBonds && S.myBonds.has(uid)) || (userByIdRaw(uid) || {}).invitedBy === S.me.id) return 'mine';
-  if ((S.bondReqs || []).some(r => r.from === S.me.id && r.to === uid && r.state === 'pending')) return 'pending';
-  return null;
-}
+// pkg3-60: функция bondStateWith («Приглашенные») удалена вместе с разделом —
+// серверные связи bonds по-прежнему приходят в синхронизации и учитываются
+// кругом видимости, но в интерфейсе больше не отображаются.
 $('#btn-members').addEventListener('click', () => {
   const c = curChat();
   if (!c) return;
@@ -4636,8 +4580,6 @@ $('#btn-members').addEventListener('click', () => {
       <span class="nm">${escapeHtml(u.name)}${u.id === S.me.id ? ' <span class="muted">(вы)</span>' : ''}${c.ownerId === u.id ? '<span class="tag-admin">создатель</span>' : ''}
         <div class="tiny muted">${isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
       ${u.id !== S.me.id && c.kind === 'group' ? `<button class="mini" data-open-dm="${u.id}">лично</button>` : ''}
-      ${u.id !== S.me.id && c.kind === 'group' && !bondStateWith(u.id) ? `<button class="mini" data-bond-ask="${u.id}" title="Запрос добавить человека в ваши «Приглашенные» (с его согласия)">в мои приглашенные</button>` : ''}
-      ${u.id !== S.me.id && c.kind === 'group' && bondStateWith(u.id) === 'pending' ? `<span class="tiny muted">запрос отправлен</span>` : ''}
       ${isOwner(c) && u.id !== S.me.id ? `<button class="mini danger" data-kick="${u.id}">убрать</button>` : ''}
     </div>`).join('');
   const rest = S.users.filter(u => !c.members.includes(u.id));
@@ -4657,18 +4599,7 @@ $('#btn-members').addEventListener('click', () => {
       await sync(); openChat(r.chat.id);
       return;
     }
-    // pkg3-47: запрос «возьми меня в свои Приглашенные»
-    const ask = e.target.closest('[data-bond-ask]');
-    if (ask) {
-      ask.disabled = true;
-      try {
-        await api('/api/bond-req', { method: 'POST', body: { to: ask.dataset.bondAsk, chat: c.id } });
-        toast('Запрос отправлен: человек решит, добавлять ли вас в список своих приглашенных');
-        await sync(false);
-        hide($('#modal'));
-      } catch (ex) { toast(ex.message, true); ask.disabled = false; }
-      return;
-    }
+    // pkg3-60: запросов «в мои Приглашенные» больше нет (раздел убран)
     const add = e.target.closest('[data-add]');
     if (add) {
       try {
@@ -4707,15 +4638,7 @@ $('#btn-chat-menu').addEventListener('click', e => {
     d.querySelector('[data-act="icon"]').classList.toggle('hidden', c.kind !== 'group');
     // pkg3-44: в чат-игре фона нет и редактор не нужен — прячем пункт меню
     d.querySelector('[data-act="wall"]').classList.toggle('hidden', c.kind === 'game');
-    // pkg3-48: «Приглашенные» и «скрыть личный чат» — только в личных чатах
-    const bi = d.querySelector('[data-act="bond"]');
-    const peer = c.kind === 'dm' ? dmPeer(c) : null;
-    const st = peer ? bondStateWith(peer) : 'none';
-    if (peer && (st === '?' || st === 'in')) {
-      bi.innerHTML = '<span data-ic="users"></span> ' +
-        (st === 'in' ? 'Запросить в «Приглашенные»' : 'Взять в «Приглашенные»');
-    }
-    bi.classList.toggle('hidden', !(peer && (st === '?' || st === 'in')));
+    // pkg3-60: пункт «Взять в «Приглашенные»» из меню чата убран (раздел снят)
     // pkg3-50: «Добавить пользователя в мои личные чаты» — для чата из раздела «Новые»,
     // «Убрать из моих личных чатов» — для сохранённого личного чата
     // pkg3-54: «сохранить» и «отклонить» работают и для группового чата из «Новых»
@@ -4741,16 +4664,7 @@ $('#drop').addEventListener('click', e => {
   if (b.dataset.act === 'copy') { exportHtml(c); return; }
   if (b.dataset.act === 'wall') { if (c.kind !== 'game') wallEditor(c); return; }   // pkg3-44: в играх фона нет
   if (b.dataset.act === 'alias') return openAliasEditor();   // pkg3-45: локальные псевдонимы
-  // pkg3-48: «Приглашенные» и «скрыть личный чат» прямо из меню чата
-  if (b.dataset.act === 'bond') {
-    const peer = c.kind === 'dm' ? dmPeer(c) : null;
-    if (!peer) return;
-    const st = bondStateWith(peer);
-    if (st === 'in') return offerBond(peer);
-    if (st === '?') return requestBond(peer);
-    toast(st === 'asked' ? 'Запрос уже отправлен, ждём решения' : 'Человек уже у вас в «Приглашенных»');
-    return;
-  }
+  // pkg3-60: пункта «bond» в меню больше нет (раздел «Приглашенные» снят)
   // pkg3-50: «Добавить пользователя в мои личные чаты» — сохранить чат из «Новых» навсегда
   if (b.dataset.act === 'section') return openChatSections(c);   // pkg3-53: копия чата в свою папку
   if (b.dataset.act === 'decline') return declineChat(c);         // pkg3-54: отклонить чат из «Новых»
@@ -4764,7 +4678,7 @@ $('#drop').addEventListener('click', e => {
           $('#messages').innerHTML = ''; renderTopbar(); renderDmBanner(); renderMessages(true);
         }
         await sync(false); renderRail();
-        toast('Чат убран из ваших личных чатов. Собеседник по-прежнему видит переписку у себя; его новое письмо вернёт чат в раздел «Новые» ещё на сутки');
+        toast('Чат убран из ваших личных чатов. Собеседник по-прежнему видит переписку у себя; его новое письмо вернёт чат в раздел «Новые» ещё на 7 суток');
       } catch (ex) { toast(ex.message, true); }
     })();
     return;
@@ -5542,14 +5456,12 @@ async function runSearch() {
   }
   box.innerHTML =
     (people.length ? `<div class="sr-head">Люди по нику — ${people.length}</div>` + people.map(u => {
-      const st = bondStateWith(u.id);
       return `<div class="sr" style="display:flex;align-items:center;gap:8px">
         <div style="flex:1;min-width:0">
           <b>${escapeHtml(u.name)}</b>${u.isAdmin ? '<span class="tag-admin">адм</span>' : ''}
           <span class="tiny muted">${isOnline(u) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</span>
         </div>
         <button class="btn sm" data-peer="${u.id}">написать</button>
-        ${st === '?' ? `<button class="btn sm" data-ask-bond="${u.id}">в Приглашенные</button>` : ''}
       </div>`;
     }).join('') : '') +
     `<div class="sr-head">Найдено ${hits.length}${hits.length >= 300 ? '+' : ''} — нажмите, чтобы перейти</div>` +
@@ -5580,8 +5492,7 @@ $('#search-results').addEventListener('click', e => {
     })();
     return;
   }
-  const ask = e.target.closest('[data-ask-bond]');
-  if (ask) requestBond(ask.dataset.askBond);
+  // pkg3-60: кнопки «в Приглашенные» в поиске больше нет (раздел убран)
 });
 
 // ─────────────────────────────────────────── модальные окна
@@ -6356,10 +6267,11 @@ async function saveDmChat(c) {
     toast('Чат добавлен в ваши личные чаты навсегда. Собеседник видит, что вы его сохранили');
   } catch (ex) { toast(ex.message, true); }
 }
-/** pkg3-54: «Отклонить» — чат из «Новых» исчезает и сам не возвращается. */
+/** pkg3-54/60: «Отклонить» — чат из «Новых» исчезает; новое письмо собеседника
+ * вернёт его обратно в «Новые» с новым отсчётом (решение владельца, pkg3-60). */
 async function declineChat(c) {
   if (!c) return;
-  if (!confirm('Отклонить этот чат?\n\nОн исчезнет из вашего списка и не вернётся сам. Вернуть можно будет, только найдя собеседника поиском и написав ему.')) return;
+  if (!confirm('Отклонить этот чат?\n\nОн исчезнет из вашего списка. Если собеседник напишет снова, чат вернётся в раздел «Новые» — снова на 7 суток, пока вы не примете решение.')) return;
   try {
     await api('/api/chats/' + c.id + '/decline', { method: 'POST', body: {} });
     await sync(false);
@@ -6444,14 +6356,10 @@ async function openInviteFriend() {
     if ((($('#inv-find').value || '').trim()) !== q) return; // поле изменилось, пока ждали ответ
     findDone = q.toLowerCase();
     box.innerHTML = people.length ? people.map(u => {
-      const shared = S.chats.find(c => c.kind === 'group' && c.members.includes(S.me.id) && c.members.includes(u.id));
-      const bs = bondStateWith(u.id);
+      // pkg3-60: «в мои приглашенные» убрано (раздел «Приглашенные» снят) —
+      // остаётся только «написать»: личный чат и так свяжет вас
       return `<div class="mrow-mv"><span class="mv-w">${escapeHtml(displayName(u))}</span>
         <span class="mv-b"><button class="mini" data-find-dm="${u.id}">написать</button>
-        ${bs === 'mine' ? '<span class="tiny muted">уже у вас</span>'
-          : bs === 'pending' ? '<span class="tiny muted">запрос отправлен</span>'
-            : shared ? `<button class="mini" data-find-bond="${u.id}" data-chat="${shared.id}">в мои приглашенные</button>`
-              : '<span class="tiny muted" title="Нужна общая группа: запрос разрешён только между её участниками">нет общей группы</span>'}
         </span></div>`;
     }).join('') : '<div class="mv-empty">Никого не нашёл по такому нику</div>';
   };
@@ -6464,15 +6372,7 @@ async function openInviteFriend() {
       catch (ex) { toast(ex.message, true); }
       return;
     }
-    const fb = e.target.closest('[data-find-bond]');
-    if (fb) {
-      fb.disabled = true;
-      try {
-        await api('/api/bond-req', { method: 'POST', body: { to: fb.dataset.findBond, chat: fb.dataset.chat } });
-        toast('Запрос отправлен'); await sync(false); paintFind(true);
-      } catch (ex) { toast(ex.message, true); fb.disabled = false; }
-      return;
-    }
+    // pkg3-60: запросов «в мои приглашенные» больше нет (раздел убран)
   });
   let lastLink = '';
   const putLink = link => {
@@ -6551,10 +6451,9 @@ async function openAdminInvites() {
     <div class="divider"><span>Дерево приглашений</span></div>
     <div class="bp-moves-list" style="max-height:180px">${tree || '<div class="mv-empty">Пока пусто</div>'}</div>
     <div class="divider"><span>Кому запрещено приглашать</span></div>
+    <p class="hint" style="margin:2px 0 8px">Отдельному участнику запрет ставится в меню «⋮» рядом с его именем в дереве.</p>
     <label class="row-check"><input type="checkbox" id="pol-global" ${pol.globalOff ? 'checked' : ''}>
       <span>Запретить всем, кроме администраторов</span></label>
-    ${d.users.filter(u => !u.isAdmin).map(u => `<label class="row-check"><input type="checkbox" data-pol-user="${u.id}" ${pol.blockedUsers.includes(u.id) ? 'checked' : ''}>
-      <span>Запретить: ${escapeHtml(u.name)}</span></label>`).join('')}
     ${groups.map(c => `<label class="row-check"><input type="checkbox" data-pol-chat="${c.id}" ${pol.blockedChats.includes(c.id) ? 'checked' : ''}>
       <span>Запретить группе: ${escapeHtml(chatTitle(c))}</span></label>`).join('') || '<div class="tiny muted">Групп пока нет.</div>'}
     <button class="primary" id="pol-save">Сохранить блокировки</button>
@@ -6571,7 +6470,9 @@ async function openAdminInvites() {
   mEl.removeEventListener('click', adminTreeClick);
   mEl.addEventListener('click', adminTreeClick);
   $('#pol-save').addEventListener('click', async () => {
-    const blockedUsers = [...document.querySelectorAll('[data-pol-user]')].filter(x => x.checked).map(x => x.dataset.polUser);
+    // pkg3-60: списка галочек по участникам здесь больше нет (они в меню «⋮») —
+    // сохранение общих блокировок НЕ должно стирать запреты, поставленные через меню
+    const blockedUsers = pol.blockedUsers || [];
     const blockedChats = [...document.querySelectorAll('[data-pol-chat]')].filter(x => x.checked).map(x => x.dataset.polChat);
     try {
       await api('/api/admin/invite-policy', { method: 'POST', body: { globalOff: $('#pol-global').checked, blockedUsers, blockedChats } });
