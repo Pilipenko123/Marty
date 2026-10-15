@@ -104,10 +104,19 @@
   /**
    * Разбор партии из ленты писем. apply(письмо, сторона-автор) возвращает строку
    * для списка ходов или null. Стороны: 'w' — стреляет первым, 'b' — вторым.
+   *
+   * pkg3-58: «открытый» режим. Печать sb-commit может нести сам флот
+   * ({commit, fleet, salt}) — письмо зашифровано ключом чата, сервер его не
+   * читает, а устройство соперника с этого момента считает ответы на выстрелы
+   * САМО, мгновенно, не дожидаясь письма-ответа. Если хотя бы одна печать
+   * пришла без флота (старая версия клиента), партия идёт прежним путём:
+   * выстрел ждёт ответа sb-reply от устройства, где лежит флот. Оба режима
+   * дают одинаковые результаты: ответ считается из одного и того же флота.
    */
   function createSeabattle() {
     const st = {
       commit: { w: null, b: null },
+      fleet: { w: null, b: null },      // pkg3-58: { fleet, salt } из печати, если клиент новый
       reveal: { w: null, b: null },     // { fleet, salt }
       shots: [],                        // { side, x, y, r: null|'miss'|'hit'|'sunk', cells, aura }
       turn: 'w',
@@ -143,11 +152,66 @@
 
     function line(side, text) { const s = side + '|' + text; st.log.push(s); return s; }
 
+    /** pkg3-58: флот из письма пригоден для мгновенных ответов только если он
+     *  собран строго по правилам (иначе устройство отвечало бы «на глаз»). */
+    function validFleet(fleet) {
+      if (!Array.isArray(fleet) || fleet.length !== FLEET.length) return false;
+      const want = FLEET.slice().sort((a, b) => a - b);
+      const got = fleet.map(s => (s && Number.isInteger(s.len)) ? s.len : NaN).sort((a, b) => a - b);
+      for (let i = 0; i < want.length; i++) if (got[i] !== want[i]) return false;
+      const placed = [];
+      for (const s of fleet) {
+        if (!Number.isInteger(s.x) || !Number.isInteger(s.y) || typeof s.horiz !== 'boolean') return false;
+        if (!canPlace(placed, s.x, s.y, s.len, s.horiz)) return false;
+        placed.push({ x: s.x, y: s.y, len: s.len, horiz: s.horiz });
+      }
+      return true;
+    }
+    /** pkg3-58: мгновенный разбор выстрела по известному флоту обороняющегося.
+     *  Тот же алгоритм, что на устройстве с флотом (sbAutoRespond), — поэтому
+     *  «открытый» и прежний режимы всегда дают одинаковый ответ. */
+    function resolveShot(shot, fleet) {
+      const defSide = other(shot.side);
+      const v = viewOf(defSide);
+      const ship = shipAt(fleet, shot.x, shot.y);
+      let r = 'miss';
+      if (ship) {
+        const hits = new Set();
+        for (let i = 0; i < SIZE * SIZE; i++) {
+          if (v.grid[i] === 'hit' || v.grid[i] === 'sunk') hits.add(ck(i % SIZE, Math.floor(i / SIZE)));
+        }
+        hits.add(ck(shot.x, shot.y));
+        if (isSunk(ship, hits)) {
+          r = 'sunk';
+          shot.cells = shipCells(ship).map(c => ck(c.x, c.y));
+          shot.aura = auraOf(ship);
+        } else r = 'hit';
+      }
+      shot.r = r;
+      if (r === 'miss') st.turn = defSide; else st.turn = shot.side;
+      if (hitsOn(defSide) >= TOTAL_CELLS) st.winner = shot.side;
+      const cn = cellName(shot.x, shot.y);
+      return line(shot.side, r === 'miss' ? cn + ' — мимо'
+        : r === 'hit' ? cn + ' — ранил! выстрел ещё раз'
+          : cn + ' — потопил!');
+    }
+    /** pkg3-58: «открытый» режим — оба флота приехали с печатями. */
+    const openMode = () => !!(st.fleet.w && st.fleet.b);
+
     function apply(p, side) {
       if (!p || typeof p !== 'object' || !p.k || !side) return null;
       if (p.k === 'sb-commit') {
         if (st.commit[side] || st.winner) return null;
         st.commit[side] = String(p.commit || '');
+        // pkg3-58: печать нового клиента несёт сам флот — проверяем его по
+        // правилам и запоминаем; мусорный флот игнорируется (партия остаётся
+        // в прежнем режиме «выстрел — ответ»)
+        if (Array.isArray(p.fleet) && validFleet(p.fleet)) {
+          st.fleet[side] = {
+            fleet: p.fleet.map(s => ({ x: s.x, y: s.y, len: s.len, horiz: !!s.horiz })),
+            salt: String(p.salt || '')
+          };
+        }
         return line(side, 'флот расставлен и запечатан');
       }
       if (p.k === 'sb-shot') {
@@ -156,8 +220,11 @@
         if (!(x >= 0 && y >= 0 && x < SIZE && y < SIZE)) return null;
         if (st.shots.some(s => s.side === side && s.x === x && s.y === y)) return null;  // туда уже стреляли
         if (st.shots.some(s => s.r === null)) return null;                              // предыдущий выстрел ещё без ответа
-        st.shots.push({ side, x, y, r: null, cells: null, aura: null });
-        return null;   // строка в списке появится вместе с ответом
+        const shot = { side, x, y, r: null, cells: null, aura: null };
+        st.shots.push(shot);
+        // pkg3-58: оба флота известны — устройство отвечает само, мгновенно
+        if (openMode()) return resolveShot(shot, st.fleet[other(side)].fleet);
+        return null;   // прежний режим: строка в списке появится вместе с ответом
       }
       if (p.k === 'sb-reply') {
         const pen = st.shots.find(s => s.r === null && s.side === other(side));
@@ -194,6 +261,8 @@
       committed,
       commits: () => ({ w: st.commit.w, b: st.commit.b }),
       commitOf: side => st.commit[side],
+      fleetOf: side => st.fleet[side],        // pkg3-58: флот из печати (открытый режим)
+      openMode,                               // pkg3-58: оба флота известны устройствам
       revealOf: side => st.reveal[side],
       viewOf,
       hitsOn,

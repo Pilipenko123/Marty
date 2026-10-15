@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-57';
+const BUILD = 'pkg3-58';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -2341,9 +2341,11 @@ function sbLogHtml(c, sans) {
   }
   return out;
 }
-/** Значок честности: сверяем вскрытый флот с печатью sb-commit. */
+/** Значок честности: сверяем вскрытый флот с печатью sb-commit.
+ * pkg3-58: в «открытом» режиме флот приезжает вместе с печатью — письма
+ * вскрытия может не быть, тогда сверяем флот из печати (тот же алгоритм). */
 function sbVerifyBadge(c, eng, side, meSide) {
-  const rev = eng.revealOf(side);
+  const rev = eng.revealOf(side) || (eng.fleetOf ? eng.fleetOf(side) : null);
   if (!rev || !rev.fleet) return '';
   const key = c.id + '|' + side;
   S.sbVerify = S.sbVerify || {};
@@ -2529,7 +2531,11 @@ async function sbCommitSend() {
   sbLocalSet(c.id, loc);
   delete S.sbPlace[c.id];
   S.boardSig = '';
-  await sendSb(c, { k: 'sb-commit', commit });
+  // pkg3-58: печать несёт и сам флот — письмо зашифровано ключом чата, сервер
+  // его не читает, а устройство соперника с этой минуты отвечает на выстрелы
+  // мгновенно (считает результат само, из того же флота). Старая версия
+  // клиента лишние поля просто не заметит и заиграет как прежде — по ответам.
+  await sendSb(c, { k: 'sb-commit', commit, fleet: P.fleet, salt });
   // pkg3-57: шифрованный слепок флота — моим ДРУГИМ устройствам (ПК и телефон
   // видят свои корабли и могут отвечать на выстрелы). Сервер содержимое не читает.
   sbFleetUpload(c.id, loc).catch(() => {});
@@ -2666,7 +2672,11 @@ async function sbAutoRespond() {
       } catch (e) { /* повторим на следующей синхронизации */ }
       S.sbBusy = null;
     }
-    if (st === 'over' && loc && loc.fleet && !eng.revealOf(my) && !S.sbRevealBusy) {
+    // pkg3-58: в «открытом» режиме (обе печати принесли флоты) письмо вскрытия
+    // не нужно — устройства и так сверят флот с печатью; старому сопернику
+    // (печать без флота) вскрытие отправляем, как прежде, ради его значка
+    if (st === 'over' && loc && loc.fleet && !eng.revealOf(my)
+      && !(eng.openMode && eng.openMode()) && !S.sbRevealBusy) {
       S.sbRevealBusy = c.id;
       try {
         const k = await chatKeyOf(c);
