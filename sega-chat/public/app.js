@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-56';
+const BUILD = 'pkg3-57';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -1002,6 +1002,10 @@ const POLL_QS = new URLSearchParams(location.search);
 const AWAKE_MS = Math.max(1000, Number(POLL_QS.get('awake')) || 30000);  // сколько бодрствуем после касания
 const FAST_MS = Math.max(1000, Number(POLL_QS.get('fast')) || 15000);    // опрос в бодрствовании (пуш приносит новинки раньше)
 const GAME_MS = Math.max(1000, Number(POLL_QS.get('game')) || 10000);    // опрос в бодрствовании при открытой доске
+// pkg3-57: в «Морском бою» на выстрел отвечает устройство соперника, а не
+// человек, — задержки опроса складываются вдвое и партия ощущается вязкой.
+// При открытой доске морского боя спрашиваем ленту заметно чаще.
+const SB_GAME_MS = Math.max(800, Number(POLL_QS.get('sbgame')) || 2500);
 const TICK_MS = Math.max(2000, Number(POLL_QS.get('tick')) || 300000);   // проверка во сне (5 минут)
 let wakeUntil = Date.now() + AWAKE_MS;
 let prevMode = 'awake';
@@ -1023,10 +1027,33 @@ const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); bootstrapN
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
-function pollDelay() { return pollMode() === 'awake' ? (gameOnScreen() ? GAME_MS : FAST_MS) : TICK_MS; }
+function pollDelay() {
+  if (pollMode() !== 'awake') return TICK_MS;
+  if (sbOnScreen()) return SB_GAME_MS;
+  return gameOnScreen() ? GAME_MS : FAST_MS;
+}
 function gameOnScreen() {
   const c = curChat();
   return !!(c && c.kind === 'game' && c.game && c.game.status === 'playing' && !document.hidden);
+}
+/** pkg3-57: открыт ли «Морской бой» с идущей партией — тогда опрос быстрее.
+ * S.sbPlaying ставит renderSeabattle: после победы частый опрос не нужен. */
+function sbOnScreen() {
+  const c = curChat();
+  return !!(c && c.kind === 'game' && (c.game || {}).rules === 'seabattle'
+    && (c.game || {}).status === 'playing' && !document.hidden && S.sbPlaying !== false);
+}
+/** pkg3-57: на этом устройстве есть флот идущей партии морского боя —
+ * значит устройство обязано отвечать на выстрелы (страховка без пуша). */
+function sbFleetOnDevice() {
+  if (!S.me || !S.chats || !S.chats.length) return false;
+  for (const c of S.chats) {
+    if (c.kind !== 'game' || (c.game || {}).rules !== 'seabattle' || (c.game || {}).status !== 'playing') continue;
+    if ((c.roles || {})[S.me.id] !== 'player') continue;
+    const loc = sbLocalGet(c.id);
+    if (loc && loc.fleet) return true;
+  }
+  return false;
 }
 // pkg3-40: подключён ли пуш. Пока пуш исправен, открытая доска НЕ держит окно
 // бодрым вечно — ход соперника будит окно через служебный воркер за 0,15 с.
@@ -1047,6 +1074,11 @@ async function loopStep() {
   if (gameOnScreen()) {
     if (Date.now() - pushCheckedAt > PUSH_CHECK_MS) refreshPushReady();
     if (!pushReady) wake('партия на экране (страховка без пуша)');
+  } else if (!pushReady && sbFleetOnDevice()) {
+    // pkg3-57: окно открыто на другом чате, но на этом устройстве флот
+    // идущей партии — без пуша держим окно бодрым, чтобы отвечать на выстрелы
+    if (Date.now() - pushCheckedAt > PUSH_CHECK_MS) refreshPushReady();
+    wake('морской бой: устройство отвечает на выстрелы (страховка без пуша)');
   }
   if (pollMode() === 'awake') pollStats.fast++; else pollStats.ticks++;
   if (S.token) { try { await sync(); } catch (e) {} }
@@ -1067,9 +1099,17 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('focus', () => { if (S.token) { noteTouch(); markRead(); } });
 // служебный воркер (пуш из облака) будит спящее окно
+// pkg3-57: бодрствующее окно тоже добирает новинки СРАЗУ, не дожидаясь
+// следующего опроса, — иначе выстрел и автоответ в морском бою ползут
+// по 10–15 секунд каждый. Против «шторма» пушей — порог 600 мс.
+let lastWakeSync = 0;
 if (navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener('message', e => {
-    if (e.data && e.data.t === 'wake') wake('сигнал из облака');
+    if (e.data && e.data.t === 'wake') {
+      wake('сигнал из облака');
+      const now = Date.now();
+      if (S.token && now - lastWakeSync > 600) { lastWakeSync = now; sync(false).catch(() => {}); }
+    }
   });
 }
 
@@ -1135,6 +1175,12 @@ async function applySyncMeta(data) {
   S.myKnocks = data.myKnocks || [];   // pkg3-49: чужие заявки в мои партии
   // pkg3-53: мои разделы-папки. Чужих сервер не отдаёт — раскладка личная.
   if (Array.isArray(data.mySections)) S.sections = data.mySections;
+  // pkg3-57: мои зашифрованные слепки флота «Морского боя» — восстанавливаем
+  // расстановку на этом устройстве, чтобы видеть свои корабли и отвечать на выстрелы
+  if (data.mySbFleets && typeof data.mySbFleets === 'object') {
+    S.sbFleets = data.mySbFleets;
+    sbRestoreFleets().catch(() => {});
+  }
   S.invites = data.invites || [];
   if (typeof data.rnow === 'number') S.serverNow = data.rnow;   // pkg3-49: часы сервера
   // pkg3-49: мои сохранённые личные чаты — по отметкам savedBy у самих чатов;
@@ -1540,6 +1586,9 @@ async function maybeAutoPush() {
 }
 
 // ─────────────────────────────────────────── непрочитанное
+/** pkg3-57: служебное письмо партии (ход шахмат/шашек или выстрел морского
+ * боя) — не «сообщение»: живёт на доске и в списке ходов, а не в ленте. */
+const isGameLetter = p => !!(p && typeof p.k === 'string' && (p.k === 'move' || p.k.slice(0, 3) === 'sb-'));
 /** pkg3-36: видно ли сообщение в ленте. В игровом чате ходы живут на доске и
  * в списке ходов, а не в ленте; нерасшифрованное там же тоже прячется — его
  * вот-вот долечит boardSoon. Правило одно и для ленты, и для линии
@@ -1548,7 +1597,7 @@ function feedVisible(m) {
   const c = chatById(m.chat);
   if (!c || c.kind !== 'game') return true;
   const p = S.plain.get(m.id);
-  return !!(p && !p.broken && p.k !== 'move');
+  return !!(p && !p.broken && !isGameLetter(p));
 }
 /** pkg3-37: готовность истории чата на устройстве. Пока история не доехала и
  * не расшифровалась целиком, НЕ показываем пустой чат и «исходную» расстановку
@@ -1580,9 +1629,10 @@ function unreadIn(chatId) {
     if (m.seq <= (reads[bucketOf(m)] || 0)) continue;
     const p = S.plain.get(m.id);
     // pkg3-36: ходы партии — не «сообщения»: ни счётчика, ни красной линии.
+    // pkg3-57: выстрелы морского боя — тоже (единое правило isGameLetter).
     // В игровом чате нерасшифрованное тоже не считаем: почти всегда это ход,
     // а долечит его boardSoon в течение пары секунд.
-    if (p && p.k === 'move') continue;
+    if (isGameLetter(p)) continue;
     if (gchat && gchat.kind === 'game' && (!p || p.broken)) continue;
     total++;
     if (p && p.mentions && p.mentions.includes(S.me.id)) mentions++;
@@ -1889,7 +1939,7 @@ function gamePayloadHtml(p, chat) {
     else if (gc && ((gc.members || []).includes(S.me.id) || (gc.game || {}).status !== 'invite')) {
       act = '<div class="tiny" style="color:#2c7a3f;font-weight:600">Приглашение принято ✓</div>';
     } else if (pending) act = `<div style="margin-top:8px;display:flex;gap:6px">
-        <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}">Войти в игру</button>
+        <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}" data-rules="${escapeHtml(p.rules || '')}">Войти в игру</button>
         <button class="mini danger" data-game-decline="${escapeHtml(p.game)}">Отклонить</button></div>`;
     else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
     return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : 'шахматы'}</b>
@@ -2234,24 +2284,35 @@ function sbShipImg(s) {
 }
 /**
  * Поле стороны boardSide: сетка с отметками (точка — промах, взрыв — ранение,
- * взрыв по всему кораблю + точки вокруг — потопил) и кораблими поверх:
- * своими всегда, чужими — только потопленные и после вскрытия флота.
+ * взрыв по всему кораблю + точки вокруг — потопил) и кораблями.
+ * pkg3-57: три слоя — клетки-сетка (низ), корабли (середина), отметки (верх):
+ * взрывы теперь рисуются ПОВЕРХ кораблей, а не прячутся под ними.
+ * Корабли: свои — всегда (расстановка с этого устройства или слепок с другого
+ * своего устройства), чужие — потопленные (их клетки пришли в ответе «потопил»,
+ * это уже не секрет) и все подряд после вскрытия флота в конце партии.
  */
+function sbShipFromCells(cells) {
+  if (!Array.isArray(cells) || !cells.length) return null;
+  const xs = cells.map(k => k.x), ys = cells.map(k => k.y);
+  const horiz = ys.every(y => y === ys[0]);
+  return { x: Math.min.apply(null, xs), y: Math.min.apply(null, ys), len: cells.length, horiz };
+}
 function sbBoardHtml(c, eng, boardSide, meSide, opts) {
   const o = opts || {};
   const v = eng.viewOf(boardSide);
   const reveal = eng.revealOf(boardSide);
   const fleet = reveal && reveal.fleet ? reveal.fleet : (boardSide === meSide && o.loc ? o.loc.fleet : null);
   const canShoot = !!o.shoot && eng.status() === 'playing' && !eng.pendingShot() && eng.turn() === meSide && boardSide !== meSide;
-  let cells = '';
+  let cells = '', marks = '';
   for (let y = 0; y < 10; y++) {
     for (let x = 0; x < 10; x++) {
       const gs = v.grid[y * 10 + x];
       const cls = 'sbc' + (canShoot && !gs ? ' can' : '') + (o.place ? ' place' : '');
+      cells += `<div class="${cls}" data-sbcell="${x},${y}" data-sbboard="${boardSide}"></div>`;
       const mark = gs === 'miss' ? '<i class="sb-dot" title="мимо"></i>'
         : gs === 'hit' ? '<img class="sb-boom" src="img/sb-boom.png" alt="ранил" draggable="false">'
           : gs === 'sunk' ? '<img class="sb-boom" src="img/sb-boom.png" alt="потопил" draggable="false">' : '';
-      cells += `<div class="${cls}" data-sbcell="${x},${y}" data-sbboard="${boardSide}">${mark}</div>`;
+      if (mark) marks += `<div class="sbm" style="left:${x * 10}%;top:${y * 10}%">${mark}</div>`;
     }
   }
   let ships = '';
@@ -2260,10 +2321,14 @@ function sbBoardHtml(c, eng, boardSide, meSide, opts) {
       const isSunkShip = v.sunk.some(sn => (sn.cells || []).length === s.len
         && sn.cells.every(cc => SB.shipCells(s).some(k => k.x === cc.x && k.y === cc.y)));
       if (boardSide !== meSide && !isSunkShip && !reveal) continue;   // чужой флот до вскрытия не показываем
-      ships += sbShipImg(s) + (isSunkShip ? '' : '');
+      ships += sbShipImg(s);
     }
+  } else if (boardSide !== meSide) {
+    // pkg3-57: потопленные корабли соперника видны сразу — клетки корабля
+    // пришли в ответе «потопил», по ним и рисуем спрайт (взрывы лягут поверх)
+    for (const sn of v.sunk) { const s = sbShipFromCells(sn.cells); if (s) ships += sbShipImg(s); }
   }
-  return sbFrameHtml(`<div class="sb-board${o.place ? ' placing' : ''}">${cells}<div class="sb-ships">${ships}</div></div>`);
+  return sbFrameHtml(`<div class="sb-board${o.place ? ' placing' : ''}">${cells}<div class="sb-ships">${ships}</div><div class="sb-marks">${marks}</div></div>`);
 }
 function sbLogHtml(c, sans) {
   if (!sans.length) return '<div class="tiny muted mv-empty">Выстрелов пока нет — флоты расставляются</div>';
@@ -2323,6 +2388,7 @@ function renderSeabattle(wrap, c, eng, st, sans, role, my) {
   const placing = role === 'player' && !!my && !myCommitted && g.status === 'playing';
   const tab = S.sbTab || 'enemy';
   const over = st === 'over' || g.status === 'finished';
+  S.sbPlaying = !over;   // pkg3-57: частый опрос ленты — только пока партия идёт
   const sig = ['sb', c.id, sans.length, st, eng.turn(), JSON.stringify(eng.pendingShot() || 0),
     myCommitted ? 1 : 0, P.fleet.length, P.horiz ? 1 : 0, tab, (c.knocks || []).length, role || '-',
     g.status, JSON.stringify(S.sbVerify || {}), loc ? 1 : 0, S.eco ? 1 : 0].join('|');
@@ -2435,11 +2501,14 @@ async function sendSb(c, payload) {
 async function postSb(draft) {
   const rec = S.retry[draft.id] || {};
   try {
-    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: rec.chat, blob: rec.blob } });
+    // pkg3-57: notify:1 — сервер сразу будит устройство соперника пушем:
+    // на выстрел отвечает машина, и ждать её очередного опроса незачем
+    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: rec.chat, blob: rec.blob, notify: 1 } });
     S.sbSending = false;
     adoptSent(draft, r.message, rec.payload);
     cacheMsg(r.message);
     if (r.usage) S.usage = r.usage;
+    if (r.notify) fireNotify(Object.assign({}, r.notify, { body: 'game' }));
     S.sig = ''; renderBoard(); renderRail();
     sync(false).catch(() => {});
   } catch (ex) {
@@ -2456,10 +2525,59 @@ async function sbCommitSend() {
   if (P.fleet.length !== 10) { toast('Расставьте все десять кораблей', true); return; }
   const salt = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
   const commit = await sbSha(SB.canon(P.fleet, salt));
-  sbLocalSet(c.id, { fleet: P.fleet, salt, commit });
+  const loc = { fleet: P.fleet, salt, commit };
+  sbLocalSet(c.id, loc);
   delete S.sbPlace[c.id];
   S.boardSig = '';
   await sendSb(c, { k: 'sb-commit', commit });
+  // pkg3-57: шифрованный слепок флота — моим ДРУГИМ устройствам (ПК и телефон
+  // видят свои корабли и могут отвечать на выстрелы). Сервер содержимое не читает.
+  sbFleetUpload(c.id, loc).catch(() => {});
+}
+/** pkg3-57: личный ключ слепков флота — из закрытого ключа участника (он один
+ * на все устройства: приходит при входе по паролю). Сервер и соперник таким
+ * ключом не владеют, поэтому слепок для них — шифротекст. */
+async function sbSelfKey() {
+  const meId = (S.me && S.me.id) || null;
+  if (!meId || !S.privRaw) return null;
+  if (S.sbKeyFor === meId && S.sbKeyP) return S.sbKeyP;
+  S.sbKeyFor = meId;
+  S.sbKeyP = (async () => importAes(new Uint8Array(await crypto.subtle.digest('SHA-256', S.privRaw))))().catch(() => null);
+  return S.sbKeyP;
+}
+async function sbFleetUpload(chatId, loc) {
+  const key = await sbSelfKey();
+  if (!key) return;
+  const blob = loc
+    ? await aesEncryptBytes(key, enc.encode(JSON.stringify(loc)))
+    : null;
+  await api('/api/games/' + encodeURIComponent(chatId) + '/sbfleet', { method: 'POST', body: { blob } });
+  if (!loc && S.sbFleets) delete S.sbFleets[chatId];
+}
+/** pkg3-57: вернуть свой флот из серверного слепка на это устройство.
+ * Слепок принимаем, только если он совпал с печатью sb-commit — подменённый
+ * или побитый флот на устройство не попадёт и в игре не участвует. */
+async function sbRestoreFleets() {
+  const key = await sbSelfKey();
+  if (!key) return;
+  for (const chatId of Object.keys(S.sbFleets || {})) {
+    if (sbLocalGet(chatId)) continue;                      // на этом устройстве флот уже есть
+    if (S.sbRestoreTried && S.sbRestoreTried.has(chatId)) continue;   // мусор не долбим
+    try {
+      const loc = await decryptJSON(key, S.sbFleets[chatId]);
+      if (!loc || !Array.isArray(loc.fleet) || loc.fleet.length !== 10) throw new Error('состав не тот');
+      for (const s of loc.fleet) {
+        if (!s || !Number.isInteger(s.x) || !Number.isInteger(s.y) || !Number.isInteger(s.len)) throw new Error('состав не тот');
+        if (s.x < 0 || s.y < 0 || s.x > 9 || s.y > 9 || s.len < 1 || s.len > 4) throw new Error('состав не тот');
+      }
+      const commit = await sbSha(SB.canon(loc.fleet, loc.salt));
+      if (commit !== loc.commit) throw new Error('флот не совпал с печатью');
+      sbLocalSet(chatId, { fleet: loc.fleet, salt: loc.salt, commit });
+      if (S.view === chatId) { S.boardSig = ''; renderBoard(); }
+    } catch (e) {
+      (S.sbRestoreTried = S.sbRestoreTried || new Set()).add(chatId);
+    }
+  }
 }
 function sbToggleRot() {
   const c = curChat(); if (!c) return;
@@ -2487,13 +2605,35 @@ function sbClear() {
 async function sbAutoRespond() {
   if (!S.me || !S.chats || !S.chats.length) return;
   for (const c of S.chats) {
-    if (c.kind !== 'game' || (c.game || {}).rules !== 'seabattle' || (c.game || {}).status !== 'playing') continue;
-    if ((c.roles || {})[S.me.id] !== 'player') continue;
+    if (c.kind !== 'game' || (c.game || {}).rules !== 'seabattle') continue;
     const my = myGameColor(c);
     if (!my) continue;
+    // pkg3-57: партия завершена (сдача) — слепок флота на сервере больше не нужен
+    if ((c.game || {}).status === 'finished' && S.sbFleets && S.sbFleets[c.id]) {
+      sbFleetUpload(c.id, null).catch(() => {});
+      continue;
+    }
+    if ((c.game || {}).status !== 'playing') continue;
+    if ((c.roles || {})[S.me.id] !== 'player') continue;
     const { eng } = gameReplay(c);
     const st = eng.status();
     const loc = sbLocalGet(c.id);
+    // pkg3-57: страховка от редкой гонки «флот расставили на двух устройствах»:
+    // в ленте побеждает первая печать — если локальный флот ей не соответствует,
+    // забываем его (из серверного слепка вернётся настоящий, совпадающий с печатью)
+    if (loc && loc.commit && eng.committed(my) && eng.commitOf(my) !== loc.commit) {
+      try { localStorage.removeItem('sega.sb.' + c.id); } catch (e) {}
+      if (S.sbRestoreTried) S.sbRestoreTried.delete(c.id);
+      sbRestoreFleets().catch(() => {});
+      if (S.view === c.id) { S.boardSig = ''; renderBoard(); }
+      continue;
+    }
+    // pkg3-57: партия, начатая ДО обновления, — слепка на сервере нет;
+    // досылаем его с устройства, где флот расставлен (один раз, дальше
+    // синхронизация сама приносит отметку о наличии)
+    if (loc && loc.fleet && st !== 'over' && S.sbFleets && !S.sbFleets[c.id]) {
+      sbFleetUpload(c.id, loc).catch(() => {});
+    }
     const pen = eng.pendingShot();
     if (st === 'playing' && pen && pen.side !== my && loc && loc.fleet && !S.sbBusy) {
       S.sbBusy = c.id + ':' + pen.x + ',' + pen.y;
@@ -2515,10 +2655,12 @@ async function sbAutoRespond() {
         if (k) {
           const payload = { k: 'sb-reply', x: pen.x, y: pen.y, r, cells, aura };
           const blob = await encryptJSON(k.key, payload);
-          const rr = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: c.id, blob } });
+          // pkg3-57: notify:1 — пуш будит устройство стрелявшего: ответ виден сразу
+          const rr = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: c.id, blob, notify: 1 } });
           S.plain.set(rr.message.id, payload);
           addMessages([rr.message]);
           cacheMsg(rr.message);
+          if (rr.notify) fireNotify(Object.assign({}, rr.notify, { body: 'game' }));
           S.sig = ''; renderBoard(); renderRail();
         }
       } catch (e) { /* повторим на следующей синхронизации */ }
@@ -2531,11 +2673,14 @@ async function sbAutoRespond() {
         if (k) {
           const payload = { k: 'sb-reveal', fleet: loc.fleet, salt: loc.salt };
           const blob = await encryptJSON(k.key, payload);
-          const rr = await api('/api/messages', { method: 'POST', body: { chat: c.id, blob } });
+          const rr = await api('/api/messages', { method: 'POST', body: { chat: c.id, blob, notify: 1 } });
           S.plain.set(rr.message.id, payload);
           addMessages([rr.message]);
           cacheMsg(rr.message);
+          if (rr.notify) fireNotify(Object.assign({}, rr.notify, { body: 'game' }));
           S.sig = ''; renderBoard();
+          // pkg3-57: флот вскрыт в ленте — серверный слепок больше не нужен
+          sbFleetUpload(c.id, null).catch(() => {});
         }
       } catch (e) { /* повторим на следующей синхронизации */ }
       S.sbRevealBusy = null;
@@ -2630,13 +2775,18 @@ async function postMove(draft) {
     toast('Ход не отправился (' + (ex.message || 'сбой сети') + ') — попробуйте ещё раз', true);
   }
 }
-async function acceptGame(id, choice) {
+async function acceptGame(id, choice, rules) {
   let color = undefined;
   if (choice === 'choice') {
+    // pkg3-57: в морском бое нет «белых» и «чёрных» — вопрос звучит по-человечески:
+    // «кто стреляет первым: я или соперник»
+    const sb = rules === 'seabattle';
     color = await new Promise(res => {
-      modal('Ваш цвет', `<p class="hint">Создатель игры оставил выбор цвета за вами.</p>
-        <button class="primary" id="pc-w">Играю белыми</button>
-        <button class="primary" id="pc-b">Играю чёрными</button>`);
+      modal(sb ? 'Кто стреляет первым' : 'Ваш цвет', `<p class="hint">${sb
+        ? 'Создатель игры оставил выбор за вами: кто стреляет первым — вы или соперник.'
+        : 'Создатель игры оставил выбор цвета за вами.'}</p>
+        <button class="primary" id="pc-w">${sb ? 'Стреляю первым я' : 'Играю белыми'}</button>
+        <button class="primary" id="pc-b">${sb ? 'Первым стреляет соперник' : 'Играю чёрными'}</button>`);
       $('#pc-w').addEventListener('click', () => { hide($('#modal')); res('white'); });
       $('#pc-b').addEventListener('click', () => { hide($('#modal')); res('black'); });
     });
@@ -2722,11 +2872,19 @@ async function openNewGame() {
     <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
     <button class="primary" id="ng-go">Создать и пригласить</button>`);
   // pkg3-56: в морском бое «цвет» определяет, кто стреляет первым, — подпись честная
+  // pkg3-57: и варианты ответа честные — «Я» и «Соперник», никаких «белых/чёрных»
   const ngColorLbl = $('#ng-color') ? $('#ng-color').parentElement : null;
   const ngLblSync = () => {
-    if (!ngColorLbl || !ngColorLbl.firstChild) return;
+    const sel = $('#ng-color');
     const sb = $('#ng-rules').value === 'seabattle';
-    if (ngColorLbl.firstChild.nodeType === 3) ngColorLbl.firstChild.nodeValue = sb ? 'Кто стреляет первым' : 'Ваш цвет';
+    if (ngColorLbl && ngColorLbl.firstChild && ngColorLbl.firstChild.nodeType === 3) {
+      ngColorLbl.firstChild.nodeValue = sb ? 'Кто стреляет первым' : 'Ваш цвет';
+    }
+    if (sel) for (const opt of sel.options) {
+      if (opt.value === 'white') opt.textContent = sb ? 'Я стреляю первым' : 'Белые';
+      if (opt.value === 'black') opt.textContent = sb ? 'Соперник стреляет первым' : 'Чёрные';
+      if (opt.value === 'choice') opt.textContent = sb ? 'Пусть решит соперник' : 'Пусть выберет соперник';
+    }
   };
   $('#ng-rules').addEventListener('change', ngLblSync);
   ngLblSync();
@@ -2748,7 +2906,9 @@ async function openNewGame() {
       const dk = await chatKeyOf(dm);
       const inv = {
         k: 'game-invite', game: gid, to: opp, colorChoice: color, rules,
-        note: 'Соперник: ' + S.me.name + (color === 'choice' ? ' · цвет выберете вы' : '')
+        note: 'Соперник: ' + S.me.name + (color === 'choice'
+          ? (rules === 'seabattle' ? ' · кто стреляет первым, решите вы' : ' · цвет выберете вы')
+          : '')
       };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
       S.plain.set(rr.message.id, inv);
@@ -4984,7 +5144,7 @@ function fireNotify(ticket) {
     fetch(BASE + '/api/notify', {
       method: 'POST', keepalive: true,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token },
-      body: JSON.stringify({ kind: ticket.kind, chat: ticket.chat, mid: ticket.mid })
+      body: JSON.stringify({ kind: ticket.kind, chat: ticket.chat, mid: ticket.mid, body: ticket.body || null })
     }).catch(() => {});
   } catch (e) {}
 }
@@ -6000,7 +6160,7 @@ document.addEventListener('click', async e => {
     acc.disabled = true; acc.textContent = 'Входим…';
     const decBtn = acc.parentElement.querySelector('[data-game-decline]');
     if (decBtn) decBtn.disabled = true;
-    try { await acceptGame(acc.dataset.gameAccept, acc.dataset.choice); }
+    try { await acceptGame(acc.dataset.gameAccept, acc.dataset.choice, acc.dataset.rules); }
     catch (ex) { toast(ex.message, true); acc.disabled = false; acc.textContent = 'Войти в игру'; if (decBtn) decBtn.disabled = false; }
     return;
   }

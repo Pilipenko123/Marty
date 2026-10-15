@@ -733,6 +733,11 @@ html,body{overflow-x:hidden}
   #main.game-mode .board-panel .board{flex:none;}
   /* pkg3-44: доска обёрнута рамкой координат — в гибкой колонке не сжимаем её */
   #main.game-mode .board-frame{flex:none;}
+  /* pkg3-57: «Морской бой» в горизонтали телефона — одно поле с кнопками
+     переключения (как в вертикали), а размер поля считаем от высоты экрана:
+     шапка, кнопки, подпись и список ходов помещаются, доска не уезжает */
+  #main.game-mode .sb-panel{max-width:min(100%,calc(100dvh - 200px));}
+  #main.game-mode .sb-panel .sb-fields{flex:none;}
   #main.game-mode #game-moves{flex:1;min-height:0;max-height:none;}
   #main.game-mode #game-right{grid-column:2;grid-row:2;min-width:0;}
   #main.game-mode.thread-collapsed{grid-template-columns:minmax(0,1fr) 150px;}
@@ -1412,8 +1417,12 @@ html,body{overflow-x:hidden}
 .sb-board.placing .sbc:hover{background:var(--accent-soft)}
 .sb-dot{width:26%;height:26%;border-radius:50%;background:var(--muted);opacity:.75}
 .sb-boom{width:96%;height:96%;object-fit:contain;pointer-events:none}
-.sb-ships{position:absolute;inset:0;pointer-events:none}
+/* pkg3-57: корабли — средний слой, отметки (точки и взрывы) — верхний:
+   взрывы рисуются поверх кораблей и на своём, и на чужом поле */
+.sb-ships{position:absolute;inset:0;pointer-events:none;z-index:1}
 .sb-ship{position:absolute;object-fit:contain;filter:drop-shadow(0 1px 1px rgba(20,40,60,.25))}
+.sb-marks{position:absolute;inset:0;pointer-events:none;z-index:2}
+.sbm{position:absolute;width:10%;height:10%;display:flex;align-items:center;justify-content:center}
 .sb-lock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
   aspect-ratio:1/1;width:100%;max-width:430px;background:var(--panel-2);border:1px dashed var(--line);border-radius:6px;
   color:var(--muted);font-size:20px;padding:10px;text-align:center}
@@ -1428,7 +1437,11 @@ html,body{overflow-x:hidden}
 .sb-verifyrow{margin-top:6px;text-align:center}
 .sb-verify.ok{color:#2c7a3f;font-size:12px;font-weight:600}
 .sb-verify.bad{color:#c0392b;font-size:12px;font-weight:600}
-@media (max-width:699px){
+/* pkg3-57: телефон — и вертикально, и горизонтально: одно поле за раз
+   с кнопками «Поле соперника» / «Моё поле». Раньше в горизонтали телефона
+   (700–959 px) оба поля влезали в одну строку и становились крошечными.
+   Граница 959 px — та же, что у остальной мобильной раскладки игр. */
+@media (max-width:959px){
   .sb-panel .sb-tabs{display:flex}
   .sb-fields{grid-template-columns:1fr}
   .sb-field.sb-hide-m{display:none}
