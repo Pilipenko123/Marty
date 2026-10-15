@@ -141,6 +141,20 @@ function migrate(db) {
       }));
   }
 
+  // pkg3-57: «Морской бой» — зашифрованные слепки флота для ДРУГИХ устройств
+  // владельца (карта chatId → blob). Содержимое серверу непрозрачно: blob
+  // шифруется личным ключом участника и возвращается только ему (mySbFleets).
+  // У старых записей поля нет — добавляем пустую карту и срезаем мусор.
+  for (const u of db.users) {
+    if (!u.sbFleets || typeof u.sbFleets !== 'object' || Array.isArray(u.sbFleets)) u.sbFleets = {};
+    for (const k of Object.keys(u.sbFleets)) {
+      if (typeof u.sbFleets[k] !== 'string' || !u.sbFleets[k] || u.sbFleets[k].length > 8192) delete u.sbFleets[k];
+    }
+    // страховка от разрастания: держим не больше 60 слепков (порядок вставки)
+    const ks = Object.keys(u.sbFleets);
+    if (ks.length > 60) for (const k of ks.slice(0, ks.length - 60)) delete u.sbFleets[k];
+  }
+
   // pkg3-45: закрытая регистрация и приглашения. Новые коллекции и дерево «кто кого
   // позвал»: у участников, пришедших до введения приглашений, приглашенческого
   // корня нет — помечаем их основателями ('root'). Секретов в этих полях нет.

@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-56';
+const BUILD = 'pkg3-57';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -422,6 +422,8 @@ function createApi(store, opts = {}) {
   /** Удалить всю историю чата, даже если она не загружена в память. */
   function dropChat(chatId) {
     db.messages = db.messages.filter(m => m.chat !== chatId);
+    // pkg3-57: слепки флота «Морского боя» стираем вместе с игрой
+    for (const u of db.users) if (u.sbFleets && u.sbFleets[chatId]) delete u.sbFleets[chatId];
     const cs = db.stats.chats[chatId];
     if (cs) {
       db.stats.bytes = Math.max(0, db.stats.bytes - cs.b);
@@ -591,7 +593,11 @@ function createApi(store, opts = {}) {
     if (kind === 'msg' || kind === 'thr') {
       const m = b.mid ? await findMessage(b.mid) : null;
       if (m && m.chat !== chat.id) return E(400, 'Сообщение не из этого чата');
-      sent += await notifyPush(chat, me);
+      // pkg3-57: подпись пуша — только из готового набора (сервер не читает
+      // переписку, а клиенту важно разбудить устройство соперника в морском
+      // бою внятным текстом). Неизвестный знак — прежняя подпись по умолчанию.
+      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию' };
+      sent += await notifyPush(chat, me, NOTIFY_BODIES[String(b.body || '')]);
       if (kind === 'thr' && m) {
         const author = db.users.find(u => u.id === m.uid);
         if (author && author.id !== me.id) sent += await notifyPushTo(author, me, me.name + ' прокомментировал(а) ваше сообщение');
@@ -1109,6 +1115,9 @@ function createApi(store, opts = {}) {
         // pkg3-53: мои разделы-папки. Чужих в ответе нет: это личная раскладка
         mySections: (Array.isArray(me.sections) ? me.sections : [])
           .map(x => ({ id: x.id, name: x.name, chats: (x.chats || []).slice() })),
+        // pkg3-57: мои зашифрованные слепки флота «Морского боя» — для других
+        // моих устройств. Сервер содержимое не читает, чужим не отдаёт
+        mySbFleets: (me.sbFleets && typeof me.sbFleets === 'object' && !Array.isArray(me.sbFleets)) ? me.sbFleets : {},
         bondReqs: db.bondReqs.filter(r => r.to === me.id || r.from === me.id)
           .map(r => ({ id: r.id, from: r.from, to: r.to, chat: r.chat, createdAt: r.createdAt, state: r.state })),
         users: visibleUsers(me).map(publicUser),   // pkg3-48: видим только свой круг, остальных ищет /api/search
@@ -1825,8 +1834,33 @@ function createApi(store, opts = {}) {
         db.chats = db.chats.filter(c => c.id !== chat.id);
         wiped = true;
       }
+      // pkg3-57: вышел из партии — слепок флота «Морского боя» больше не нужен
+      if (me.sbFleets && me.sbFleets[chat.id]) delete me.sbFleets[chat.id];
       db.seq++; save();
       return J(200, { ok: true, resigned, wiped });
+    }
+
+    // pkg3-57: «Морской бой» — личный зашифрованный слепок флота. Устройство,
+    // где флот расставили, кладёт сюда непрозрачный blob (шифр на личном ключе
+    // владельца), а другие устройства владельца забирают его в синхронизации
+    // (mySbFleets) и могут показывать свои корабли и отвечать на выстрелы.
+    // Сервер содержимое не читает и чужим не отдаёт; blob:null — стереть.
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/sbfleet') && method === 'POST') {
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game' || ((chat.game || {}).rules) !== 'seabattle') return E(404, 'Игра не найдена');
+      if ((chat.roles || {})[me.id] !== 'player') return E(403, 'Это не ваша партия');
+      if (throttle('sbfleet:' + me.id, 60)) return E(429, 'Слишком часто: подождите немного');
+      const b = req.body || {};
+      if (!me.sbFleets || typeof me.sbFleets !== 'object' || Array.isArray(me.sbFleets)) me.sbFleets = {};
+      if (b.blob === null || b.blob === undefined || b.blob === '') {
+        delete me.sbFleets[chat.id];
+      } else {
+        const blob = String(b.blob);
+        if (!blob || blob.length > 8192) return E(400, 'Слепок флота слишком большой');
+        me.sbFleets[chat.id] = blob;
+      }
+      save();
+      return J(200, { ok: true });
     }
 
     if (pathname.startsWith('/api/games/') && pathname.endsWith('/knock') && method === 'POST') {
