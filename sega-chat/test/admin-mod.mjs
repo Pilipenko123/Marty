@@ -1,6 +1,7 @@
 /**
  * pkg3-59/61: админ-меню участника — запрет приглашать, бан на сутки, удаление навсегда;
- * pkg3-61: лечение ключа группы (need → missing → перезапись) и слияние учёток (внешность).
+ * pkg3-61: лечение ключа группы (need → missing → перезапись) и слияние учёток (внешность);
+ * pkg3-62: слитая учётка не двоится — поиск, «написать», группы/игры, единственность имени.
  *
  * Что проверяется:
  *   • перенос старых записей: у участника без `bannedUntil` появляется ноль (migrate);
@@ -219,7 +220,7 @@ ok(r.status === 403, 'не-администратор не может слива
 r = await call(A.base, '/api/admin/users/' + adminId + '/display', { method: 'POST', body: { as: adminId } }, admin);
 ok(r.status === 400, 'нельзя поглотить самого себя');
 r = await call(A.base, '/api/admin/users/' + g2Id + '/display', { method: 'POST', body: { as: adminId } }, admin);
-ok(r.status === 200, 'слияние выполнено: старая учётка носит внешность новой');
+ok(r.status === 200, 'слияние выполнено: старая учётка носит внешность новой' + (r.status === 200 ? '' : ' — ответ: ' + JSON.stringify(r.d).slice(0, 160)));
 r = await call(A.base, '/api/sync?since=0', {}, admin);
 {
   const g2pub = (r.d.users || []).find(x => x.id === g2Id);
@@ -232,10 +233,87 @@ ok(r.status === 200 && (r.d.users.find(x => x.id === g2Id) || {}).displayAs === 
 r = await call(A.base, '/api/admin/users/' + g2Id + '/display', { method: 'POST', body: { as: null } }, admin);
 ok(r.status === 200, 'внешность отвязана (слияние обратимо)');
 r = await call(A.base, '/api/sync?since=0', {}, admin);
-ok(((r.d.users || []).find(x => x.id === g2Id) || {}).name === 'Гоша', 'после отвязки учётка снова с собственным именем');
+// ══════════════════════════════ 5. pkg3-62: слитая учётка не двоится
+console.log('\n  5. Слитая учётка — одна на всех (pkg3-62)');
+// Сценарий владельца: друг потерял пароль и зарегистрировался заново, учётки
+// слили — и человек стал виден ДВУМЯ одинаковыми строками. Проверяем, что
+// слияние делает его одним: поиск, «написать», группы/игры, единственность
+// имени, обратимость и журнал. Отдельный стенд: INVITE_TTL=1 мс — ссылки
+// рождаются без суточной паузы (в бою сутки остаются).
+const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-adm2-'));
+const B = up(await freePort(), Object.assign({}, env, { DATA_DIR: dir2, NEW_INVITE_DELAY: '0', INVITE_COOLDOWN_MS: '0' }));
+await waitReady(B.base);
+r = await call(B.base, '/api/setup', {
+  method: 'POST', body: Object.assign({}, creds('Мартин'), {
+    codeProofSalt: hex(), codeProof: hex(32), codeSalt: hex(), wrappedKeyByCode: 'k:' + hex()
+  })
+});
+ok(r.status === 200, 'стенд слияния настроен (ссылки без суточной паузы)');
+const adm2 = r.d.token;
+async function register2(c, inviter) {
+  const secret = hex(24);
+  const sha = crypto.createHash('sha256').update(secret).digest('hex');
+  const ir = await call(B.base, '/api/invites', { method: 'POST', body: { invSalt: hex(), wrappedRoomKey: 'k:' + hex(), secretHash: sha } }, inviter);
+  if (!ir.d.invite) throw new Error('приглашение не создано: ' + JSON.stringify(ir.d));
+  return call(B.base, '/api/register', { method: 'POST', body: Object.assign({}, c, { inviteToken: ir.d.invite.id + '.' + secret }) });
+}
+r = await register2(creds('Гоша'), adm2);
+ok(r.status === 200, 'старая учётка «Гоша» зарегистрировалась');
+const g2b = r.d.token, g2bId = r.d.user.id;
+r = await register2(creds('Поля'), adm2);
+ok(r.status === 200, 'участница «Поля» зарегистрировалась');
+const g1b = r.d.token, g1bId = r.d.user.id;
+r = await register2(creds('Гоша2'), adm2);
+ok(r.status === 200, 'новая учётка друга зарегистрировалась («Гоша2»)');
+const g3b = r.d.token, g3bId = r.d.user.id;
+// у Поли была переписка со СТАРОЙ учёткой Гоши
+r = await call(B.base, '/api/dm', { method: 'POST', body: { peer: g2bId } }, g1b);
+ok(r.status === 200, 'у Поли есть личный чат со старой учёткой');
+const oldDm = r.d.chat.id;
+// слияние: старая учётка носит внешность новой
+r = await call(B.base, '/api/admin/users/' + g2bId + '/display', { method: 'POST', body: { as: g3bId } }, adm2);
+ok(r.status === 200, 'слияние выполнено (старая учётка носит внешность новой)');
+r = await call(B.base, '/api/search?q=' + encodeURIComponent('гоша'), {}, g1b);
+ok(r.status === 200 && !(r.d.users || []).some(x => x.id === g2bId),
+  'поиск не находит поглощённую учётку — человек один');
+ok((r.d.users || []).some(x => x.id === g3bId), 'поиск находит настоящую (новую) учётку');
+r = await call(B.base, '/api/dm', { method: 'POST', body: { peer: g2bId } }, g1b);
+ok(r.status === 200 && r.d.chat.id === oldDm,
+  '«написать» старой учётке открывает уже существующую переписку (вторая не создаётся)');
+r = await call(B.base, '/api/chats', {
+  method: 'POST',
+  body: { titleBlob: 'enc:' + hex(), members: [g2bId], keys: { [g1bId]: { blob: 'k1' }, [g2bId]: { blob: 'k2' } } }
+}, g1b);
+ok(r.status === 400, 'в новый групповой чат поглощённую учётку позвать нельзя');
+r = await call(B.base, '/api/games', {
+  method: 'POST',
+  body: { opponent: g2bId, rules: 'chess', color: 'random', keys: { [g1bId]: { blob: 'k1' }, [g2bId]: { blob: 'k2' } } }
+}, g1b);
+ok(r.status === 400, 'в игру поглощённую учётку пригласить нельзя');
+// имя остаётся единственным: ни регистрация, ни переименование не создают двойника
+r = await register2(creds('Гоша'), adm2);
+ok(r.status === 409, 'зарегистрировать ещё одно «Гоша» нельзя — имя занято и слитой учёткой');
+r = await call(B.base, '/api/profile', { method: 'POST', body: { name: 'Гоша' } }, g1b);
+ok(r.status === 409, 'переименовать себя в занятое (в том числе слитой учёткой) имя нельзя');
+// второе слияние — законное: видимость имён остаётся единственной
+r = await register2(creds('Дубль'), adm2);
+ok(r.status === 200, 'ещё один участник зарегистрировался (Дубль)');
+const g4bId = r.d.user.id;
+r = await call(B.base, '/api/admin/users/' + g4bId + '/display', { method: 'POST', body: { as: g3bId } }, adm2);
+ok(r.status === 200, 'второе слияние выполнено (Дубль носит внешность «Гоша2»)');
+r = await call(B.base, '/api/admin/users/' + g4bId + '/display', { method: 'POST', body: { as: null } }, adm2);
+ok(r.status === 200, 'второе слияние отменено');
+// слияние обратимо: отвязка возвращает старое лицо и старую учётку в поиск
+r = await call(B.base, '/api/admin/users/' + g2bId + '/display', { method: 'POST', body: { as: null } }, adm2);
+ok(r.status === 200, 'слияние отменено (внешность отвязана)');
+r = await call(B.base, '/api/search?q=' + encodeURIComponent('гоша'), {}, g1b);
+ok((r.d.users || []).some(x => x.id === g2bId), 'после отвязки старая учётка снова находится поиском');
+r = await call(B.base, '/api/admin/invites', {}, adm2);
+ok(r.d.log.some(e => /поглощение/.test(e.what) || /внешность/.test(e.what)), 'слияние и его отмена остались в журнале администратора');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Админ-меню участника: ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');
 A.proc.kill('SIGTERM');
+B.proc.kill('SIGTERM');
 process.exit(bad ? 1 : 0);

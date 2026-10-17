@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v54'), 'кэш статики поднят до v54');
+ok(sw.includes('sega-static-v55'), 'кэш статики поднят до v55');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -385,6 +385,21 @@ ok(appJs.includes('на чужих сообщениях тоже видно, к�
 ok(appJs.includes('function openAdminDisplayMerge') && appJs.includes('Взять её внешность'), 'в меню «⋮» — слияние учёток (привязка внешности)');
 ok(appJs.includes('👤 слита'), 'в дереве приглашений виден значок слитой учётки');
 ok(appJs.includes('Изменить / Отвязать') && appJs.includes('Отвязать (вернуть собственное лицо)'), 'слияние обратимо: внешность можно отвязать');
+
+// pkg3-62: слитая учётка не двоится — одна учётка на всех
+ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')
+  && apiJs.includes('if (!visible) peer = t;'),
+  'сервер: «написать» слитой учётке открывает старую переписку, а если её нет — настоящую учётку');
+ok(apiJs.includes('!u.displayAs && (u.nameLower'), 'сервер: поиск не показывает поглощённую учётку');
+ok(apiJs.includes('Эта учётка слита с другой — пригласите настоящую'), 'сервер: в группы и игры поглощённую учётку позвать нельзя');
+ok(apiJs.includes('имя, которое «носит» слитая учётка, тоже занято'), 'сервер: имя слитой учётки занято — двойника не зарегистрировать и не переименовать');
+ok(apiJs.includes('единственность видимых имён гарантируют правила регистрации'), 'сервер: слияние не может породить два одинаковых имени (защита в регистрации и переименовании)');
+ok(appJs.includes('const peerIsHiddenAlias') && appJs.includes('.filter(c => !peerIsHiddenAlias(c))'),
+  'клиент: строка слитой учётки прячется, если с настоящей уже есть живая переписка — человек не двоится');
+ok(appJs.includes('const aliasTargetOf'), 'клиент: знает, чью внешность носит учётка (для списков и строк)');
+ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && appJs.includes('!c.members.includes(u.id) && !u.displayAs'),
+  'клиент: в списках выбора (игра, группа, добавить в чат) слитых учёток нет');
+ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
