@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-61';
+const BUILD = 'pkg3-62';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -117,6 +117,9 @@ function createApi(store, opts = {}) {
   // ── pkg3-45: персональные приглашения ────────────────────────────────────
   /** Срок жизни ссылки и период «одна ссылка в сутки» — одинаковые 24 часа. */
   const INVITE_TTL = 24 * 3600 * 1000;
+  // pkg3-62: пауза «одна ссылка в сутки» отделена от срока жизни ссылки —
+  // в бою сутки, в опытах (тесты) обнуляется переменной окружения
+  const INVITE_COOLDOWN_MS = Number(process.env.INVITE_COOLDOWN_MS === undefined ? INVITE_TTL : process.env.INVITE_COOLDOWN_MS);
   /** Состояние ссылки: жива / использована / истекла / отозвана. */
   function inviteState(inv, now) {
     if (inv.revoked) return 'revoked';
@@ -139,7 +142,7 @@ function createApi(store, opts = {}) {
   function inviteNextAt(ownerId, now) {
     const last = db.invites.filter(i => i.ownerId === ownerId)
       .map(i => i.createdAt).sort((a, b) => b - a)[0] || 0;
-    return last && now - last < INVITE_TTL ? last + INVITE_TTL : 0;
+    return last && now - last < INVITE_COOLDOWN_MS ? last + INVITE_COOLDOWN_MS : 0;
   }
   /** Политика блокировок: глобально / участнику / группе. Администраторов не касается. */
   function inviteBlocked(user) {
@@ -211,6 +214,15 @@ function createApi(store, opts = {}) {
       pub: u.pub || null, reads: u.reads || {},
       displayAs: (u.displayAs && t) ? t.id : null
     };
+  }
+
+  /** pkg3-62: настоящая учётка человека. Поглощённая (слитая) учётка — только
+   * старая история: её не видно в поиске, а новое обращение уходит на ту, чью
+   * внешность она носит. Цепочек псевдонимов не бывает (слияние это запрещает),
+   * поэтому достаточно одного шага. */
+  function realOf(u) {
+    if (!u || !u.displayAs) return u;
+    return db.users.find(x => x.id === u.displayAs && !x.displayAs) || u;
   }
 
   // ------------------------------------------------------------- чаты
@@ -898,6 +910,11 @@ function createApi(store, opts = {}) {
       const name = normName(b.name);
       if (name.length < 2 || name.length > 32) return E(400, 'Имя: от 2 до 32 символов');
       if (db.users.some(x => x.nameLower === name.toLowerCase())) return E(409, 'Такое имя уже занято');
+      // pkg3-62: имя, которое «носит» слитая учётка, тоже занято: иначе в списке
+      // снова появятся два одинаковых имени
+      if (db.users.some(x => x.displayAs
+        && ((db.users.find(y => y.id === x.displayAs) || {}).nameLower === name.toLowerCase())))
+        return E(409, 'Такое имя уже занято');
       for (const k of ['saltAuth', 'authKey', 'saltWrap', 'wrappedKeyByPass']) if (!b[k]) return E(400, 'Не хватает поля ' + k);
       const user = {
         id: uid(), name, nameLower: name.toLowerCase(), isAdmin: false,
@@ -1008,8 +1025,10 @@ function createApi(store, opts = {}) {
       const q = String(query.get('q') || '').trim().toLowerCase();
       if (!q) return J(200, { users: [] });
       if (throttle('search:' + me.id, SEARCH_LIMIT)) return E(429, 'Слишком часто ищете: подождите немного');
+      // pkg3-62: поглощённые учётки в поиске не показываются — человек ищется
+      // одной (настоящей) учёткой, иначе в списке два одинаковых имени
       const hits = db.users
-        .filter(u => u.id !== me.id && (u.nameLower || u.name.toLowerCase()).includes(q))
+        .filter(u => u.id !== me.id && !u.displayAs && (u.nameLower || u.name.toLowerCase()).includes(q))
         .slice(0, 30)
         // pub — открытый ключ: без него найденному человеку нельзя написать
         // шифрованное сообщение (ECDH), а секретов он не раскрывает
@@ -1024,6 +1043,7 @@ function createApi(store, opts = {}) {
       const b = req.body || {};
       const to = db.users.find(u => u.id === String(b.to || ''));
       if (!to) return E(404, 'Участник не найден');
+      if (to.displayAs) return E(400, 'Эта учётка слита с другой — выберите настоящую');   // pkg3-62
       if (to.id === me.id) return E(400, 'Нельзя запросить самого себя');
       const chat = db.chats.find(c => c.id === String(b.chat || '') && c.kind === 'group'
         && c.members.includes(me.id) && c.members.includes(to.id));
@@ -1175,6 +1195,11 @@ function createApi(store, opts = {}) {
       const members = [...new Set([me.id, ...(Array.isArray(b.members) ? b.members : [])])];
       if (members.length > MAX_MEMBERS) return E(400, 'Слишком много участников');
       for (const id of members) if (!db.users.some(u => u.id === id)) return E(404, 'Участник не найден');
+      // pkg3-62: поглощённая учётка — только старая история: в новый чат зовём настоящую
+      for (const id of members) {
+        const mu = db.users.find(u => u.id === id);
+        if (mu && mu.displayAs) return E(400, 'Эта учётка слита с другой — пригласите настоящую');
+      }
       if (!b.titleBlob || typeof b.titleBlob !== 'string' || b.titleBlob.length > 8192) return E(400, 'Нужно название чата');
       const keys = {};
       for (const id of members) {
@@ -1203,8 +1228,26 @@ function createApi(store, opts = {}) {
 
     if (pathname === '/api/dm' && method === 'POST') {
       const b = req.body;
-      const peer = db.users.find(u => u.id === b.peer);
-      if (!peer) return E(404, 'Участник не найден');
+      // pkg3-62: обращение к поглощённой учётке уходит на настоящую — и если
+      // личный чат с ней уже есть (он же «старый»), открывается ОН: для
+      // собеседника это одна и та же учётка, а не две разные
+      const asked = db.users.find(u => u.id === b.peer);
+      if (!asked) return E(404, 'Участник не найден');
+      // pkg3-62: обращение к поглощённой учётке — это обращение к тому же
+      // человеку: если старая переписка ещё видна мне, «написать» открывает ЕЁ
+      // (история на месте, новых писем не видно без неё), иначе — переписку
+      // с настоящей учёткой. Второй ряд с тем же человеком не создаётся.
+      let peer = asked;
+      if (asked.displayAs) {
+        const t = realOf(asked);
+        if (t.id === me.id) return E(400, 'Нельзя писать самому себе');
+        const old = chatById(dmId(me.id, asked.id));
+        const now = Date.now();
+        const rec = old ? (me.newChats || {})[old.id] : null;
+        const visible = !!old && ((old.savedBy || []).includes(me.id) || (old.openedBy || []).includes(me.id)
+          || (rec && rec.until >= now));
+        if (!visible) peer = t;
+      }
       if (peer.id === me.id) return E(400, 'Нельзя писать самому себе');
       const chat = ensureDm(me.id, peer.id);
       markDmOpened(chat, me.id);   // pkg3-49: автор видит чат сразу в «Личных чатах»
@@ -1790,6 +1833,7 @@ function createApi(store, opts = {}) {
       const b = req.body || {};
       const opp = db.users.find(u => u.id === String(b.opponent || ''));
       if (!opp) return E(404, 'Соперник не найден');
+      if (opp.displayAs) return E(400, 'Эта учётка слита с другой — пригласите настоящую');   // pkg3-62
       if (opp.id === me.id) return E(400, 'Пригласите кого-то ещё, не себя');
       const color = String(b.color || 'random');
       if (!['white', 'black', 'random', 'choice'].includes(color)) return E(400, 'Цвет: white, black, random или choice');
@@ -1964,6 +2008,10 @@ function createApi(store, opts = {}) {
         const name = normName(b.name);
         if (name.length < 2 || name.length > 32) return E(400, 'Имя: от 2 до 32 символов');
         if (db.users.some(x => x.nameLower === name.toLowerCase() && x.id !== me.id)) return E(409, 'Такое имя уже занято');
+        // pkg3-62: занято и то имя, которое носит слитая учётка
+        if (db.users.some(x => x.displayAs && x.id !== me.id
+          && ((db.users.find(y => y.id === x.displayAs) || {}).nameLower === name.toLowerCase())))
+          return E(409, 'Такое имя уже занято');
         // при смене имени соли остаются прежними — ключи не ломаются
         me.name = name; me.nameLower = name.toLowerCase();
       }
@@ -2130,6 +2178,9 @@ function createApi(store, opts = {}) {
           if (!t) return E(404, 'Учётка-внешность не найдена');
           if (t.id === u.id) return E(400, 'Нельзя поглотить самого себя');
           if (t.displayAs) return E(400, 'Эта учётка сама носит чужую внешность — выберите настоящую');
+          // pkg3-62: единственность видимых имён гарантируют правила регистрации
+          // и переименования (имя слитой учётки занято), поэтому две учётки
+          // с одинаковым именем здесь появиться не могут — слияние безопасно
           u.displayAs = t.id;
           adminLogAdd(me.id, 'привязал внешность «' + t.name + '» к учётке «' + u.name + '» (поглощение)');
           save();
