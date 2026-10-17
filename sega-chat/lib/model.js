@@ -161,6 +161,11 @@ function migrate(db) {
     if (typeof u.bannedUntil !== 'number' || !Number.isFinite(u.bannedUntil) || u.bannedUntil < 0) u.bannedUntil = 0;
   }
 
+  // pkg3-61: «поглощение» учётки — у старых записей привязки внешности нет.
+  for (const u of db.users) {
+    if (typeof u.displayAs !== 'string' || !u.displayAs) u.displayAs = null;
+  }
+
   // pkg3-45: закрытая регистрация и приглашения. Новые коллекции и дерево «кто кого
   // позвал»: у участников, пришедших до введения приглашений, приглашенческого
   // корня нет — помечаем их основателями ('root'). Секретов в этих полях нет.

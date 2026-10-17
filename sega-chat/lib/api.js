@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-60';
+const BUILD = 'pkg3-61';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -196,13 +196,20 @@ function createApi(store, opts = {}) {
   }
 
   function publicUser(u) {
+    // pkg3-61: «поглощение» учётки — администратор привязал к старой учётке
+    // внешность другой (друг потерял пароль и зарегистрировался заново):
+    // имя и аватар берутся от новой учётки, поэтому ВСЯ старая переписка
+    // отображается новым лицом. Идентификатор остаётся прежним — авторство
+    // сообщений и ключи не подменяются, шифрование не трогается.
+    const t = u.displayAs ? db.users.find(x => x.id === u.displayAs && !x.displayAs) : null;
     return {
-      id: u.id, name: u.name, isAdmin: !!u.isAdmin,
+      id: u.id, name: t ? t.name : u.name, isAdmin: !!u.isAdmin,
       invitedBy: u.invitedBy || 'root',   // pkg3-45: для раздела «Приглашенные» и дерева
-      avatar: u.avatarRev || null,        // отпечаток: сама картинка скачивается через /api/avatar/:id
+      avatar: t ? (t.avatarRev || null) : (u.avatarRev || null),   // отпечаток: сама картинка скачивается через /api/avatar/:id
       status: u.status || null,           // короткий статус участника («на связи до шести»)
       createdAt: u.createdAt, lastSeen: u.lastSeen || 0, activeAt: u.activeAt || 0,
-      pub: u.pub || null, reads: u.reads || {}
+      pub: u.pub || null, reads: u.reads || {},
+      displayAs: (u.displayAs && t) ? t.id : null
     };
   }
 
@@ -1374,10 +1381,25 @@ function createApi(store, opts = {}) {
       if (action === 'keys' && chat.kind === 'group') {
         const sub = parts[5] || '';
         if (sub === 'missing' && method === 'GET') {
+          // pkg3-61: «нуждающимися» считаются и те, у кого копия ключа есть,
+          // но она не читается (пометка need) — иначе такой участник застревал
+          // навсегда: ключ формально есть, а расшифровать не может
           const missing = chat.members
-            .filter(id => !(chat.keys || {})[id])
+            .filter(id => !(chat.keys || {})[id] || (chat.keys || {})[id].need)
             .map(id => ({ id, hasPub: !!(db.users.find(u => u.id === id) || {}).pub }));
           return J(200, { missing });
+        }
+        if (sub === 'need' && method === 'POST') {
+          // pkg3-61: участник сообщает «моя копия ключа не читается» —
+          // остальные участники с рабочей копией доставят новую (repairGroupKeys)
+          if (!chat.keys) chat.keys = {};
+          const e = chat.keys[me.id];
+          if (!e) chat.keys[me.id] = { by: null, blob: '', need: true };
+          else if (!e.need) e.need = true;
+          else return J(200, { ok: true, already: true });
+          db.seq++;   // пусть остальные участники скорее увидят просьбу
+          save();
+          return J(200, { ok: true });
         }
         if (sub === '' && method === 'POST') {
           const b = req.body || {};
@@ -1385,7 +1407,8 @@ function createApi(store, opts = {}) {
           if (!chat.members.includes(target)) return E(400, 'Адресат не участник этого чата');
           if (!b.blob || typeof b.blob !== 'string' || b.blob.length > 4096) return E(400, 'Нет ключа для участника');
           if (!chat.keys) chat.keys = {};
-          if (chat.keys[target]) return E(409, 'У участника уже есть ключ этого чата');
+          // pkg3-61: битую копию (пометка need) разрешается перезаписать
+          if (chat.keys[target] && !chat.keys[target].need) return E(409, 'У участника уже есть ключ этого чата');
           chat.keys[target] = { by: me.id, blob: b.blob };
           db.seq++; save();
           return J(200, { ok: true, chat: publicChat(chat, me.id) });
@@ -2001,7 +2024,8 @@ function createApi(store, opts = {}) {
           users: db.users.map(u => ({
             id: u.id, name: u.name, isAdmin: !!u.isAdmin,
             invitedBy: u.invitedBy || 'root', createdAt: u.createdAt || 0,
-            bannedUntil: u.bannedUntil || 0   // pkg3-59: отметка действующего бана
+            bannedUntil: u.bannedUntil || 0,   // pkg3-59: отметка действующего бана
+            displayAs: u.displayAs || null     // pkg3-61: чью внешность носит учётка
           })),
           invites: db.invites.map(i => ({
             id: i.id, ownerId: i.ownerId, state: inviteState(i, now),
@@ -2089,6 +2113,27 @@ function createApi(store, opts = {}) {
           }
           save();
           return J(200, { ok: true, bannedUntil: u.bannedUntil || 0 });
+        }
+        // pkg3-61: «поглощение» учётки — привязать внешность (имя и аватар)
+        // другой учётки. Нужно, когда человек потерял пароль и зарегистрировался
+        // заново: старая переписка становится «новой учёткой» на вид. Ключи и
+        // авторство не подменяются; as:null — вернуть собственное лицо.
+        if (method === 'POST' && action === 'display') {
+          const as = (req.body || {}).as;
+          if (as === null || as === undefined || as === '') {
+            if (u.displayAs) adminLogAdd(me.id, 'вернул учётке «' + u.name + '» собственное лицо');
+            u.displayAs = null;
+            save();
+            return J(200, { ok: true, user: publicUser(u) });
+          }
+          const t = db.users.find(x => x.id === String(as));
+          if (!t) return E(404, 'Учётка-внешность не найдена');
+          if (t.id === u.id) return E(400, 'Нельзя поглотить самого себя');
+          if (t.displayAs) return E(400, 'Эта учётка сама носит чужую внешность — выберите настоящую');
+          u.displayAs = t.id;
+          adminLogAdd(me.id, 'привязал внешность «' + t.name + '» к учётке «' + u.name + '» (поглощение)');
+          save();
+          return J(200, { ok: true, user: publicUser(u) });
         }
       }
 
@@ -2381,8 +2426,13 @@ function createApi(store, opts = {}) {
       return J(200, { icon: ic || null, rev: c.iconRev || null }, { 'Cache-Control': 'no-store' });
     }
     if (pathname.startsWith('/api/avatar/') && method === 'GET') {
-      const who = db.users.find(x => x.id === decodeURIComponent(pathname.split('/')[3] || ''));
+      let who = db.users.find(x => x.id === decodeURIComponent(pathname.split('/')[3] || ''));
       if (!who) return E(404, 'Участник не найден');
+      // pkg3-61: поглощённая учётка показывает аватар той, чью внешность носит
+      if (who.displayAs) {
+        const t = db.users.find(x => x.id === who.displayAs && !x.displayAs);
+        if (t) who = t;
+      }
       if (!who.avatarRev) return J(200, { avatar: null, rev: null });
       await store.loadAvatar(who);
       return J(200, { avatar: who.avatar || null, rev: who.avatarRev },
