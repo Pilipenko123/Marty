@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-60';
+const BUILD = 'pkg3-61';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -800,8 +800,24 @@ async function chatKeyOf(chat) {
     issue = { code: 'no-group-key' };
   }
   if (entry) { S.chatKeys.set(chat.id, entry); S.keyIssue.delete(chat.id); }
-  else if (issue) S.keyIssue.set(chat.id, issue);
+  else if (issue) {
+    S.keyIssue.set(chat.id, issue);
+    // pkg3-61: копия группового ключа не читается (или её нет) — просим
+    // остальных участников доставить свежую; они делают это фоном (repairGroupKeys)
+    if (chat.kind === 'group' && ['unwrap-fail', 'no-group-key', 'no-wrapper-pub'].includes(issue.code)) {
+      requestGroupKey(chat.id);
+    }
+  }
   return entry;
+}
+/** pkg3-61: заявка «мне нужен рабочий ключ группы» — один раз на чат за сессию,
+ * чтобы не долбить сервер; после доставки ключ расшифруется и заявка не нужна. */
+const keyNeedAsked = new Set();
+function requestGroupKey(chatId) {
+  if (!chatId || keyNeedAsked.has(chatId) || !S.token) return;
+  keyNeedAsked.add(chatId);
+  api('/api/chats/' + encodeURIComponent(chatId) + '/keys/need', { method: 'POST', body: {} })
+    .catch(() => keyNeedAsked.delete(chatId));
 }
 /** Человекочитаемая причина, почему чат не расшифровать на этом устройстве. */
 function keyIssueText(c) {
@@ -1954,14 +1970,21 @@ function gamePayloadHtml(p, chat) {
     const mine = p.to === (S.me || {}).id;
     const gc = (S.chats || []).find(x => x.id === p.game);
     const pending = (S.invites || []).some(x => x.id === p.game);
+    // pkg3-61: принятое приглашение — второй вход в игру для обеих сторон
+    // (пригласившего и приглашённого), и остаётся им, пока игру не удалили
+    const inGc = !!(gc && (gc.members || []).includes((S.me || {}).id));
+    const accepted = !!(gc && (inGc || (gc.game || {}).status !== 'invite'));
     let act;
-    if (!mine) act = '<div class="tiny muted">ждём ответа…</div>';
-    else if (gc && ((gc.members || []).includes(S.me.id) || (gc.game || {}).status !== 'invite')) {
-      act = '<div class="tiny" style="color:#2c7a3f;font-weight:600">Приглашение принято ✓</div>';
-    } else if (pending) act = `<div style="margin-top:8px;display:flex;gap:6px">
+    if (accepted) {
+      act = '<div class="tiny" style="color:#2c7a3f;font-weight:600">Приглашение принято ✓</div>'
+        + (inGc ? `<div style="margin-top:8px"><button class="mini primary" data-game-enter="${escapeHtml(p.game)}">Войти в игру</button></div>` : '');
+    } else if (gc && !mine) {
+      act = '<div class="tiny muted">ждём ответа…</div>';
+    } else if (pending && mine) {
+      act = `<div style="margin-top:8px;display:flex;gap:6px">
         <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}" data-rules="${escapeHtml(p.rules || '')}">Войти в игру</button>
         <button class="mini danger" data-game-decline="${escapeHtml(p.game)}">Отклонить</button></div>`;
-    else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
+    } else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
     return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : 'шахматы'}</b>
       <div class="tiny muted">${escapeHtml(p.note || '')}</div>${act}</div>`;
   }
@@ -3134,12 +3157,20 @@ function readersOf(m) {
   return S.users.filter(u => u.id !== m.uid && members.includes(u.id) && ((u.reads || {})[bucket] || 0) >= m.seq);
 }
 function readersHtml(m) {
-  if (m.uid !== S.me.id) return '';
+  const rs = readersOf(m);
+  if (m.uid !== S.me.id) {
+    // pkg3-61: на чужих сообщениях тоже видно, кто их уже прочитал (просьба
+    // владельца). «Галочки доставки» при этом остаются принадлежностью автора —
+    // у чужих сообщений рисуем только полоску прочитавших.
+    if (!rs.length) return '';
+    const shown = rs.slice(0, 5).map(u => avatarHtml(u, 'xs', true)).join('');
+    const names = rs.map(u => u.name).join(', ');
+    return `<span class="readers" title="Прочитали: ${escapeHtml(names)}">${shown}${rs.length > 5 ? `<span class="tiny muted">+${rs.length - 5}</span>` : ''}</span>`;
+  }
   // своё сообщение показываем сразу, ещё до ответа сервера: часы — «летит»,
   // галочка — «сервер принял», две — «прочитали»
   if (m.local) return `<span class="check pending" title="Отправляется…">⏱</span>`;
   if (m.failed) return `<span class="check failed" title="Не отправлено: ${escapeHtml(m.failed)}">⚠</span><button class="retry-send" data-retry="${m.id}" title="Отправить ещё раз">повторить</button>`;
-  const rs = readersOf(m);
   if (!rs.length) return `<span class="check" title="Отправлено">✓</span>`;
   const shown = rs.slice(0, 5).map(u => avatarHtml(u, 'xs', true)).join('');
   const names = rs.map(u => u.name).join(', ');
@@ -3177,8 +3208,21 @@ function rxRowHtml(m) {
   const rx = m.reactions || {};
   const keys = Object.keys(rx).filter(k => (rx[k] || []).length);
   if (!keys.length) return '';
-  return `<div class="rx-row">${keys.map(k =>
-    `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${plural((rx[k] || []).length, 'человек', 'человека', 'человек')}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`).join('')}</div>`;
+  // pkg3-61: в подсказке — имена, а кнопка «👥» открывает список «кто что поставил»
+  return `<div class="rx-row">${keys.map(k => {
+    const names = (rx[k] || []).map(id => (userById(id) || { name: 'Бывший участник' }).name).join(', ');
+    return `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${escapeHtml(names)}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`;
+  }).join('')}<button class="rx rx-who" data-rxlist="${m.id}" title="Кто поставил реакции">👥</button></div>`;
+}
+/** pkg3-61: кто поставил реакции — по смайликам, именами. */
+function openRxList(mid) {
+  const m = S.messages.find(x => x.id === mid);
+  const rx = (m && m.reactions) || {};
+  const keys = Object.keys(rx).filter(k => (rx[k] || []).length);
+  modal('Кто поставил реакции', keys.length
+    ? keys.map(k => `<div class="mrow"><span style="font-size:22px;line-height:1">${twEmo(escapeHtml(k))}</span>
+        <span class="nm">${rx[k].map(id => escapeHtml((userById(id) || { name: 'Бывший участник' }).name)).join(', ')}</span></div>`).join('')
+    : '<div class="tiny muted">Реакций пока нет</div>');
 }
 /** Точечно обновить реакции одного сообщения (в ленте или в панели комментариев). */
 function paintReactions(m) {
@@ -3863,6 +3907,8 @@ function handleMsgClick(e) {
   if (goto) return goToMessage(goto.dataset.goto);
   const rxb = e.target.closest('[data-rx]');
   if (rxb) return toggleReaction(rxb.dataset.mid, rxb.dataset.rx);
+  const rw = e.target.closest('[data-rxlist]');
+  if (rw) return openRxList(rw.dataset.rxlist);   // pkg3-61: кто поставил реакции
   const rtb = e.target.closest('[data-retry]');
   if (rtb) return retrySend(rtb.dataset.retry);
   const rbig = e.target.closest('.rx-big [data-rxset]');
@@ -6103,6 +6149,14 @@ document.addEventListener('click', async e => {
   if (sbt) { S.sbTab = sbt.dataset.sbTab; S.boardSig = ''; renderBoard(); return; }
   if (e.target.closest('#gm-leave')) { await leaveGameSmart(); return; }
   if (e.target.closest('#gm-knocks')) { openKnocks(curChat()); return; }
+  // pkg3-61: принятое приглашение — вход в игру, пока её не удалили
+  const ge = e.target.closest('[data-game-enter]');
+  if (ge) {
+    const gid = ge.dataset.gameEnter;
+    if (chatById(gid)) openChat(gid);
+    else toast('Игры больше нет — её удалили', true);
+    return;
+  }
   const acc = e.target.closest('[data-game-accept]');
   if (acc) {
     acc.disabled = true; acc.textContent = 'Входим…';
@@ -6426,7 +6480,8 @@ async function openAdminInvites() {
   // pkg3-59: значки состояния и меню «⋮» рядом с каждым участником дерева
   const meId0 = (S.me && S.me.id) || null;
   const uMarks = u => ((u.bannedUntil || 0) > Date.now() ? ' <span class="tag-new" title="Доступ ограничен на сутки по жалобе">⛔ бан</span>' : '')
-    + (pol.blockedUsers.includes(u.id) ? ' <span class="tag-grp" title="Запрещено приглашать других">🚫 звать</span>' : '');
+    + (pol.blockedUsers.includes(u.id) ? ' <span class="tag-grp" title="Запрещено приглашать других">🚫 звать</span>' : '')
+    + (u.displayAs ? ' <span class="tag-grp" title="Носит имя и аватар другой учётки (поглощена)">👤 слита</span>' : '');
   const uMenu = u => u.id === meId0 ? ''
     : ` <button class="sec-dots" data-umenu="${escapeHtml(u.id)}" title="Управление участником">⋮</button>`;
   let tree = '';
@@ -6503,6 +6558,7 @@ function openUserAdmin(id) {
   const pol = d.policy || { globalOff: false, blockedUsers: [], blockedChats: [] };
   const blocked = (pol.blockedUsers || []).includes(id);
   const banned = (u.bannedUntil || 0) > Date.now();
+  const aliasName = u.displayAs ? ((d.users.find(x => x.id === u.displayAs) || {}).name || '?') : null;
   modal('Участник «' + u.name + '»', `
     <div class="card">
       <label class="row-check"><input type="checkbox" id="ua-noinvite" ${blocked ? 'checked' : ''}>
@@ -6515,11 +6571,19 @@ function openUserAdmin(id) {
         <button class="mini ${banned ? '' : 'danger'}" id="ua-ban" type="button">${banned ? 'Снять бан' : 'Забанить'}</button>
       </div>
       <div class="set-row">
+        <div class="t"><b>${aliasName ? 'Носит внешность «' + escapeHtml(aliasName) + '»' : 'Слияние с другой учёткой'}</b>
+          <span>${aliasName
+            ? 'вся переписка этой учётки отображается новым именем и аватаром'
+            : 'кто потерял пароль и зарегистрировался заново: старая учётка получает новые имя и аватар'}</span></div>
+        <button class="mini" id="ua-display" type="button">${aliasName ? 'Изменить / Отвязать' : 'Привязать внешность'}</button>
+      </div>
+      <div class="set-row">
         <div class="t"><b>Удалить из мессенджера навсегда</b>
           <span>все данные участника стираются с сервера; возврат — только по новому приглашению и новой регистрацией</span></div>
         <button class="mini danger" id="ua-del" type="button">Удалить</button>
       </div>
     </div>`);
+  $('#ua-display').addEventListener('click', () => openAdminDisplayMerge(id));
   $('#ua-noinvite').addEventListener('change', async e => {
     const list = new Set(pol.blockedUsers || []);
     if (e.target.checked) list.add(id); else list.delete(id);
@@ -6559,6 +6623,48 @@ function openUserAdmin(id) {
       openAdminInvites();
     } catch (ex) { toast(ex.message, true); }
   });
+}
+/** pkg3-61: «поглощение» учётки — старая учётка (потерян пароль) получает имя
+ * и аватар другой: вся её переписка отображается новым лицом. Шифрование и
+ * авторство не подменяются — только внешность; действие обратимо. */
+function openAdminDisplayMerge(oldId) {
+  const d = S.adminInv;
+  if (!d) return;
+  const old = (d.users || []).find(x => x.id === oldId);
+  if (!old) return;
+  const list = (d.users || []).filter(x => x.id !== oldId && !x.displayAs);
+  modal('Слияние учёток (внешность)', `
+    <p class="hint">Старая учётка «${escapeHtml(old.name)}» получит имя и аватар выбранной учётки:
+    все её сообщения будут выглядеть как новые. Шифрование и авторство не подменяются —
+    меняется только внешность. Действие можно отменить.</p>
+    ${old.displayAs ? `<button class="mini" id="dp-off" type="button" style="margin-bottom:10px">Отвязать (вернуть собственное лицо)</button>` : ''}
+    ${list.map(x => `<div class="mrow"><span class="nm">${escapeHtml(x.name)}${x.isAdmin ? ' <span class="tag-admin">адм</span>' : ''}</span>
+      <button class="mini" data-dp-as="${escapeHtml(x.id)}" type="button">Взять её внешность</button></div>`).join('') || '<div class="tiny muted">Подходящих учёток нет</div>'}`);
+  const off = $('#dp-off');
+  if (off) off.addEventListener('click', async () => {
+    off.disabled = true;
+    try {
+      await api('/api/admin/users/' + encodeURIComponent(oldId) + '/display', { method: 'POST', body: { as: null } });
+      toast('Собственное лицо возвращено');
+      hide($('#modal'));
+      await sync(false).catch(() => {});
+      S.sig = ''; renderAll();
+      openAdminInvites();
+    } catch (ex) { toast(ex.message, true); off.disabled = false; }
+  });
+  for (const b of document.querySelectorAll('[data-dp-as]')) {
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(oldId) + '/display', { method: 'POST', body: { as: b.dataset.dpAs } });
+        toast('Внешность привязана: старая переписка отображается новой учёткой');
+        hide($('#modal'));
+        await sync(false).catch(() => {});
+        S.sig = ''; renderAll();
+        openAdminInvites();
+      } catch (ex) { toast(ex.message, true); b.disabled = false; }
+    });
+  }
 }
 
 // ── pkg3-45: локальные псевдонимы — переименовать любого у себя
