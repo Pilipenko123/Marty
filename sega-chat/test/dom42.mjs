@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v53'), 'кэш статики поднят до v53');
+ok(sw.includes('sega-static-v54'), 'кэш статики поднят до v54');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -368,6 +368,23 @@ ok(appJs.includes('вернёт чат в раздел «Новые» ещё н�
 ok(setupSh.includes('ждём завершения системного certbot') && setupSh.includes('.bak-setup') && setupSh.includes('listen 443 ssl'),
   'установщик: ждёт системный certbot, хранит откат и не гасит HTTPS при готовом сертификате');
 ok(setupSh.includes('повторяю через минуту'), 'установщик повторяет попытку сертификата при неудаче');
+
+// pkg3-61: слияние учёток, лечение ключей, вход в игру, реакции, прочтения
+ok(apiJs.includes("action === 'display'") && apiJs.includes('u.displayAs = t.id'), 'сервер: привязка внешности другой учётки («поглощение»)');
+ok(apiJs.includes('const t = u.displayAs ? db.users.find') && apiJs.includes('displayAs: (u.displayAs && t) ? t.id : null'), 'publicUser отдаёт имя и аватар новой учётки — старая переписка выглядит новой');
+ok(apiJs.includes('поглощённая учётка показывает аватар'), 'аватар поглощённой учётки — тоже от новой');
+ok(apiJs.includes('Нельзя поглотить самого себя') && apiJs.includes('сама носит чужую внешность'), 'слияние с собой и цепочки псевдонимов запрещены');
+ok(modelJs.includes('u.displayAs'), 'модель: migrate() добавляет displayAs с дефолтом');
+ok(apiJs.includes("sub === 'need'") && apiJs.includes('|| (chat.keys || {})[id].need'), 'сервер: участник просит свежий ключ группы, «битая» копия больше не застревает');
+ok(apiJs.includes('!chat.keys[target].need') , 'сервер: битую копию ключа разрешается перезаписать');
+ok(appJs.includes('function requestGroupKey') && appJs.includes("/keys/need'"), 'клиент сам просит свежий ключ, когда его копия не читается');
+ok(appJs.includes('data-game-enter') && appJs.includes('Войти в игру'), 'принятое приглашение — второй вход в игру (кнопка «Войти в игру»)');
+ok(appJs.includes('data-rxlist') && appJs.includes('function openRxList'), 'кнопка «👥» открывает список «кто поставил реакции»');
+ok(appJs.includes('Кто поставил реакции'), 'в списке реакций — имена по каждому смайлику');
+ok(appJs.includes('на чужих сообщениях тоже видно, кто их уже прочитал'), 'отметки прочтения видны на всех сообщениях, не только на своих');
+ok(appJs.includes('function openAdminDisplayMerge') && appJs.includes('Взять её внешность'), 'в меню «⋮» — слияние учёток (привязка внешности)');
+ok(appJs.includes('👤 слита'), 'в дереве приглашений виден значок слитой учётки');
+ok(appJs.includes('Изменить / Отвязать') && appJs.includes('Отвязать (вернуть собственное лицо)'), 'слияние обратимо: внешность можно отвязать');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

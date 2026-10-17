@@ -1,5 +1,6 @@
 /**
- * pkg3-59: админ-меню участника — запрет приглашать, бан на сутки, удаление навсегда.
+ * pkg3-59/61: админ-меню участника — запрет приглашать, бан на сутки, удаление навсегда;
+ * pkg3-61: лечение ключа группы (need → missing → перезапись) и слияние учёток (внешность).
  *
  * Что проверяется:
  *   • перенос старых записей: у участника без `bannedUntil` появляется ноль (migrate);
@@ -192,6 +193,46 @@ r = await call(A.base, '/api/admin/users/' + g2Id + '/ban', { method: 'POST', bo
 ok(r.status === 200 && r.d.log === undefined, 'бан работает и после удалений');
 r = await call(A.base, '/api/admin/invites', {}, admin);
 ok(r.d.log.some(e => /ограничил доступ «Гоша» на сутки \(жалоба\)/.test(e.what)), 'бан записан в журнал администратора');
+
+// ══════════════════════════════ 4. pkg3-61: лечение ключа группы и слияние учёток
+console.log('\n  4. Лечение ключа группы и слияние учёток (pkg3-61)');
+await call(A.base, '/api/admin/users/' + g2Id + '/ban', { method: 'POST', body: { on: false } }, admin);
+r = await call(A.base, '/api/chats', {
+  method: 'POST',
+  body: { titleBlob: 'enc:' + hex(), members: [g2Id], keys: { [adminId]: { blob: 'k-admin' }, [g2Id]: { blob: 'k-g2-битая' } } }
+}, admin);
+ok(r.status === 200, 'групповой чат для опыта создан');
+const grp = r.d.chat.id;
+r = await call(A.base, '/api/chats/' + grp + '/keys/missing', {}, admin);
+ok(r.status === 200 && (r.d.missing || []).length === 0, 'пока все копии ключа на месте — нуждающихся нет');
+r = await call(A.base, '/api/chats/' + grp + '/keys/need', { method: 'POST', body: {} }, g2);
+ok(r.status === 200, 'участник с нечитаемой копией попросил свежий ключ (keys/need)');
+r = await call(A.base, '/api/chats/' + grp + '/keys/missing', {}, admin);
+ok(r.status === 200 && (r.d.missing || []).some(x => x.id === g2Id), 'его заявка видна остальным в keys/missing');
+r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: g2Id, blob: 'k-g2-свежая' } }, admin);
+ok(r.status === 200, 'свежая копия ключа доставлена поверх битой (перезапись разрешена)');
+r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: g2Id, blob: 'k-ещё' } }, admin);
+ok(r.status === 409, 'без заявки нужды чужой ключ перезаписать нельзя (409)');
+
+r = await call(A.base, '/api/admin/users/' + g2Id + '/display', { method: 'POST', body: { as: adminId } }, g2);
+ok(r.status === 403, 'не-администратор не может сливать учётки');
+r = await call(A.base, '/api/admin/users/' + adminId + '/display', { method: 'POST', body: { as: adminId } }, admin);
+ok(r.status === 400, 'нельзя поглотить самого себя');
+r = await call(A.base, '/api/admin/users/' + g2Id + '/display', { method: 'POST', body: { as: adminId } }, admin);
+ok(r.status === 200, 'слияние выполнено: старая учётка носит внешность новой');
+r = await call(A.base, '/api/sync?since=0', {}, admin);
+{
+  const g2pub = (r.d.users || []).find(x => x.id === g2Id);
+  ok(!!g2pub && g2pub.name === 'Мартин' && g2pub.displayAs === adminId, 'в синхронизации старая учётка видна новым именем (вся её переписка получит это лицо)');
+}
+r = await call(A.base, '/api/admin/users/' + adminId + '/display', { method: 'POST', body: { as: g2Id } }, admin);
+ok(r.status === 400, 'цепочки псевдонимов запрещены (цель сама носит чужую внешность)');
+r = await call(A.base, '/api/admin/invites', {}, admin);
+ok(r.status === 200 && (r.d.users.find(x => x.id === g2Id) || {}).displayAs === adminId, 'в админ-окне видна отметка слияния (значок «слита»)');
+r = await call(A.base, '/api/admin/users/' + g2Id + '/display', { method: 'POST', body: { as: null } }, admin);
+ok(r.status === 200, 'внешность отвязана (слияние обратимо)');
+r = await call(A.base, '/api/sync?since=0', {}, admin);
+ok(((r.d.users || []).find(x => x.id === g2Id) || {}).name === 'Гоша', 'после отвязки учётка снова с собственным именем');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Админ-меню участника: ${good} ✓, провалов ${bad}`);
