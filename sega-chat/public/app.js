@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-61';
+const BUILD = 'pkg3-62';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -288,6 +288,20 @@ const isOnline = u => u && Date.now() - (u.activeAt || 0) < ONLINE_MS;
 const myReads = () => (S.me && S.me.reads) || {};
 const bucketOf = m => m.parent ? 'thr:' + m.parent : m.chat;
 const dmPeer = c => c && c.kind === 'dm' ? c.members.find(x => x !== S.me.id) : null;
+// pkg3-62: слитые учётки. Поглощённая учётка — только старая история: в списках
+// выбора людей её нет (пишут настоящей), а её строка личного чата прячется,
+// если с настоящей учёткой уже есть живая переписка — чтобы один человек не
+// выглядел двумя одинаковыми строками.
+const aliasTargetOf = u => (u && u.displayAs ? userByIdRaw(u.displayAs) : null);
+const isNewishChat = (c) => !!c.newUntil && !S.dmSaved.has(c.id);
+const peerIsHiddenAlias = (c) => {
+  if (!c || c.kind !== 'dm') return false;
+  const p = userByIdRaw(dmPeer(c));
+  const t = aliasTargetOf(p);
+  if (!t) return false;
+  return S.chats.some(x => x.kind === 'dm' && x.id !== c.id && x.members.includes(t.id)
+    && x.members.includes(S.me.id) && !isNewishChat(x));
+};
 const isOwner = c => !!c && c.kind === 'group' && c.ownerId === S.me.id;
 function chatTitle(c) {
   if (c && c.kind === 'game') return gameTitle(c);
@@ -2906,7 +2920,7 @@ async function openKnocks(c) {
     <button class="mini danger" data-knock-reject="${escapeHtml(u.id)}">отказать</button></div>`).join(''));
 }
 async function openNewGame() {
-  const users = S.users.filter(u => u.id !== S.me.id);
+  const users = S.users.filter(u => u.id !== S.me.id && !u.displayAs);   // pkg3-62: слитых не зовём
   if (!users.length) { toast('Пока некого пригласить в игру', true); return; }
   // pkg3-41: раздел «Игра» знает две игры — шахматы и русские шашки
   modal('Новая игра', `
@@ -2976,6 +2990,7 @@ async function openNewGame() {
 function renderRail() {
   const flt = S.railFilter.toLowerCase();
   const chats = S.chats
+    .filter(c => !peerIsHiddenAlias(c))   // pkg3-62: слитая учётка не двоится в списке
     .filter(c => !flt || chatTitle(c).toLowerCase().includes(flt))
     .sort((a, b) => {
       const la = lastMessageIn(a.id), lb = lastMessageIn(b.id);
@@ -4407,7 +4422,7 @@ document.addEventListener('click', async e => {
 // ─────────────────────────────────────────── создание группового чата
 function openCreateChat() {
   $('#rail').classList.remove('open');
-  const others = S.users.filter(u => u.id !== S.me.id);
+  const others = S.users.filter(u => u.id !== S.me.id && !u.displayAs);   // pkg3-62: слитых не зовём
   modal('Новый групповой чат', `
     <label>Название чата<input type="text" id="nc-title" maxlength="60" placeholder="например: Партия в бридж"></label>
     <div class="divider"><span>Кого позвать</span></div>
@@ -4628,7 +4643,7 @@ $('#btn-members').addEventListener('click', () => {
       ${u.id !== S.me.id && c.kind === 'group' ? `<button class="mini" data-open-dm="${u.id}">лично</button>` : ''}
       ${isOwner(c) && u.id !== S.me.id ? `<button class="mini danger" data-kick="${u.id}">убрать</button>` : ''}
     </div>`).join('');
-  const rest = S.users.filter(u => !c.members.includes(u.id));
+  const rest = S.users.filter(u => !c.members.includes(u.id) && !u.displayAs);   // pkg3-62: слитых не зовём
   modal('Участники · ' + chatTitle(c), rows + (canAdd ? `
     <div class="divider"><span>Добавить в чат</span></div>
     ${rest.length ? rest.map(u => `<div class="mrow">${avatarHtml(u, '', true)}
@@ -6473,8 +6488,14 @@ async function openAdminInvites() {
   const pol = d.policy || { globalOff: false, blockedUsers: [], blockedChats: [] };
   pol.blockedUsers = pol.blockedUsers || []; pol.blockedChats = pol.blockedChats || [];
   S.adminInv = d;   // pkg3-59: данные окна — для меню «⋮» у участника
+  // pkg3-62: у слитой учётки показываем имя той, чью внешность она носит,
+  // и честную подпись — одна строка не выглядит «вторым человеком»
+  const rawNameOf = id => (d.users.find(u => u.id === id) || {}).name || '?';
   const nameOf = id => id === 'root' ? 'основатели' : id === 'code' ? 'аварийный вход'
-    : (d.users.find(u => u.id === id) || {}).name || '?';
+    : rawNameOf(id);
+  const shownName = u => u.displayAs
+    ? (rawNameOf(u.displayAs) + ' <span class="tiny muted">(слита: прежняя учётка «' + escapeHtml(u.name) + '»)</span>')
+    : escapeHtml(u.name);
   const kids = {};
   for (const u of d.users) (kids[u.invitedBy] = kids[u.invitedBy] || []).push(u);
   // pkg3-59: значки состояния и меню «⋮» рядом с каждым участником дерева
@@ -6488,7 +6509,7 @@ async function openAdminInvites() {
   const walk = (id, depth) => (kids[id] || [])
     .sort((a, b) => a.createdAt - b.createdAt)
     .forEach(u => {
-      tree += `<div class="tr-row" style="padding-left:${depth * 14}px">↳ ${escapeHtml(u.name)}
+      tree += `<div class="tr-row" style="padding-left:${depth * 14}px">↳ ${shownName(u)}
         <span class="tiny muted">· ${fmtDay(u.createdAt)}</span>${uMarks(u)}${uMenu(u)}</div>`;
       walk(u.id, depth + 1);
     });
@@ -6559,7 +6580,9 @@ function openUserAdmin(id) {
   const blocked = (pol.blockedUsers || []).includes(id);
   const banned = (u.bannedUntil || 0) > Date.now();
   const aliasName = u.displayAs ? ((d.users.find(x => x.id === u.displayAs) || {}).name || '?') : null;
-  modal('Участник «' + u.name + '»', `
+  // pkg3-62: в заголовке — видимое имя (у слитой учётки оно уже новое)
+  const visName = (S.users.find(x => x.id === id) || u).name || u.name;
+  modal('Участник «' + visName + '»', `
     <div class="card">
       <label class="row-check"><input type="checkbox" id="ua-noinvite" ${blocked ? 'checked' : ''}>
         <span>Запрещено приглашать других пользователей</span></label>
@@ -6632,13 +6655,18 @@ function openAdminDisplayMerge(oldId) {
   if (!d) return;
   const old = (d.users || []).find(x => x.id === oldId);
   if (!old) return;
+  // pkg3-62: имена берём из синхронизации (там они уже видимые), в списке
+  // выбора только настоящие учётки
+  const nm = id => ((S.users.find(x => x.id === id) || {}).name
+    || (d.users.find(x => x.id === id) || {}).name || '?');
   const list = (d.users || []).filter(x => x.id !== oldId && !x.displayAs);
   modal('Слияние учёток (внешность)', `
-    <p class="hint">Старая учётка «${escapeHtml(old.name)}» получит имя и аватар выбранной учётки:
-    все её сообщения будут выглядеть как новые. Шифрование и авторство не подменяются —
-    меняется только внешность. Действие можно отменить.</p>
+    <p class="hint">Старая учётка «${escapeHtml(nm(oldId))}» станет продолжением выбранной:
+    имя и аватар — общие, поиск её больше не находит, а «написать» открывает уже
+    существующую переписку. Сообщения и ключи не подменяются — шифрование цело.
+    Действие можно отменить кнопкой «Отвязать».</p>
     ${old.displayAs ? `<button class="mini" id="dp-off" type="button" style="margin-bottom:10px">Отвязать (вернуть собственное лицо)</button>` : ''}
-    ${list.map(x => `<div class="mrow"><span class="nm">${escapeHtml(x.name)}${x.isAdmin ? ' <span class="tag-admin">адм</span>' : ''}</span>
+    ${list.map(x => `<div class="mrow"><span class="nm">${escapeHtml(nm(x.id))}${x.isAdmin ? ' <span class="tag-admin">адм</span>' : ''}</span>
       <button class="mini" data-dp-as="${escapeHtml(x.id)}" type="button">Взять её внешность</button></div>`).join('') || '<div class="tiny muted">Подходящих учёток нет</div>'}`);
   const off = $('#dp-off');
   if (off) off.addEventListener('click', async () => {
@@ -6674,7 +6702,7 @@ function openAliasEditor() {
     <p class="hint">Псевдоним виден только в вашем мессенджере: в списках, лентах
     и уведомлениях. Владелец ника об этом не узнает, на сервер псевдоним не уходит.
     Пустое поле — вернуть настоящий ник.</p>
-    ${S.users.filter(u => u.id !== S.me.id).map(u => `<label>${escapeHtml(u.name)}
+    ${S.users.filter(u => u.id !== S.me.id && !u.displayAs).map(u => `<label>${escapeHtml(u.name)}
       <input data-alias-for="${u.id}" type="text" maxlength="32" value="${escapeHtml(S.aliases[u.id] || '')}" placeholder="${escapeHtml(u.name)}"></label>`).join('') || '<div class="tiny muted">Пока некого переименовывать.</div>'}`);
   $('#modal').addEventListener('input', e => {
     const inp = e.target.closest('[data-alias-for]');
