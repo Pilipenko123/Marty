@@ -13,11 +13,12 @@
 
 const crypto = require('crypto');
 const backup = require('./backup');
+const smtp = require('./smtp.js');   // pkg3-64: письма привязки почты и восстановления (без новых зависимостей)
 
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-63';
+const BUILD = 'pkg3-64';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -245,6 +246,9 @@ function createApi(store, opts = {}) {
   const BAN_MS = Math.max(1000, Number(process.env.BAN_MS || 24 * 60 * 60 * 1000));
   /** pkg3-59: одинаковый честный отказ забаненному — и при входе, и при опросе.
    * Клиент по коду 'banned' показывает уведомление о жалобе и срок. */
+  /** pkg3-64: базовый адрес для ссылок в письмах (или заголовок запроса). */
+  const publicBase = req => String(process.env.SEGA_PUBLIC_URL || '').replace(/\/$/, '')
+    || ('https://' + ((req && req.headers && req.headers.host) || 'segachat.pilpro.ru'));
   const banError = until => ({
     status: 403,
     json: { error: 'Поступила жалоба — доступ ограничен на сутки', code: 'banned', until }
@@ -865,6 +869,63 @@ function createApi(store, opts = {}) {
       u.lastSeen = Date.now();
       save();
       return J(200, { token, user: publicUser(u), saltWrap: u.saltWrap, wrappedKeyByPass: u.wrappedKeyByPass, wrappedPriv: u.wrappedPriv || null });
+    }
+
+    // --- pkg3-64: восстановление пароля через привязанную почту ------------
+    if (pathname === '/api/recover/request' && method === 'POST') {
+      if (throttle('recover:' + ip, 10)) return E(429, 'Слишком много попыток. Подождите 10 минут.');
+      const b = req.body || {};
+      const name = normName(b.name || '').toLowerCase();
+      const em = String(b.email || '').trim().toLowerCase();
+      const u = db.users.find(x => x.nameLower === name);
+      // не подсказываем, существует ли имя и привязана ли почта, — единый ответ
+      if (!u || !u.emailConfirmed || u.email !== em) return E(404, 'Такая почта к этому имени не привязана');
+      if (!smtp.enabled()) return E(503, 'Почта на сервере не настроена: восстановление недоступно');
+      if (throttle('recovermail:' + u.id, 1)) return E(429, 'Письмо уже отправлено: подождите немного');
+      const token = crypto.randomBytes(24).toString('hex');
+      db.recover = (db.recover || []).filter(x => x.exp > Date.now());
+      db.recover.push({ token, uid: u.id, exp: Date.now() + 60 * 60 * 1000 });
+      save();
+      try {
+        await smtp.sendMail(em, 'SEGA-CHAT: восстановление пароля',
+          'Кто-то (надеемся, вы) запросил восстановление пароля для имени «' + u.name + '».\n\n'
+          + 'Ссылка (действует 1 час, одноразовая):\n' + publicBase(req) + '/?recover=' + token + '\n\n'
+          + 'На открывшейся странице введите код восстановления (если вы сохранили его или отправили себе на почту) и новый пароль.\n'
+          + 'Не запрашивали? Просто проигнорируйте письмо: без ссылки и кода пароль не изменить.');
+      } catch (e) { return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')); }
+      return J(200, { ok: true });
+    }
+    if (pathname === '/api/recover/state' && method === 'GET') {
+      const t = String(query.get('token') || '');
+      const rec = (db.recover || []).find(x => x.token === t && x.exp > Date.now());
+      const u = rec && db.users.find(x => x.id === rec.uid);
+      if (!rec || !u) return E(410, 'Ссылка просрочена или уже использована');
+      return J(200, { ok: true, name: u.name, hasBlob: !!u.recoveryBlob, blob: u.recoveryBlob || null });
+    }
+    if (pathname === '/api/recover/commit' && method === 'POST') {
+      if (throttle('recovercommit:' + ip, 10)) return E(429, 'Слишком много попыток. Подождите 10 минут.');
+      const b = req.body || {};
+      const rec = (db.recover || []).find(x => x.token === String(b.token || '') && x.exp > Date.now());
+      const u = rec && db.users.find(x => x.id === rec.uid);
+      if (!rec || !u) return E(410, 'Ссылка просрочена или уже использована');
+      for (const k of ['saltAuth', 'authKey', 'saltWrap'])
+        if (!b[k]) return E(400, 'Не хватает поля ' + k);
+      u.saltAuth = b.saltAuth;
+      u.authHash = hashSecret(b.authKey, u.saltAuth);
+      u.saltWrap = b.saltWrap;
+      // полный режим несёт новый конверт общего ключа; «свежий» (без кода
+      // восстановления) оставляет общий ключ недоступным — учётка живёт дальше
+      // без старой истории, а личный ключ пересоздаётся при входе
+      u.wrappedKeyByPass = b.wrappedKeyByPass || null;
+      // полный режим: клиент расшифровал копию восстановления своим кодом и
+      // пере-завернул личный ключ новым паролем (pub не меняется).
+      // «Свежий» режим (без кода): личный ключ пересоздаётся начисто — старые
+      // обёртки и pub сбрасываются, при входе пересоздаётся пара ключей
+      if (b.wrappedPriv) u.wrappedPriv = b.wrappedPriv;
+      else { u.wrappedPriv = null; u.pub = null; }
+      db.recover = (db.recover || []).filter(x => x.token !== rec.token);
+      save();
+      return J(200, { ok: true, mode: b.wrappedPriv ? 'full' : 'fresh' });
     }
 
     // --- получить «завёрнутый» ключ каталога по кодовой фразе (для регистрации)
@@ -2023,6 +2084,13 @@ function createApi(store, opts = {}) {
     }
 
     // --- профиль: имя, аватар, пароль
+    if (pathname === '/api/profile' && method === 'GET') {
+      // pkg3-64: своя почта и наличие копии восстановления (в publicUser этого нет)
+      return J(200, {
+        email: me.email || '', emailConfirmed: !!me.emailConfirmed,
+        hasRecoveryBlob: !!me.recoveryBlob
+      });
+    }
     if (pathname === '/api/profile' && method === 'POST') {
       const b = req.body;
       if (b.name !== undefined) {
@@ -2063,6 +2131,45 @@ function createApi(store, opts = {}) {
         // прочие сессии этого пользователя закрываем
         await store.loadSessions();
         for (const [t, s] of Object.entries(db.sessions)) if (s.uid === me.id && t !== session.token) delete db.sessions[t];
+      }
+      // ── pkg3-64: привязка почты (необязательно, один раз) для восстановления ──
+      if (b.email !== undefined) {
+        const em = String(b.email || '').trim().toLowerCase();
+        if (!em) {
+          me.email = ''; me.emailConfirmed = false; me.emailPending = null;
+          me.emailCodeHash = null; me.emailCodeExp = 0; me.recoveryBlob = null;
+        } else {
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || em.length > 120) return E(400, 'Непохоже на адрес почты');
+          if (db.users.some(x => x.id !== me.id && x.email === em && x.emailConfirmed))
+            return E(409, 'Эта почта уже привязана к другой учётке');
+          if (!smtp.enabled()) return E(503, 'Почта на сервере не настроена: привязка и восстановление недоступны (нужны SEGA_SMTP_* в .env)');
+          if (throttle('email:' + me.id, 10)) return E(429, 'Слишком часто: подождите немного');
+          const code = String(crypto.randomInt(100000, 999999));
+          me.emailPending = em;
+          me.emailCodeHash = crypto.createHash('sha256').update(code + me.id).digest('hex');
+          me.emailCodeExp = Date.now() + 15 * 60 * 1000;
+          try {
+            await smtp.sendMail(em, 'SEGA-CHAT: привязка почты',
+              'Код подтверждения: ' + code + '\n\nДействует 15 минут. Введите его в окне мессенджера.\n'
+              + 'Если вы не привязывали почту — просто проигнорируйте письмо.\n\nВаш мессенджер: ' + publicBase(req));
+          } catch (e) { return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')); }
+        }
+      }
+      if (b.emailCode !== undefined) {
+        const code = String(b.emailCode || '').trim();
+        if (!me.emailPending || !me.emailCodeHash) return E(400, 'Сначала запросите привязку почты');
+        if ((me.emailCodeExp || 0) < Date.now()) return E(400, 'Код просрочен: запросьте привязку ещё раз');
+        if (!timingEqual(crypto.createHash('sha256').update(code + me.id).digest('hex'), me.emailCodeHash))
+          return E(403, 'Неверный код');
+        me.email = me.emailPending; me.emailConfirmed = true;
+        me.emailPending = null; me.emailCodeHash = null; me.emailCodeExp = 0;
+      }
+      if (b.recoveryBlob !== undefined) {
+        if (b.recoveryBlob === null || b.recoveryBlob === '') me.recoveryBlob = null;
+        else {
+          if (String(b.recoveryBlob).length > 16384) return E(400, 'Копия восстановления слишком велика');
+          me.recoveryBlob = String(b.recoveryBlob);
+        }
       }
       save();
       return J(200, { user: publicUser(me), wrappedPriv: me.wrappedPriv || null });

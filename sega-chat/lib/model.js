@@ -166,6 +166,15 @@ function migrate(db) {
     if (typeof u.displayAs !== 'string' || !u.displayAs) u.displayAs = null;
   }
 
+  // pkg3-64: почта для восстановления (необязательная) и копии восстановления.
+  for (const u of db.users) {
+    if (typeof u.email !== 'string') u.email = '';
+    u.emailConfirmed = !!u.emailConfirmed;
+    if (typeof u.recoveryBlob !== 'string' || !u.recoveryBlob) u.recoveryBlob = null;
+  }
+  if (!Array.isArray(db.recover)) db.recover = [];
+  db.recover = db.recover.filter(x => x && typeof x.token === 'string' && x.exp > Date.now() - 7 * 24 * 3600 * 1000);
+
   // pkg3-63: поколение ключа группы (epoch). Растёт при каждом перевыпуске
   // ключа — клиенты по нему понимают, что их копия устарела и её надо
   // пере-развернуть с сервера. У старых чатов поколения нет — ставим ноль.
