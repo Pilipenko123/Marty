@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-65';
+const BUILD = 'pkg3-66';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -900,6 +900,59 @@ function persistOldKeys(chatId) {
   } catch (e) { /* приватный режим/переполнение — история останется в памяти */ }
 }
 function oldKeysOf(chatId) { return S.chatKeysOld.get(chatId) || []; }
+/** pkg3-66: обмен прежними ключами группы через сервер (сервер слеп):
+ * (а) скачиваем свёртки поколений, которых у нас нет, — история возвращается
+ * тем, кто пропустил перевыпуски (сидел с закрытым чатом, ещё не был добавлен);
+ * (б) выкладываем свои прежние свёртки, если сервер их ещё не хранит, — чтобы
+ * история вернулась остальным текущим участникам. Без кнопок, само. */
+const oldKeysUploaded = new Set();
+async function reconcileOldKeys(c) {
+  if (!S.priv || !Array.isArray(c.oldKeys)) return;
+  const local = oldKeysOf(c.id);
+  const localEps = new Set(local.map(o => o.ep).filter(ep => typeof ep === 'number'));
+  // ── вниз: мои прежние ключи, которых сервер ещё не хранит ──
+  const mine = local.filter(o => typeof o.ep === 'number');
+  if (mine.length && !oldKeysUploaded.has(c.id)) {
+    oldKeysUploaded.add(c.id);   // раз за сеанс на чат: не долбить сервер
+    const serverEps = new Set(c.oldKeys.map(o => o && o.ep));
+    const missing = mine.filter(o => !serverEps.has(o.ep));
+    if (missing.length) {
+      try {
+        const oldKeys = [];
+        for (const o of missing) {
+          const wraps = {};
+          for (const uid of c.members) {
+            if (uid === S.me.id) continue;
+            const pk = await pairKeyWith(uid);
+            if (pk) wraps[uid] = await aesEncryptBytes(pk, o.raw);
+          }
+          oldKeys.push({ ep: o.ep, wraps });
+        }
+        if (oldKeys.length) await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/old', { method: 'POST', body: { oldKeys } });
+      } catch (e) { /* в следующий раз */ }
+    }
+  }
+  // ── вверх: поколения, которых у нас нет, но сервер хранит свёртку для нас ──
+  let got = 0;
+  for (const it of c.oldKeys) {
+    if (!it || !it.blob || typeof it.ep !== 'number' || localEps.has(it.ep)) continue;
+    try {
+      const wrapKey = await pairKeyWith(it.by);
+      if (!wrapKey) continue;
+      const raw = await aesDecryptBytes(wrapKey, it.blob);
+      pushOldKey(c.id, { key: await importAes(raw), raw }, it.ep);
+      localEps.add(it.ep); got++;
+    } catch (e) { /* свёртка не наша — пропускаем */ }
+  }
+  if (got) {
+    // вернувшиеся ключи: перечитать ленту, название, иконку, фон
+    invalidateChatSecrets(c.id);
+    const list = S.messages.filter(m => m.chat === c.id);
+    for (const m of list) S.plain.delete(m.id);
+    decryptAll(list).catch(() => {});
+    if (S.view === c.id) renderMessages(true);
+  }
+}
 /** Прежняя копия ключа — в историю (с ограничением, чтобы не расти вечно). */
 function pushOldKey(chatId, entry, ep) {
   if (!chatId || !entry || !entry.raw) return;
@@ -1052,6 +1105,8 @@ async function prepareChats() {
     } else {
       await chatKeyOf(c);   // прогрев ключа: заявка на доставку, если копии нет/не читается
     }
+    // pkg3-66: обмен прежними ключами — история возвращается сама
+    if (c.kind === 'group') await reconcileOldKeys(c);
   }
 }
 
