@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v58'), 'кэш статики поднят до v58');
+ok(sw.includes('sega-static-v59'), 'кэш статики поднят до v59');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -408,6 +408,15 @@ ok(apiJs.includes('ep: nextEp') && apiJs.includes('ep: curEp'), 'сервер: �
 ok(apiJs.includes('Ключ устарел: группа перевыпустила ключ'), 'сервер: устаревшая доставка ключа отклоняется');
 ok(apiJs.includes('typeof e.ep === \'number\' && e.ep !== curEp'), 'сервер: копия прошлого поколения считается нуждающейся');
 ok(modelJs.includes('e.ep = c.keyEpoch'), 'модель: migrate() помечает прежние копии текущим поколением');
+
+// pkg3-66: возвращение истории — участники обмениваются прежними ключами (сервер слеп)
+ok(apiJs.includes("sub === 'old'") && apiJs.includes('chat.oldKeys'), 'сервер: участник выкладывает свёртки прежних ключей (POST keys/old)');
+ok(apiJs.includes('oldKeys: Object.entries'), 'сервер: в публичном чате отдаются только свои свёртки прежних ключей');
+ok(apiJs.includes('if (slot.wraps[uid]) continue;'), 'сервер: прежние свёртки не перезаписываются');
+ok(apiJs.includes('ep >= (chat.keyEpoch || 0)'), 'сервер: текущее и будущие поколения прежними не принимаются');
+ok(modelJs.includes('c.oldKeys = {}'), 'модель: migrate() добавляет хранилище прежних ключей с дефолтом');
+ok(appJs.includes('function reconcileOldKeys') && appJs.includes("/keys/old'"), 'клиент: автообмен прежними ключами без кнопок');
+ok(appJs.includes('const oldKeysUploaded = new Set()'), 'клиент: выкладка прежних ключей — раз за сеанс на чат');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')

@@ -231,6 +231,86 @@ ok(r.status === 200, 'вторая группа: участник заявил �
 r = await call(A.base, '/api/chats/' + grp2 + '/keys', { method: 'POST', body: { userId: g1Id, blob: 'b-g1-fixed' } }, admin);
 ok(r.status === 200, 'группа поколения 0 принимает доставку без отметки (старые клиенты работают)');
 
+// ══════════════════════════════ 4. прежние ключи: возвращение истории (pkg3-66)
+console.log('\n  4. Прежние ключи: возвращение истории — pkg3-66');
+{
+  const db3 = emptyDb();
+  db3.chats.push({ id: 'g9', kind: 'group', members: ['u1'], keys: {}, createdAt: 1 });
+  migrate(db3);
+  ok(db3.chats[0].oldKeys && typeof db3.chats[0].oldKeys === 'object' && !Array.isArray(db3.chats[0].oldKeys),
+    'migrate: хранилище прежних ключей добавляется с дефолтом');
+}
+
+// настоящий четвёртый пользователь — вне группы с ротациями
+r = await register(creds('Незнакомка'), g3);
+const g4 = r.d.token, g4Id = r.d.user.id;
+ok(!!g4, 'четвёртый участник готов (вне группы с ротациями)');
+
+// не-участник не выкладывает прежние ключи
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', { method: 'POST', body: { oldKeys: [{ ep: 0, wraps: { [adminId]: 'x' } }] } }, g4);
+ok(r.status === 403, 'не-участник не может выкладывать прежние ключи');
+
+// текущее поколение «прежним» не принимается
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', { method: 'POST', body: { oldKeys: [{ ep: 2, wraps: { [adminId]: 'x' } }] } }, g1);
+ok(r.status === 200 && r.d.added === 0, 'свёртка текущего поколения как «прежняя» не принимается');
+
+// настоящая криптография: как у клиента (ECDH + AES-GCM)
+const { webcrypto } = await import('node:crypto');
+const subtleW = webcrypto.subtle;
+const ECW = { name: 'ECDH', namedCurve: 'P-256' };
+const kpA = await subtleW.generateKey(ECW, true, ['deriveKey']);
+const kpG1 = await subtleW.generateKey(ECW, true, ['deriveKey']);
+const kpG2 = await subtleW.generateKey(ECW, true, ['deriveKey']);
+const pubA = Buffer.from(await subtleW.exportKey('raw', kpA.publicKey)).toString('base64');
+const pubG1 = Buffer.from(await subtleW.exportKey('raw', kpG1.publicKey)).toString('base64');
+const pubG2 = Buffer.from(await subtleW.exportKey('raw', kpG2.publicKey)).toString('base64');
+async function ecdhAes(priv, pubB64) {
+  const pub = await subtleW.importKey('raw', Buffer.from(pubB64, 'base64'), ECW, false, []);
+  return subtleW.deriveKey({ name: 'ECDH', public: pub }, priv, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function aesEncW(key, bytes) {
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await subtleW.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12);
+  return Buffer.from(out).toString('base64');
+}
+const O1 = webcrypto.getRandomValues(new Uint8Array(32));
+const wrapForAdmin = await aesEncW(await ecdhAes(kpG1.privateKey, pubA), O1);
+const wrapForG2 = await aesEncW(await ecdhAes(kpG1.privateKey, pubG2), O1);
+
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
+  method: 'POST',
+  body: { oldKeys: [{ ep: 1, wraps: { [adminId]: wrapForAdmin, [g2Id]: wrapForG2 } }] }
+}, g1);
+ok(r.status === 200 && r.d.added === 2, 'участник выложил свёртки прежнего ключа (поколение 1)');
+
+r = await call(A.base, '/api/sync?since=0', {}, admin);
+g = (r.d.chats || []).find(c => c.id === grp);
+const okEntry = (g.oldKeys || []).find(o => o.ep === 1);
+ok(!!okEntry && okEntry.by === g1Id && typeof okEntry.blob === 'string' && okEntry.blob.length > 0,
+  'администратор получил свою свёртку прежнего ключа в синхронизации');
+r = await call(A.base, '/api/sync?since=0', {}, g3);
+g = (r.d.chats || []).find(c => c.id === grp);
+const nullEntry = (g.oldKeys || []).find(o => o.ep === 1);
+ok(!!nullEntry && nullEntry.blob === null, 'участнику без свёртки отдаётся метка поколения без содержимого');
+
+// свёртки не перезаписываются
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
+  method: 'POST', body: { oldKeys: [{ ep: 1, wraps: { [adminId]: 'zzz' } }] }
+}, g2);
+ok(r.status === 200 && r.d.added === 0, 'прежнюю свёртку участника не перезаписывают');
+
+// криптопуть клиента: свёртка разворачивается личным ключом адресата
+{
+  r = await call(A.base, '/api/sync?since=0', {}, admin);
+  g = (r.d.chats || []).find(c => c.id === grp);
+  const entry = (g.oldKeys || []).find(o => o.ep === 1);
+  const k = await ecdhAes(kpA.privateKey, pubG1);   // pairKeyWith(кто завернул)
+  const rawB = Buffer.from(entry.blob, 'base64');
+  const plain = new Uint8Array(await subtleW.decrypt({ name: 'AES-GCM', iv: rawB.slice(0, 12) }, k, rawB.slice(12)));
+  ok(Buffer.from(plain).equals(Buffer.from(O1)), 'свёртка прежнего ключа разворачивается, как в клиенте (ECDH + AES-GCM)');
+}
+
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Ключ группы (ротация): ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');
