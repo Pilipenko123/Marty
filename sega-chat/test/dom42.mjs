@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v55'), 'кэш статики поднят до v55');
+ok(sw.includes('sega-static-v56'), 'кэш статики поднят до v56');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -385,6 +385,15 @@ ok(appJs.includes('на чужих сообщениях тоже видно, к�
 ok(appJs.includes('function openAdminDisplayMerge') && appJs.includes('Взять её внешность'), 'в меню «⋮» — слияние учёток (привязка внешности)');
 ok(appJs.includes('👤 слита'), 'в дереве приглашений виден значок слитой учётки');
 ok(appJs.includes('Изменить / Отвязать') && appJs.includes('Отвязать (вернуть собственное лицо)'), 'слияние обратимо: внешность можно отвязать');
+
+// pkg3-63: перевыпуск ключа группы — лечение «зашифрованное сообщение» у друзей
+ok(apiJs.includes("sub === 'rotate'") && apiJs.includes('chat.keyEpoch = (chat.keyEpoch || 0) + 1'), 'сервер: ротация ключа группы наращивает поколение');
+ok(apiJs.includes('keyEpoch: c.keyEpoch || 0'), 'сервер: публичный чат несёт поколение ключа');
+ok(modelJs.includes('c.keyEpoch'), 'модель: migrate() добавляет keyEpoch с дефолтом 0');
+ok(appJs.includes('function rotateGroupKey') && appJs.includes("/keys/rotate'"), 'клиент: перевыпуск ключа группы одним действием');
+ok(appJs.includes('chatKeysOld') && appJs.includes('function reconcileKeyEpochs'), 'клиент: старые копии ключа хранятся для истории, новое поколение ловится само');
+ok(appJs.includes('function noteKeySplit') && appJs.includes('Перевыпустить ключ группы'), 'клиент: подсказка при закрытых письмах группы ведёт к перевыпуску');
+ok(html.includes('data-act="rotatekeys"'), 'в меню чата есть пункт «Перевыпустить ключ группы…»');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')
