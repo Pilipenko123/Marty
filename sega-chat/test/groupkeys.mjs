@@ -1,14 +1,18 @@
 /**
  * pkg3-63: перевыпуск ключа группы (keys/rotate) и поколение ключа (keyEpoch).
+ * pkg3-65: копии ключа помечаются поколением (ep); устаревшая доставка
+ * отклоняется; нуждающимся считается и участник с копией прежнего поколения.
  *
  * Что проверяется:
- *   • перенос: у старых чатов появляется keyEpoch = 0 (migrate);
+ *   • перенос: у старых чатов появляется keyEpoch = 0 (migrate), прежние копии
+ *     ключа помечаются текущим поколением;
  *   • ротация: участник приносит свёртки нового ключа для ВСЕХ — сервер
  *     заменяет копии и наращивает поколение; не-участник — 403;
  *     неполный набор копий — 400;
  *   • после ротации точечная доставка (POST keys) снова защищена от перезаписи (409),
  *     а keys/missing пуст (нуждающихся нет);
- *   • публичный чат несёт keyEpoch — клиент по нему ловит перевыпуск.
+ *   • доставка ключа прежнего поколения (или без отметки, если были ротации) — 409;
+ *   • публичный чат несёт keyEpoch и ep копии — клиент по ним ловит перевыпуск.
  *
  * Запуск: node test/groupkeys.mjs
  */
@@ -76,6 +80,18 @@ console.log('  1. Старые записи базы');
   ok(db.chats[1].keyEpoch === 7, ' имеющееся поколение не тронуто');
   migrate(db);
   ok(db.chats[0].keyEpoch === 0, 'перенос идемпотентен');
+
+  // pkg3-65: копии ключа помечаются поколением
+  const db2 = emptyDb();
+  db2.chats.push({
+    id: 'g3', kind: 'group', members: ['u1', 'u2'], createdAt: 1, keyEpoch: 5,
+    keys: { u1: { by: 'u2', blob: 'x' }, u2: { by: 'u1', blob: 'y', ep: 3 } }
+  });
+  migrate(db2);
+  ok(db2.chats[0].keys.u1.ep === 5, 'копия без отметки помечена текущим поколением (5)');
+  ok(db2.chats[0].keys.u2.ep === 3, 'копия с прежним поколением (3) не тронута');
+  migrate(db2);
+  ok(db2.chats[0].keys.u1.ep === 5 && db2.chats[0].keys.u2.ep === 3, 'отметки поколений идемпотентны');
 }
 
 // ══════════════════════════════ 2. живой сервер
@@ -150,7 +166,7 @@ ok(!!gc && gc.keyEpoch === 1 && gc.key && gc.key.blob === 'w-admin-1',
   'администратор получил новую копию ключа и новое поколение в синхронизации');
 
 // после ротации точечная доставка снова защищена от перезаписи
-r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: adminId, blob: 'w-admin-X' } }, g2);
+r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: adminId, blob: 'w-admin-X', ep: 1 } }, g2);
 ok(r.status === 409, 'поверх живой копии ключа точечно не пишут (409)');
 r = await call(A.base, '/api/chats/' + grp + '/keys/missing', {}, admin);
 ok(r.status === 200 && (r.d.missing || []).length === 0, 'нуждающихся в ключе после ротации нет');
@@ -164,6 +180,56 @@ ok(r.status === 200 && r.d.keyEpoch === 2, 'вторая ротация: пок�
 r = await call(A.base, '/api/sync?since=0', {}, g1);
 const gc2 = (r.d.chats || []).find(c => c.id === grp);
 ok(!!gc2 && gc2.keyEpoch === 2 && gc2.key.blob === 'w-g1-2', 'участник видит свежую копию и поколение');
+
+// ══════════════════════════════ 3. поколения копий и устаревшие доставки (pkg3-65)
+console.log('\n  3. Поколения копий и устаревшие доставки — pkg3-65');
+
+r = await call(A.base, '/api/sync?since=0', {}, admin);
+let g = (r.d.chats || []).find(c => c.id === grp);
+ok(!!g && g.key && g.key.ep === 2, 'после двух ротаций копия несёт текущее поколение (ep = 2)');
+
+// битая копия → заявка need → участник в списке нуждающихся
+r = await call(A.base, '/api/chats/' + grp + '/keys/need', { method: 'POST', body: {} }, g2);
+ok(r.status === 200, 'участник заявил, что его копия не читается (need)');
+r = await call(A.base, '/api/chats/' + grp + '/keys/missing', {}, admin);
+ok(r.status === 200 && (r.d.missing || []).some(m => m.id === g2Id), 'заявитель виден в списке нуждающихся');
+
+// устаревшие доставки отклоняются
+r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: g2Id, blob: 'w-g2-old', ep: 1 } }, g1);
+ok(r.status === 409, 'доставка ключа прежнего поколения отклоняется (409)');
+r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: g2Id, blob: 'w-g2-old' } }, g1);
+ok(r.status === 409, 'доставка без отметки поколения после ротации отклоняется (409)');
+
+// доставка текущего поколения проходит и снимает заявку
+r = await call(A.base, '/api/chats/' + grp + '/keys', { method: 'POST', body: { userId: g2Id, blob: 'w-g2-3', ep: 2 } }, g1);
+ok(r.status === 200, 'доставка ключа текущего поколения принята');
+r = await call(A.base, '/api/sync?since=0', {}, g2);
+g = (r.d.chats || []).find(c => c.id === grp);
+ok(!!g && g.key && g.key.blob === 'w-g2-3' && g.key.ep === 2 && !g.key.need, 'адресат получил свежую копию с поколением, заявка снята');
+r = await call(A.base, '/api/chats/' + grp + '/keys/missing', {}, admin);
+ok(r.status === 200 && (r.d.missing || []).length === 0, 'нуждающихся снова нет');
+
+// новый участник получает копию, помеченную текущим поколением
+r = await call(A.base, '/api/chats/' + grp + '/members', { method: 'POST', body: { add: [{ id: g3Id, blob: 'w-g3-2' }] } }, g1);
+ok(r.status === 200, 'Клава добавлена в группу');
+r = await call(A.base, '/api/sync?since=0', {}, g3);
+g = (r.d.chats || []).find(c => c.id === grp);
+ok(!!g && g.key && g.key.blob === 'w-g3-2' && g.key.ep === 2, 'копия нового участника помечена текущим поколением');
+
+// группа без ротаций: доставка без отметки (старые клиенты) по-прежнему работает
+r = await call(A.base, '/api/chats', {
+  method: 'POST',
+  body: {
+    titleBlob: 'enc2:' + hex(), members: [g1Id, g2Id],
+    keys: { [adminId]: { blob: 'b-admin' }, [g1Id]: { blob: 'b-g1' }, [g2Id]: { blob: 'b-g2' } }
+  }
+}, admin);
+ok(r.status === 200, 'вторая группа создана (ротаций не было)');
+const grp2 = r.d.chat.id;
+r = await call(A.base, '/api/chats/' + grp2 + '/keys/need', { method: 'POST', body: {} }, g1);
+ok(r.status === 200, 'вторая группа: участник заявил битую копию');
+r = await call(A.base, '/api/chats/' + grp2 + '/keys', { method: 'POST', body: { userId: g1Id, blob: 'b-g1-fixed' } }, admin);
+ok(r.status === 200, 'группа поколения 0 принимает доставку без отметки (старые клиенты работают)');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Ключ группы (ротация): ${good} ✓, провалов ${bad}`);

@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v57'), 'кэш статики поднят до v57');
+ok(sw.includes('sega-static-v58'), 'кэш статики поднят до v58');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -375,8 +375,8 @@ ok(apiJs.includes('const t = u.displayAs ? db.users.find') && apiJs.includes('di
 ok(apiJs.includes('поглощённая учётка показывает аватар'), 'аватар поглощённой учётки — тоже от новой');
 ok(apiJs.includes('Нельзя поглотить самого себя') && apiJs.includes('сама носит чужую внешность'), 'слияние с собой и цепочки псевдонимов запрещены');
 ok(modelJs.includes('u.displayAs'), 'модель: migrate() добавляет displayAs с дефолтом');
-ok(apiJs.includes("sub === 'need'") && apiJs.includes('|| (chat.keys || {})[id].need'), 'сервер: участник просит свежий ключ группы, «битая» копия больше не застревает');
-ok(apiJs.includes('!chat.keys[target].need') , 'сервер: битую копию ключа разрешается перезаписать');
+ok(apiJs.includes("sub === 'need'") && apiJs.includes('return !e || e.need || (typeof e.ep === \'number\' && e.ep !== curEp);'), 'сервер: участник просит свежий ключ группы, «битая» копия больше не застревает');
+ok(apiJs.includes('if (ex && !ex.need && ex.ep === curEp)'), 'сервер: битую копию ключа разрешается перезаписать');
 ok(appJs.includes('function requestGroupKey') && appJs.includes("/keys/need'"), 'клиент сам просит свежий ключ, когда его копия не читается');
 ok(appJs.includes('data-game-enter') && appJs.includes('Войти в игру'), 'принятое приглашение — второй вход в игру (кнопка «Войти в игру»)');
 ok(appJs.includes('data-rxlist') && appJs.includes('function openRxList'), 'кнопка «👥» открывает список «кто поставил реакции»');
@@ -387,13 +387,27 @@ ok(appJs.includes('👤 слита'), 'в дереве приглашений в
 ok(appJs.includes('Изменить / Отвязать') && appJs.includes('Отвязать (вернуть собственное лицо)'), 'слияние обратимо: внешность можно отвязать');
 
 // pkg3-63: перевыпуск ключа группы — лечение «зашифрованное сообщение» у друзей
-ok(apiJs.includes("sub === 'rotate'") && apiJs.includes('chat.keyEpoch = (chat.keyEpoch || 0) + 1'), 'сервер: ротация ключа группы наращивает поколение');
+ok(apiJs.includes("sub === 'rotate'") && apiJs.includes('const nextEp = (chat.keyEpoch || 0) + 1') && apiJs.includes('chat.keyEpoch = nextEp'), 'сервер: ротация ключа группы наращивает поколение');
 ok(apiJs.includes('keyEpoch: c.keyEpoch || 0'), 'сервер: публичный чат несёт поколение ключа');
 ok(modelJs.includes('c.keyEpoch'), 'модель: migrate() добавляет keyEpoch с дефолтом 0');
 ok(appJs.includes('function rotateGroupKey') && appJs.includes("/keys/rotate'"), 'клиент: перевыпуск ключа группы одним действием');
 ok(appJs.includes('chatKeysOld') && appJs.includes('function reconcileKeyEpochs'), 'клиент: старые копии ключа хранятся для истории, новое поколение ловится само');
 ok(appJs.includes('function noteKeySplit') && appJs.includes('Перевыпустить ключ группы'), 'клиент: подсказка при закрытых письмах группы ведёт к перевыпуску');
 ok(html.includes('data-act="rotatekeys"'), 'в меню чата есть пункт «Перевыпустить ключ группы…»');
+
+// pkg3-65: история ключей, название и иконка переживают перевыпуск; устаревшие доставки не проходят
+ok(appJs.includes("OLDKEYS_STORE = 'sega.oldKeys.v1'") && appJs.includes('function persistOldKeys') && appJs.includes('async function loadOldKeys'), 'клиент: прежние копии ключа группы стойко хранятся на устройстве и читаются при входе');
+ok(appJs.includes('await loadOldKeys()'), 'клиент: история ключей загружается при старте');
+ok(appJs.includes('function pushOldKey') && appJs.includes('olds.length > 12'), 'клиент: история ключей ограничена, чтобы не расти вечно');
+ok(appJs.includes("'stale-copy'") && appJs.includes('chat.key.ep !== curEp'), 'клиент: копия прошлого поколения распознаётся и запрашивается свежая');
+ok(appJs.includes('function decryptWithHistory'), 'клиент: название, иконка и фон пробуются текущим и прежними ключами');
+ok(appJs.includes('function rewrapChatSecrets'), 'клиент: перевыпуск переоформляет название, иконку и фон новым ключом');
+ok(appJs.includes('function invalidateChatSecrets'), 'клиент: после починки ключа кэши названия/иконки/фона сбрасываются');
+ok(appJs.includes("ep: (typeof entry.ep === 'number' ? entry.ep : (c.keyEpoch || 0))"), 'клиент: доставка ключа помечается поколением');
+ok(apiJs.includes('ep: nextEp') && apiJs.includes('ep: curEp'), 'сервер: копии ключа помечаются поколением (ротация и доставка)');
+ok(apiJs.includes('Ключ устарел: группа перевыпустила ключ'), 'сервер: устаревшая доставка ключа отклоняется');
+ok(apiJs.includes('typeof e.ep === \'number\' && e.ep !== curEp'), 'сервер: копия прошлого поколения считается нуждающейся');
+ok(modelJs.includes('e.ep = c.keyEpoch'), 'модель: migrate() помечает прежние копии текущим поколением');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')
