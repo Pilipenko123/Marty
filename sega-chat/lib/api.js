@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-65';
+const BUILD = 'pkg3-66';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -347,6 +347,11 @@ function createApi(store, opts = {}) {
       legacyRoomKey: !!c.legacyRoomKey, ownerId: c.ownerId || null, members: c.members,
       createdAt: c.createdAt, key: (c.keys && c.keys[meId]) || null,
       keyEpoch: c.keyEpoch || 0,   // pkg3-63: поколение ключа группы — клиенты ловят перевыпуск
+      // pkg3-66: прежние поколения ключа — участнику отдаются ТОЛЬКО его свёртки
+      // (blob) и метка, кто завернул (by); сервер содержимое не видит
+      oldKeys: Object.entries(c.oldKeys || {}).map(([ep, o]) => ({
+        ep: Number(ep), by: (o && o.by) || null, blob: ((o && o.wraps) || {})[meId] || null
+      })),
       count: st.n, bytes: st.b, lastTs: st.t || c.createdAt || 0,
       archivedByName: c.archivedByName || (c.lastArchive ? c.lastArchive.byName : null) || null,
       archivedAt: c.archivedAt || (c.lastArchive ? (c.lastArchive.at || c.lastArchive.createdAt) : null) || null,
@@ -1535,6 +1540,35 @@ function createApi(store, opts = {}) {
           chat.keys[target] = { by: me.id, blob: b.blob, ep: curEp };
           db.seq++; save();
           return J(200, { ok: true, chat: publicChat(chat, me.id) });
+        }
+        if (sub === 'old' && method === 'POST') {
+          // pkg3-66: участник выкладывает свёртки ПРЕЖНИХ ключей, которые у
+          // него сохранились, — чтобы история вернулась тем, кто пропустил
+          // поколения (был с закрытым чатом во время перевыпуска или ещё не
+          // был добавлен). Сервер ключ не разворачивает и не видит: хранит
+          // свёртки для каждого участника, как и текущие копии.
+          const b = req.body || {};
+          const list = Array.isArray(b.oldKeys) ? b.oldKeys : null;
+          if (!list) return E(400, 'Нет прежних ключей');
+          if (list.length > 24) return E(400, 'Слишком много прежних ключей');
+          if (!chat.oldKeys || typeof chat.oldKeys !== 'object' || Array.isArray(chat.oldKeys)) chat.oldKeys = {};
+          let added = 0;
+          for (const it of list) {
+            const ep = Number(it && it.ep);
+            // принимаем только настоящие прошлые поколения
+            if (!Number.isFinite(ep) || ep < 0 || ep >= (chat.keyEpoch || 0)) continue;
+            const wraps = (it && it.wraps && typeof it.wraps === 'object') ? it.wraps : null;
+            if (!wraps) continue;
+            const slot = chat.oldKeys[String(ep)] || (chat.oldKeys[String(ep)] = { by: me.id, wraps: {} });
+            for (const uid of chat.members) {
+              const blob = wraps[uid];
+              if (typeof blob !== 'string' || !blob || blob.length > 4096) continue;
+              if (slot.wraps[uid]) continue;   // прежнюю свёртку не перезаписываем
+              slot.wraps[uid] = blob; added++;
+            }
+          }
+          db.seq++; save();
+          return J(200, { ok: true, added });
         }
         if (sub === 'rotate' && method === 'POST') {
           // pkg3-63: перевыпуск ключа группы — участник принёс новые свёртки
