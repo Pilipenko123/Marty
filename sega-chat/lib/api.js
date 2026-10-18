@@ -17,7 +17,7 @@ const backup = require('./backup');
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-62';
+const BUILD = 'pkg3-63';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -342,6 +342,7 @@ function createApi(store, opts = {}) {
       id: c.id, kind: c.kind, titleBlob: c.titleBlob || null, titlePlain: c.titlePlain || null,
       legacyRoomKey: !!c.legacyRoomKey, ownerId: c.ownerId || null, members: c.members,
       createdAt: c.createdAt, key: (c.keys && c.keys[meId]) || null,
+      keyEpoch: c.keyEpoch || 0,   // pkg3-63: поколение ключа группы — клиенты ловят перевыпуск
       count: st.n, bytes: st.b, lastTs: st.t || c.createdAt || 0,
       archivedByName: c.archivedByName || (c.lastArchive ? c.lastArchive.byName : null) || null,
       archivedAt: c.archivedAt || (c.lastArchive ? (c.lastArchive.at || c.lastArchive.createdAt) : null) || null,
@@ -1455,6 +1456,26 @@ function createApi(store, opts = {}) {
           chat.keys[target] = { by: me.id, blob: b.blob };
           db.seq++; save();
           return J(200, { ok: true, chat: publicChat(chat, me.id) });
+        }
+        if (sub === 'rotate' && method === 'POST') {
+          // pkg3-63: перевыпуск ключа группы — участник принёс новые свёртки
+          // нового ключа ДЛЯ ВСЕХ текущих участников (сервер ключ не видит и
+          // не разворачивает). Все копии заменяются, поколение растёт —
+          // клиенты понимают, что их копию пора пере-развернуть с сервера.
+          const b = req.body || {};
+          const wraps = (b.keys && typeof b.keys === 'object') ? b.keys : null;
+          if (!wraps) return E(400, 'Нет новых копий ключа');
+          for (const mid of chat.members) {
+            const w = wraps[mid];
+            if (!w || typeof w.blob !== 'string' || !w.blob || w.blob.length > 4096)
+              return E(400, 'Нет копии ключа для участника ' + mid);
+          }
+          const next = {};
+          for (const mid of chat.members) next[mid] = { by: me.id, blob: String(wraps[mid].blob).slice(0, 4096) };
+          chat.keys = next;
+          chat.keyEpoch = (chat.keyEpoch || 0) + 1;
+          db.seq++; save();
+          return J(200, { ok: true, keyEpoch: chat.keyEpoch, chat: publicChat(chat, me.id) });
         }
       }
 
