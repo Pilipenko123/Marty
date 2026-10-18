@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-64';
+const BUILD = 'pkg3-65';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -233,7 +233,8 @@ const S = {
   users: [], chats: [], messages: [], messageIds: new Set(), plain: new Map(),
   pairKeys: new Map(),   // userId -> CryptoKey
   chatKeys: new Map(),   // chatId -> { key, raw }
-  chatKeysOld: new Map(),   // pkg3-63: chatId -> [ {key,raw} ] прежние копии ключа группы (история)
+  chatKeysOld: new Map(),   // pkg3-63: chatId -> [ {key,raw,ep} ] прежние копии ключа группы (история)
+  chatTitleSrc: new Map(),  // pkg3-65: chatId -> titleBlob, из которого прочитано название
   keyEpochSeen: new Map(),  // pkg3-63: chatId -> поколение ключа, которое клиент развернул
   keySplitHinted: new Set(),// pkg3-63: чаты, где уже подсказали про перевыпуск ключа
   keyIssue: new Map(),   // chatId -> { code, who } — почему нечем расшифровать
@@ -778,6 +779,7 @@ function doLogout(silent) {
     messages: [], messageIds: new Set(), chats: [], plain: new Map(), pairKeys: new Map(), chatKeys: new Map(), chatTitles: new Map(),
     keyIssue: new Map(), healBusy: false, healPauseUntil: 0,
     chatKeysOld: new Map(), keyEpochSeen: new Map(), keySplitHinted: new Set(),   // pkg3-63
+    chatTitleSrc: new Map(),   // pkg3-65
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -821,18 +823,33 @@ async function chatKeyOf(chat) {
     } else {
       try {
         const raw = await aesDecryptBytes(wrap, chat.key.blob);
-        entry = { key: await importAes(raw), raw };
+        const curEp = chat.keyEpoch || 0;
+        if (chat.kind === 'group' && typeof chat.key.ep === 'number' && chat.key.ep !== curEp) {
+          // pkg3-65: копия прошлого поколения — в историю (читать старые письма
+          // и прежнее название), а у участников запрашивается свежая копия
+          pushOldKey(chat.id, { key: await importAes(raw), raw }, chat.key.ep);
+          entry = null; issue = { code: 'stale-copy' };
+        } else {
+          entry = { key: await importAes(raw), raw, ep: curEp };
+        }
       } catch (e) { entry = null; issue = { code: 'unwrap-fail' }; }
     }
   } else {
     issue = { code: 'no-group-key' };
   }
-  if (entry) { S.chatKeys.set(chat.id, entry); S.keyIssue.delete(chat.id); }
+  if (entry) {
+    // pkg3-65: если прежде ключ не читался, а теперь развернулся — название,
+    // иконка и фон перечитываются (их кэш сбрасывается)
+    const hadIssue = S.keyIssue.has(chat.id);
+    S.chatKeys.set(chat.id, entry); S.keyIssue.delete(chat.id);
+    if (hadIssue) invalidateChatSecrets(chat.id);
+  }
   else if (issue) {
     S.keyIssue.set(chat.id, issue);
     // pkg3-61: копия группового ключа не читается (или её нет) — просим
     // остальных участников доставить свежую; они делают это фоном (repairGroupKeys)
-    if (chat.kind === 'group' && ['unwrap-fail', 'no-group-key', 'no-wrapper-pub'].includes(issue.code)) {
+    // pkg3-65: копия прошлого поколения (stale-copy) — тоже заявка на свежую
+    if (chat.kind === 'group' && ['unwrap-fail', 'no-group-key', 'no-wrapper-pub', 'stale-copy'].includes(issue.code)) {
       requestGroupKey(chat.id);
     }
   }
@@ -847,6 +864,70 @@ function requestGroupKey(chatId) {
   api('/api/chats/' + encodeURIComponent(chatId) + '/keys/need', { method: 'POST', body: {} })
     .catch(() => keyNeedAsked.delete(chatId));
 }
+/** pkg3-65: прежние копии ключа группы ХРАНЯТСЯ НА УСТРОЙСТВЕ (localStorage,
+ * отдельно для каждой учётки) — после перевыпуска ключа старая переписка,
+ * название и иконка группы остаются читаемыми и после перезагрузки страницы.
+ * Ключи групп — не переписка: устройство и так хранит личный ключ и шифротекст,
+ * поэтому хранение прежних копий не ослабляет защиту. */
+const OLDKEYS_STORE = 'sega.oldKeys.v1';
+function oldKeysUid() { return (S.me && S.me.id) || S.uid || null; }
+function loadOldKeysRaw() {
+  try { return JSON.parse(localStorage.getItem(OLDKEYS_STORE) || '{}') || {}; } catch (e) { return {}; }
+}
+async function loadOldKeys() {
+  const uid = oldKeysUid();
+  if (!uid) return;
+  const per = loadOldKeysRaw()[uid] || {};
+  for (const chatId of Object.keys(per)) {
+    const list = Array.isArray(per[chatId]) ? per[chatId] : [];
+    const olds = S.chatKeysOld.get(chatId) || [];
+    for (const it of list) {
+      if (!it || typeof it.raw !== 'string' || !it.raw) continue;
+      if (olds.some(o => toB64(o.raw) === it.raw)) continue;
+      try { olds.push({ key: await importAes(fromB64(it.raw)), raw: fromB64(it.raw), ep: (typeof it.ep === 'number' ? it.ep : null) }); } catch (e) {}
+    }
+    if (olds.length) S.chatKeysOld.set(chatId, olds);
+  }
+}
+function persistOldKeys(chatId) {
+  const uid = oldKeysUid();
+  if (!uid || !chatId) return;
+  try {
+    const all = loadOldKeysRaw();
+    const per = all[uid] || (all[uid] = {});
+    per[chatId] = (S.chatKeysOld.get(chatId) || []).map(o => ({ ep: (typeof o.ep === 'number' ? o.ep : null), raw: toB64(o.raw) }));
+    localStorage.setItem(OLDKEYS_STORE, JSON.stringify(all));
+  } catch (e) { /* приватный режим/переполнение — история останется в памяти */ }
+}
+function oldKeysOf(chatId) { return S.chatKeysOld.get(chatId) || []; }
+/** Прежняя копия ключа — в историю (с ограничением, чтобы не расти вечно). */
+function pushOldKey(chatId, entry, ep) {
+  if (!chatId || !entry || !entry.raw) return;
+  const olds = S.chatKeysOld.get(chatId) || [];
+  const rawB = toB64(entry.raw);
+  if (olds.some(o => toB64(o.raw) === rawB)) return;
+  olds.push({ key: entry.key, raw: entry.raw, ep: (typeof ep === 'number' ? ep : null) });
+  while (olds.length > 12) olds.shift();   // самые давние копии вытесняются
+  S.chatKeysOld.set(chatId, olds);
+  persistOldKeys(chatId);
+}
+/** pkg3-65: ключ чата сменился (перевыпуск/доставка) — кэши прочитанного
+ * названия, иконки и фона сбрасываются, чтобы перечитаться заново. */
+function invalidateChatSecrets(chatId) {
+  S.chatTitles.delete(chatId); S.chatTitleSrc.delete(chatId);
+  iconCache.delete(chatId); wallCache.delete(chatId);
+}
+/** pkg3-65: расшифровать текущим ключом, а не выйдет — прежними копиями. */
+async function decryptWithHistory(chat, blob) {
+  if (!blob || !chat) return null;
+  let k = null;
+  try { k = await chatKeyOf(chat); } catch (e) { k = null; }
+  const cands = (k ? [k] : []).concat(chat.kind === 'group' ? oldKeysOf(chat.id) : []);
+  for (const cand of cands) {
+    try { return await decryptJSON(cand.key, blob); } catch (e) { /* пробуем следующую копию */ }
+  }
+  return null;
+}
 /** Человекочитаемая причина, почему чат не расшифровать на этом устройстве. */
 function keyIssueText(c) {
   const it = S.keyIssue.get(c.id);
@@ -859,6 +940,7 @@ function keyIssueText(c) {
     'no-wrapper-pub': 'Ключ этого чата упакован для вас участником ' + (it.who || 'создатель чата') + ', но у него нет ключа шифрования. Ему нужно войти заново (Выйти → Вход с паролем).',
     'pair-fail': 'Не удалось построить ключ переписки с ' + who + '. Попробуйте Выйти → Вход с паролем.',
     'unwrap-fail': 'Ключ этого чата не открывается вашим личным ключом. Поможет повторный вход с паролем (Выйти → Вход).',
+    'stale-copy': 'Ваша копия ключа группы — прежнего поколения (в группе перевыпускали ключ). Свежая копия доставится автоматически от других участников: оставьте чат открытым на несколько минут. Письма, зашифрованные прежним ключом, откроются, если он хранится на этом устройстве.',
     'no-group-key': 'Для вас пока нет ключа этого чата. Он доставится автоматически, как только кто-то из участников с ключом откроет чат.'
   }[it.code] || ('Нет ключа шифрования для этого чата (' + it.code + ').');
 }
@@ -940,6 +1022,8 @@ async function repairGroupKeys() {
     if (c.kind !== 'group') continue;
     const entry = S.chatKeys.get(c.id);
     if (!entry || !entry.raw) continue;
+    // pkg3-65: устаревшей копией не делимся — сначала сами получим свежую
+    if (typeof entry.ep === 'number' && entry.ep !== (c.keyEpoch || 0)) continue;
     const last = repairStamp.get(c.id) || 0;
     if (Date.now() - last < 5 * 60 * 1000) continue;
     repairStamp.set(c.id, Date.now());
@@ -949,7 +1033,8 @@ async function repairGroupKeys() {
         if (!miss.hasPub || miss.id === S.me.id) continue;
         const pk = await pairKeyWith(miss.id);
         if (!pk) continue;
-        await api('/api/chats/' + encodeURIComponent(c.id) + '/keys', { method: 'POST', body: { userId: miss.id, blob: await aesEncryptBytes(pk, entry.raw) } });
+        // pkg3-65: доставка помечается поколением ключа — сервер не примет устаревшую
+        await api('/api/chats/' + encodeURIComponent(c.id) + '/keys', { method: 'POST', body: { userId: miss.id, blob: await aesEncryptBytes(pk, entry.raw), ep: (typeof entry.ep === 'number' ? entry.ep : (c.keyEpoch || 0)) } });
         console.info('[keys] доставил ключ чата участнику ' + miss.id);
       }
     } catch (e) { /* тихо: повторим через пять минут */ }
@@ -957,11 +1042,15 @@ async function repairGroupKeys() {
 }
 async function prepareChats() {
   for (const c of S.chats) {
-    const k = await chatKeyOf(c);
-    if (!k) continue;
-    if (c.kind === 'group' && c.titleBlob && !S.chatTitles.has(c.id)) {
-      try { S.chatTitles.set(c.id, (await decryptJSON(k.key, c.titleBlob)).title); }
-      catch (e) { S.chatTitles.set(c.id, 'Чат (не удалось прочитать название)'); }
+    if (c.kind === 'group' && c.titleBlob
+        && (!S.chatTitles.has(c.id) || S.chatTitleSrc.get(c.id) !== c.titleBlob)) {
+      // pkg3-65: название пробуем текущим ключом и прежними копиями (оно могло
+      // быть зашифровано до перевыпуска) и перечитываем, если шифротекст сменился
+      const got = await decryptWithHistory(c, c.titleBlob);
+      S.chatTitleSrc.set(c.id, c.titleBlob);
+      S.chatTitles.set(c.id, (got && typeof got.title === 'string') ? got.title : 'Чат (не удалось прочитать название)');
+    } else {
+      await chatKeyOf(c);   // прогрев ключа: заявка на доставку, если копии нет/не читается
     }
   }
 }
@@ -974,6 +1063,8 @@ async function startApp() {
   S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
   S.keyIssue = new Map();
   S.chatKeysOld = new Map(); S.keyEpochSeen = new Map(); S.keySplitHinted = new Set();   // pkg3-63
+  S.chatTitleSrc = new Map();   // pkg3-65
+  await loadOldKeys();   // pkg3-65: прежние копии ключей групп — из памяти устройства
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
   S.resyncHappened = false; S.warm = false; S.histReady = false; S.lastMergeGone = null;
@@ -1038,7 +1129,7 @@ async function startApp() {
     requestAnimationFrame(() => requestAnimationFrame(() => loadUi.hide()));
   }
   // старая сессия (сохранённая до pkg3-18) не несла uid: дошиваем и пишем кэш
-  if (S.me && S.uid !== S.me.id) { S.uid = S.me.id; saveSession(); }
+  if (S.me && S.uid !== S.me.id) { S.uid = S.me.id; saveSession(); await loadOldKeys(); }   // pkg3-65: история ключей настоящей учётки
   if (S.idb && S.uid && !S.cacheFp) { S.cacheFp = await cacheFp(); persistAll(); }
   renderCacheState();
   wake('старт приложения');
@@ -1540,16 +1631,19 @@ async function decryptAll(list) {
       continue;
     }
     if (!plainBroken(m.id)) continue;
-    let k = null;
-    try { k = await chatKeyOf(chatById(m.chat)); } catch (e) { k = null; }
-    // ключ ещё не доехал — НЕ ставим заглушку, пропускаем: повторим на следующем опросе
-    if (!k) continue;
-    // pkg3-63: ключ группы мог перевыпускаться — пробуем текущую копию, затем
-    // прежние: письма «старой эпохи» остаются читабельными у тех, кто её имел
     const chat = chatById(m.chat);
-    const olds = (chat && chat.kind === 'group') ? (S.chatKeysOld.get(m.chat) || []) : [];
+    let k = null;
+    try { k = await chatKeyOf(chat); } catch (e) { k = null; }
+    // pkg3-63: ключ группы мог перевыпускаться — пробуем текущую копию, затем
+    // прежние: письма «старой эпохи» остаются читабельными у тех, кто её имел.
+    // pkg3-65: прежние копии хранятся на устройстве, поэтому старая переписка
+    // читается и после перезагрузки; пробуем их, даже если текущая копия
+    // ещё не доехала или не читается
+    const olds = (chat && chat.kind === 'group') ? oldKeysOf(m.chat) : [];
+    // ключа нет и истории нет — НЕ ставим заглушку, пропускаем: повторим на следующем опросе
+    if (!k && !olds.length) continue;
     let done = false;
-    for (const cand of [k].concat(olds)) {
+    for (const cand of (k ? [k] : []).concat(olds)) {
       try { S.plain.set(m.id, await decryptJSON(cand.key, m.blob)); done = true; break; }
       catch (e) { /* пробуем следующую копию ключа */ }
     }
@@ -1577,13 +1671,12 @@ function reconcileKeyEpochs() {
     S.keyEpochSeen.set(c.id, ep);
     if (seen === undefined || seen === ep) continue;
     const cur = S.chatKeys.get(c.id);
-    if (cur) {
-      const olds = S.chatKeysOld.get(c.id) || [];
-      olds.push(cur);
-      S.chatKeysOld.set(c.id, olds);
-    }
+    // pkg3-65: прежняя копия — в СТОЙКУЮ историю устройства: старая переписка,
+    // название и иконка остаются читаемыми и после перезагрузки страницы
+    if (cur) pushOldKey(c.id, cur, (typeof cur.ep === 'number' ? cur.ep : (typeof seen === 'number' ? seen : null)));
     S.chatKeys.delete(c.id);
     S.keyIssue.delete(c.id);
+    invalidateChatSecrets(c.id);   // название/иконка/фон перечитаются новым ключом и историей
     changed.push(c.id);
   }
   if (!changed.length) return;
@@ -1604,7 +1697,8 @@ async function rotateGroupKey(c) {
   if (!confirm('Перевыпустить ключ группы?\n\n'
     + 'Новый ключ получат все текущие участники: будущие письма снова будут читаться у всех. '
     + 'Сообщения, которые не расшифровываются СЕЙЧАС, останутся закрытыми (старого ключа у части '
-    + 'участников не было). Ваша читаемая история останется читаемой.')) return;
+    + 'участников не было). Ваша читаемая история останется читаемой: прежние ключи сохраняются '
+    + 'на устройстве. Название и иконка группы тоже сохранятся.')) return;
   const raw = rnd(32);
   const keys = {};
   for (const id of c.members) {
@@ -1614,21 +1708,69 @@ async function rotateGroupKey(c) {
   }
   try {
     const cur = S.chatKeys.get(c.id);
-    if (cur) {
-      const olds = S.chatKeysOld.get(c.id) || [];
-      olds.push(cur);
-      S.chatKeysOld.set(c.id, olds);
-    }
+    // pkg3-65: все ключи, которыми это устройство умеет читать группу —
+    // они понадобятся, чтобы переоформить название/иконку/фон новым ключом
+    const prevList = (cur ? [cur] : []).concat(oldKeysOf(c.id));
+    if (cur) pushOldKey(c.id, cur, (typeof cur.ep === 'number' ? cur.ep : (c.keyEpoch || 0)));
     const r = await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/rotate', { method: 'POST', body: { keys } });
-    S.chatKeys.set(c.id, { key: await importAes(raw), raw });
+    const newEntry = { key: await importAes(raw), raw, ep: r.keyEpoch };
+    S.chatKeys.set(c.id, newEntry);
     S.keyEpochSeen.set(c.id, r.keyEpoch);
     S.keyIssue.delete(c.id);
+    invalidateChatSecrets(c.id);
+    // pkg3-65: название, иконка и фон были зашифрованы прежним ключом —
+    // переоформляем их новым, чтобы они не пропали у участников
+    await rewrapChatSecrets(c, prevList, newEntry);
     toast('Ключ группы перевыпущен: новые письма будут читаться у всех участников');
     const list = S.messages.filter(m => m.chat === c.id);
     for (const m of list) S.plain.delete(m.id);
     await decryptAll(list);
     S.sig = ''; renderMessages(true);
   } catch (ex) { toast(ex.message, true); }
+}
+/** pkg3-65: после перевыпуска ключа группы перезашифровать её название, иконку
+ * и фото-фон новым ключом (если прежние копии их читают). Сервер содержимое
+ * не видит — он хранит новые шифротексты вместо прежних. */
+async function rewrapChatSecrets(c, prevList, newEntry) {
+  const readOld = async (blob) => {
+    if (!blob) return null;
+    for (const cand of prevList) {
+      try { return await decryptJSON(cand.key, blob); } catch (e) { /* следующая копия */ }
+    }
+    return null;
+  };
+  try {
+    if (c.titleBlob) {
+      const t = await readOld(c.titleBlob);
+      if (t && typeof t.title === 'string') {
+        const nb = await encryptJSON(newEntry.key, { title: t.title });
+        await api('/api/chats/' + encodeURIComponent(c.id) + '/title', { method: 'POST', body: { titleBlob: nb } });
+        S.chatTitles.set(c.id, t.title); S.chatTitleSrc.set(c.id, nb);
+      }
+    }
+  } catch (e) { /* название можно переименовать вручную — не страшно */ }
+  try {
+    if (c.iconRev) {
+      const r = await api('/api/chaticon/' + encodeURIComponent(c.id) + '?rev=' + encodeURIComponent(c.iconRev));
+      const ic = (r && r.icon) ? await readOld(r.icon) : null;
+      if (ic && ic.data) {
+        const nb = await encryptJSON(newEntry.key, { data: ic.data });
+        await api('/api/chats/' + encodeURIComponent(c.id) + '/icon', { method: 'POST', body: { data: nb } });
+        iconCache.delete(c.id);
+      }
+    }
+  } catch (e) { /* иконку можно поставить заново — не страшно */ }
+  try {
+    if (c.wallRev) {
+      const r = await api('/api/wall/' + encodeURIComponent(c.id) + '?rev=' + encodeURIComponent(c.wallRev));
+      const w = (r && r.wall) ? await readOld(r.wall) : null;
+      if (w && w.data) {
+        const nb = await encryptJSON(newEntry.key, { data: w.data });
+        await api('/api/chats/' + encodeURIComponent(c.id) + '/wallphoto', { method: 'POST', body: { data: nb } });
+        wallCache.delete(c.id);
+      }
+    }
+  } catch (e) { /* фон можно поставить заново — не страшно */ }
 }
 
 // ─────────────────────────────────────────── уведомления
@@ -4267,8 +4409,9 @@ async function fetchWall(c) {
   if (hit && hit.rev === c.wallRev) return hit.data;
   try {
     const r = await api('/api/wall/' + encodeURIComponent(c.id) + '?rev=' + encodeURIComponent(c.wallRev || ''));
-    const key = await chatKey(c);
-    const data = (r.wall && key) ? (await decryptJSON(key, r.wall)).data : null;
+    // pkg3-65: фон пробуется текущим ключом и прежними копиями
+    const got = r.wall ? await decryptWithHistory(c, r.wall) : null;
+    const data = got ? got.data : null;
     wallCache.set(c.id, { rev: c.wallRev, data });
     return data;
   } catch (e) { return null; }
@@ -4279,8 +4422,9 @@ async function fetchIcon(c) {
   if (hit && hit.rev === c.iconRev) return hit.data;
   try {
     const r = await api('/api/chaticon/' + encodeURIComponent(c.id) + '?rev=' + encodeURIComponent(c.iconRev || ''));
-    const key = await chatKey(c);
-    const data = (r.icon && key) ? (await decryptJSON(key, r.icon)).data : null;
+    // pkg3-65: иконка пробуется текущим ключом и прежними копиями
+    const got = r.icon ? await decryptWithHistory(c, r.icon) : null;
+    const data = got ? got.data : null;
     iconCache.set(c.id, { rev: c.iconRev, data });
     S.sig = ''; renderAll();
     return data;
