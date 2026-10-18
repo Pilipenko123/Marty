@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-62';
+const BUILD = 'pkg3-63';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -233,6 +233,9 @@ const S = {
   users: [], chats: [], messages: [], messageIds: new Set(), plain: new Map(),
   pairKeys: new Map(),   // userId -> CryptoKey
   chatKeys: new Map(),   // chatId -> { key, raw }
+  chatKeysOld: new Map(),   // pkg3-63: chatId -> [ {key,raw} ] прежние копии ключа группы (история)
+  keyEpochSeen: new Map(),  // pkg3-63: chatId -> поколение ключа, которое клиент развернул
+  keySplitHinted: new Set(),// pkg3-63: чаты, где уже подсказали про перевыпуск ключа
   keyIssue: new Map(),   // chatId -> { code, who } — почему нечем расшифровать
   healBusy: false, healPauseUntil: 0,   // защита от бесконечного «долечивания» без ключа
   chatTitles: new Map(), // chatId -> строка
@@ -764,6 +767,7 @@ function doLogout(silent) {
     token: null, me: null, roomKey: null, roomKeyRaw: null, priv: null, privRaw: null,
     messages: [], messageIds: new Set(), chats: [], plain: new Map(), pairKeys: new Map(), chatKeys: new Map(), chatTitles: new Map(),
     keyIssue: new Map(), healBusy: false, healPauseUntil: 0,
+    chatKeysOld: new Map(), keyEpochSeen: new Map(), keySplitHinted: new Set(),   // pkg3-63
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -855,9 +859,11 @@ function keyBannerHtml(c) {
   const it = S.keyIssue.get(c.id);
   const btn = (it.code === 'no-priv' || it.code === 'no-room-key' || it.code === 'unwrap-fail' || it.code === 'pair-fail')
     ? '<button class="mini primary" data-restore-keys="1">Ввести пароль и открыть ключи</button>' : '';
+  // pkg3-63: в группе предлагаем ещё и перевыпуск ключа — лечит разъехавшиеся копии
+  const rot = c.kind === 'group' ? '<button class="mini" data-rotate-now="1">Перевыпустить ключ группы</button>' : '';
   return '<div class="key-banner"><div class="kb-title">🔒 Сообщения не расшифрованы</div>'
     + '<div class="kb-text">' + escapeHtml(txt) + '</div>'
-    + (btn ? '<div class="kb-act">' + btn + '</div>' : '')
+    + ((btn || rot) ? '<div class="kb-act">' + btn + rot + '</div>' : '')
     + '<div class="kb-code tiny muted">диагностика: ' + escapeHtml(it.code) + ' · ' + escapeHtml(BUILD) + '</div></div>';
 }
 /** Восстановление личного ключа паролем без потери сеанса. */
@@ -914,6 +920,7 @@ function openRestoreKeys() {
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-restore-keys]')) openRestoreKeys();
+  if (e.target.closest('[data-rotate-now]')) rotateGroupKey(curChat());   // pkg3-63
 });
 /** Авто-ремонт групп: у кого есть ключ чата — делится им с участниками без ключа. */
 const repairStamp = new Map();
@@ -956,6 +963,7 @@ async function startApp() {
   S.seq = 0; S.gen = -1; S.rsince = 0; S.chg = 0; S.retry = {};
   S.messages = []; S.messageIds = new Set(); S.plain = new Map(); S.sig = '';
   S.keyIssue = new Map();
+  S.chatKeysOld = new Map(); S.keyEpochSeen = new Map(); S.keySplitHinted = new Set();   // pkg3-63
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
   S.resyncHappened = false; S.warm = false; S.histReady = false; S.lastMergeGone = null;
@@ -1262,6 +1270,7 @@ async function applySyncMeta(data) {
   // и разделы больше не рисуются.
   S.myBonds = new Set(data.myBonds || []);
   S.bondReqs = data.bondReqs || [];
+  reconcileKeyEpochs();   // pkg3-63: поколение ключа группы выросло — пере-развернуть
   await prepareChats();
   migrateGameNotify44();   // pkg3-44: в играх все оповещения включены по умолчанию
 }
@@ -1525,9 +1534,91 @@ async function decryptAll(list) {
     try { k = await chatKeyOf(chatById(m.chat)); } catch (e) { k = null; }
     // ключ ещё не доехал — НЕ ставим заглушку, пропускаем: повторим на следующем опросе
     if (!k) continue;
-    try { S.plain.set(m.id, await decryptJSON(k.key, m.blob)); }
-    catch (e) { S.plain.set(m.id, { text: '🔒 не удалось расшифровать', broken: true }); }
+    // pkg3-63: ключ группы мог перевыпускаться — пробуем текущую копию, затем
+    // прежние: письма «старой эпохи» остаются читабельными у тех, кто её имел
+    const chat = chatById(m.chat);
+    const olds = (chat && chat.kind === 'group') ? (S.chatKeysOld.get(m.chat) || []) : [];
+    let done = false;
+    for (const cand of [k].concat(olds)) {
+      try { S.plain.set(m.id, await decryptJSON(cand.key, m.blob)); done = true; break; }
+      catch (e) { /* пробуем следующую копию ключа */ }
+    }
+    if (!done) {
+      S.plain.set(m.id, { text: '🔒 не удалось расшифровать', broken: true });
+      if (chat && chat.kind === 'group') noteKeySplit(m.chat);
+    }
   }
+}
+/** pkg3-63: часть писем группы не открылась текущим ключом — подсказываем
+ * перевыпуск ключа (раз в чат за сеанс): у участников могли разъехаться копии. */
+function noteKeySplit(chatId) {
+  if (!S.keySplitHinted || S.keySplitHinted.has(chatId)) return;
+  S.keySplitHinted.add(chatId);
+  toast('Похоже, ключ этой группы у части участников другой. Откройте меню чата (⋯) → «Перевыпустить ключ группы»: новые письма снова будут читаться у всех.', true);
+}
+/** pkg3-63: сервер сообщил о новом поколении ключа группы — прежнюю копию
+ * убираем в историю (читать старые письма), текущую разворачиваем заново. */
+function reconcileKeyEpochs() {
+  const changed = [];
+  for (const c of S.chats) {
+    if (c.kind !== 'group') continue;
+    const ep = c.keyEpoch || 0;
+    const seen = S.keyEpochSeen.get(c.id);
+    S.keyEpochSeen.set(c.id, ep);
+    if (seen === undefined || seen === ep) continue;
+    const cur = S.chatKeys.get(c.id);
+    if (cur) {
+      const olds = S.chatKeysOld.get(c.id) || [];
+      olds.push(cur);
+      S.chatKeysOld.set(c.id, olds);
+    }
+    S.chatKeys.delete(c.id);
+    S.keyIssue.delete(c.id);
+    changed.push(c.id);
+  }
+  if (!changed.length) return;
+  const set = new Set(changed);
+  const list = S.messages.filter(m => set.has(m.chat));
+  for (const m of list) S.plain.delete(m.id);
+  decryptAll(list).catch(() => {});
+  S.sig = '';
+  if (S.view && set.has(S.view)) renderMessages(true);
+}
+/** pkg3-63: перевыпуск ключа группы: новый ключ заворачивается каждому
+ * текущему участнику, все копии на сервере заменяются, поколение растёт.
+ * Закрытые прежде письма остаются закрытыми (старого ключа у части участников
+ * не было вовсе — это свойство шифрования), новые читают все. */
+async function rotateGroupKey(c) {
+  if (!c || c.kind !== 'group') return;
+  if (!S.priv) { toast('Нет ключа шифрования: выйдите и войдите снова', true); return; }
+  if (!confirm('Перевыпустить ключ группы?\n\n'
+    + 'Новый ключ получат все текущие участники: будущие письма снова будут читаться у всех. '
+    + 'Сообщения, которые не расшифровываются СЕЙЧАС, останутся закрытыми (старого ключа у части '
+    + 'участников не было). Ваша читаемая история останется читаемой.')) return;
+  const raw = rnd(32);
+  const keys = {};
+  for (const id of c.members) {
+    const pk = await pairKeyWith(id);
+    if (!pk) { toast('У участника ' + ((userById(id) || {}).name || '') + ' нет ключа шифрования — пусть войдёт с паролем, затем повторите', true); return; }
+    keys[id] = { blob: await aesEncryptBytes(pk, raw) };
+  }
+  try {
+    const cur = S.chatKeys.get(c.id);
+    if (cur) {
+      const olds = S.chatKeysOld.get(c.id) || [];
+      olds.push(cur);
+      S.chatKeysOld.set(c.id, olds);
+    }
+    const r = await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/rotate', { method: 'POST', body: { keys } });
+    S.chatKeys.set(c.id, { key: await importAes(raw), raw });
+    S.keyEpochSeen.set(c.id, r.keyEpoch);
+    S.keyIssue.delete(c.id);
+    toast('Ключ группы перевыпущен: новые письма будут читаться у всех участников');
+    const list = S.messages.filter(m => m.chat === c.id);
+    for (const m of list) S.plain.delete(m.id);
+    await decryptAll(list);
+    S.sig = ''; renderMessages(true);
+  } catch (ex) { toast(ex.message, true); }
 }
 
 // ─────────────────────────────────────────── уведомления
@@ -4699,6 +4790,8 @@ $('#btn-chat-menu').addEventListener('click', e => {
     d.querySelector('[data-act="icon"]').classList.toggle('hidden', c.kind !== 'group');
     // pkg3-44: в чат-игре фона нет и редактор не нужен — прячем пункт меню
     d.querySelector('[data-act="wall"]').classList.toggle('hidden', c.kind === 'game');
+    // pkg3-63: перевыпуск ключа группы — только в групповых чатах
+    d.querySelector('[data-act="rotatekeys"]').classList.toggle('hidden', c.kind !== 'group');
     // pkg3-60: пункт «Взять в «Приглашенные»» из меню чата убран (раздел снят)
     // pkg3-50: «Добавить пользователя в мои личные чаты» — для чата из раздела «Новые»,
     // «Убрать из моих личных чатов» — для сохранённого личного чата
@@ -4724,6 +4817,7 @@ $('#drop').addEventListener('click', e => {
   if (b.dataset.act === 'info') return openChatInfo(c);
   if (b.dataset.act === 'copy') { exportHtml(c); return; }
   if (b.dataset.act === 'wall') { if (c.kind !== 'game') wallEditor(c); return; }   // pkg3-44: в играх фона нет
+  if (b.dataset.act === 'rotatekeys') return rotateGroupKey(c);   // pkg3-63: ключ группы разъехался — перевыпустить
   if (b.dataset.act === 'alias') return openAliasEditor();   // pkg3-45: локальные псевдонимы
   // pkg3-60: пункта «bond» в меню больше нет (раздел «Приглашенные» снят)
   // pkg3-50: «Добавить пользователя в мои личные чаты» — сохранить чат из «Новых» навсегда
