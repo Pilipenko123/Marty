@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-64';
+const BUILD = 'pkg3-65';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1267,7 +1267,7 @@ function createApi(store, opts = {}) {
       for (const id of members) {
         const k = (b.keys || {})[id];
         if (!k || !k.blob) return E(400, 'Нет ключа для участника ' + id);
-        keys[id] = { by: me.id, blob: String(k.blob).slice(0, 4096) };
+        keys[id] = { by: me.id, blob: String(k.blob).slice(0, 4096), ep: 0 };   // pkg3-65: поколение копии
       }
       const chat = {
         id: uid(), kind: 'group', titleBlob: b.titleBlob, ownerId: me.id,
@@ -1489,8 +1489,14 @@ function createApi(store, opts = {}) {
           // pkg3-61: «нуждающимися» считаются и те, у кого копия ключа есть,
           // но она не читается (пометка need) — иначе такой участник застревал
           // навсегда: ключ формально есть, а расшифровать не может
+          // pkg3-65: нуждающийся — ещё и тот, чья копия прошлого поколения
+          // (ep не совпадает): после перевыпуска устаревшие копии сводятся к текущей
+          const curEp = chat.keyEpoch || 0;
           const missing = chat.members
-            .filter(id => !(chat.keys || {})[id] || (chat.keys || {})[id].need)
+            .filter(id => {
+              const e = (chat.keys || {})[id];
+              return !e || e.need || (typeof e.ep === 'number' && e.ep !== curEp);
+            })
             .map(id => ({ id, hasPub: !!(db.users.find(u => u.id === id) || {}).pub }));
           return J(200, { missing });
         }
@@ -1512,9 +1518,21 @@ function createApi(store, opts = {}) {
           if (!chat.members.includes(target)) return E(400, 'Адресат не участник этого чата');
           if (!b.blob || typeof b.blob !== 'string' || b.blob.length > 4096) return E(400, 'Нет ключа для участника');
           if (!chat.keys) chat.keys = {};
-          // pkg3-61: битую копию (пометка need) разрешается перезаписать
-          if (chat.keys[target] && !chat.keys[target].need) return E(409, 'У участника уже есть ключ этого чата');
-          chat.keys[target] = { by: me.id, blob: b.blob };
+          // pkg3-65: доставка ключа помечается поколением (ep). После перевыпуска
+          // ключа группы доставка старого ключа запрещена — иначе копии снова
+          // «разъезжаются» и переписка становится нечитаемой у половины участников.
+          // Клиенты прежних выпусков ep не присылают: им разрешена доставка только
+          // в группы без перевыпусков (поколение 0).
+          const curEp = chat.keyEpoch || 0;
+          if (typeof b.ep !== 'undefined' && b.ep !== curEp)
+            return E(409, 'Ключ устарел: группа перевыпустила ключ. Обновите приложение и повторите');
+          if (curEp > 0 && typeof b.ep !== 'number')
+            return E(409, 'Ключ устарел: группа перевыпустила ключ. Обновите приложение и повторите');
+          // pkg3-61: битую копию (пометка need) разрешается перезаписать;
+          // pkg3-65: копию прошлого поколения — тоже
+          const ex = chat.keys[target];
+          if (ex && !ex.need && ex.ep === curEp) return E(409, 'У участника уже есть ключ этого чата');
+          chat.keys[target] = { by: me.id, blob: b.blob, ep: curEp };
           db.seq++; save();
           return J(200, { ok: true, chat: publicChat(chat, me.id) });
         }
@@ -1531,10 +1549,13 @@ function createApi(store, opts = {}) {
             if (!w || typeof w.blob !== 'string' || !w.blob || w.blob.length > 4096)
               return E(400, 'Нет копии ключа для участника ' + mid);
           }
+          const nextEp = (chat.keyEpoch || 0) + 1;
           const next = {};
-          for (const mid of chat.members) next[mid] = { by: me.id, blob: String(wraps[mid].blob).slice(0, 4096) };
+          // pkg3-65: новые копии помечаются новым поколением — доставка
+          // устаревшим ключом после этого невозможна
+          for (const mid of chat.members) next[mid] = { by: me.id, blob: String(wraps[mid].blob).slice(0, 4096), ep: nextEp };
           chat.keys = next;
-          chat.keyEpoch = (chat.keyEpoch || 0) + 1;
+          chat.keyEpoch = nextEp;
           db.seq++; save();
           return J(200, { ok: true, keyEpoch: chat.keyEpoch, chat: publicChat(chat, me.id) });
         }
@@ -1549,7 +1570,7 @@ function createApi(store, opts = {}) {
           if (!a.blob) return E(400, 'Нет ключа для нового участника');
           if (chat.members.length >= MAX_MEMBERS) return E(400, 'Слишком много участников');
           if (!chat.members.includes(u.id)) chat.members.push(u.id);
-          chat.keys[u.id] = { by: me.id, blob: String(a.blob).slice(0, 4096) };
+          chat.keys[u.id] = { by: me.id, blob: String(a.blob).slice(0, 4096), ep: chat.keyEpoch || 0 };   // pkg3-65
           // pkg3-54: нового участника готовой группы тоже встречаем «Новыми»
           if (!(chat.savedBy || []).includes(u.id)) {
             u.newChats = u.newChats || {};
