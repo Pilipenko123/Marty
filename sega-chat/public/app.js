@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-63';
+const BUILD = 'pkg3-64';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -488,7 +488,7 @@ const loadUi = {
 };
 
 const screen = name => {
-  ['loading', 'setup', 'auth', 'app']
+  ['loading', 'setup', 'auth', 'app', 'recover']
     .forEach(n => document.getElementById('screen-' + n).classList.toggle('hidden', n !== name));
   // гаммы действуют только внутри мессенджера: экраны входа остаются фирменно-синими
   const inApp = name === 'app';
@@ -563,6 +563,9 @@ async function boot() {
   S.serverBuild = st.build || 'без метки (старше pkg2-3)';
   S.serverLabel = st.serverLabel || '';   // pkg3-51: «VPS (основной)» / «Яндекс (запасной)»
   if (st.setupRequired) { loadUi.hide(); return screen('setup'); }
+  // pkg3-64: ссылка из письма («…/?recover=…») ведёт прямо на экран восстановления
+  const recToken = new URLSearchParams(location.search).get('recover');
+  if (recToken) { loadUi.hide(); openRecover(recToken); return; }
 
   if (window.createLocalCache) {
     try {
@@ -687,14 +690,21 @@ $('#form-login').addEventListener('submit', async e => {
     const authKey = toHex(await pbkdf2(pass, salts.saltAuth));
     const r = await api('/api/login', { method: 'POST', body: { name, authKey } });
     const wrapKey = await aesKeyFrom(pass, r.saltWrap);
-    let roomKeyRaw;
-    try { roomKeyRaw = await aesDecryptBytes(wrapKey, r.wrappedKeyByPass); }
-    catch (_) { throw new Error('Не удалось расшифровать ключи. Проверьте пароль.'); }
+    // pkg3-64: после «свежего» сброса пароля общего ключа может не быть —
+    // это не ошибка пароля, а честное состояние «без старой истории»
+    let roomKeyRaw = null;
+    if (r.wrappedKeyByPass) {
+      try { roomKeyRaw = await aesDecryptBytes(wrapKey, r.wrappedKeyByPass); }
+      catch (_) { throw new Error('Не удалось расшифровать ключи. Проверьте пароль.'); }
+    }
     let pair = null;
     if (r.wrappedPriv) {
-      const pkcs8 = await aesDecryptBytes(wrapKey, r.wrappedPriv);
-      pair = { pkcs8, priv: await importPriv(pkcs8), pub: r.user.pub };
-    } else {
+      try {
+        const pkcs8 = await aesDecryptBytes(wrapKey, r.wrappedPriv);
+        pair = { pkcs8, priv: await importPriv(pkcs8), pub: r.user.pub };
+      } catch (_) { pair = null; }   // pkg3-64: конверт личного ключа от другого пароля
+    }
+    if (!pair) {
       pair = await genPairKeys(wrapKey);
       await api('/api/profile', { method: 'POST', body: { keys: { pub: pair.pub, wrappedPriv: pair.wrappedPriv } }, headers: { Authorization: 'Bearer ' + r.token } });
     }
@@ -5747,7 +5757,10 @@ $('#btn-profile').addEventListener('click', () => {
     <label>Новый пароль<input type="password" id="pf-new" autocomplete="new-password" placeholder="минимум 6 символов"></label>
     <label>Повторите новый<input type="password" id="pf-new2" autocomplete="new-password"></label>
     <div class="err" id="pf-err"></div>
-    <button class="primary" id="pf-save-pass">Сменить пароль</button>`);
+    <button class="primary" id="pf-save-pass">Сменить пароль</button>
+    <div class="divider"><span>Почта для восстановления</span></div>
+    <div id="pf-mail"><div class="tiny muted">Загружаем…</div></div>`);
+  paintPfMail();   // pkg3-64: привязка почты и код восстановления
 
   $('#pf-file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
@@ -6842,5 +6855,180 @@ $('#pals').addEventListener('click', e => {
   applyPalette(currentPal(), false);
   paintIcons(document);
 })();
+
+// ─────────────────────────────────────────── pkg3-64: показать пароль ─────────
+function bindShowPass(boxId, inputIds) {
+  const box = $(boxId);
+  if (!box) return;
+  box.addEventListener('change', e => {
+    const t = e.target.checked ? 'text' : 'password';
+    for (const id of inputIds) { const el = $(id); if (el) el.type = t; }
+  });
+}
+bindShowPass('#login-show-pass', ['#login-pass']);
+bindShowPass('#reg-show-pass', ['#reg-pass', '#reg-pass2']);
+
+// ─────────────────────────────────────────── pkg3-64: почта и восстановление ─────────
+const fmtRecoveryCode = K => toB64(K).replace(/=+$/, '').match(/.{1,4}/g).join('-');
+function parseRecoveryCode(str) {
+  try {
+    const b64 = String(str || '').replace(/[\s-]/g, '');
+    if (!b64) return null;
+    const raw = fromB64(b64);
+    return raw.length === 32 ? raw : null;
+  } catch (e) { return null; }
+}
+/** Копия восстановления: секреты учётки, завёрнутые случайным кодом, который
+ * владелец хранит сам (или шлёт себе письмом). Сервер видит только шифротекст. */
+async function makeRecoveryCode() {
+  if (!S.privRaw || !S.roomKeyRaw) {
+    toast('На этом устройстве нет ключей для копии: войдите с паролем и повторите', true);
+    return null;
+  }
+  try {
+    const K = rnd(32);
+    const blob = await aesEncryptBytes(K, enc.encode(JSON.stringify({ pkcs8: toB64(S.privRaw), room: toB64(S.roomKeyRaw) })));
+    await api('/api/profile', { method: 'POST', body: { recoveryBlob: blob } });
+    return fmtRecoveryCode(K);
+  } catch (e) { toast(e.message, true); return null; }
+}
+const recoveryCodeHtml = code => `<div class="card" style="padding:10px;margin-top:10px">
+  <b>Код восстановления</b>
+  <div class="tiny muted" style="margin:4px 0 8px">Сохраните его или отправьте СЕБЕ на привязанную почту своим письмом:
+  без этого кода после сброса пароля старая переписка не откроется. Сервер код не видит.</div>
+  <div style="font-family:monospace;font-size:15px;letter-spacing:1px;word-break:break-all">${escapeHtml(code)}</div>
+  <button class="mini" id="pf-rec-copy" type="button" style="margin-top:8px">Скопировать</button></div>`;
+document.addEventListener('click', e => {
+  if (!e.target.closest('#pf-rec-copy')) return;
+  const code = (e.target.closest('.card').querySelector('div[style*="monospace"]') || {}).textContent || '';
+  try { navigator.clipboard.writeText(code); toast('Код скопирован'); } catch (err) { toast('Скопируйте код вручную', true); }
+});
+async function paintPfMail() {
+  const box = $('#pf-mail');
+  if (!box) return;
+  let st = null;
+  try { st = await api('/api/profile'); }
+  catch (e) { box.innerHTML = '<div class="tiny muted">' + escapeHtml(e.message) + '</div>'; return; }
+  if (st.emailConfirmed) {
+    box.innerHTML = `
+      <p class="hint">Привязана: <b>${escapeHtml(st.email)}</b>. Забыли пароль — на экране входа
+      «Забыли пароль?», ссылка придёт на эту почту.</p>
+      <button class="mini" id="pf-mail-code" type="button">Показать новый код восстановления</button>
+      <button class="mini danger" id="pf-mail-off" type="button" style="margin-left:6px">Отвязать почту</button>
+      <div id="pf-mail-codebox"></div>`;
+    $('#pf-mail-code').addEventListener('click', async () => {
+      const code = await makeRecoveryCode();
+      if (code) $('#pf-mail-codebox').innerHTML = recoveryCodeHtml(code);
+    });
+    $('#pf-mail-off').addEventListener('click', async () => {
+      if (!confirm('Отвязать почту? Восстановление пароля по письму станет недоступно, код восстановления перестанет действовать.')) return;
+      try { await api('/api/profile', { method: 'POST', body: { email: '' } }); toast('Почта отвязана'); paintPfMail(); }
+      catch (e) { toast(e.message, true); }
+    });
+    return;
+  }
+  box.innerHTML = `
+    <p class="hint">Необязательно: привяжите почту — если забудете пароль,
+    ссылка для восстановления придёт на неё. Почта хранится на сервере открыто
+    (нужно для отправки писем) и больше ни для чего не используется.</p>
+    <label>Почта<input type="email" id="pf-mail-in" placeholder="you@example.com" autocomplete="email"></label>
+    <button class="mini primary" id="pf-mail-go" type="button">Привязать</button>
+    <div id="pf-mail-code-row" class="hidden" style="margin-top:8px">
+      <label>Код из письма<input type="text" id="pf-mail-codein" inputmode="numeric" maxlength="6" placeholder="6 цифр"></label>
+      <button class="mini primary" id="pf-mail-confirm" type="button">Подтвердить</button>
+    </div>`;
+  $('#pf-mail-go').addEventListener('click', async () => {
+    try {
+      await api('/api/profile', { method: 'POST', body: { email: $('#pf-mail-in').value.trim() } });
+      toast('Код подтверждения отправлен на почту');
+      $('#pf-mail-code-row').classList.remove('hidden');
+    } catch (e) { toast(e.message, true); }
+  });
+  $('#pf-mail-confirm').addEventListener('click', async () => {
+    try {
+      await api('/api/profile', { method: 'POST', body: { emailCode: $('#pf-mail-codein').value.trim() } });
+      toast('Почта привязана');
+      const code = await makeRecoveryCode();
+      paintPfMail();
+      if (code) $('#pf-mail-codebox').innerHTML = recoveryCodeHtml(code);
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+/** Экран восстановления пароля. token — из письма (?recover=…), null — шаг запроса. */
+function openRecover(token) {
+  screen('recover');
+  const box = $('#recover-steps');
+  if (!box) return;
+  if (!token) {
+    box.innerHTML = `
+      <p class="hint">Шаг 1. Введите ник и почту, привязанную в профиле:
+      на почту уйдёт ссылка для восстановления (действует час, одноразовая).</p>
+      <label>Ник<input type="text" id="rc-name" autocomplete="username"></label>
+      <label>Почта<input type="email" id="rc-email" autocomplete="email"></label>
+      <div class="err" id="rc-err"></div>
+      <button class="primary" id="rc-go" type="button">Восстановить пароль</button>`;
+    $('#rc-go').addEventListener('click', async () => {
+      const err = $('#rc-err'); err.textContent = '';
+      try {
+        await api('/api/recover/request', { method: 'POST', body: { name: $('#rc-name').value.trim(), email: $('#rc-email').value.trim() } });
+        box.innerHTML = '<p class="hint">Письмо со ссылкой ушло на привязанную почту. Откройте ссылку на любом устройстве — она одна и на один час.</p>';
+      } catch (e) { err.textContent = e.message; }
+    });
+    return;
+  }
+  (async () => {
+    let st;
+    try { st = await api('/api/recover/state?token=' + encodeURIComponent(token)); }
+    catch (e) { box.innerHTML = '<p class="hint">' + escapeHtml(e.message) + '</p>'; return; }
+    box.innerHTML = `
+      <p class="hint">Восстанавливаем пароль для имени <b>${escapeHtml(st.name)}</b>.
+      Шаг 2: новый пароль${st.hasBlob ? ' и код восстановления, если вы его сохраняли' : ''}.</p>
+      ${st.hasBlob
+        ? `<label>Код восстановления <span class="tiny muted">(необязательно, но с ним вернётся старая переписка)</span>
+           <input type="text" id="rc-code" placeholder="xxxx-xxxx-xxxx-…" autocomplete="off"></label>`
+        : '<p class="tiny muted">Копии восстановления у этого имени нет: учётка оживёт, но старая переписка останется закрытой.</p>'}
+      <label>Новый пароль<input type="password" id="rc-pass" minlength="6" autocomplete="new-password" placeholder="минимум 6 символов"></label>
+      <label>Повторите новый<input type="password" id="rc-pass2" minlength="6" autocomplete="new-password"></label>
+      <label class="row-check"><input type="checkbox" id="rc-show"> <span>Показать пароль</span></label>
+      <div class="err" id="rc-err"></div>
+      <button class="primary" id="rc-go" type="button">Поставить новый пароль</button>`;
+    $('#rc-show').addEventListener('change', e => {
+      const t = e.target.checked ? 'text' : 'password';
+      $('#rc-pass').type = t; $('#rc-pass2').type = t;
+    });
+    $('#rc-go').addEventListener('click', async () => {
+      const err = $('#rc-err'); err.textContent = '';
+      const pass = $('#rc-pass').value;
+      if (pass !== $('#rc-pass2').value) { err.textContent = 'Пароли не совпадают'; return; }
+      if (pass.length < 6) { err.textContent = 'Пароль минимум 6 символов'; return; }
+      const btn = $('#rc-go'); btn.disabled = true; btn.textContent = 'Ставим…';
+      try {
+        const saltAuth = newSalt(), saltWrap = newSalt();
+        const authKey = toHex(await pbkdf2(pass, saltAuth));
+        const wrapKey = await aesKeyFrom(pass, saltWrap);
+        const body = { token, saltAuth, authKey, saltWrap, wrappedKeyByPass: null, wrappedPriv: null };
+        const codeEl = $('#rc-code');
+        if (st.hasBlob && codeEl && codeEl.value.trim()) {
+          const K = parseRecoveryCode(codeEl.value);
+          if (!K) { err.textContent = 'Код восстановления похоже не тот: проверьте строку'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
+          let sec;
+          try { sec = JSON.parse(dec.decode(await aesDecryptBytes(K, st.blob))); }
+          catch (e) { err.textContent = 'Код не подошёл: копия восстановления не открылась'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
+          body.wrappedKeyByPass = await aesEncryptBytes(wrapKey, fromB64(sec.room));
+          body.wrappedPriv = await aesEncryptBytes(wrapKey, fromB64(sec.pkcs8));
+        } else if (st.hasBlob) {
+          if (!confirm('Без кода восстановления учётка получит новый пароль, но старая переписка этого имени останется закрытой НАВСЕГДА. Продолжить?')) { btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
+        }
+        await api('/api/recover/commit', { method: 'POST', body });
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+        screen('auth');
+        toast('Новый пароль поставлен — войдите им' + (body.wrappedPriv ? '' : ' (старая переписка имени останется закрытой)'));
+      } catch (e) { err.textContent = e.message || ('' + e); btn.disabled = false; btn.textContent = 'Поставить новый пароль'; }
+    });
+  })();
+}
+$('#login-forgot').addEventListener('click', e => { e.preventDefault(); openRecover(null); });
+$('#recover-back').addEventListener('click', e => { e.preventDefault(); screen('auth'); });
 
 boot();

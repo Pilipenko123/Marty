@@ -137,10 +137,13 @@
     </div>
     <form id="form-login" autocomplete="on">
       <label>Имя<input name="name" type="text" required autocomplete="username"></label>
-      <label>Пароль<input name="pass" type="password" required autocomplete="current-password"></label>
+      <label>Пароль<input name="pass" id="login-pass" type="password" required autocomplete="current-password"></label>
+      <label class="row-check"><input type="checkbox" id="login-show-pass"> <span>Показать пароль</span></label>
       <label class="row-check"><input type="checkbox" name="remember" checked> <span>Запомнить меня на этом устройстве</span></label>
       <div class="err" id="login-err"></div>
       <button class="primary" type="submit">Войти</button>
+      <p class="hint" style="margin-top:10px"><a href="#" id="login-forgot" style="color:var(--accent)">Забыли пароль?</a>
+      <span class="tiny muted"> — восстановим через привязанную почту</span></p>
     </form>
     <form id="form-register" class="hidden" autocomplete="off">
       <div id="reg-join" class="hint hidden"></div>
@@ -151,12 +154,25 @@
         <input name="code" type="text" placeholder="аварийный ключ администратора" autocomplete="off"></label>
       <label>Придумайте ник<input name="name" type="text" required minlength="2" maxlength="32" autocomplete="username"></label>
       <p class="hint">Ник уникален во всём мессенджере: по нему вас найдут свои. Отображаемое имя потом можно сменить, а любой участник может переименовать вас у себя — вы об этом не узнаете.</p>
-      <label>Придумайте пароль<input name="pass" type="password" required minlength="6" placeholder="минимум 6 символов" autocomplete="new-password"></label>
-      <label>Повторите пароль<input name="pass2" type="password" required minlength="6" autocomplete="new-password"></label>
+      <label>Придумайте пароль<input name="pass" id="reg-pass" type="password" required minlength="6" placeholder="минимум 6 символов" autocomplete="new-password"></label>
+      <label>Повторите пароль<input name="pass2" id="reg-pass2" type="password" required minlength="6" autocomplete="new-password"></label>
+      <label class="row-check"><input type="checkbox" id="reg-show-pass"> <span>Показать пароль</span></label>
       <label class="row-check"><input type="checkbox" name="remember" checked> <span>Запомнить меня на этом устройстве</span></label>
       <div class="err" id="reg-err"></div>
       <button class="primary" type="submit">Присоединиться</button>
     </form>
+  </div>
+</div>
+
+<!-- ───────────────────────────── восстановление пароля ─────────────────────────── -->
+<div id="screen-recover" class="screen center hidden">
+  <div class="card">
+    <div class="brand">
+      <h1 class="lockup"><img class="logo" src="logo.png" alt="SEGA"><span>CHAT</span></h1>
+      <p class="muted">Восстановление пароля</p>
+    </div>
+    <div id="recover-steps"></div>
+    <p class="hint" style="margin-top:12px"><a href="#" id="recover-back" style="color:var(--accent)">Вернуться ко входу</a></p>
   </div>
 </div>
 
