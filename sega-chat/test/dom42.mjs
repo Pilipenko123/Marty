@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v63'), 'кэш статики поднят до v63');
+ok(sw.includes('sega-static-v64'), 'кэш статики поднят до v64');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -431,6 +431,17 @@ ok(appJs.includes('serverRaws.add(toB64(await aesDecryptBytes(wk, it.blob)))'), 
 ok(appJs.includes('pkg3-69: обмен прежними ключами на КАЖДОМ опросе') && appJs.includes('async function reconcileOldKeysChanged'), 'клиент: обмен прежними ключами идёт на каждом опросе, а не только при старте');
 ok(appJs.includes('pkg3-69: не советуем перевыпуск из-за писем, чьи ключи утеряны навсегда'), 'клиент: плашка «перевыпустите ключ» молчит при музейных замках');
 ok(apiJs.includes('slotId = \'e\' + legacy'), 'сервер: прежние клиенты с метками ep продолжают работать');
+
+// pkg3-70: слоты прежних ключей адресуются отпечатком ключа
+ok(appJs.includes('async function fpOf') && appJs.includes('pkg3-70: адрес слота — отпечаток ключа'), 'клиент: адрес слота прежнего ключа — отпечаток сырья (метки больше не используются)');
+ok(apiJs.includes('/^[0-9a-f]{16,64}$/.test(fp)'), 'сервер: слот принимает отпечаток ключа (fp)');
+ok(apiJs.includes('id: id, ep: Number.isFinite(Number(id)) ? Number(id) : undefined'), 'сервер: публичный чат отдаёт адрес слота и свёртку участника');
+ok(appJs.includes('pkg3-70: до первой попытки обмена в этом чате совет не показываем'), 'клиент: плашка-совет молчит до первой попытки обмена');
+
+// pkg3-71: обмен не помечается пройденным до загрузки личного ключа + повтор по закрытым письмам
+ok(appJs.includes('pkg3-71: без личного ключа обмен невозможен'), 'клиент: обмен не помечается пройденным, пока личный ключ не загружен');
+ok(appJs.includes('pkg3-71: закрытое письмо при наличии слотов на сервере') && appJs.includes('oldKeysRetry'), 'клиент: закрытое письмо запускает повторный обмен (раз в минуту)');
+ok(appJs.includes('pkg3-71: обмен сразу, как личный ключ загружен'), 'клиент: обмен запускается сразу после загрузки личного ключа на старте');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')
