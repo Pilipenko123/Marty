@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-68';
+const BUILD = 'pkg3-69';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1555,8 +1555,9 @@ function createApi(store, opts = {}) {
           let added = 0;
           for (const it of list) {
             const ep = Number(it && it.ep);
-            // принимаем только настоящие прошлые поколения
-            if (!Number.isFinite(ep) || ep < 0 || ep >= (chat.keyEpoch || 0)) continue;
+            // принимаем прошлые поколения и запасные слоты выше текущего
+            // (pkg3-69: диапазон +24 — чтобы «блуждающий» ключ всегда получил слот)
+            if (!Number.isFinite(ep) || ep < 0 || ep >= (chat.keyEpoch || 0) + 24) continue;
             const wraps = (it && it.wraps && typeof it.wraps === 'object') ? it.wraps : null;
             if (!wraps) continue;
             const slot = chat.oldKeys[String(ep)] || (chat.oldKeys[String(ep)] = { by: me.id, wraps: {} });
