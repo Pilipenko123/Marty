@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-68';
+const BUILD = 'pkg3-69';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -235,6 +235,7 @@ const S = {
   chatKeys: new Map(),   // chatId -> { key, raw }
   chatKeysOld: new Map(),   // pkg3-63: chatId -> [ {key,raw,ep} ] прежние копии ключа группы (история)
   chatTitleSrc: new Map(),  // pkg3-65: chatId -> titleBlob, из которого прочитано название
+  oldKeysSeen: new Map(),   // pkg3-69: chatId -> сигнатура слотов прежних ключей с сервера
   keyEpochSeen: new Map(),  // pkg3-63: chatId -> поколение ключа, которое клиент развернул
   keySplitHinted: new Set(),// pkg3-63: чаты, где уже подсказали про перевыпуск ключа
   keyIssue: new Map(),   // chatId -> { code, who } — почему нечем расшифровать
@@ -780,6 +781,7 @@ function doLogout(silent) {
     keyIssue: new Map(), healBusy: false, healPauseUntil: 0,
     chatKeysOld: new Map(), keyEpochSeen: new Map(), keySplitHinted: new Set(),   // pkg3-63
     chatTitleSrc: new Map(),   // pkg3-65
+    oldKeysSeen: new Map(),   // pkg3-69
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -934,7 +936,7 @@ async function reconcileOldKeys(c) {
     oldKeysUploaded.add(c.id);   // раз за сеанс на чат: не долбить сервер
     try {
       const free = [];
-      for (let ep = 0; ep < curEp && free.length < toSend.length; ep++) if (!serverEps.has(ep)) free.push(ep);
+      for (let ep = 0; ep < curEp + 24 && free.length < toSend.length; ep++) if (!serverEps.has(ep)) free.push(ep);   // pkg3-69: запасные слоты выше текущего поколения
       const oldKeys = [];
       for (let i = 0; i < toSend.length && i < free.length; i++) {
         const wraps = {};
@@ -1137,6 +1139,7 @@ async function startApp() {
   S.keyIssue = new Map();
   S.chatKeysOld = new Map(); S.keyEpochSeen = new Map(); S.keySplitHinted = new Set();   // pkg3-63
   S.chatTitleSrc = new Map();   // pkg3-65
+  S.oldKeysSeen = new Map();   // pkg3-69
   await loadOldKeys();   // pkg3-65: прежние копии ключей групп — из памяти устройства
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
@@ -1603,6 +1606,21 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
   renderAll();
   if (!document.hidden) markRead();
   if ($('#search').value.trim()) runSearch();
+  // pkg3-69: обмен прежними ключами на КАЖДОМ опросе (а не только при старте и
+  // полном пересинхроне): догоняющие окна и вторые устройства подтягивают
+  // историю сами, без перезагрузки и полных пересборок
+  reconcileOldKeysChanged().catch(() => {});
+}
+/** pkg3-69: запускает обмен для чатов, у которых изменился набор слотов
+ * прежних ключей на сервере (сигнатура = метки + наличие моей свёртки). */
+async function reconcileOldKeysChanged() {
+  for (const c of S.chats) {
+    if (c.kind !== 'group' || !Array.isArray(c.oldKeys)) continue;
+    const sig = c.oldKeys.map(o => (o ? o.ep + (o.blob ? 'b' : '-') : '')).join(',');
+    if (S.oldKeysSeen.get(c.id) === sig) continue;
+    S.oldKeysSeen.set(c.id, sig);
+    await reconcileOldKeys(c);
+  }
 }
 
 /**
@@ -1734,6 +1752,15 @@ async function decryptAll(list) {
  * перевыпуск ключа (раз в чат за сеанс): у участников могли разъехаться копии. */
 function noteKeySplit(chatId) {
   if (!S.keySplitHinted || S.keySplitHinted.has(chatId)) return;
+  // pkg3-69: не советуем перевыпуск из-за писем, чьи ключи утеряны навсегда:
+  // совет уместен, когда закрыто что-то СВЕЖЕЕ (сутки) — признак живой
+  // разъехавшейся копии; при музейных замках и наличии истории/свёрток молчим
+  const now = Date.now();
+  const freshBroken = S.messages.some(m => m.chat === chatId
+    && (S.plain.get(m.id) || {}).broken && (m.ts || 0) > now - 24 * 3600 * 1000);
+  const c = chatById(chatId);
+  const hasMySlots = c && Array.isArray(c.oldKeys) && c.oldKeys.some(o => o && o.blob);
+  if (!freshBroken && (oldKeysOf(chatId).length || hasMySlots)) return;
   S.keySplitHinted.add(chatId);
   toast('Похоже, ключ этой группы у части участников другой. Откройте меню чата (⋯) → «Перевыпустить ключ группы»: новые письма снова будут читаться у всех.', true);
 }
