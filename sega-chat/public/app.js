@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-70';
+const BUILD = 'pkg3-71';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -236,6 +236,7 @@ const S = {
   chatKeysOld: new Map(),   // pkg3-63: chatId -> [ {key,raw,ep} ] прежние копии ключа группы (история)
   chatTitleSrc: new Map(),  // pkg3-65: chatId -> titleBlob, из которого прочитано название
   oldKeysSeen: new Map(),   // pkg3-69: chatId -> сигнатура слотов прежних ключей с сервера
+  oldKeysRetry: new Map(),  // pkg3-71: chatId -> время последней допытки обмена
   keyEpochSeen: new Map(),  // pkg3-63: chatId -> поколение ключа, которое клиент развернул
   keySplitHinted: new Set(),// pkg3-63: чаты, где уже подсказали про перевыпуск ключа
   keyIssue: new Map(),   // chatId -> { code, who } — почему нечем расшифровать
@@ -782,6 +783,7 @@ function doLogout(silent) {
     chatKeysOld: new Map(), keyEpochSeen: new Map(), keySplitHinted: new Set(),   // pkg3-63
     chatTitleSrc: new Map(),   // pkg3-65
     oldKeysSeen: new Map(),   // pkg3-69
+    oldKeysRetry: new Map(),   // pkg3-71
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -1135,6 +1137,7 @@ async function startApp() {
   S.chatKeysOld = new Map(); S.keyEpochSeen = new Map(); S.keySplitHinted = new Set();   // pkg3-63
   S.chatTitleSrc = new Map();   // pkg3-65
   S.oldKeysSeen = new Map();   // pkg3-69
+  S.oldKeysRetry = new Map();   // pkg3-71
   await loadOldKeys();   // pkg3-65: прежние копии ключей групп — из памяти устройства
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
@@ -1201,6 +1204,7 @@ async function startApp() {
   }
   // старая сессия (сохранённая до pkg3-18) не несла uid: дошиваем и пишем кэш
   if (S.me && S.uid !== S.me.id) { S.uid = S.me.id; saveSession(); await loadOldKeys(); }   // pkg3-65: история ключей настоящей учётки
+  reconcileOldKeysChanged().catch(() => {});   // pkg3-71: обмен сразу, как личный ключ загружен
   if (S.idb && S.uid && !S.cacheFp) { S.cacheFp = await cacheFp(); persistAll(); }
   renderCacheState();
   wake('старт приложения');
@@ -1609,6 +1613,10 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
 /** pkg3-69: запускает обмен для чатов, у которых изменился набор слотов
  * прежних ключей на сервере (сигнатура = метки + наличие моей свёртки). */
 async function reconcileOldKeysChanged() {
+  // pkg3-71: без личного ключа обмен невозможен — и метку «пройдено» НЕ
+  // ставим, иначе первый же опрос на старте (до загрузки ключа) навсегда
+  // закрывал окну обмен (случай окна «Для теста»)
+  if (!S.priv) return;
   for (const c of S.chats) {
     if (c.kind !== 'group' || !Array.isArray(c.oldKeys)) continue;
     const sig = c.oldKeys.map(o => (o ? (o.id || o.ep) + (o.blob ? 'b' : '-') : '')).join(',');   // pkg3-70: сигнатура по адресу слота
@@ -1739,7 +1747,18 @@ async function decryptAll(list) {
     }
     if (!done) {
       S.plain.set(m.id, { text: '🔒 не удалось расшифровать', broken: true });
-      if (chat && chat.kind === 'group') noteKeySplit(m.chat);
+      if (chat && chat.kind === 'group') {
+        noteKeySplit(m.chat);
+        // pkg3-71: закрытое письмо при наличии слотов на сервере — повод
+        // ещё раз попробовать обмен (не чаще раза в минуту на чат)
+        if ((chat.oldKeys || []).length) {
+          const last = S.oldKeysRetry.get(chat.id) || 0;
+          if (Date.now() - last > 60000) {
+            S.oldKeysRetry.set(chat.id, Date.now());
+            reconcileOldKeys(chat).catch(() => {});
+          }
+        }
+      }
     }
   }
 }
