@@ -97,7 +97,7 @@ console.log('  1. Старые записи базы');
 // ══════════════════════════════ 2. живой сервер
 console.log('\n  2. Сервер: ротация ключа группы');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-gk-'));
-const env = { STORE: 'file', DATA_DIR: dir, HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0', NEW_INVITE_DELAY: '0' };
+const env = { STORE: 'file', DATA_DIR: dir, HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0', NEW_INVITE_DELAY: '0', ROTATE_COOLDOWN_MS: '0' };
 const A = up(await freePort(), env);
 await waitReady(A.base);
 
@@ -310,6 +310,54 @@ ok(r.status === 200 && r.d.added === 0, 'прежнюю свёртку учас�
   const plain = new Uint8Array(await subtleW.decrypt({ name: 'AES-GCM', iv: rawB.slice(0, 12) }, k, rawB.slice(12)));
   ok(Buffer.from(plain).equals(Buffer.from(O1)), 'свёртка прежнего ключа разворачивается, как в клиенте (ECDH + AES-GCM)');
 }
+
+// ══════════════════════════════ 5. предохранители перевыпуска (pkg3-67)
+console.log('\n  5. Предохранители перевыпуска — pkg3-67');
+{
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-gk67-'));
+  const env2 = { STORE: 'file', DATA_DIR: dir2, HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0', NEW_INVITE_DELAY: '0', ROTATE_COOLDOWN_MS: '150' };
+  const B2 = up(await freePort(), env2);
+  await waitReady(B2.base);
+  const r2 = await call(B2.base, '/api/setup', {
+    method: 'POST', body: Object.assign({}, creds('Хозяин'), {
+      codeProofSalt: hex(), codeProof: hex(32), codeSalt: hex(), wrappedKeyByCode: 'k:' + hex()
+    })
+  });
+  const tA = r2.d.token, idA = r2.d.user.id;
+  const secret2 = hex();
+  const sha2 = crypto.createHash('sha256').update(secret2).digest('hex');
+  const ir2 = await call(B2.base, '/api/invites', { method: 'POST', body: { invSalt: hex(), wrappedRoomKey: 'k:' + hex(), secretHash: sha2 } }, tA);
+  if (!ir2.d.invite) throw new Error('приглашение на втором сервере не создано: ' + JSON.stringify(ir2.d));
+  const r3 = await call(B2.base, '/api/register', { method: 'POST', body: Object.assign({}, creds('Гость'), { inviteToken: ir2.d.invite.id + '.' + secret2 }) });
+  const tB = r3.d.token, idB = r3.d.user.id;
+  const rc = await call(B2.base, '/api/chats', {
+    method: 'POST',
+    body: { titleBlob: 'enc:' + hex(), members: [idB], keys: { [idA]: { blob: 'w-a' }, [idB]: { blob: 'w-b' } } }
+  }, tA);
+  const grp67 = rc.d.chat.id;
+  const rot = { method: 'POST', body: { keys: { [idA]: { blob: 'x-a' }, [idB]: { blob: 'x-b' } } } };
+  let q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tA);
+  ok(q.status === 200, 'первый перевыпуск прошёл');
+  q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tB);
+  ok(q.status === 429, 'второй перевыпуск подряд отклонён (429, часовой предохранитель)');
+  await wait(200);
+  q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tB);
+  ok(q.status === 200, 'после паузы перевыпуск снова разрешён');
+  q = await call(B2.base, '/api/sync?since=0', {}, tA);
+  const svc = (q.d.messages || []).filter(m => m.chat === grp67 && m.svc === 'rotatekeys');
+  ok(svc.length === 2, 'каждый перевыпуск оставил в ленте служебную строку (2 шт.)');
+  B2.proc.kill('SIGTERM');
+}
+
+// свёртка самому себе: второе устройство той же учётки получит историю
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
+  method: 'POST',
+  body: { oldKeys: [{ ep: 1, wraps: { [g1Id]: 'w-self-g1' } }] }
+}, g1);
+ok(r.status === 200 && r.d.added === 1, 'свёртка самому себе принята (вторые устройства учётки)');
+r = await call(A.base, '/api/sync?since=0', {}, g1);
+g = (r.d.chats || []).find(c => c.id === grp);
+ok(!!(g.oldKeys || []).find(o => o.ep === 1 && o.blob === 'w-self-g1'), 'участник видит в синхронизации собственную свёртку');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Ключ группы (ротация): ${good} ✓, провалов ${bad}`);
