@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-71';
+const BUILD = 'pkg3-72';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -237,6 +237,7 @@ const S = {
   chatTitleSrc: new Map(),  // pkg3-65: chatId -> titleBlob, из которого прочитано название
   oldKeysSeen: new Map(),   // pkg3-69: chatId -> сигнатура слотов прежних ключей с сервера
   oldKeysRetry: new Map(),  // pkg3-71: chatId -> время последней допытки обмена
+  oldKeysRetryUp: new Map(), // pkg3-72: chatId -> время последней попытки выкладки
   keyEpochSeen: new Map(),  // pkg3-63: chatId -> поколение ключа, которое клиент развернул
   keySplitHinted: new Set(),// pkg3-63: чаты, где уже подсказали про перевыпуск ключа
   keyIssue: new Map(),   // chatId -> { code, who } — почему нечем расшифровать
@@ -784,6 +785,7 @@ function doLogout(silent) {
     chatTitleSrc: new Map(),   // pkg3-65
     oldKeysSeen: new Map(),   // pkg3-69
     oldKeysRetry: new Map(),   // pkg3-71
+    oldKeysRetryUp: new Map(),   // pkg3-72
     seq: 0, view: null, threadId: null, quote: null, sig: ''
   });
   $('#messages').innerHTML = '';
@@ -909,7 +911,6 @@ function oldKeysOf(chatId) { return S.chatKeysOld.get(chatId) || []; }
  * тем, кто пропустил перевыпуски (сидел с закрытым чатом, ещё не был добавлен);
  * (б) выкладываем свои прежние свёртки, если сервер их ещё не хранит, — чтобы
  * история вернулась остальным текущим участникам. Без кнопок, само. */
-const oldKeysUploaded = new Set();
 /** pkg3-70: отпечаток сырья ключа (16 hex sha256) — адрес слота на сервере.
  * Устройства нумеруют поколения по-своему, а сырьё ключа уникально у всех. */
 async function fpOf(raw) {
@@ -934,9 +935,13 @@ async function reconcileOldKeys(c) {
   const cur = S.chatKeys.get(c.id);
   if (cur && cur.raw) mine.push({ key: cur.key, raw: cur.raw });
   const toSend = mine.filter(o => !serverRaws.has(toB64(o.raw)));
-  if (toSend.length && !oldKeysUploaded.has(c.id)) {
-    oldKeysUploaded.add(c.id);   // раз за сеанс на чат: не долбить сервер
-    try {
+  if (toSend.length) {
+    // pkg3-72: повторять раз в минуту, пока всё не выложится: одна неудача
+    // больше не лишает чат обмена на весь сеанс
+    const lastUp = S.oldKeysRetryUp.get(c.id) || 0;
+    if (Date.now() - lastUp > 60000) {
+      S.oldKeysRetryUp.set(c.id, Date.now());
+      try {
       const oldKeys = [];
       for (const o of toSend) {
         const wraps = {};
@@ -946,8 +951,9 @@ async function reconcileOldKeys(c) {
         }
         oldKeys.push({ fp: await fpOf(o.raw), wraps });
       }
-      if (oldKeys.length) await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/old', { method: 'POST', body: { oldKeys } });
-    } catch (e) { /* в следующий раз */ }
+        if (oldKeys.length) await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/old', { method: 'POST', body: { oldKeys } });
+      } catch (e) { /* в следующий раз */ }
+    }
   }
   // ── вверх: всё, что сервер хранит для нас и чего у нас ещё нет ──
   let got = 0;
@@ -1138,6 +1144,7 @@ async function startApp() {
   S.chatTitleSrc = new Map();   // pkg3-65
   S.oldKeysSeen = new Map();   // pkg3-69
   S.oldKeysRetry = new Map();   // pkg3-71
+  S.oldKeysRetryUp = new Map();   // pkg3-72
   await loadOldKeys();   // pkg3-65: прежние копии ключей групп — из памяти устройства
   S.healBusy = false; S.healPauseUntil = 0;
   syncPromise = null; syncQueued = false;
@@ -1778,6 +1785,14 @@ function noteKeySplit(chatId) {
   const c = chatById(chatId);
   const hasMySlots = c && Array.isArray(c.oldKeys) && c.oldKeys.some(o => o && o.blob);
   if (!freshBroken && (oldKeysOf(chatId).length || hasMySlots)) return;
+  // pkg3-72: совет показывается ОДИН раз на чат навсегда (хранится на
+  // устройстве) — плашка не имеет права надоедать
+  try {
+    const hinted = JSON.parse(localStorage.getItem('sega.splitHinted.v1') || '[]');
+    if (Array.isArray(hinted) && hinted.includes(chatId)) return;
+    hinted.push(chatId);
+    localStorage.setItem('sega.splitHinted.v1', JSON.stringify(hinted));
+  } catch (e) {}
   S.keySplitHinted.add(chatId);
   toast('Похоже, ключ этой группы у части участников другой. Откройте меню чата (⋯) → «Перевыпустить ключ группы»: новые письма снова будут читаться у всех.', true);
 }
@@ -1838,7 +1853,7 @@ async function rotateGroupKey(c) {
     S.chatKeys.set(c.id, newEntry);
     S.keyEpochSeen.set(c.id, r.keyEpoch);
     S.keyIssue.delete(c.id);
-    oldKeysUploaded.delete(c.id);   // pkg3-67: новый ключ тоже уйдёт в обмен на ближайшей синхронизации
+    S.oldKeysRetryUp.delete(c.id);   // pkg3-67: новый ключ тоже уйдёт в обмен на ближайшей синхронизации
     invalidateChatSecrets(c.id);
     // pkg3-65: название, иконка и фон были зашифрованы прежним ключом —
     // переоформляем их новым, чтобы они не пропали у участников
@@ -6658,8 +6673,59 @@ function openSettings() {
   const bt = $('#build-tag');
   if (bt) bt.textContent = 'Интерфейс: ' + BUILD + ' · Сервер: ' + (S.serverBuild || 'без метки')
     + (S.serverLabel ? ' · ' + S.serverLabel : '');
+  // pkg3-72: строка-диагностика истории ключей — видно без консоли, доехали ли ключи
+  const okt = $('#oldkeys-tag');
+  if (okt) {
+    let n = 0;
+    for (const cc of S.chats) if (cc.kind === 'group') n += oldKeysOf(cc.id).length;
+    okt.textContent = 'Ключи групп: история ' + n;
+  }
   refreshPushSwitch();
 }
+// ── pkg3-72: перенос набора ключей групп между устройствами без консоли ──
+$('#btn-oldkeys-copy').addEventListener('click', async () => {
+  const out = { chats: [] };
+  for (const c of S.chats) {
+    if (c.kind !== 'group') continue;
+    const seen = {}; const raws = [];
+    for (const o of oldKeysOf(c.id)) { if (o && o.raw) { const b = toB64(o.raw); if (!seen[b]) { seen[b] = 1; raws.push(b); } } }
+    const cur = S.chatKeys.get(c.id);
+    if (cur && cur.raw) { const b = toB64(cur.raw); if (!seen[b]) { seen[b] = 1; raws.push(b); } }
+    if (raws.length) out.chats.push({ id: c.id, keys: raws.map((b, i) => ({ ep: Math.max((c.keyEpoch || 0) - 1 - i, 0), raw: b })) });
+  }
+  const n = out.chats.reduce((a, c2) => a + c2.keys.length, 0);
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(out));
+    toast('Набор ключей скопирован (' + n + ' шт.). Вставьте его в настройках другого устройства: «Вставить набор ключей групп»');
+  } catch (e) { toast('Не удалось скопировать: ' + e.message, true); }
+  closeSettings();
+});
+$('#btn-oldkeys-paste').addEventListener('click', () => {
+  closeSettings();
+  modal('Ключи групп', '<textarea id="bk-in" style="width:100%;height:140px" placeholder="Сюда вставьте скопированный набор"></textarea>'
+    + '<div style="margin-top:10px"><button class="primary" id="bk-go">Применить и перезапустить</button></div>');
+  $('#bk-go').addEventListener('click', () => {
+    let src = null;
+    try { src = JSON.parse($('#bk-in').value.trim()); } catch (e) { return toast('Не распознал набор: проверьте, что он скопирован целиком', true); }
+    const uid = (S.me && S.me.id) || S.uid;
+    if (!uid || !src || !Array.isArray(src.chats)) return toast('Набор пуст', true);
+    const all = loadOldKeysRaw();
+    const per = all[uid] || (all[uid] = {});
+    let n = 0;
+    for (const ch of src.chats) {
+      if (!ch || !ch.id || !Array.isArray(ch.keys)) continue;
+      const curList = per[ch.id] || (per[ch.id] = []);
+      for (const k of ch.keys) {
+        if (!k || typeof k.raw !== 'string' || !k.raw) continue;
+        if (!curList.some(x => x.raw === k.raw)) { curList.push({ ep: (typeof k.ep === 'number' ? k.ep : null), raw: k.raw }); n++; }
+      }
+    }
+    try { localStorage.setItem(OLDKEYS_STORE, JSON.stringify(all)); } catch (e) { return toast('Не удалось сохранить набор', true); }
+    hide($('#modal'));
+    toast('Добавлено ключей: ' + n + '. Перезапускаю…');
+    setTimeout(() => location.reload(), 1200);
+  });
+});
 function closeSettings() { hide($('#sheet-settings')); }
 $('#btn-admin-invites').addEventListener('click', openAdminInvites);       // pkg3-45
 // ── pkg3-45: персональные приглашения (ссылка + QR + пересылка) ────────────
