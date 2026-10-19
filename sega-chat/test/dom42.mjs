@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v64'), 'кэш статики поднят до v64');
+ok(sw.includes('sega-static-v65'), 'кэш статики поднят до v65');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -416,7 +416,7 @@ ok(apiJs.includes('if (slot.wraps[uid]) continue;'), 'сервер: прежни
 ok(apiJs.includes('const capEp = (chat.keyEpoch || 0) + 24;'), 'сервер: предел слотов прежних ключей — поколение+24');
 ok(modelJs.includes('c.oldKeys = {}'), 'модель: migrate() добавляет хранилище прежних ключей с дефолтом');
 ok(appJs.includes('function reconcileOldKeys') && appJs.includes("/keys/old'"), 'клиент: автообмен прежними ключами без кнопок');
-ok(appJs.includes('const oldKeysUploaded = new Set()'), 'клиент: выкладка прежних ключей — раз за сеанс на чат');
+ok(appJs.includes('S.oldKeysRetryUp') , 'клиент: выкладка прежних ключей повторяется до успеха (pkg3-72)');
 
 // pkg3-67: автообмен любым рабочим ключом, предохранители перевыпуска
 ok(apiJs.includes('ROTATE_COOLDOWN_MS'), 'сервер: перевыпуск ключа не чаще раза в час на группу');
@@ -442,6 +442,12 @@ ok(appJs.includes('pkg3-70: до первой попытки обмена в э�
 ok(appJs.includes('pkg3-71: без личного ключа обмен невозможен'), 'клиент: обмен не помечается пройденным, пока личный ключ не загружен');
 ok(appJs.includes('pkg3-71: закрытое письмо при наличии слотов на сервере') && appJs.includes('oldKeysRetry'), 'клиент: закрытое письмо запускает повторный обмен (раз в минуту)');
 ok(appJs.includes('pkg3-71: обмен сразу, как личный ключ загружен'), 'клиент: обмен запускается сразу после загрузки личного ключа на старте');
+
+// pkg3-72: перенос ключей кнопками, вечная плашка, повтор выкладки
+ok(html.includes('btn-oldkeys-copy') && html.includes('btn-oldkeys-paste'), 'в настройках есть кнопки переноса набора ключей групп');
+ok(appJs.includes('Ключи групп: история ') && appJs.includes('btn-oldkeys-copy'), 'клиент: строка-диагностика истории ключей и копирование набора без консоли');
+ok(appJs.includes('sega.splitHinted.v1'), 'клиент: плашка-совет показывается один раз на чат навсегда');
+ok(appJs.includes('pkg3-72: повторять раз в минуту, пока всё не выложится') && appJs.includes('oldKeysRetryUp'), 'клиент: выкладка ключей повторяется до успеха');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')
