@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-66';
+const BUILD = 'pkg3-67';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1578,6 +1578,12 @@ function createApi(store, opts = {}) {
           const b = req.body || {};
           const wraps = (b.keys && typeof b.keys === 'object') ? b.keys : null;
           if (!wraps) return E(400, 'Нет новых копий ключа');
+          // pkg3-67: предохранитель от «часто жал кнопку» — перевыпуск не чаще
+          // раза в час на группу (ROTATE_COOLDOWN_MS=0 выключает, для тестов).
+          // Частые переключения поколений — главный источник закрытых писем
+          const rotMs = Number(process.env.ROTATE_COOLDOWN_MS !== undefined ? process.env.ROTATE_COOLDOWN_MS : 3600000);
+          if (rotMs > 0 && typeof chat.lastRotateAt === 'number' && Date.now() - chat.lastRotateAt < rotMs)
+            return E(429, 'Ключ этой группы уже перевыпускали недавно. Следующий перевыпуск будет доступен через час: частые переключения и закрывают письма');
           for (const mid of chat.members) {
             const w = wraps[mid];
             if (!w || typeof w.blob !== 'string' || !w.blob || w.blob.length > 4096)
@@ -1590,6 +1596,15 @@ function createApi(store, opts = {}) {
           for (const mid of chat.members) next[mid] = { by: me.id, blob: String(wraps[mid].blob).slice(0, 4096), ep: nextEp };
           chat.keys = next;
           chat.keyEpoch = nextEp;
+          chat.lastRotateAt = Date.now();   // pkg3-67: часовой предохранитель
+          // pkg3-67: служебная строка в ленту: все участники видят, кто и когда
+          // перевыпустил ключ (событие открытое, шифровать нечего)
+          const svcRot = {
+            id: uid(), seq: await store.reserveSeq(), uid: me.id, ts: Date.now(),
+            chat: chat.id, parent: null, quote: null, upId: null, svc: 'rotatekeys', bytes: 0
+          };
+          db.messages.push(svcRot);
+          addStat(svcRot, 1);
           db.seq++; save();
           return J(200, { ok: true, keyEpoch: chat.keyEpoch, chat: publicChat(chat, me.id) });
         }
