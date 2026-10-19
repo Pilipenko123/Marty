@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-66';
+const BUILD = 'pkg3-67';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -908,32 +908,48 @@ function oldKeysOf(chatId) { return S.chatKeysOld.get(chatId) || []; }
 const oldKeysUploaded = new Set();
 async function reconcileOldKeys(c) {
   if (!S.priv || !Array.isArray(c.oldKeys)) return;
-  const local = oldKeysOf(c.id);
-  const localEps = new Set(local.map(o => o.ep).filter(ep => typeof ep === 'number'));
-  // ── вниз: мои прежние ключи, которых сервер ещё не хранит ──
-  const mine = local.filter(o => typeof o.ep === 'number');
-  if (mine.length && !oldKeysUploaded.has(c.id)) {
-    oldKeysUploaded.add(c.id);   // раз за сеанс на чат: не долбить сервер
-    const serverEps = new Set(c.oldKeys.map(o => o && o.ep));
-    const missing = mine.filter(o => !serverEps.has(o.ep));
-    if (missing.length) {
+  const curEp = c.keyEpoch || 0;
+  // что сервер уже хранит: поколения и (развернув наши свёртки) сами ключи
+  const serverEps = new Set();
+  const serverRaws = new Set();
+  for (const it of c.oldKeys) {
+    if (!it || typeof it.ep !== 'number') continue;
+    serverEps.add(it.ep);
+    if (it.blob) {
       try {
-        const oldKeys = [];
-        for (const o of missing) {
-          const wraps = {};
-          for (const uid of c.members) {
-            if (uid === S.me.id) continue;
-            const pk = await pairKeyWith(uid);
-            if (pk) wraps[uid] = await aesEncryptBytes(pk, o.raw);
-          }
-          oldKeys.push({ ep: o.ep, wraps });
-        }
-        if (oldKeys.length) await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/old', { method: 'POST', body: { oldKeys } });
-      } catch (e) { /* в следующий раз */ }
+        const wk = await pairKeyWith(it.by);
+        if (wk) serverRaws.add(toB64(await aesDecryptBytes(wk, it.blob)));
+      } catch (e) { /* не наша свёртка */ }
     }
+  }
+  // ── вниз: всё, чем это устройство читает группу: история И текущий ключ ──
+  // pkg3-67: текущий ключ выкладывается тоже (если сервер его ещё не хранит):
+  // так лечатся «разъехавшиеся» копии, а вторые устройства одной учётки и
+  // участники, пропустишие поколения, получают историю без кнопок и консоли
+  const mine = oldKeysOf(c.id).filter(o => o && o.raw).slice();
+  const cur = S.chatKeys.get(c.id);
+  if (cur && cur.raw && !serverRaws.has(toB64(cur.raw))) mine.push({ key: cur.key, raw: cur.raw });
+  const toSend = mine.filter(o => !serverRaws.has(toB64(o.raw)));
+  if (toSend.length && !oldKeysUploaded.has(c.id)) {
+    oldKeysUploaded.add(c.id);   // раз за сеанс на чат: не долбить сервер
+    try {
+      const free = [];
+      for (let ep = 0; ep < curEp && free.length < toSend.length; ep++) if (!serverEps.has(ep)) free.push(ep);
+      const oldKeys = [];
+      for (let i = 0; i < toSend.length && i < free.length; i++) {
+        const wraps = {};
+        for (const uid of c.members) {   // pkg3-67: заворачиваем и самому себе — вторые устройства учётки тоже получают историю
+          const pk = await pairKeyWith(uid);
+          if (pk) wraps[uid] = await aesEncryptBytes(pk, toSend[i].raw);
+        }
+        oldKeys.push({ ep: free[i], wraps });
+      }
+      if (oldKeys.length) await api('/api/chats/' + encodeURIComponent(c.id) + '/keys/old', { method: 'POST', body: { oldKeys } });
+    } catch (e) { /* в следующий раз */ }
   }
   // ── вверх: поколения, которых у нас нет, но сервер хранит свёртку для нас ──
   let got = 0;
+  const localEps = new Set(oldKeysOf(c.id).map(o => o.ep).filter(ep => typeof ep === 'number'));
   for (const it of c.oldKeys) {
     if (!it || !it.blob || typeof it.ep !== 'number' || localEps.has(it.ep)) continue;
     try {
@@ -960,7 +976,7 @@ function pushOldKey(chatId, entry, ep) {
   const rawB = toB64(entry.raw);
   if (olds.some(o => toB64(o.raw) === rawB)) return;
   olds.push({ key: entry.key, raw: entry.raw, ep: (typeof ep === 'number' ? ep : null) });
-  while (olds.length > 12) olds.shift();   // самые давние копии вытесняются
+  while (olds.length > 24) olds.shift();   // pkg3-67: предел поднят с 12 до 24 — история дороже
   S.chatKeysOld.set(chatId, olds);
   persistOldKeys(chatId);
 }
@@ -1682,7 +1698,11 @@ async function decryptAll(list) {
     // pkg3-54: служебные строки (события чата) не шифруются — текст кладём сразу
     if (m.svc) {
       const who = userById(m.uid);
-      S.plain.set(m.id, { text: (who ? displayName(who) : 'Участник') + ' добавил этот чат в свои разделы', svc: m.svc });
+      const name = who ? displayName(who) : 'Участник';
+      // pkg3-67: служебная строка перевыпуска ключа — кто и когда починил группу
+      S.plain.set(m.id, m.svc === 'rotatekeys'
+        ? { text: name + ' перевыпустил ключ группы', svc: m.svc }
+        : { text: name + ' добавил этот чат в свои разделы', svc: m.svc });
       continue;
     }
     if (!plainBroken(m.id)) continue;
@@ -1772,6 +1792,7 @@ async function rotateGroupKey(c) {
     S.chatKeys.set(c.id, newEntry);
     S.keyEpochSeen.set(c.id, r.keyEpoch);
     S.keyIssue.delete(c.id);
+    oldKeysUploaded.delete(c.id);   // pkg3-67: новый ключ тоже уйдёт в обмен на ближайшей синхронизации
     invalidateChatSecrets(c.id);
     // pkg3-65: название, иконка и фон были зашифрованы прежним ключом —
     // переоформляем их новым, чтобы они не пропали у участников
@@ -5000,7 +5021,11 @@ $('#btn-chat-menu').addEventListener('click', e => {
     // pkg3-44: в чат-игре фона нет и редактор не нужен — прячем пункт меню
     d.querySelector('[data-act="wall"]').classList.toggle('hidden', c.kind === 'game');
     // pkg3-63: перевыпуск ключа группы — только в групповых чатах
-    d.querySelector('[data-act="rotatekeys"]').classList.toggle('hidden', c.kind !== 'group');
+    // pkg3-67: перевыпуск — ремонт, а не игрушка: пункт виден только когда
+    // в чате есть чему чиниться (закрытые письма или плашка о ключе)
+    const needRot = c.kind === 'group' && (S.keyIssue.has(c.id)
+      || S.messages.some(m => m.chat === c.id && (S.plain.get(m.id) || {}).broken));
+    d.querySelector('[data-act="rotatekeys"]').classList.toggle('hidden', !needRot);
     // pkg3-60: пункт «Взять в «Приглашенные»» из меню чата убран (раздел снят)
     // pkg3-50: «Добавить пользователя в мои личные чаты» — для чата из раздела «Новые»,
     // «Убрать из моих личных чатов» — для сохранённого личного чата
@@ -5344,6 +5369,9 @@ async function send({ textarea, parent, attachKey }) {
   if (!c) return toast('Сначала выберите чат', true);
   const k = await chatKeyOf(c);
   if (!k) return toast('Не удалось получить ключ шифрования для этого чата', true);
+  // pkg3-67: ключ, которым шифруется отправка, СРАЗУ кладётся в историю
+  // устройства — свои же письма больше не закроются сменой поколения ключа
+  if (c.kind === 'group') pushOldKey(c.id, k, c.keyEpoch || 0);
   const quote = parent ? null : S.quote;
   let attRef = att;
   if (att && att.pending) {
