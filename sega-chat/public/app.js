@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-67';
+const BUILD = 'pkg3-68';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -948,16 +948,17 @@ async function reconcileOldKeys(c) {
     } catch (e) { /* в следующий раз */ }
   }
   // ── вверх: поколения, которых у нас нет, но сервер хранит свёртку для нас ──
+  // pkg3-68: сравниваем САМИ ключи, а не метки поколений: метки у каждого
+  // устройства свои (кто как нумеровал), а сырьё ключа уникально. Из-за
+  // сравнения по меткам ноутбук и «Для теста» пропускали чужие слоты
   let got = 0;
-  const localEps = new Set(oldKeysOf(c.id).map(o => o.ep).filter(ep => typeof ep === 'number'));
   for (const it of c.oldKeys) {
-    if (!it || !it.blob || typeof it.ep !== 'number' || localEps.has(it.ep)) continue;
+    if (!it || !it.blob || typeof it.ep !== 'number') continue;
     try {
       const wrapKey = await pairKeyWith(it.by);
       if (!wrapKey) continue;
       const raw = await aesDecryptBytes(wrapKey, it.blob);
-      pushOldKey(c.id, { key: await importAes(raw), raw }, it.ep);
-      localEps.add(it.ep); got++;
+      if (pushOldKey(c.id, { key: await importAes(raw), raw }, it.ep)) got++;
     } catch (e) { /* свёртка не наша — пропускаем */ }
   }
   if (got) {
@@ -979,6 +980,7 @@ function pushOldKey(chatId, entry, ep) {
   while (olds.length > 24) olds.shift();   // pkg3-67: предел поднят с 12 до 24 — история дороже
   S.chatKeysOld.set(chatId, olds);
   persistOldKeys(chatId);
+  return true;
 }
 /** pkg3-65: ключ чата сменился (перевыпуск/доставка) — кэши прочитанного
  * названия, иконки и фона сбрасываются, чтобы перечитаться заново. */
