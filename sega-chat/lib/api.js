@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-69';
+const BUILD = 'pkg3-70';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -349,8 +349,11 @@ function createApi(store, opts = {}) {
       keyEpoch: c.keyEpoch || 0,   // pkg3-63: поколение ключа группы — клиенты ловят перевыпуск
       // pkg3-66: прежние поколения ключа — участнику отдаются ТОЛЬКО его свёртки
       // (blob) и метка, кто завернул (by); сервер содержимое не видит
-      oldKeys: Object.entries(c.oldKeys || {}).map(([ep, o]) => ({
-        ep: Number(ep), by: (o && o.by) || null, blob: ((o && o.wraps) || {})[meId] || null
+      oldKeys: Object.entries(c.oldKeys || {}).map(([id, o]) => ({
+        // pkg3-70: адрес слота — отпечаток ключа (fp); для старых слотов
+        // оставляем и числовую метку ep — клиенты 66–69 читают только её
+        id: id, ep: Number.isFinite(Number(id)) ? Number(id) : undefined,
+        by: (o && o.by) || null, blob: ((o && o.wraps) || {})[meId] || null
       })),
       count: st.n, bytes: st.b, lastTs: st.t || c.createdAt || 0,
       archivedByName: c.archivedByName || (c.lastArchive ? c.lastArchive.byName : null) || null,
@@ -1547,26 +1550,37 @@ function createApi(store, opts = {}) {
           // поколения (был с закрытым чатом во время перевыпуска или ещё не
           // был добавлен). Сервер ключ не разворачивает и не видит: хранит
           // свёртки для каждого участника, как и текущие копии.
+          // pkg3-70: адрес слота — отпечаток самого ключа (fp, hex sha256),
+          // а не метка поколения: метки устройства назначают по-своему и
+          // collide; прежние клиенты могут слать ep — примем и их (слот «eN»)
           const b = req.body || {};
           const list = Array.isArray(b.oldKeys) ? b.oldKeys : null;
           if (!list) return E(400, 'Нет прежних ключей');
-          if (list.length > 24) return E(400, 'Слишком много прежних ключей');
+          if (list.length > 32) return E(400, 'Слишком много прежних ключей');
           if (!chat.oldKeys || typeof chat.oldKeys !== 'object' || Array.isArray(chat.oldKeys)) chat.oldKeys = {};
+          const capEp = (chat.keyEpoch || 0) + 24;
           let added = 0;
           for (const it of list) {
-            const ep = Number(it && it.ep);
-            // принимаем прошлые поколения и запасные слоты выше текущего
-            // (pkg3-69: диапазон +24 — чтобы «блуждающий» ключ всегда получил слот)
-            if (!Number.isFinite(ep) || ep < 0 || ep >= (chat.keyEpoch || 0) + 24) continue;
+            const fp = String((it && it.fp) || '');
+            const legacy = (it && typeof it.ep === 'number') ? it.ep : NaN;
+            let slotId = '';
+            if (/^[0-9a-f]{16,64}$/.test(fp)) slotId = fp;
+            else if (Number.isFinite(legacy) && legacy >= 0 && legacy < capEp) slotId = 'e' + legacy;
+            if (!slotId) continue;
             const wraps = (it && it.wraps && typeof it.wraps === 'object') ? it.wraps : null;
             if (!wraps) continue;
-            const slot = chat.oldKeys[String(ep)] || (chat.oldKeys[String(ep)] = { by: me.id, wraps: {} });
+            const slot = chat.oldKeys[slotId] || (chat.oldKeys[slotId] = { by: me.id, wraps: {} });
             for (const uid of chat.members) {
               const blob = wraps[uid];
               if (typeof blob !== 'string' || !blob || blob.length > 4096) continue;
               if (slot.wraps[uid]) continue;   // прежнюю свёртку не перезаписываем
               slot.wraps[uid] = blob; added++;
             }
+          }
+          // защитный предел числа слотов: самые старые уходят
+          const ids = Object.keys(chat.oldKeys);
+          if (ids.length > 40) {
+            for (const drop of ids.slice(0, ids.length - 40)) delete chat.oldKeys[drop];
           }
           db.seq++; save();
           return J(200, { ok: true, added });
