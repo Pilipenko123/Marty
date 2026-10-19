@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v62'), 'кэш статики поднят до v62');
+ok(sw.includes('sega-static-v63'), 'кэш статики поднят до v63');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -413,7 +413,7 @@ ok(modelJs.includes('e.ep = c.keyEpoch'), 'модель: migrate() помеча�
 ok(apiJs.includes("sub === 'old'") && apiJs.includes('chat.oldKeys'), 'сервер: участник выкладывает свёртки прежних ключей (POST keys/old)');
 ok(apiJs.includes('oldKeys: Object.entries'), 'сервер: в публичном чате отдаются только свои свёртки прежних ключей');
 ok(apiJs.includes('if (slot.wraps[uid]) continue;'), 'сервер: прежние свёртки не перезаписываются');
-ok(apiJs.includes('ep >= (chat.keyEpoch || 0)'), 'сервер: текущее и будущие поколения прежними не принимаются');
+ok(apiJs.includes('const capEp = (chat.keyEpoch || 0) + 24;'), 'сервер: предел слотов прежних ключей — поколение+24');
 ok(modelJs.includes('c.oldKeys = {}'), 'модель: migrate() добавляет хранилище прежних ключей с дефолтом');
 ok(appJs.includes('function reconcileOldKeys') && appJs.includes("/keys/old'"), 'клиент: автообмен прежними ключами без кнопок');
 ok(appJs.includes('const oldKeysUploaded = new Set()'), 'клиент: выкладка прежних ключей — раз за сеанс на чат');
@@ -425,12 +425,12 @@ ok(appJs.includes('перевыпустил ключ группы'), 'клиен
 ok(appJs.includes('pkg3-67: перевыпуск — ремонт, а не игрушка'), 'клиент: пункт «Перевыпустить» виден только при закрытых письмах');
 ok(appJs.includes('pkg3-67: заворачиваем и самому себе'), 'клиент: свёртки выкладываются и самому себе (вторые устройства)');
 ok(appJs.includes('pkg3-67: ключ, которым шифруется отправка'), 'клиент: ключ отправки сразу кладётся в историю устройства');
-ok(appJs.includes('pkg3-68: сравниваем САМИ ключи, а не метки поколений'), 'клиент: скачанные свёртки сравниваются по сырью ключа (лечение ноутбука и «Для теста»)');
+ok(appJs.includes('serverRaws.add(toB64(await aesDecryptBytes(wk, it.blob)))'), 'клиент: скачанные свёртки сравниваются по сырью ключа (лечение ноутбука и «Для теста»)');
 
 // pkg3-69: обмен на каждом опросе, тихая плашка, запасные слоты
 ok(appJs.includes('pkg3-69: обмен прежними ключами на КАЖДОМ опросе') && appJs.includes('async function reconcileOldKeysChanged'), 'клиент: обмен прежними ключами идёт на каждом опросе, а не только при старте');
 ok(appJs.includes('pkg3-69: не советуем перевыпуск из-за писем, чьи ключи утеряны навсегда'), 'клиент: плашка «перевыпустите ключ» молчит при музейных замках');
-ok(appJs.includes('pkg3-69: запасные слоты выше текущего поколения') && apiJs.includes('(chat.keyEpoch || 0) + 24'), 'сервер и клиент: запасные слоты для блуждающих ключей (+24)');
+ok(apiJs.includes('slotId = \'e\' + legacy'), 'сервер: прежние клиенты с метками ep продолжают работать');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')

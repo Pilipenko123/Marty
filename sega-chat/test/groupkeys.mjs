@@ -288,13 +288,13 @@ ok(r.status === 200 && r.d.added === 2, 'участник выложил свё�
 
 r = await call(A.base, '/api/sync?since=0', {}, admin);
 g = (r.d.chats || []).find(c => c.id === grp);
-const okEntry = (g.oldKeys || []).find(o => o.ep === 1);
-ok(!!okEntry && okEntry.by === g1Id && typeof okEntry.blob === 'string' && okEntry.blob.length > 0,
+const okEntry = (g.oldKeys || []).find(o => o.by === g1Id && o.blob);
+ok(!!okEntry && typeof okEntry.blob === 'string' && okEntry.blob.length > 0,
   'администратор получил свою свёртку прежнего ключа в синхронизации');
 r = await call(A.base, '/api/sync?since=0', {}, g3);
 g = (r.d.chats || []).find(c => c.id === grp);
-const nullEntry = (g.oldKeys || []).find(o => o.ep === 1);
-ok(!!nullEntry && nullEntry.blob === null, 'участнику без свёртки отдаётся метка поколения без содержимого');
+const nullEntry = (g.oldKeys || []).find(o => o.by === g1Id && o.blob === null);
+ok(!!nullEntry, 'участнику без свёртки отдаётся метка слота без содержимого');
 
 // свёртки не перезаписываются
 r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
@@ -302,11 +302,25 @@ r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
 }, g2);
 ok(r.status === 200 && r.d.added === 0, 'прежнюю свёртку участника не перезаписывают');
 
+// pkg3-70: слот адресуется отпечатком ключа — дубли и коллизии меток невозможны
+const FP1 = '0123456789abcdef';
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
+  method: 'POST', body: { oldKeys: [{ fp: FP1, wraps: { [adminId]: 'w-fp-a', [g2Id]: 'w-fp-b' } }] }
+}, g1);
+ok(r.status === 200 && r.d.added === 2, 'слот с отпечатком ключа создан (fp)');
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
+  method: 'POST', body: { oldKeys: [{ fp: FP1, wraps: { [adminId]: 'w-fp-zzz' } }] }
+}, g2);
+ok(r.status === 200 && r.d.added === 0, 'тот же отпечаток второй раз не перезаписывает свёртки');
+r = await call(A.base, '/api/sync?since=0', {}, admin);
+g = (r.d.chats || []).find(c => c.id === grp);
+ok(!!(g.oldKeys || []).find(o => o.id === FP1 && o.blob === 'w-fp-a'), 'слот по отпечатку виден участнику в синхронизации');
+
 // криптопуть клиента: свёртка разворачивается личным ключом адресата
 {
   r = await call(A.base, '/api/sync?since=0', {}, admin);
   g = (r.d.chats || []).find(c => c.id === grp);
-  const entry = (g.oldKeys || []).find(o => o.ep === 1);
+  const entry = (g.oldKeys || []).find(o => o.blob === wrapForAdmin);
   const k = await ecdhAes(kpA.privateKey, pubG1);   // pairKeyWith(кто завернул)
   const rawB = Buffer.from(entry.blob, 'base64');
   const plain = new Uint8Array(await subtleW.decrypt({ name: 'AES-GCM', iv: rawB.slice(0, 12) }, k, rawB.slice(12)));
@@ -359,7 +373,7 @@ r = await call(A.base, '/api/chats/' + grp + '/keys/old', {
 ok(r.status === 200 && r.d.added === 1, 'свёртка самому себе принята (вторые устройства учётки)');
 r = await call(A.base, '/api/sync?since=0', {}, g1);
 g = (r.d.chats || []).find(c => c.id === grp);
-ok(!!(g.oldKeys || []).find(o => o.ep === 1 && o.blob === 'w-self-g1'), 'участник видит в синхронизации собственную свёртку');
+ok(!!(g.oldKeys || []).find(o => o.blob === 'w-self-g1'), 'участник видит в синхронизации собственную свёртку');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Ключ группы (ротация): ${good} ✓, провалов ${bad}`);
