@@ -196,7 +196,7 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v61'), 'кэш статики поднят до v61');
+ok(sw.includes('sega-static-v62'), 'кэш статики поднят до v62');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -426,6 +426,11 @@ ok(appJs.includes('pkg3-67: перевыпуск — ремонт, а не иг�
 ok(appJs.includes('pkg3-67: заворачиваем и самому себе'), 'клиент: свёртки выкладываются и самому себе (вторые устройства)');
 ok(appJs.includes('pkg3-67: ключ, которым шифруется отправка'), 'клиент: ключ отправки сразу кладётся в историю устройства');
 ok(appJs.includes('pkg3-68: сравниваем САМИ ключи, а не метки поколений'), 'клиент: скачанные свёртки сравниваются по сырью ключа (лечение ноутбука и «Для теста»)');
+
+// pkg3-69: обмен на каждом опросе, тихая плашка, запасные слоты
+ok(appJs.includes('pkg3-69: обмен прежними ключами на КАЖДОМ опросе') && appJs.includes('async function reconcileOldKeysChanged'), 'клиент: обмен прежними ключами идёт на каждом опросе, а не только при старте');
+ok(appJs.includes('pkg3-69: не советуем перевыпуск из-за писем, чьи ключи утеряны навсегда'), 'клиент: плашка «перевыпустите ключ» молчит при музейных замках');
+ok(appJs.includes('pkg3-69: запасные слоты выше текущего поколения') && apiJs.includes('(chat.keyEpoch || 0) + 24'), 'сервер и клиент: запасные слоты для блуждающих ключей (+24)');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')

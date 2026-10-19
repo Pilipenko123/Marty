@@ -251,8 +251,10 @@ r = await call(A.base, '/api/chats/' + grp + '/keys/old', { method: 'POST', body
 ok(r.status === 403, 'не-участник не может выкладывать прежние ключи');
 
 // текущее поколение «прежним» не принимается
-r = await call(A.base, '/api/chats/' + grp + '/keys/old', { method: 'POST', body: { oldKeys: [{ ep: 2, wraps: { [adminId]: 'x' } }] } }, g1);
-ok(r.status === 200 && r.d.added === 0, 'свёртка текущего поколения как «прежняя» не принимается');
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', { method: 'POST', body: { oldKeys: [{ ep: 2, wraps: { [adminId]: 'x-cur' } }] } }, g1);
+ok(r.status === 200 && r.d.added === 1, 'pkg3-69: свёртка текущего поколения уходит в запасной слот');
+r = await call(A.base, '/api/chats/' + grp + '/keys/old', { method: 'POST', body: { oldKeys: [{ ep: 30, wraps: { [adminId]: 'x-far' } }] } }, g1);
+ok(r.status === 200 && r.d.added === 0, 'pkg3-69: слот дальше предела +24 не создаётся');
 
 // настоящая криптография: как у клиента (ECDH + AES-GCM)
 const { webcrypto } = await import('node:crypto');
