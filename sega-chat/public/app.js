@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-72';
+const BUILD = 'pkg3-73';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -5082,11 +5082,17 @@ $('#btn-chat-menu').addEventListener('click', e => {
     // pkg3-44: в чат-игре фона нет и редактор не нужен — прячем пункт меню
     d.querySelector('[data-act="wall"]').classList.toggle('hidden', c.kind === 'game');
     // pkg3-63: перевыпуск ключа группы — только в групповых чатах
-    // pkg3-67: перевыпуск — ремонт, а не игрушка: пункт виден только когда
-    // в чате есть чему чиниться (закрытые письма или плашка о ключе)
+    // pkg3-73: перевыпуск — ремонт, а не игрушка: решает создатель чата или
+    // администратор мессенджера, и только когда в чате есть чему чиниться
+    const canRotate = c.kind === 'group' && (c.ownerId === S.me.id || (S.me && S.me.isAdmin));
     const needRot = c.kind === 'group' && (S.keyIssue.has(c.id)
       || S.messages.some(m => m.chat === c.id && (S.plain.get(m.id) || {}).broken));
-    d.querySelector('[data-act="rotatekeys"]').classList.toggle('hidden', !needRot);
+    const rkBtn = d.querySelector('[data-act="rotatekeys"]');
+    if (rkBtn) rkBtn.classList.toggle('hidden', !(canRotate && needRot));
+    // pkg3-73: «Очистить чат» в группе решает только создатель или администратор —
+    // остальным пункт не показываем (сервер их и так не пустит)
+    const clBtn = d.querySelector('[data-act="clear"]');
+    if (clBtn) clBtn.classList.toggle('hidden', c.kind === 'group' && !(c.ownerId === S.me.id || (S.me && S.me.isAdmin)));
     // pkg3-60: пункт «Взять в «Приглашенные»» из меню чата убран (раздел снят)
     // pkg3-50: «Добавить пользователя в мои личные чаты» — для чата из раздела «Новые»,
     // «Убрать из моих личных чатов» — для сохранённого личного чата
@@ -6676,14 +6682,17 @@ function openSettings() {
   // pkg3-72: строка-диагностика истории ключей — видно без консоли, доехали ли ключи
   const okt = $('#oldkeys-tag');
   if (okt) {
-    let n = 0;
-    for (const cc of S.chats) if (cc.kind === 'group') n += oldKeysOf(cc.id).length;
-    okt.textContent = 'Ключи групп: история ' + n;
+    let n = 0, m = 0;
+    for (const cc of S.chats) if (cc.kind === 'group') { n += oldKeysOf(cc.id).length; m += (cc.oldKeys || []).length; }
+    // pkg3-72/73: видно без консоли, доехали ли ключи и всё ли выложено на
+    // сервер (M >= N значит друзья получат историю сами, без ручных передач)
+    okt.textContent = 'Ключи групп: история ' + n + ' · на сервере ' + m;
   }
   refreshPushSwitch();
 }
 // ── pkg3-72: перенос набора ключей групп между устройствами без консоли ──
-$('#btn-oldkeys-copy').addEventListener('click', async () => {
+const bkCopyBtn = $('#btn-oldkeys-copy');   // pkg3-73: null-защита на стыке кэшей
+if (bkCopyBtn) bkCopyBtn.addEventListener('click', async () => {
   const out = { chats: [] };
   for (const c of S.chats) {
     if (c.kind !== 'group') continue;
@@ -6700,7 +6709,8 @@ $('#btn-oldkeys-copy').addEventListener('click', async () => {
   } catch (e) { toast('Не удалось скопировать: ' + e.message, true); }
   closeSettings();
 });
-$('#btn-oldkeys-paste').addEventListener('click', () => {
+const bkPasteBtn = $('#btn-oldkeys-paste');   // pkg3-73: null-защита на стыке кэшей
+if (bkPasteBtn) bkPasteBtn.addEventListener('click', () => {
   closeSettings();
   modal('Ключи групп', '<textarea id="bk-in" style="width:100%;height:140px" placeholder="Сюда вставьте скопированный набор"></textarea>'
     + '<div style="margin-top:10px"><button class="primary" id="bk-go">Применить и перезапустить</button></div>');
