@@ -196,7 +196,8 @@ ok(appJs.includes('S.myKnocks'), 'заявки зрителей в мои пар
 const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
-ok(sw.includes('sega-static-v66'), 'кэш статики поднят до v66');
+const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
+ok(sw.includes('sega-static-v67'), 'кэш статики поднят до v67');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -455,6 +456,17 @@ ok(apiJs.includes('Очистить групповой чат может тол�
 ok(appJs.includes('pkg3-73: перевыпуск — ремонт, а не игрушка: решает создатель чата или') && appJs.includes('pkg3-73: «Очистить чат» в группе решает только создатель или администратор'), 'клиент: пункты меню скрыты у непривилегированных участников');
 ok(appJs.includes('Ключи групп: история ') && appJs.includes('на сервере '), 'клиент: строка настроек показывает историю и число слотов на сервере');
 ok(appJs.includes('pkg3-73: null-защита на стыке кэшей'), 'клиент: новые кнопки регистрируются с null-защитой');
+
+// pkg3-74: пульт памяти сервера
+ok(html.includes('пульт памяти сервера'), 'шкала «Память сервера» стала кнопкой пульта');
+ok(appJs.includes('function stDonutHtml') && appJs.includes('function openStoragePanel'), 'клиент: бублик-диаграмма и окно пульта');
+ok(appJs.includes('id="st-fresh"') && appJs.includes('Актуализировать'), 'клиент: кнопка «Актуализировать» с прогрессом пересчёта');
+ok(appJs.includes('Мои чаты</button>') && appJs.includes('Все чаты</button>'), 'клиент: тумблер «мои чаты / все чаты»');
+ok(appJs.includes('function openStorageKind') && appJs.includes('function openStorageChats'), 'клиент: списки загрузок и сообщений по чатам');
+ok(appJs.includes('вложение удалено с сервера'), 'клиент: удалённое вложение показывает честную заглушку');
+ok(apiJs.includes('/api/storage/summary') && apiJs.includes('/api/storage/items') && apiJs.includes('/api/storage/delete'), 'сервер: маршруты сводки, списков и удаления');
+ok(apiJs.includes('/api/admin/storage/limit') && apiJs.includes('function diskFree'), 'сервер: предел хранилища и свободное место диска');
+ok(apiJs.includes('KIND_OF') && storeFile.includes('async listUpMeta'), 'хранилища: перечень загрузок для сводки');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех
 ok(apiJs.includes('function realOf') && apiJs.includes('const asked = db.users.find(u => u.id === b.peer)')
