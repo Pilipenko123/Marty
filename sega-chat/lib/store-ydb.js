@@ -642,6 +642,9 @@ function createYdbStore(opts = {}) {
     async putUpPart(chatId, upId, i, data) { await putDoc('up', upId + '#' + i, { d: data }); },
     async getUpPart(chatId, upId, i) { const v = await readDocJson('up', upId + '#' + i); return v ? (v.d || null) : null; },
     async delUp(upId) { await delByPrefix('up', upId + '#'); await delDoc('upmeta', upId); },
+    // pkg3-74: пульт памяти — перечень всех загрузок и удаление только кусков
+    async listUpMeta() { return parseDocs(await queryPk('upmeta'), 'upmeta').map(d => Object.assign({ id: d.sk }, d.value || {})); },
+    async delUpParts(upId) { await delByPrefix('up', upId + '#'); },
     // «тёплый» экземпляр функции мог загрузить список архивов при старте раньше,
     // чем архивы появились: перед любым обращением к архивам перечитываем индекс
     async loadArchives() {

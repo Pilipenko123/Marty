@@ -117,6 +117,26 @@ function createFileStore(opts = {}) {
         }
       } catch (e) {}
     },
+    // pkg3-74: пульт памяти — перечень всех загрузок и удаление только кусков
+    // (мета остаётся с пометкой gone: лента показывает «вложение удалено»)
+    async listUpMeta() {
+      const out = [];
+      try {
+        for (const f of fs.readdirSync(dataDir)) {
+          if (f.startsWith('upmeta-') && f.endsWith('.json')) {
+            try { out.push(Object.assign({ id: f.slice(7, -5) }, JSON.parse(fs.readFileSync(path.join(dataDir, f), 'utf8')))); } catch (e) {}
+          }
+        }
+      } catch (e) {}
+      return out;
+    },
+    async delUpParts(upId) {
+      try {
+        for (const f of fs.readdirSync(dataDir)) {
+          if (f.startsWith('up-' + upId + '-')) fs.rmSync(path.join(dataDir, f), { force: true });
+        }
+      } catch (e) {}
+    },
     async delArchive(file) {
       const full = path.join(archiveDir, file);
       if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });

@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-73';
+const BUILD = 'pkg3-74';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -179,15 +179,75 @@ function createApi(store, opts = {}) {
    */
   const MSG_ROW_OVERHEAD = Number(process.env.MSG_ROW_OVERHEAD || 286);
   const UP_B64 = 4 / 3;
+    const KIND_OF = m => String(m || '').startsWith('image/') ? 'photos'
+      : (String(m || '').startsWith('video/') || String(m || '').startsWith('audio/') ? 'media' : 'files');
+    const KIND_LABEL = { photos: 'Фото', media: 'Медиа', files: 'Файлы' };
+    const storageCache = new Map();   // ключ -> {ts, data}
+    async function storageSummary(scope, meId, fresh, isAdmin) {
+      const key = scope + ':' + meId;
+      if (!fresh) {
+        const hit = storageCache.get(key);
+        if (hit && Date.now() - hit.ts < 5 * 60 * 1000) return hit.data;
+      }
+      const ups = (await store.listUpMeta()).filter(u => u && !u.gone);
+      const u = usage();
+      const upTotal = ups.reduce((a, x) => a + Math.ceil((x.stored || x.size || 0) * UP_B64), 0);
+      const mine = scope === 'me';
+      const cats = {
+        messages: { bytes: 0, count: 0 },
+        photos: { bytes: 0, count: 0 },
+        media: { bytes: 0, count: 0 },
+        files: { bytes: 0, count: 0 }
+      };
+      for (const x of ups) {
+        if (mine && x.owner !== meId) continue;
+        const b = Math.ceil((x.stored || x.size || 0) * UP_B64);
+        cats[KIND_OF(x.mime)].bytes += b;
+        cats[KIND_OF(x.mime)].count += 1;
+      }
+      if (mine) {
+        for (const m of db.messages) {
+          if (m.uid !== meId || m.svc) continue;
+          cats.messages.bytes += (m.bytes || 0) + MSG_ROW_OVERHEAD;
+          cats.messages.count += 1;
+        }
+      } else {
+        cats.messages.bytes = Math.max(0, u.bytes - upTotal);
+        cats.messages.count = db.stats.count;
+      }
+      const data = {
+        scope, used: u.bytes, limit: u.limit, percent: u.percent,
+        diskFree: diskFree(), cats,
+        free: Math.max(0, u.limit - u.bytes),
+        canOperate: isAdmin === true
+      };
+      storageCache.set(key, { ts: Date.now(), data });
+      return data;
+    }
+
+  // pkg3-74: предел хранилища может поднять администратор из мессенджера
+  // (db.storageLimit); без него действует предел из окружения
+  function currentLimit() {
+    const v = Number(db.storageLimit);
+    return v > 0 ? v : STORAGE_LIMIT;
+  }
+  // pkg3-74: свободное место диска под базой (для пульта и для предела)
+  function diskFree() {
+    try {
+      const st = fs.statfsSync(process.env.DATA_DIR || 'data');
+      return Math.floor(st.bavail * st.bsize);
+    } catch (e) { return null; }
+  }
   function usage() {
     const arcBytes = db.archives.reduce((a, r) => a + (r.bytes || 0), 0);
     const chatAssets = db.chats.reduce((a, c) => a + (c.wallLen || 0) + (c.iconLen || 0), 0);
     const uploads = Math.ceil((db.upBytes || 0) * UP_B64);
     const overhead = db.stats.count * MSG_ROW_OVERHEAD;
     const bytes = db.stats.bytes + overhead + avatarBytes() + arcBytes + uploads + chatAssets;
+    const LIMIT = currentLimit();
     return {
-      bytes, limit: STORAGE_LIMIT,
-      percent: Math.min(100, Math.round(bytes / STORAGE_LIMIT * 1000) / 10),
+      bytes, limit: LIMIT,
+      percent: Math.min(100, Math.round(bytes / LIMIT * 1000) / 10),
       messages: db.stats.count,
       archives: db.archives.length,
       archiveBytes: arcBytes,
@@ -710,12 +770,13 @@ function createApi(store, opts = {}) {
         app: 'SEGA-CHAT',
         build: BUILD,
         setupRequired: db.users.length === 0,
+        diskFree: diskFree(),   // pkg3-74: пульт памяти показывает свободное место диска
         codeProofSalt: db.room ? db.room.codeProofSalt : null,
         // pkg3-45: регистрация закрыта — только по персональному приглашению;
         // кодовая фраза принимает лишь пока открыто аварийное окно администратора
         registration: 'invite',
         emergencyOpen: db.emergencyRegUntil > Date.now(),
-        limit: STORAGE_LIMIT, maxUpload: MAX_UPLOAD,
+        limit: currentLimit(), maxUpload: MAX_UPLOAD,   // pkg3-74: предел может поднять администратор
         // pkg3-51: подпись сервера («VPS (основной)» / «Яндекс (запасной)») —
         // владелец ставит её переменной окружения SEGA_LABEL, чтобы в подвале
         // было видно, КТО именно сейчас отвечает
@@ -1725,6 +1786,14 @@ function createApi(store, opts = {}) {
         const msgs = db.messages.filter(m => m.chat === chat.id);
         const count = msgs.length;
         dropChat(chat.id);                 // освобождает место и счётчики
+        // pkg3-74: вложения очищенного чата стираем с сервера тоже
+        for (const um of await store.listUpMeta()) {
+          if (um.chat !== chat.id || um.gone) continue;
+          if (db.messages.some(m => m.upId === um.id)) continue;
+          await store.delUp(um.id);
+          db.upBytes = Math.max(0, (db.upBytes || 0) - (um.stored || um.size || 0));
+        }
+        storageCache.clear();
         chat.clearedByName = me.name;
         chat.clearedAt = Date.now();
         chat.clearedCount = count;
@@ -2594,10 +2663,104 @@ function createApi(store, opts = {}) {
       const i = Number(seg[3] || 0);
       const meta = await store.getUpMeta(upId);
       if (!meta) return E(404, 'Загрузка не найдена');
+      if (meta.gone) return E(410, 'Вложение удалено с сервера');   // pkg3-74
       if (!isMember(chatById(meta.chat), me.id)) return E(403, 'Это не ваш чат');
       const d = await store.getUpPart(meta.chat, upId, i);
       if (d == null) return E(404, 'Кусок не найден');
       return J(200, { data: d, parts: meta.parts, name: meta.name, mime: meta.mime, size: meta.size });
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // pkg3-74: ПУЛЬТ ПАМЯТИ СЕРВЕРА. Сервер слеп к содержимому, но метаданные
+    // загрузок (владелец, чат, mime, байты) не секретны — на них и считаем.
+    // ────────────────────────────────────────────────────────────────────
+    if (pathname === '/api/storage/summary' && method === 'GET') {
+      const scope = query.get('scope') === 'all' ? 'all' : 'me';
+      const fresh = query.get('fresh') === '1';
+      return J(200, await storageSummary(scope, me.id, fresh, me.isAdmin === true));
+    }
+    if (pathname === '/api/storage/items' && method === 'GET') {
+      const scope = query.get('scope') === 'all' ? 'all' : 'me';
+      const kind = ['photos', 'media', 'files'].includes(query.get('kind')) ? query.get('kind') : 'photos';
+      const cursor = Math.max(0, Number(query.get('cursor')) || 0);
+      if (scope === 'all' && !me.isAdmin) return E(403, 'Список всех загрузок видит только администратор');
+      const ups = (await store.listUpMeta())
+        .filter(u => u && !u.gone && KIND_OF(u.mime) === kind && (scope === 'all' || u.owner === me.id))
+        .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      const numbered = ups.map((u, i) => Object.assign({ num: i + 1 }, u)).reverse();   // свежие сверху
+      const page = numbered.slice(cursor, cursor + 50);
+      const chatNo = {};
+      db.chats.forEach((c, i) => { chatNo[c.id] = { n: i + 1, kind: c.kind }; });
+      const items = page.map(u => {
+        const mine = u.owner === me.id;
+        const cn = chatNo[u.chat] || { n: 0, kind: 'group' };
+        return {
+          upId: u.id, chat: u.chat, bytes: Math.ceil((u.stored || u.size || 0) * UP_B64),
+          ts: u.ts || 0, mime: u.mime || '', kind,
+          name: (scope === 'me' || mine) ? (u.name || 'file') : (KIND_LABEL[kind] + ' №' + u.num),
+          chatLabel: (scope === 'me' || mine) ? null : (cn.kind === 'dm' ? 'Личный чат №' + cn.n : 'Групповой чат №' + cn.n),
+          mine
+        };
+      });
+      return J(200, { items, next: cursor + page.length < numbered.length ? cursor + 50 : null });
+    }
+    if (pathname === '/api/storage/chats' && method === 'GET') {
+      const scope = query.get('scope') === 'all' ? 'all' : 'me';
+      if (scope === 'all' && !me.isAdmin) return E(403, 'Сводку по всем чатам видит только администратор');
+      const ups = (await store.listUpMeta()).filter(u => u && !u.gone);
+      const rows = [];
+      db.chats.forEach((c, i) => {
+        if (scope === 'me' && !isMember(c, me.id)) return;
+        let msgBytes = 0, msgCount = 0;
+        for (const m of db.messages) {
+          if (m.chat !== c.id || m.svc) continue;
+          if (scope === 'me' && m.uid !== me.id) continue;
+          msgBytes += (m.bytes || 0) + MSG_ROW_OVERHEAD; msgCount += 1;
+        }
+        const upBytes = ups.filter(u => u.chat === c.id && (scope === 'all' || u.owner === me.id))
+          .reduce((a, u) => a + Math.ceil((u.stored || u.size || 0) * UP_B64), 0);
+        if (!msgBytes && !upBytes) return;
+        rows.push({
+          chat: c.id, n: i + 1, type: c.kind,
+          msgBytes, msgCount, upBytes,
+          canClear: c.kind === 'group' ? (c.ownerId === me.id || me.isAdmin === true) : true
+        });
+      });
+      rows.sort((a, b) => (b.msgBytes + b.upBytes) - (a.msgBytes + a.upBytes));
+      return J(200, { rows });
+    }
+    if (pathname === '/api/storage/delete' && method === 'POST') {
+      const b = req.body || {};
+      const upId = safeFile(String(b.upId || ''));
+      const meta = await store.getUpMeta(upId);
+      if (!meta || meta.gone) return E(404, 'Вложение не найдено или уже удалено');
+      if (meta.owner !== me.id && me.isAdmin !== true) return E(403, 'Удалять вложение может только владелец или администратор');
+      await store.delUpParts(upId);
+      const freed = meta.stored || meta.size || 0;
+      meta.gone = true; meta.stored = 0;
+      await store.putUpMeta(upId, meta);
+      db.upBytes = Math.max(0, (db.upBytes || 0) - freed);
+      db.seq++; save();
+      storageCache.clear();
+      return J(200, { ok: true, freed: Math.ceil(freed * UP_B64) });
+    }
+    if (pathname === '/api/admin/storage/limit' && method === 'POST') {
+      // pkg3-74: администратор поднимает предел хранилища из мессенджера.
+      // Сам диск расширить нельзя — можно лишь занять свободное место диска
+      // под предел мессенджера (с неснижаемым запасом 256 МБ).
+      if (!me.isAdmin) return E(403, 'Только администратор мессенджера');
+      const b = req.body || {};
+      const v = Math.floor(Number(b.bytes));
+      const u = usage();
+      if (!Number.isFinite(v) || v < u.bytes) return E(400, 'Предел не может быть меньше занятого (' + Math.ceil(u.bytes / 1048576) + ' МБ)');
+      const df = diskFree();
+      if (df != null) {
+        const headroom = u.bytes + Math.max(0, df - 256 * 1048576);
+        if (v > headroom) return E(400, 'На диске нет места под такой предел: свободно ' + Math.floor(df / 1048576) + ' МБ, запас 256 МБ неснижаемый');
+      }
+      db.storageLimit = v; save();
+      storageCache.clear();
+      return J(200, { ok: true, limit: v, diskFree: df });
     }
 
     // --- выгрузка своих чатов (данные всё равно зашифрованы)
