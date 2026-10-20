@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-73';
+const BUILD = 'pkg3-74';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -3907,6 +3907,202 @@ function renderMemory() {
   }
 }
 
+// ─────────────────────────────────────────────────────────── pkg3-74:
+// ПУЛЬТ ПАМЯТИ СЕРВЕРА: открывается нажатием на шкалу «Память сервера».
+// Бублик с процентом занятого в центре и сектором свободного места;
+// тумблер «мои чаты / все чаты»; кнопка «Актуализировать» с прогрессом;
+// списки своих загрузок с просмотром и удалением; админу — операции в
+// «всех чатах» без просмотра содержимого и управление пределом хранилища.
+const ST_COLORS = { messages: '#6f9bff', photos: '#ff7ab2', media: '#b28cff', files: '#ffb86b', free: '#39415a' };
+const ST_LABEL = { messages: 'Сообщения', photos: 'Фотографии', media: 'Медиа', files: 'Файлы', free: 'Свободное место' };
+let stScope = 'me';
+const stMB = b => (b / 1048576).toFixed(1) + ' МБ';
+function stDonutHtml(cats, free, percent) {
+  const total = cats.messages.bytes + cats.photos.bytes + cats.media.bytes + cats.files.bytes + free;
+  const R = 54, C = 2 * Math.PI * R;
+  let off = 0, arcs = '';
+  for (const k of ['messages', 'photos', 'media', 'files', 'free']) {
+    const v = k === 'free' ? free : cats[k].bytes;
+    if (!total || v <= 0) continue;
+    const len = v / total * C;
+    arcs += `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${ST_COLORS[k]}" stroke-width="26"
+      stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"
+      data-st="${k}" style="cursor:${k === 'free' ? 'default' : 'pointer'}"></circle>`;
+    off += len;
+  }
+  return `<svg viewBox="0 0 140 140" width="168" height="168" style="display:block;margin:0 auto">
+    <g transform="rotate(-90 70 70)">${arcs}</g>
+    <text x="70" y="66" text-anchor="middle" style="font-size:20px;font-weight:700;fill:currentColor">${percent}%</text>
+    <text x="70" y="84" text-anchor="middle" style="font-size:9px;fill:currentColor;opacity:.7">занято</text>
+  </svg>`;
+}
+function stLegendHtml(d) {
+  const rows = ['messages', 'photos', 'media', 'files', 'free'].map(k => {
+    const v = k === 'free' ? d.free : d.cats[k].bytes;
+    const cnt = k === 'free' ? '' : (' · ' + d.cats[k].count + ' шт.');
+    return `<div class="st-row" data-stk="${k}" style="display:flex;align-items:center;gap:8px;padding:4px 2px;${k === 'free' ? '' : 'cursor:pointer'}">
+      <span style="width:12px;height:12px;border-radius:3px;background:${ST_COLORS[k]};flex:none"></span>
+      <span style="flex:1">${ST_LABEL[k]}</span>
+      <span class="tiny muted">${stMB(v)}${cnt}</span></div>`;
+  }).join('');
+  return rows;
+}
+async function openStoragePanel(scope) {
+  stScope = scope || stScope || 'me';
+  modal('Память сервера', '<div id="st-body"><div class="tiny muted">Запрашиваю сводку…</div></div>');
+  await stRender(false);
+}
+async function stRender(fresh) {
+  const body = $('#st-body');
+  if (!body) return;
+  body.innerHTML = '<div class="st-prog" style="height:6px;background:#ffffff22;border-radius:3px;overflow:hidden;margin:6px 0">'
+    + '<div id="st-prog-fill" style="height:100%;width:8%;background:#6f9bff;transition:width .2s"></div></div>'
+    + '<div id="st-prog-txt" class="tiny muted">опрашиваю сервер… 8%</div><div id="st-main"></div>';
+  const setP = (p, t) => {
+    const f = $('#st-prog-fill'); if (f) f.style.width = p + '%';
+    const x = $('#st-prog-txt'); if (x) x.textContent = t + ' ' + p + '%';
+  };
+  setP(8, 'опрашиваю сервер…');
+  let d = null;
+  try { d = await api('/api/storage/summary?scope=' + stScope + (fresh ? '&fresh=1' : '')); }
+  catch (e) { setP(100, 'ошибка:'); $('#st-main').innerHTML = '<div class="tiny">' + escapeHtml(e.message) + '</div>'; return; }
+  setP(62, 'размечаю сектора…');
+  await new Promise(r => setTimeout(r, 30));
+  const togg = `<div style="display:flex;gap:6px;justify-content:center;margin:8px 0">
+    <button class="mini ${stScope === 'me' ? 'primary' : ''}" id="st-me">Мои чаты</button>
+    <button class="mini ${stScope === 'all' ? 'primary' : ''}" id="st-all">Все чаты</button>
+    <button class="mini" id="st-fresh" title="Пересчитать без кэша">Актуализировать</button></div>`;
+  const lim = d.canOperate ? `<div class="tiny muted" style="text-align:center;margin-top:8px">
+    Предел хранилища: ${stMB(d.limit)} · свободно на диске: ${d.diskFree == null ? 'н/д' : stMB(d.diskFree)}<br>
+    <input id="st-lim" type="number" min="1" style="width:90px" placeholder="МБ"> <button class="mini" id="st-lim-go">Расширить до МБ</button>
+    <div class="tiny muted">Диск расширить нельзя (это тариф хостинга); можно поднять предел мессенджера, пока на диске есть место, и освободить место удалениями.</div></div>` : '';
+  $('#st-main').innerHTML = stDonutHtml(d.cats, d.free, d.percent) + togg
+    + '<div style="max-width:340px;margin:0 auto">' + stLegendHtml(d) + '</div>'
+    + '<div class="tiny muted" style="text-align:center;margin-top:6px">Занято ' + stMB(d.used) + ' из ' + stMB(d.limit)
+    + (stScope === 'all' && !d.canOperate ? ' · просмотр сумм без операций' : '') + '</div>' + lim;
+  setP(100, 'готово:');
+  setTimeout(() => { const p = $('#st-prog-fill'); if (p) p.parentElement.style.display = 'none'; const t = $('#st-prog-txt'); if (t) t.style.display = 'none'; }, 500);
+  $('#st-me').addEventListener('click', () => { stScope = 'me'; stRender(false); });
+  $('#st-all').addEventListener('click', () => { stScope = 'all'; stRender(false); });
+  $('#st-fresh').addEventListener('click', () => stRender(true));
+  $('#st-main').querySelectorAll('[data-st],[data-stk]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.st || el.dataset.stk;
+      if (k === 'free') return;
+      if (k === 'messages') openStorageChats(); else openStorageKind(k);
+    });
+  });
+  const lg = $('#st-lim-go');
+  if (lg) lg.addEventListener('click', async () => {
+    const mb = Number($('#st-lim').value);
+    if (!mb || mb < 1) return toast('Введите предел в МБ', true);
+    try {
+      const r = await api('/api/admin/storage/limit', { method: 'POST', body: { bytes: Math.floor(mb * 1048576) } });
+      toast('Предел хранилища: ' + stMB(r.limit));
+      stRender(true);
+    } catch (e) { toast(e.message, true); }
+  });
+}
+async function openStorageKind(kind) {
+  modal(ST_LABEL[kind] + ' на сервере', '<div id="stk-body"><div class="tiny muted">Загружаю список…</div></div>');
+  let cursor = 0;
+  const load = async () => {
+    const r = await api('/api/storage/items?scope=' + stScope + '&kind=' + kind + '&cursor=' + cursor);
+    const box = $('#stk-body');
+    if (!box) return;
+    if (!cursor) box.innerHTML = '';
+    const byChat = {};
+    for (const it of r.items) (byChat[it.chat] = byChat[it.chat] || []).push(it);
+    for (const chatId of Object.keys(byChat)) {
+      const c = chatById(chatId);
+      const head = stScope === 'all' ? (byChat[chatId][0].chatLabel || 'чат') : (c ? chatTitle(c) : 'чат');
+      const h = document.createElement('div');
+      h.className = 'divider'; h.innerHTML = '<span>' + escapeHtml(head) + '</span>';
+      box.appendChild(h);
+      for (const it of byChat[chatId]) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 2px';
+        row.innerHTML = '<span style="flex:1">' + escapeHtml(it.name)
+          + (it.mine && stScope === 'all' ? ' <b class="tiny">(моё)</b>' : '')
+          + '<div class="tiny muted">' + new Date(it.ts).toLocaleDateString() + '</div></span>'
+          + '<span class="tiny muted">' + stMB(it.bytes) + '</span>'
+          + (it.mine ? '<button class="mini" data-stopen="' + it.upId + '" data-stchat="' + it.chat + '">открыть</button>' : '')
+          + ((it.mine || (S.me && S.me.isAdmin)) ? '<button class="mini danger" data-stdel="' + it.upId + '">удалить</button>' : '');
+        box.appendChild(row);
+      }
+    }
+    if (!r.items.length && !cursor) box.innerHTML = '<div class="tiny muted">В этой категории пока пусто.</div>';
+    if (r.next != null) {
+      const more = document.createElement('button');
+      more.className = 'mini'; more.textContent = 'Показать ещё';
+      more.addEventListener('click', () => { more.remove(); cursor = r.next; load(); });
+      box.appendChild(more);
+    }
+    box.querySelectorAll('[data-stdel]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Удалить вложение с сервера навсегда? В ленте останется пометка «вложение удалено».')) return;
+      try {
+        const rr = await api('/api/storage/delete', { method: 'POST', body: { upId: b.dataset.stdel } });
+        toast('Удалено, освобождено ' + stMB(rr.freed));
+        openStorageKind(kind);
+        if ($('#st-body')) stRender(true);
+      } catch (e) { toast(e.message, true); }
+    }));
+    box.querySelectorAll('[data-stopen]').forEach(b => b.addEventListener('click', () => stOpen(b.dataset.stopen, b.dataset.stchat)));
+  };
+  try { await load(); } catch (e) { const box = $('#stk-body'); if (box) box.innerHTML = '<div class="tiny">' + escapeHtml(e.message) + '</div>'; }
+}
+async function stOpen(upId, chatId) {
+  // качаем и расшифровываем ключом чата вложения: владелец вложения и так
+  // владеет этим ключом — содержимое не покидает модель сквозного шифрования
+  const chat = chatById(chatId);
+  const k = chat ? await chatKeyOf(chat) : null;
+  if (!k) return toast('Ключ этого чата не найден на устройстве', true);
+  try {
+    const it = await api('/api/upload/' + encodeURIComponent(upId) + '/0');
+    const parts = Math.max(1, Number(it.parts) || 1);
+    let enc = it.data;
+    for (let i = 1; i < parts; i++) enc += (await api('/api/upload/' + encodeURIComponent(upId) + '/' + i)).data;
+    const bytes = await aesDecryptBytes(k.key, enc);
+    const rec = { blob: new Blob([bytes], { type: it.mime || 'application/octet-stream' }), name: it.name || 'file', size: it.size || 0, mime: it.mime || '', ts: Date.now() };
+    modal(it.name || 'Вложение', '<div id="st-view">' + mediaPlayerHtml(rec, upId) + '</div>');
+  } catch (e) { toast(e.message, true); }
+}
+async function openStorageChats() {
+  modal('Сообщения по чатам', '<div id="stc-body"><div class="tiny muted">Загружаю…</div></div>');
+  try {
+    const r = await api('/api/storage/chats?scope=' + stScope);
+    const box = $('#stc-body');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const row of r.rows) {
+      const c = chatById(row.chat);
+      const name = stScope === 'all' ? (row.type === 'dm' ? 'Личный чат №' + row.n : 'Групповой чат №' + row.n) : (c ? chatTitle(c) : 'чат');
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 2px';
+      div.innerHTML = '<span style="flex:1">' + escapeHtml(name)
+        + '<div class="tiny muted">' + row.msgCount + ' сообщ. · ' + stMB(row.msgBytes) + (row.upBytes ? ' + вложения ' + stMB(row.upBytes) : '') + '</div></span>'
+        + (row.canClear ? '<button class="mini danger" data-stclear="' + row.chat + '" data-sttype="' + row.type + '" data-stname="' + escapeHtml(name) + '">очистить</button>' : '');
+      box.appendChild(div);
+    }
+    if (!r.rows.length) box.innerHTML = '<div class="tiny muted">Пусто.</div>';
+    box.querySelectorAll('[data-stclear]').forEach(b => b.addEventListener('click', async () => {
+      const id = b.dataset.stclear;
+      if (!confirm('Очистить чат «' + b.dataset.stname + '» целиком? История сотрётся у ВСЕХ участников, вложения удалятся с сервера. Действие необратимо.')) return;
+      try {
+        await api('/api/chats/' + encodeURIComponent(id) + '/clear', { method: 'POST', body: {} });
+        toast('Чат очищен, место освобождено');
+        openStorageChats();
+        if ($('#st-body')) stRender(true);
+      } catch (e) { toast(e.message, true); }
+    }));
+  } catch (e) { const box = $('#stc-body'); if (box) box.innerHTML = '<div class="tiny">' + escapeHtml(e.message) + '</div>'; }
+}
+
+// pkg3-74: шкала «Память сервера» — сама кнопка пульта (для всех участников)
+document.addEventListener('click', e => {
+  if (e.target.closest('.memory')) openStoragePanel('me');
+});
+
 function renderQuoteBar() {
   const bar = $('#quote-bar');
   if (!S.quote) return hide(bar);
@@ -5404,7 +5600,17 @@ async function loadUpload(el) {
     const k = await chatKeyOf(c);
     let enc = '';
     for (let i = 0; i < parts; i++) {
-      const r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
+      let r;
+      try {
+        r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
+      } catch (ex) {
+        // pkg3-74: вложение удалено с сервера через пульт памяти
+        if (/удалено/i.test(ex.message || '')) {
+          el.outerHTML = '<div class="att gone tiny muted" style="padding:6px 10px;border:1px dashed #8884;border-radius:10px">вложение удалено с сервера</div>';
+          return;
+        }
+        throw ex;
+      }
       enc += r.data;
       const pr = el.querySelector('.tiny');
       if (pr) pr.textContent = 'загружено ' + Math.round((i + 1) / parts * 100) + '%';
