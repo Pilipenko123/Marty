@@ -54,6 +54,7 @@ else
 fi
 
 say "4/8. Код мессенджера с GitHub"
+cd /   # pkg3-73: оболочка не должна «стоять» в папке, которую сейчас перенесут
 rm -rf /tmp/marty.zip /tmp/marty-src
 curl -fsSL "$REPO_ZIP" -o /tmp/marty.zip
 unzip -q -o /tmp/marty.zip -d /tmp/marty-src
