@@ -150,14 +150,21 @@ ok(r.status === 403, 'не-участник не может перевыпуст
 // неполный набор копий отклоняется
 r = await call(A.base, '/api/chats/' + grp + '/keys/rotate', {
   method: 'POST', body: { keys: { [adminId]: { blob: 'x1' } } }
-}, g1);
+}, admin);
 ok(r.status === 400, 'ротация без копии для каждого участника отклоняется');
 
-// участник перевыпускает ключ
+// pkg3-73: участник не создатель — не перевыпускает
 r = await call(A.base, '/api/chats/' + grp + '/keys/rotate', {
   method: 'POST',
   body: { keys: { [adminId]: { blob: 'w-admin-1' }, [g1Id]: { blob: 'w-g1-1' }, [g2Id]: { blob: 'w-g2-1' } } }
 }, g1);
+ok(r.status === 403, 'pkg3-73: участник не создатель чата не может перевыпустить ключ');
+
+// создатель перевыпускает ключ
+r = await call(A.base, '/api/chats/' + grp + '/keys/rotate', {
+  method: 'POST',
+  body: { keys: { [adminId]: { blob: 'w-admin-1' }, [g1Id]: { blob: 'w-g1-1' }, [g2Id]: { blob: 'w-g2-1' } } }
+}, admin);
 ok(r.status === 200 && r.d.keyEpoch === 1, 'ротация выполнена: поколение выросло до 1');
 
 r = await call(A.base, '/api/sync?since=0', {}, admin);
@@ -175,7 +182,7 @@ ok(r.status === 200 && (r.d.missing || []).length === 0, 'нуждающихся
 r = await call(A.base, '/api/chats/' + grp + '/keys/rotate', {
   method: 'POST',
   body: { keys: { [adminId]: { blob: 'w-admin-2' }, [g1Id]: { blob: 'w-g1-2' }, [g2Id]: { blob: 'w-g2-2' } } }
-}, g2);
+}, admin);
 ok(r.status === 200 && r.d.keyEpoch === 2, 'вторая ротация: поколение 2');
 r = await call(A.base, '/api/sync?since=0', {}, g1);
 const gc2 = (r.d.chats || []).find(c => c.id === grp);
@@ -354,10 +361,10 @@ console.log('\n  5. Предохранители перевыпуска — pkg3
   const rot = { method: 'POST', body: { keys: { [idA]: { blob: 'x-a' }, [idB]: { blob: 'x-b' } } } };
   let q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tA);
   ok(q.status === 200, 'первый перевыпуск прошёл');
-  q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tB);
+  q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tA);
   ok(q.status === 429, 'второй перевыпуск подряд отклонён (429, часовой предохранитель)');
   await wait(200);
-  q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tB);
+  q = await call(B2.base, '/api/chats/' + grp67 + '/keys/rotate', rot, tA);
   ok(q.status === 200, 'после паузы перевыпуск снова разрешён');
   q = await call(B2.base, '/api/sync?since=0', {}, tA);
   const svc = (q.d.messages || []).filter(m => m.chat === grp67 && m.svc === 'rotatekeys');
@@ -374,6 +381,13 @@ ok(r.status === 200 && r.d.added === 1, 'свёртка самому себе п
 r = await call(A.base, '/api/sync?since=0', {}, g1);
 g = (r.d.chats || []).find(c => c.id === grp);
 ok(!!(g.oldKeys || []).find(o => o.blob === 'w-self-g1'), 'участник видит в синхронизации собственную свёртку');
+
+// ══════════════════════════════ 6. очистка группы: только создатель или админ (pkg3-73)
+console.log('\n  6. Очистка группы: права — pkg3-73');
+r = await call(A.base, '/api/chats/' + grp2 + '/clear', { method: 'POST', body: {} }, g1);
+ok(r.status === 403, 'очистить группу участнику не-создателю нельзя');
+r = await call(A.base, '/api/chats/' + grp2 + '/clear', { method: 'POST', body: {} }, admin);
+ok(r.status === 200, 'администратор мессенджера может очистить группу');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Ключ группы (ротация): ${good} ✓, провалов ${bad}`);
