@@ -197,7 +197,7 @@ const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
-ok(sw.includes('sega-static-v67'), 'кэш статики поднят до v67');
+ok(sw.includes('sega-static-v68'), 'кэш статики поднят до v68');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -465,7 +465,8 @@ ok(appJs.includes('Мои чаты</button>') && appJs.includes('Все чаты
 ok(appJs.includes('function openStorageKind') && appJs.includes('function openStorageChats'), 'клиент: списки загрузок и сообщений по чатам');
 ok(appJs.includes('вложение удалено с сервера'), 'клиент: удалённое вложение показывает честную заглушку');
 ok(apiJs.includes('/api/storage/summary') && apiJs.includes('/api/storage/items') && apiJs.includes('/api/storage/delete'), 'сервер: маршруты сводки, списков и удаления');
-ok(apiJs.includes('/api/admin/storage/limit') && apiJs.includes('function diskFree'), 'сервер: предел хранилища и свободное место диска');
+ok(apiJs.includes('/api/admin/storage/limit') && apiJs.includes('function diskFree')
+  && apiJs.includes('pkg3-75: fs требуем прямо здесь'), 'сервер: предел хранилища, свободное место диска и fs внутри diskFree (pkg3-75)');
 ok(apiJs.includes('KIND_OF') && storeFile.includes('async listUpMeta'), 'хранилища: перечень загрузок для сводки');
 
 // pkg3-62: слитая учётка не двоится — одна учётка на всех

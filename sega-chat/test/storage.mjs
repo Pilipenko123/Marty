@@ -143,7 +143,8 @@ ok(r.status === 400, 'предел меньше занятого отклоня�
 r = await call(base, '/api/admin/storage/limit', { method: 'POST', body: { bytes: 400 * 1024 * 1024 } }, admin);
 ok(r.status === 200 && r.d.limit === 400 * 1024 * 1024, 'администратор поднял предел хранилища');
 r = await call(base, '/api/state', {});
-ok(r.d.limit === 400 * 1024 * 1024 && (typeof r.d.diskFree === 'number' || r.d.diskFree === null), 'новый предел и свободное место диска видны в состоянии');
+ok(r.d.limit === 400 * 1024 * 1024 && typeof r.d.diskFree === 'number' && r.d.diskFree >= 0,
+  'новый предел виден в состоянии, а свободное место диска — число (pkg3-75: fs внутри diskFree)');
 
 // ── очистка чата стирает вложения
 r = await call(base, '/api/chats/' + grp + '/clear', { method: 'POST', body: {} }, admin);
