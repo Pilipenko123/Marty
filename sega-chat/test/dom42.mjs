@@ -197,7 +197,7 @@ const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
-ok(sw.includes('sega-static-v68'), 'кэш статики поднят до v68');
+ok(sw.includes('sega-static-v69'), 'кэш статики поднят до v69');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -483,6 +483,34 @@ ok(appJs.includes('const aliasTargetOf'), 'клиент: знает, чью вн
 ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && appJs.includes('!c.members.includes(u.id) && !u.displayAs'),
   'клиент: в списках выбора (игра, группа, добавить в чат) слитых учёток нет');
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
+
+// pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
+ok(appJs.includes("const BUILD = 'pkg3-76';") && apiJs.includes("const BUILD = 'pkg3-76';"), 'клиент и сервер помечены pkg3-76');
+ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
+ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
+ok(appJs.includes("$('#ic-prev').addEventListener('click', () => openChatIconView(c));"), 'в редакторе иконки предпросмотр тоже открывается крупной');
+ok(!appJs.includes('Фото слишком большое даже после сжатия') && appJs.includes('pkg3-76: никогда не бросаем'), 'фото больше не ругается на размер — сжимается молча до конца');
+ok(appJs.includes('encodeImageUnderLimit(canvas, quality, limitOverride)'), 'предел сжатия можно передать свой (фон чата — до ~350 КБ сервера)');
+ok(appJs.includes('encodeImageUnderLimit(canvas, 0.8, 340 * 1024)'), 'фон чата сжимается под предел сервера — ошибка 413 больше не всплывёт');
+ok(appJs.includes('async function videoPoster'), 'первый кадр видео снимается прямо в браузере');
+ok(appJs.includes('function vidCardHtml') && appJs.includes('data-poster='), 'видео в ленте — карточка с первым кадром; кадр летит внутри письма');
+ok(appJs.includes("rec.poster ? ` poster="), 'плеер показывает первый кадр до нажатия «играть»');
+ok(appJs.includes('function openUploadModal') && appJs.includes('id="up-fill"'), 'загрузка в облако — окно с полосой прогресса, а не мелькающие уведомления');
+ok(appJs.includes("'скачиваю ' + pct + '%'") && appJs.includes("classList.add('on')"), 'скачивание видео показывает проценты и полосу');
+ok(appJs.includes('idb.put(init.upId'), 'отправитель хранит своё видео в памяти устройства — оно открывается мгновенно');
+ok(appJs.includes('if (el.dataset.busy) return;'), 'повторный клик не запускает вторую загрузку');
+ok(appJs.includes("addEventListener('paste', e => handlePaste(e, 'attach'))") && appJs.includes("addEventListener('paste', e => handlePaste(e, 'threadAttach'))"), 'вставка из буфера работает в обычном поле и в комментариях');
+ok(appJs.includes('GIF прикреплён: анимация сохранится') && appJs.includes('анимация сохранится'), 'GIF отправляется байт в байт — анимация не превращается в снимок');
+ok(appJs.includes('GIF большой — отправится файлом'), 'большой GIF уходит файлом через облако — анимация цела и при скачивании');
+ok(appJs.includes('function tooBigToast') && appJs.includes('а облако хранит один файл до 25 МБ'), 'предел 25 МБ остался, но сообщение спокойное и с подсказкой');
+ok(apiJs.includes('25 МБ на один файл'), 'сервер отвечает о пределе спокойно');
+ok(appJs.includes('function openCropDialog') && appJs.includes('function build()'), 'окно кадрирования: фото тянется пальцем/мышью и увеличивается');
+ok(appJs.includes("pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom }"), 'масштаб двумя пальцами (щипок) поддерживается');
+ok(appJs.split("openCropDialog(f, { shape: 'circle'").length - 1 === 2 && appJs.includes("openCropDialog(f, { shape: 'rect'"), 'кадрирование подключено к аватару, иконке группы (круг) и фону чата (прямоугольник)');
+ok(!appJs.includes('cropSquare'), 'старая обрезка строго по центру убрана — её заменило окно кадрирования');
+ok(css.includes('.crop-ovl{') && css.includes('.crop-frame.circle{') && css.includes('.crop-stage{'), 'окно кадрирования оформлено в стилях (круглая и прямоугольная рамки)');
+ok(css.includes('.vid-card{') && css.includes('.vd-thumb{') && css.includes('.vd-bar.on{'), 'карточка видео и полоса скачивания оформлены в стилях');
+ok(css.includes('.up-track{') && css.includes('.fc-thumb{'), 'полоса загрузки и превью кадра в панели вложения оформлены в стилях');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
