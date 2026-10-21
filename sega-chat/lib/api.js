@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-75';
+const BUILD = 'pkg3-76';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -2624,7 +2624,8 @@ function createApi(store, opts = {}) {
       const chat = chatById(b.chat);
       if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
       const size = Number(b.size) || 0;
-      if (size > UP_MAX) return E(413, 'Файл больше 25 МБ — предела облачного хранилища');
+      // pkg3-76: предел тот же (25 МБ), но отвечаем спокойно, без ругани
+      if (size > UP_MAX) return E(413, 'Файл больше облачного предела: 25 МБ на один файл');
       if (size <= 0) return E(400, 'Пустой файл');
       const upId = uid();
       await store.putUpMeta(upId, {
