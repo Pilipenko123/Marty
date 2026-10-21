@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-75';
+const BUILD = 'pkg3-76';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -145,7 +145,9 @@ function mediaUrl(id, blob) {
 }
 function mediaPlayerHtml(rec, id) {
   const url = mediaUrl(id, rec.blob);
-  if (rec.kind === 'video' || (rec.mime || '').startsWith('video/')) return `<video class="att att-vid" controls preload="metadata" src="${url}"></video>`;
+  // pkg3-76: poster — первый кадр видео; плеер показывает его до нажатия «play»
+  const post = rec.poster ? ` poster="${rec.poster}"` : '';
+  if (rec.kind === 'video' || (rec.mime || '').startsWith('video/')) return `<video class="att att-vid" controls preload="metadata"${post} src="${url}"></video>`;
   if (rec.kind === 'audio' || (rec.mime || '').startsWith('audio/')) return `<audio controls src="${url}" style="max-width:min(360px,70vw);margin-top:5px"></audio>`;
   if ((rec.mime || '').startsWith('image/')) return `<img class="att" src="${url}" alt="вложение">`;
   return `<a class="att-file" href="${url}" download="${escapeHtml(rec.name || 'file')}">${SV(ICONS.download)}<span>${escapeHtml(rec.name || 'файл')}</span><span class="tiny muted">${fmtBytes(rec.size || rec.blob.size || 0)} · из памяти устройства</span></a>`;
@@ -4731,7 +4733,25 @@ document.addEventListener('click', e => {
     if (m) return openAvatarView(m.uid);
   }
   if (av.closest('#me-box')) return openAvatarView(S.me.id);
+  // pkg3-76: клик по иконке группового чата в шапке открывает её крупной
+  if (host.id === 'topbar') {
+    const c = curChat();
+    if (c && c.kind !== 'dm') return openChatIconView(c);
+  }
 });
+
+/** pkg3-76: крупный просмотр иконки группового чата. Иконка зашифрована
+ * ключом группы и расшифровывается только на устройстве участника —
+ * сервер отдаёт закрытый конверт, как и раньше. */
+async function openChatIconView(c) {
+  const data = await fetchIcon(c);
+  if (!data) return toast('У этого чата пока нет своей иконки. Поставить: меню чата → «Фон и иконка»');
+  const lb = document.createElement('div');
+  lb.className = 'lightbox';
+  lb.innerHTML = `<img src="${data}" alt="">`;
+  lb.onclick = () => lb.remove();
+  document.body.appendChild(lb);
+}
 
 // ─────────────────────────────────────────── фон и иконка чата (общие для участников)
 const wallCache = new Map(), iconCache = new Map();
@@ -4893,8 +4913,13 @@ function wallEditor(c) {
   });
   $('#w-file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
+    e.target.value = '';
     try {
-      const data = await resizeImage(f, 1600, 0.8);
+      // pkg3-76: фон тоже кадрируется вручную (прямоугольная рамка) и молча
+      // сжимается до предела сервера (~350 КБ) — ошибка «слишком большое» ушла
+      const canvas = await openCropDialog(f, { shape: 'rect', title: 'Фон чата' });
+      if (!canvas) return;
+      const data = await encodeImageUnderLimit(canvas, 0.8, 340 * 1024);
       const key = await chatKey(c);
       await api('/api/chats/' + c.id + '/wallphoto', { method: 'POST', body: { data: await encryptJSON(key, { data }) } });
       wallCache.delete(c.id);
@@ -4926,17 +4951,24 @@ function iconEditor(c) {
       <div>
         <label class="file-btn" for="ic-file">Загрузить фото</label>
         <input type="file" id="ic-file" accept="image/*" hidden>
-        <div class="tiny muted" style="margin-top:6px">обрезается в квадрат, шифруется; видят все участники</div>
+        <div class="tiny muted" style="margin-top:6px">фото можно двигать и увеличивать — обрежется по кругу; шифруется; видят все участники</div>
         ${c.iconRev ? '<button class="mini danger" id="ic-del" style="margin-top:8px">Убрать иконку</button>' : ''}
       </div>
     </div>
     <p class="hint">Иконку группового чата может поставить любой участник — как и название и фон.</p>`);
   const prev = iconCache.get(c.id);
   if (prev && prev.data) $('#ic-prev').innerHTML = `<img src="${prev.data}" alt="">`;
+  // pkg3-76: клик по картинке иконки в редакторе открывает её крупной
+  $('#ic-prev').style.cursor = 'zoom-in';
+  $('#ic-prev').addEventListener('click', () => openChatIconView(c));
   $('#ic-file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
+    e.target.value = '';
     try {
-      const data = await cropSquare(f, 160);
+      // pkg3-76: иконка группы кадрируется так же, как аватар — круг с перетаскиванием
+      const canvas = await openCropDialog(f, { shape: 'circle', size: 320, title: 'Иконка чата' });
+      if (!canvas) return;
+      const data = await canvasToDataURL(canvas, 'image/jpeg', 0.85);
       const key = await chatKey(c);
       await api('/api/chats/' + c.id + '/icon', { method: 'POST', body: { data: await encryptJSON(key, { data }) } });
       iconCache.delete(c.id); S.sig = ''; await sync(); toast('Иконка чата обновлена');
@@ -5576,54 +5608,94 @@ function findMentions(text) {
   }
   return ids;
 }
+/** pkg3-76: окно загрузки с полосой прогресса. Вместо мелькающих уведомлений
+ * «Загружено 40%» человек видит честную полосу и подпись, что происходит.
+ * Окно можно закрыть — загрузка продолжится (обновления просто не рисуются). */
+function openUploadModal(name) {
+  modal('Отправка в облако', `
+    <div class="up-name">${SV(ICONS.file)}<span>${escapeHtml(name)}</span></div>
+    <div class="up-track"><i id="up-fill"></i></div>
+    <div class="tiny muted" id="up-step" style="margin-top:6px">готовлюсь…</div>
+    <div class="tiny muted" style="margin-top:10px">Окно можно закрыть — отправка продолжится,
+    а письмо появится в ленте, когда все куски доедут.</div>`);
+}
+function upStep(text, frac) {
+  const s = $('#up-step'); if (s) s.textContent = text;
+  if (typeof frac === 'number') { const f = $('#up-fill'); if (f) f.style.width = Math.round(frac * 100) + '%'; }
+}
+function closeUploadModal() { if ($('#up-fill')) hide($('#modal')); }
 async function uploadChunked(file, c, att) {
   const k = await chatKeyOf(c);
   if (!k) throw new Error('Нет ключа чата для шифрования вложения');
-  toast('Шифруем «' + (att.name || '') + '»…');
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const enc = await aesEncryptBytes(k.key, bytes);
-  const CH = 900000;
-  const parts = Math.max(1, Math.ceil(enc.length / CH));
-  const init = await api('/api/upload/init', { method: 'POST', body: { chat: c.id, name: att.name, size: file.size, mime: att.mime, parts } });
-  for (let i = 0; i < parts; i++) {
-    await api('/api/upload/chunk', { method: 'POST', body: { upId: init.upId, i, data: enc.slice(i * CH, (i + 1) * CH) } });
-    toast('Загружено ' + Math.round((i + 1) / parts * 100) + '%');
+  openUploadModal(att.name || 'файл');
+  try {
+    upStep('Шифрую на устройстве…');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const enc = await aesEncryptBytes(k.key, bytes);
+    const CH = 900000;
+    const parts = Math.max(1, Math.ceil(enc.length / CH));
+    upStep('Загружаю: ' + (parts > 1 ? parts + ' кусков' : '1 кусок') + '…', 0);
+    const init = await api('/api/upload/init', { method: 'POST', body: { chat: c.id, name: att.name, size: file.size, mime: att.mime, parts } });
+    for (let i = 0; i < parts; i++) {
+      await api('/api/upload/chunk', { method: 'POST', body: { upId: init.upId, i, data: enc.slice(i * CH, (i + 1) * CH) } });
+      upStep('Загружено ' + Math.round((i + 1) / parts * 100) + '% (' + (i + 1) + ' из ' + parts + ')', (i + 1) / parts);
+    }
+    upStep('Проверяю на сервере…', 1);
+    await api('/api/upload/fin', { method: 'POST', body: { upId: init.upId, stored: enc.length } });
+    // pkg3-76: отправитель кладёт готовый файл в память устройства — своё видео
+    // открывается у него мгновенно, без повторного скачивания с сервера
+    idb.put(init.upId, {
+      blob: file, kind: att.kind, name: att.name, size: file.size, mime: att.mime,
+      ts: Date.now(), poster: att.poster || ''
+    });
+    closeUploadModal();
+    return { kind: att.kind, upId: init.upId, parts, name: att.name, size: file.size, mime: att.mime, poster: att.poster || '' };
+  } catch (ex) {
+    closeUploadModal();
+    throw ex;
   }
-  await api('/api/upload/fin', { method: 'POST', body: { upId: init.upId, stored: enc.length } });
-  return { kind: att.kind, upId: init.upId, parts, name: att.name, size: file.size, mime: att.mime };
 }
 async function loadUpload(el) {
+  if (el.dataset.busy) return;          // pkg3-76: повторный клик не запускает вторую загрузку
+  el.dataset.busy = '1';
   const upId = el.dataset.upl, parts = Math.max(1, Number(el.dataset.parts) || 1);
-  let rec = await idb.get(upId);
-  if (!rec) {
-    const c = curChat();
-    const k = await chatKeyOf(c);
-    let enc = '';
-    for (let i = 0; i < parts; i++) {
-      let r;
-      try {
-        r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
-      } catch (ex) {
-        // pkg3-74: вложение удалено с сервера через пульт памяти
-        if (/удалено/i.test(ex.message || '')) {
-          el.outerHTML = '<div class="att gone tiny muted" style="padding:6px 10px;border:1px dashed #8884;border-radius:10px">вложение удалено с сервера</div>';
-          return;
+  try {
+    let rec = await idb.get(upId);
+    if (!rec) {
+      const c = curChat();
+      const k = await chatKeyOf(c);
+      let enc = '';
+      for (let i = 0; i < parts; i++) {
+        let r;
+        try {
+          r = await api('/api/upload/' + encodeURIComponent(upId) + '/' + i);
+        } catch (ex) {
+          // pkg3-74: вложение удалено с сервера через пульт памяти
+          if (/удалено/i.test(ex.message || '')) {
+            el.outerHTML = '<div class="att gone tiny muted" style="padding:6px 10px;border:1px dashed #8884;border-radius:10px">вложение удалено с сервера</div>';
+            return;
+          }
+          throw ex;
         }
-        throw ex;
+        enc += r.data;
+        // pkg3-76: честный прогресс скачивания — проценты текстом и полосой
+        const pct = Math.round((i + 1) / parts * 100);
+        const pr = el.querySelector('.tiny');
+        if (pr) pr.textContent = 'скачиваю ' + pct + '%';
+        const bar = el.querySelector('.vd-bar i');
+        if (bar) { el.querySelector('.vd-bar').classList.add('on'); bar.style.width = pct + '%'; }
       }
-      enc += r.data;
-      const pr = el.querySelector('.tiny');
-      if (pr) pr.textContent = 'загружено ' + Math.round((i + 1) / parts * 100) + '%';
+      const bytes = await aesDecryptBytes(k.key, enc);
+      rec = {
+        blob: new Blob([bytes], { type: el.dataset.mime || 'application/octet-stream' }),
+        kind: el.dataset.kind, name: el.dataset.name || 'file',
+        size: Number(el.dataset.size) || 0, mime: el.dataset.mime || '', ts: Date.now(),
+        poster: el.dataset.poster || ''   // pkg3-76: первый кадр видео живёт и в памяти устройства
+      };
+      await idb.put(upId, rec);
     }
-    const bytes = await aesDecryptBytes(k.key, enc);
-    rec = {
-      blob: new Blob([bytes], { type: el.dataset.mime || 'application/octet-stream' }),
-      kind: el.dataset.kind, name: el.dataset.name || 'file',
-      size: Number(el.dataset.size) || 0, mime: el.dataset.mime || '', ts: Date.now()
-    };
-    await idb.put(upId, rec);
-  }
-  el.outerHTML = mediaPlayerHtml(rec, upId);
+    el.outerHTML = mediaPlayerHtml(rec, upId);
+  } finally { delete el.dataset.busy; }
 }
 /** После перерисовки ленты уже закэшированные медиа подставляются сами, без клика. */
 async function upgradeMedia(box) {
@@ -5886,7 +5958,8 @@ function showAttach(key, a) {
     box.innerHTML = `<img alt=""><button class="icon" data-xatt="${key}" title="Убрать">${SV(ICONS.x)}</button>`;
     box.querySelector('img').src = data;
   } else {
-    box.innerHTML = `<div class="file-chip">${SV(a.kind === 'video' ? ICONS.play : ICONS.file)}
+    // pkg3-76: у видео в превью виден первый кадр — понятно, что отправляем
+    box.innerHTML = `<div class="file-chip">${a.poster ? `<img class="fc-thumb" src="${a.poster}" alt="">` : SV(a.kind === 'video' ? ICONS.play : ICONS.file)}
       <span class="fc-name">${escapeHtml(a.name || 'файл')}</span>
       <span class="tiny muted">${fmtBytes(a.size || 0)}</span>
       <button class="icon" data-xatt="${key}" title="Убрать">${SV(ICONS.x)}</button></div>`;
@@ -5898,15 +5971,67 @@ function clearAttach(key) {
   const box = $(key === 'attach' ? '#attach-preview' : '#thread-attach');
   if (box) { box.innerHTML = ''; hide(box); }
 }
-async function pickAttach(e, key) {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
+/** pkg3-76: спокойное сообщение о пределе 25 МБ — без красной ругани.
+ * Предел остался прежним (облако хранит один файл до 25 МБ), но говорим
+ * по-человечески и подсказываем, что можно сделать. */
+function tooBigToast(file, kind) {
+  const what = kind === 'video' ? 'Видео' : kind === 'audio' ? 'Запись' : 'Файл';
+  const tip = kind === 'video' ? 'Попробуйте обрезать или сжать его на телефоне — тогда оно отправится.'
+    : kind === 'audio' ? 'Попробуйте запись покороче — тогда она отправится.'
+    : 'Попробуйте файл поменьше — тогда он отправится.';
+  toast(`${what} весит ${fmtBytes(file.size)}, а облако хранит один файл до 25 МБ. ${tip}`);
+}
+/** pkg3-76: первый кадр видео — картинка-превью, которую видно в ленте
+ * ещё до скачивания. Кадр летит внутри письма (как и всё — зашифрованным),
+ * поэтому сервер его не видит. Не получилось — не беда, вернём пустоту. */
+async function videoPoster(file) {
+  let url = null;
+  try {
+    url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('timeout')), 9000);
+      v.onloadeddata = () => { clearTimeout(t); res(); };
+      v.onerror = () => { clearTimeout(t); rej(new Error('video')); };
+    });
+    const seeked = new Promise(res => { const t = setTimeout(res, 2500); v.onseeked = () => { clearTimeout(t); res(); }; });
+    try { v.currentTime = Math.min(0.6, (v.duration || 1) * 0.05 + 0.05); } catch (e) {}
+    await seeked;
+    const w = v.videoWidth, h = v.videoHeight;
+    if (!w || !h) return '';
+    const t = targetImageSize(w, h, 480);
+    const c = drawImageToCanvas(v, t.w, t.h);
+    const data = await canvasToDataURL(c, 'image/jpeg', 0.6);
+    v.removeAttribute('src');
+    return data.length < 180000 ? data : '';
+  } catch (e) { return ''; }
+  finally { if (url) try { URL.revokeObjectURL(url); } catch (e) {} }
+}
+async function attachFile(file, key) {
   const mime = file.type || 'application/octet-stream';
   try {
     if (/^image\//.test(mime)) {
       if (isHeic(file)) return toast('iPhone: сначала конвертируйте HEIC в JPG (Настройки → Камера → Форматы → наиболее совместимый)', true);
+      // pkg3-76: GIF отправляем как есть — байт в байт, анимация сохраняется.
+      // Перерисовка в JPEG сделала бы из него неподвижный снимок.
+      if (/^image\/gif/i.test(mime)) {
+        const data = await blobToDataURL(file);
+        if (estimatedEncryptedUploadChars(data) <= Number(S.maxUpload || DEFAULT_MAX_UPLOAD)) {
+          S[key] = { kind: 'image', data, name: file.name || 'анимация.gif', size: file.size, mime: 'image/gif' };
+          showAttach(key, S[key]);
+          toast('GIF прикреплён: анимация сохранится');
+          return;
+        }
+        if (file.size > 25 * 1024 * 1024) return tooBigToast(file, 'file');
+        // слишком большой для письма, но проходит в облако файлом — при скачивании анимация цела
+        S[key] = { kind: 'file', pending: true, file, name: file.name || 'анимация.gif', size: file.size, mime };
+        showAttach(key, S[key]);
+        toast('GIF большой — отправится файлом, анимация сохранится');
+        return;
+      }
       toast('Готовим фото…');
+      // pkg3-76: resizeImage больше не умеет падать из-за размера — жмёт молча
       const data = await resizeImage(file, 1800, 0.82);
       S[key] = { kind: 'image', data, name: file.name || 'фото', size: file.size, mime: 'image/jpeg' };
       showAttach(key, S[key]);
@@ -5914,26 +6039,71 @@ async function pickAttach(e, key) {
       return;
     }
     const kind = /^video\//.test(mime) ? 'video' : /^audio\//.test(mime) ? 'audio' : 'file';
-    if (file.size > 25 * 1024 * 1024) return toast('Файл больше 25 МБ — предел облачного хранилища', true);
-    S[key] = { kind, pending: true, file, name: file.name || kind, size: file.size, mime };
+    if (file.size > 25 * 1024 * 1024) return tooBigToast(file, kind);
+    if (kind === 'video') {
+      // pkg3-76: сразу делаем превью из первого кадра — его увидят все
+      toast('Готовлю превью видео…');
+      const poster = await videoPoster(file);
+      S[key] = { kind, pending: true, file, name: file.name || 'видео', size: file.size, mime, poster };
+    } else {
+      S[key] = { kind, pending: true, file, name: file.name || kind, size: file.size, mime };
+    }
     showAttach(key, S[key]);
     toast('Вложение прикреплено: зашифруется и загрузится кусками при отправке');
   }
   catch (ex) { toast(ex && ex.message ? ex.message : 'Не удалось обработать вложение', true); }
 }
+async function pickAttach(e, key) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  return attachFile(file, key);
+}
+// ─── pkg3-76: вставка из буфера обмена (Ctrl+V / правая кнопка → «Вставить») ───
+// Картинка, GIF, видео или запись, скопированные в буфер, прикрепляются к письму
+// так же, как через скрепку. Текст продолжает вставляться в поле как раньше.
+function handlePaste(e, key) {
+  const cd = e.clipboardData;
+  if (!cd || !cd.items || !cd.items.length) return;
+  for (const it of cd.items) {
+    if (it.kind !== 'file') continue;
+    const f = it.getAsFile();
+    if (!f) continue;
+    e.preventDefault();
+    attachFile(f, key);
+    return;
+  }
+}
+$('#input').addEventListener('paste', e => handlePaste(e, 'attach'));
+$('#thread-input').addEventListener('paste', e => handlePaste(e, 'threadAttach'));
 const attLabel = a => !a ? '' : (typeof a === 'string' || a.kind === 'image' ? '📷 изображение' : a.kind === 'video' ? '🎬 видео' : '📎 ' + (a.name || 'файл'));
+/** pkg3-76: видео в ленте — карточка с первым кадром. До скачивания видно,
+ * что за видео и сколько оно весит; во время скачивания — проценты и полоса;
+ * когда готово — карточка сама заменяется плеером (upgradeMedia/loadUpload). */
+function vidCardHtml(a, eco) {
+  const poster = a.poster ? `<img src="${a.poster}" alt="">` : '';
+  const hint = eco ? 'в экономном режиме не грузится автоматически; нажать — загрузить' : 'нажмите, чтобы скачать видео';
+  return `<span class="att-file vid-card" role="button" data-upl="${a.upId}" data-parts="${a.parts || 1}" data-kind="${a.kind}" data-name="${escapeHtml(a.name || 'видео')}" data-size="${a.size || 0}" data-mime="${escapeHtml(a.mime || '')}" data-poster="${a.poster || ''}">`
+    + `<span class="vd-thumb">${poster}<span class="vd-play">${SV(ICONS.play)}</span></span>`
+    + `<span class="vd-info"><span class="vd-name">${escapeHtml(a.name || 'видео')}</span>`
+    + `<span class="tiny muted vd-status">${fmtBytes(a.size || 0)} · ${hint}</span>`
+    + `<span class="vd-bar"><i></i></span></span></span>`;
+}
 function attHtml(a) {
   if (!a) return '';
+  const isVid = a && a !== null && typeof a === 'object' && (a.kind === 'video' || String(a.mime || '').startsWith('video/'));
   if (S.eco) {
     if (typeof a === 'string' || a.kind === 'image') return `<span class="att-file eco-hidden">${SV(ICONS.image)}<span>Картинка скрыта в экономном режиме</span></span>`;
+    if (a.upId && isVid) return vidCardHtml(a, true);
     if (a.kind === 'video' || a.kind === 'audio') return `<span class="att-file eco-hidden">${SV(ICONS[a.kind === 'video' ? 'play' : 'volume'])}<span>Медиа скрыто в экономном режиме</span></span>`;
     if (a.upId) return `<span class="att-file" role="button" data-upl="${a.upId}" data-parts="${a.parts || 1}" data-kind="${a.kind}" data-name="${escapeHtml(a.name || 'файл')}" data-size="${a.size || 0}" data-mime="${escapeHtml(a.mime || '')}">${SV(ICONS[a.kind === 'video' ? 'play' : a.kind === 'audio' ? 'volume' : 'file'])}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)} · в экономном режиме не грузится автоматически; нажать — загрузить</span></span>`;
     return `<span class="att-file eco-hidden">${SV(ICONS.file)}<span>Вложение скрыто в экономном режиме</span></span>`;
   }
   if (typeof a === 'string') return `<img class="att" src="${a}" alt="вложение">`;
   if (a.kind === 'image') return `<img class="att" src="${a.data}" alt="вложение">`;
+  if (a.upId && isVid) return vidCardHtml(a, false);
   if (a.upId) return `<span class="att-file" role="button" data-upl="${a.upId}" data-parts="${a.parts || 1}" data-kind="${a.kind}" data-name="${escapeHtml(a.name || 'файл')}" data-size="${a.size || 0}" data-mime="${escapeHtml(a.mime || '')}">${SV(ICONS[a.kind === 'video' ? 'play' : a.kind === 'audio' ? 'volume' : 'file'])}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)} · нажать для загрузки</span></span>`;
-  if (a.kind === 'video') return `<video class="att att-vid" controls preload="metadata" src="${a.data}"></video>`;
+  if (a.kind === 'video') return `<video class="att att-vid" controls preload="metadata"${a.poster ? ` poster="${a.poster}"` : ''} src="${a.data}"></video>`;
   return `<a class="att-file" href="${a.data}" download="${escapeHtml(a.name || 'file')}">${SV(ICONS.file)}<span>${escapeHtml(a.name || 'файл')}</span><span class="tiny muted">${fmtBytes(a.size || 0)}</span></a>`;
 }
 $('#file-input').addEventListener('change', e => pickAttach(e, 'attach'));
@@ -6029,21 +6199,27 @@ function estimatedEncryptedUploadChars(dataUrl) {
   const plain = String(dataUrl || '').length + 5500;
   return Math.ceil((plain + 32) / 3) * 4;
 }
-async function encodeImageUnderLimit(canvas, quality) {
-  const limit = Number(S.maxUpload || DEFAULT_MAX_UPLOAD);
+async function encodeImageUnderLimit(canvas, quality, limitOverride) {
+  // pkg3-76: предел можно передать свой (фон чата сервер принимает до ~350 КБ);
+  // по умолчанию — предел письма из /api/state
+  const limit = Number(limitOverride || S.maxUpload || DEFAULT_MAX_UPLOAD);
   const plainLimit = Math.floor(limit * UPLOAD_PLAIN_HEADROOM);
-  let q = quality, cur = canvas;
-  for (let attempt = 0; attempt < 10; attempt++) {
+  let q = quality, cur = canvas, last = '';
+  for (let attempt = 0; attempt < 30; attempt++) {
     const data = await canvasToDataURL(cur, 'image/jpeg', q);
+    last = data;
     if (data.length <= plainLimit && estimatedEncryptedUploadChars(data) <= limit) return data;
-    if (q > 0.58) { q = Math.max(0.58, q - 0.10); continue; }
+    if (q > 0.5) { q = Math.max(0.5, q - 0.08); continue; }
     const w = Math.max(1, Math.round(cur.width * 0.82));
     const h = Math.max(1, Math.round(cur.height * 0.82));
-    if ((w >= cur.width && h >= cur.height) || Math.max(w, h) < 360) break;
+    if ((w >= cur.width && h >= cur.height) || Math.max(w, h) < 64) break;
     cur = downscaleCanvas(cur, w, h);
-    q = 0.76;
+    q = 0.72;
   }
-  throw new Error('Фото слишком большое даже после сжатия. Попробуйте кадрировать его или выбрать снимок поменьше.');
+  // pkg3-76: никогда не бросаем «фото слишком большое» — сжимаем молча до конца
+  // и отправляем самый лёгкий получившийся вариант. Ошибка размера больше не
+  // появляется: даже гигантский снимок ужимается до проходимых килобайт.
+  return last;
 }
 async function resizeImage(file, max, quality) {
   const decoded = await decodeImageFile(file);
@@ -6057,19 +6233,130 @@ async function resizeImage(file, max, quality) {
     try { decoded.close(); } catch (e) {}
   }
 }
-async function cropSquare(file, size) {
-  const decoded = await decodeImageFile(file);
-  try {
-    const s = Math.min(decoded.width, decoded.height);
-    const canvas = drawImageToCanvas(decoded.source, size, size, {
-      x: Math.max(0, (decoded.width - s) / 2),
-      y: Math.max(0, (decoded.height - s) / 2),
-      size: s
-    });
-    return await canvasToDataURL(canvas, 'image/jpeg', 0.85);
-  } finally {
-    try { decoded.close(); } catch (e) {}
-  }
+/** pkg3-76: окно кадрирования с перетаскиванием и масштабом.
+ * Раньше аватар и иконка обрезались строго по центру — голову «срезало»,
+ * а поправить было нельзя. Теперь человек сам двигает фото пальцем или мышью,
+ * увеличивает колёсиком/щипком/ползунком и видит, что попадёт в круг (или в
+ * прямоугольник фона), ДО сохранения.
+ * opts: { shape: 'circle' | 'rect', size: 320, title: '…', maxOut: 1600 }
+ * Возвращает Promise<canvas|null>: null — окно закрыли без сохранения. */
+function openCropDialog(file, opts) {
+  const o = Object.assign({ shape: 'circle', size: 320, title: 'Обрезать фото', maxOut: 1600 }, opts || {});
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => build();
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      toast(isHeic(file)
+        ? 'Не удалось открыть HEIC/HEIF. На iPhone включите «Настройки → Камера → Форматы → Наиболее совместимый» или отправьте JPEG/PNG.'
+        : 'Браузер не смог открыть эту картинку', true);
+      resolve(null);
+    };
+    img.src = url;
+
+    function build() {
+      const ovl = document.createElement('div');
+      ovl.className = 'crop-ovl';
+      ovl.innerHTML = `
+        <div class="crop-box">
+          <div class="crop-head"><b>${escapeHtml(o.title)}</b><button class="icon" id="crop-x" title="Отменить">${SV(ICONS.x)}</button></div>
+          <div class="crop-stage"><img class="crop-img" alt=""><div class="crop-frame ${o.shape === 'circle' ? 'circle' : 'rect'}"></div></div>
+          <div class="crop-ctl"><span class="tiny muted">−</span><input type="range" id="crop-zoom" min="100" max="400" value="100" step="1" aria-label="Масштаб"><span class="tiny muted">+</span></div>
+          <div class="tiny muted crop-hint">Тяните фото пальцем или мышью · масштаб — колёсиком, щипком или ползунком</div>
+          <div class="crop-btns"><button class="primary soft" id="crop-cancel">Отменить</button><button class="primary" id="crop-ok">Готово</button></div>
+        </div>`;
+      document.body.appendChild(ovl);
+      const stage = ovl.querySelector('.crop-stage');
+      const shown = ovl.querySelector('.crop-img');
+      shown.src = url;
+      const nw = img.naturalWidth || img.width, nh = img.naturalHeight || img.height;
+      const sw = stage.clientWidth || 400, sh = stage.clientHeight || 320;
+      const fw = o.shape === 'circle' ? Math.max(80, Math.min(sw, sh) - 16) : Math.max(80, sw - 12);
+      const fh = o.shape === 'circle' ? fw : Math.max(60, sh - 12);
+      const frame = ovl.querySelector('.crop-frame');
+      frame.style.width = fw + 'px'; frame.style.height = fh + 'px';
+      const s0 = Math.max(fw / nw, fh / nh);
+      let zoom = 1, ox = 0, oy = 0;
+      const dw = () => nw * s0 * zoom, dh = () => nh * s0 * zoom;
+      function apply() {
+        zoom = Math.min(4, Math.max(1, zoom));
+        const mx = Math.max(0, (dw() - fw) / 2), my = Math.max(0, (dh() - fh) / 2);
+        ox = Math.min(mx, Math.max(-mx, ox)); oy = Math.min(my, Math.max(-my, oy));
+        shown.style.width = dw() + 'px'; shown.style.height = dh() + 'px';
+        shown.style.marginLeft = -dw() / 2 + 'px'; shown.style.marginTop = -dh() / 2 + 'px';
+        shown.style.transform = `translate(${ox}px, ${oy}px)`;
+        const z = ovl.querySelector('#crop-zoom');
+        if (z && document.activeElement !== z) z.value = String(Math.round(zoom * 100));
+      }
+      apply();
+      // перетаскивание и щипок двумя пальцами — указательными событиями (мышь+тач)
+      const pts = new Map();
+      let pinch0 = null;
+      stage.addEventListener('pointerdown', e => {
+        try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pts.size === 2) {
+          const [a, b] = [...pts.values()];
+          pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom };
+        }
+        e.preventDefault();
+      });
+      stage.addEventListener('pointermove', e => {
+        const p = pts.get(e.pointerId); if (!p) return;
+        const dx = e.clientX - p.x, dy = e.clientY - p.y;
+        p.x = e.clientX; p.y = e.clientY;
+        if (pts.size >= 2 && pinch0) {
+          const [a, b] = [...pts.values()];
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (pinch0.d > 0) { zoom = pinch0.zoom * d / pinch0.d; apply(); }
+          return;
+        }
+        ox += dx; oy += dy; apply();
+      });
+      const drop = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch0 = null; };
+      stage.addEventListener('pointerup', drop);
+      stage.addEventListener('pointercancel', drop);
+      stage.addEventListener('wheel', e => { e.preventDefault(); zoom *= e.deltaY < 0 ? 1.08 : 1 / 1.08; apply(); }, { passive: false });
+      ovl.querySelector('#crop-zoom').addEventListener('input', e => { zoom = Number(e.target.value) / 100; apply(); });
+      const esc = e => { if (e.key === 'Escape') close(null); };
+      document.addEventListener('keydown', esc);
+      ovl.addEventListener('click', e => { if (e.target === ovl) close(null); });
+      ovl.querySelector('#crop-x').addEventListener('click', () => close(null));
+      ovl.querySelector('#crop-cancel').addEventListener('click', () => close(null));
+      ovl.querySelector('#crop-ok').addEventListener('click', () => {
+        try {
+          const s = s0 * zoom;
+          const ix = (sw - dw()) / 2 + ox, iy = (sh - dh()) / 2 + oy;  // левый верх фото на сцене
+          const fx = (sw - fw) / 2, fy = (sh - fh) / 2;                // левый верх рамки
+          const sx = Math.max(0, Math.min(nw - 1, (fx - ix) / s));
+          const sy = Math.max(0, Math.min(nh - 1, (fy - iy) / s));
+          const cw = Math.max(1, Math.min(nw - sx, fw / s));
+          const ch = Math.max(1, Math.min(nh - sy, fh / s));
+          const k = o.shape === 'circle' ? o.size / fw : Math.min(1, o.maxOut / Math.max(cw, ch));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(cw * k)); c.height = Math.max(1, Math.round(ch * k));
+          const ctx = c.getContext('2d', { alpha: false });
+          if (!ctx) throw new Error('Браузер не дал доступ к canvas');
+          ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, sx, sy, cw, ch, 0, 0, c.width, c.height);
+          close(c);
+        } catch (ex) {
+          close(null);
+          toast(ex && ex.message ? ex.message : 'Не удалось обрезать фото', true);
+        }
+      });
+      let done = false;
+      function close(result) {
+        if (done) return;
+        done = true;
+        document.removeEventListener('keydown', esc);
+        try { ovl.remove(); } catch (e) {}
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        resolve(result);
+      }
+    }
+  });
 }
 
 
@@ -6242,7 +6529,7 @@ $('#btn-profile').addEventListener('click', () => {
       <div>
         <label class="file-btn" for="pf-file">Загрузить аватар</label>
         <input type="file" id="pf-file" accept="image/*" hidden>
-        <div class="tiny muted" style="margin-top:6px">обрезается в круг, шифруется</div>
+        <div class="tiny muted" style="margin-top:6px">фото можно двигать и увеличивать — обрежется в круг; шифруется</div>
         ${me.avatar ? '<button class="mini danger" id="pf-avatar-del" style="margin-top:8px">Убрать аватар</button>' : ''}
       </div>
     </div>
@@ -6264,8 +6551,12 @@ $('#btn-profile').addEventListener('click', () => {
 
   $('#pf-file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
+    e.target.value = '';
     try {
-      const data = await cropSquare(f, 160);
+      // pkg3-76: кадрируем с перетаскиванием и масштабом — круг человек видит заранее
+      const canvas = await openCropDialog(f, { shape: 'circle', size: 320, title: 'Ваш аватар' });
+      if (!canvas) return;
+      const data = await canvasToDataURL(canvas, 'image/jpeg', 0.85);
       const saved = await api('/api/profile', { method: 'POST', body: { avatar: await encryptJSON(S.roomKey, { data }) } });
       avatarCache.set(S.me.id, { rev: saved.user.avatar, src: data });
       $('#pf-avatar').innerHTML = `<img class="avatar lg" src="${data}" alt="">`;
