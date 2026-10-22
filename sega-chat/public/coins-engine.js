@@ -200,8 +200,13 @@
     if (active.length && have.length === active.length) return Math.max.apply(null, active.map(p => Number(by[p].ts) || 0));
     return o + GRACE_MS;
   }
-  /** Не сыграли раунд (срок вышел): «не играл» и ноль очков. */
+  /**
+   * Не сыграли раунд (срок вышел): «не играл» и ноль очков.
+   * pkg3-79: в соло («Монеты» в одиночку) ждать некого — суток нет и «не играл»
+   * не ставится; иначе забег, созданный давно, мгновенно «завершался» пустым.
+   */
   function absentOf(game, letters, r, run, now) {
+    if ((game.players || []).length <= 1) return [];
     const active = activeOf(game, letters, r, run);
     const by = resultsOf(game, letters, r, run);
     const missing = active.filter(p => !by[p]);

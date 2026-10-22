@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-78';
+const BUILD = 'pkg3-79';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -3909,6 +3909,14 @@ function renderCoins(wrap, c) {
     if (coinsTimeLeft(S.coinsLive) <= 0) { coinsFinishRound(false); return; }   // время вышло, пока вкладка спала
   } else if ((phase === 'reveal' || phase === 'sending') && (myRes || (loc && loc.sent))) {
     S.coinsLive = coinsLiveFromResult(c, cs, myRes || loc.sent, loc);
+  } else if (phase === 'final') {
+    // pkg3-79: в финале поле не пустует — раскрываем карту моего последнего сыгранного раунда
+    let last = null;
+    for (const l of cs.letters) {
+      if (!CE.isResult(l) || l.author !== S.me.id || (l.run || 1) !== cs.run) continue;
+      if (!last || (Number(l.round) || 1) > (Number(last.round) || 1)) last = l;
+    }
+    S.coinsLive = last ? coinsLiveFromResult(c, cs, last, null) : null;
   } else S.coinsLive = null;
   // шапка: те же кнопки, что у прочих игр (делегирование #gm-leave/#gm-knocks)
   const ctrl = [];
@@ -3936,7 +3944,7 @@ function renderCoins(wrap, c) {
   const hud = (phase === 'hunt' || phase === 'reveal' || phase === 'sending')
     ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-timer" id="coins-timer">—</span><span class="ch-score" id="coins-score">🪙</span><span class="ch-bonus" id="coins-bonus"></span></div>` : '';
   let stage = '';
-  if (phase !== 'viewer') {
+  if (phase !== 'viewer' && !(phase === 'final' && !S.coinsLive)) {
     const pad = phase === 'hunt' ? `<div class="coins-pad">
         <button class="cpad up" data-cdir="U" aria-label="Вверх">▲</button>
         <button class="cpad left" data-cdir="L" aria-label="Влево">◀</button>
@@ -3948,8 +3956,8 @@ function renderCoins(wrap, c) {
         <span class="tiny muted">Соберите как можно больше из ${CE.COINS} монет, пока не истекло время. Туман прячет карту — артефакты видны только вблизи. Управление: крест внизу справа или стрелки клавиатуры. Бонусы: 🔦 фонарь — видно дальше 15 секунд, 🧭 компас — стрелка к ближайшей монете, ⏳ песочные часы — +10 секунд.</span>
         <button class="primary" id="coins-start">Начать раунд</button>
       </div>` : '';
-    const badge = (phase === 'reveal' || phase === 'sending') && S.coinsLive
-      ? `<div class="coins-rev">Карта открыта: найдено ${S.coinsLive.score | 0} из ${CE.COINS} монет${S.coinsLive.bad ? ' · <b>не проверено — засчитан ноль</b>' : ''}</div>` : '';
+    const badge = (phase === 'reveal' || phase === 'sending' || phase === 'final') && S.coinsLive
+      ? `<div class="coins-rev">${phase === 'final' ? 'Карта последнего раунда: найдено' : 'Карта открыта: найдено'} ${S.coinsLive.score | 0} из ${CE.COINS} монет${S.coinsLive.bad ? ' · <b>не проверено — засчитан ноль</b>' : ''}</div>` : '';
     stage = `<div class="coins-stage">
         <canvas id="coins-canvas" aria-label="Карта забега"></canvas>
         ${pad}${ovl}${badge}
