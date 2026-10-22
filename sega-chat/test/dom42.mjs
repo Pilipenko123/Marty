@@ -197,7 +197,7 @@ const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
-ok(sw.includes('sega-static-v69'), 'кэш статики поднят до v69');
+ok(sw.includes('sega-static-v70'), 'кэш статики поднят до v70');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -485,7 +485,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-76';") && apiJs.includes("const BUILD = 'pkg3-76';"), 'клиент и сервер помечены pkg3-76');
+ok(appJs.includes("const BUILD = 'pkg3-77';") && apiJs.includes("const BUILD = 'pkg3-77';"), 'клиент и сервер помечены pkg3-77');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
 ok(appJs.includes("$('#ic-prev').addEventListener('click', () => openChatIconView(c));"), 'в редакторе иконки предпросмотр тоже открывается крупной');
@@ -511,6 +511,35 @@ ok(!appJs.includes('cropSquare'), 'старая обрезка строго по
 ok(css.includes('.crop-ovl{') && css.includes('.crop-frame.circle{') && css.includes('.crop-stage{'), 'окно кадрирования оформлено в стилях (круглая и прямоугольная рамки)');
 ok(css.includes('.vid-card{') && css.includes('.vd-thumb{') && css.includes('.vd-bar.on{'), 'карточка видео и полоса скачивания оформлены в стилях');
 ok(css.includes('.up-track{') && css.includes('.fc-thumb{'), 'полоса загрузки и превью кадра в панели вложения оформлены в стилях');
+
+// pkg3-77: «Пишите», «пишет… / загружает…» в заголовке, чистые названия игровых чатов
+ok(html.includes('placeholder="Пишите"'), 'подсказка в поле ввода стала спокойной: «Пишите»');
+ok(!appJs.includes('ну пиши') && !html.includes('ну пиши'), 'прежняя шутка «ну пиши, чё?» убрана везде');
+ok(apiJs.includes("'/api/typing'") && apiJs.includes('const typingNow = new Map()') && apiJs.includes('function typingInChat'),
+  'сервер: короткоживущие сигналы «пишет/загружает» живут только в памяти (без записи в базу)');
+ok(apiJs.includes('markUploadTyping(me.id, chat.id)') && apiJs.includes('markUploadTyping(me.id, meta.chat)') && apiJs.includes('clearUploadTyping(me.id, meta.chat)'),
+  'загрузка файла помечает себя сама: init и куски ставят «загружает…», fin гасит');
+ok(apiJs.includes('typing: typingInChats('), 'ответ синхронизации несёт список «кто пишет» по моим чатам');
+ok(appJs.includes("api('/api/typing?chat='") && appJs.includes('const TYPING_POLL_MS'),
+  'клиент: лёгкий опрос «кто пишет» каждые 4 секунды, пока чат открыт и вкладка видна');
+ok(appJs.includes('function sigTyping') && appJs.includes('function stopTypingSignal') && appJs.includes("if (e.target.value.trim()) sigTyping('type');"),
+  'клиент: сигнал «пишет…» пока набираешь текст (не чаще раза в 3 с, молчок через 5 с)');
+ok(appJs.includes('function typingLine') && appJs.includes("'пишет…', 'пишут…'") && appJs.includes("'загружает…', 'загружают…'"),
+  'в группе и игре заголовок называет имена: «Сергей пишет…», «Сергей и Аня загружают…»');
+ok(appJs.includes("const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…') : '';"),
+  'в личном чате «пишет…»/«загружает…» сменяет «в сети, смотрит чат»');
+ok(appJs.includes("wake('собеседник пишет')"), 'пока собеседник пишет, окно бодрствует — его письмо прилетит сразу');
+ok(appJs.includes("else if (document.hidden) stopTypingSignal();"), 'спрятали вкладку — сигнал «пишет…» гаснет немедленно');
+const gt77 = appJs.slice(appJs.indexOf('function gameTitle'));
+const gt77body = gt77.slice(0, gt77.indexOf('\n}'));
+ok(!gt77body.includes('gameIcon'), 'в названии игрового чата больше нет значка игры — только имена');
+ok(appJs.includes("const gamePlayerName = id => (userById(id) || {}).name || 'Кто-то';"),
+  'незнакомый соперник называется «Кто-то», а не «…»');
+ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
+  'название чата и заголовок доски собираются одними словами');
+ok(appJs.includes('c.kind === \'game\' ? `<span class="gico">${gameIcon(c)}</span>`'), 'значок игры переехал на иконку чата');
+ok(!appJs.includes('tag-grp" title="${gameRulesOf'), 'маленькая плашка со значком после названия игрового чата убрана');
+ok(css.includes('.avatar .gico{'), 'крупный значок игры на иконке оформлен в стилях');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

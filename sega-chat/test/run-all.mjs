@@ -193,8 +193,8 @@ function startFunctionEmulator(handler, functionId) {
     && appJsText.includes('function searchBarHidden') && appJsText.includes('function syncSearchVisibility');
   console.log('  ' + (okNoSearch ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: на телефоне в чат-игре строка поиска скрыта (и результаты гаснут вместе с ней)');
   if (!okNoSearch) failed++;
-  const andCount = appJsText.split("userNameById(g.white) + ' и ' + userNameById(g.black)").length - 1;
-  const okAndTitle = andCount === 2 && !appJsText.includes("userNameById(g.white) + ' против '");
+  const andCount = appJsText.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1;
+  const okAndTitle = andCount === 2 && !appJsText.includes("(g.white) + ' против '");
   console.log('  ' + (okAndTitle ? '✓' : '✗ ПРОВАЛ:') + ' pkg3-42: в заголовках партий союз «и» вместо «против» (найдено ' + andCount + ' из 2)');
   if (!okAndTitle) failed++;
   const okHeadCtrl = appJsText.includes('class="bph-top"') && appJsText.includes('class="bph-btns"')
