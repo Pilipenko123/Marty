@@ -150,6 +150,9 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 .dm-bn-note{width:100%;font-size:11.5px;color:var(--muted)}
 #dm-banner .mini.primary{flex:none}
 .avatar.group{border-radius:30%}
+/* pkg3-77: значок игры (● шашки, ♟ шахматы, ⚓ морской бой) крупнее букв-инициалов —
+   он теперь живёт на иконке чата, а не в названии */
+.avatar .gico{font-size:19px;line-height:1}
 
 .rail-bottom{border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));
   display:flex;align-items:center;gap:10px}

@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-76';
+const BUILD = 'pkg3-77';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -246,6 +246,8 @@ const S = {
   healBusy: false, healPauseUntil: 0,   // защита от бесконечного «долечивания» без ключа
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
+  typing: [],          // pkg3-77: кто пишет/загружает — [{uid, chat, kind, at}]
+  typingHeaderSig: '', // pkg3-77: подпись заголовка, чтобы не перерисовывать его впустую
   chatPos: {},      // pkg3-38: chatId -> где была прокручена лента ({bottom:true} или {id,dy}) — память места в рамках сессии
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
   usage: { bytes: 0, limit: 1, percent: 0, messages: 0 }, maxUpload: DEFAULT_MAX_UPLOAD,
@@ -294,6 +296,29 @@ const userById = id => {
 const displayName = u => (u && ((S.aliases || {})[u.id] || u.name)) || '…';
 const chatById = id => S.chats.find(c => c.id === id);
 const isOnline = u => u && Date.now() - (u.activeAt || 0) < ONLINE_MS;
+// pkg3-77: «пишет / загружает» — короткоживущие сигналы. Сервер хранит их только
+// в памяти (набор текста живёт 9 с, загрузка файла — 60 с), клиент держит свой
+// запас свежести, чтобы надпись гасла даже тогда, когда опросы заснули.
+const TYPE_TTL = 10000, UPTYPE_TTL = 65000;
+const typingFresh = t => t && Date.now() - (t.at || 0) < (t.kind === 'upload' ? UPTYPE_TTL : TYPE_TTL);
+/** Кто прямо сейчас пишет/загружает в чате (кроме меня самого). */
+function typingIn(chatId) {
+  if (!chatId) return [];
+  const meId = S.me && S.me.id;
+  return (S.typing || []).filter(t => t.chat === chatId && t.uid !== meId && typingFresh(t));
+}
+const typingSig = list => (list || []).map(t => t.uid + ':' + t.kind).sort().join(',');
+/** Ответ опроса/сигнала по ОДНОМУ чату: заменяем только его долю списка. */
+function mergeTypingChat(chatId, list) {
+  const now = Date.now();
+  S.typing = (S.typing || []).filter(t => t.chat !== chatId)
+    .concat((list || []).map(t => ({ uid: t.uid, chat: chatId, kind: t.kind, at: now })));
+}
+/** Ответ синхронизации: свежий список сразу по всем моим чатам. */
+function mergeTypingAll(list) {
+  const now = Date.now();
+  S.typing = (list || []).map(t => ({ uid: t.uid, chat: t.chat, kind: t.kind, at: now }));
+}
 const myReads = () => (S.me && S.me.reads) || {};
 const bucketOf = m => m.parent ? 'thr:' + m.parent : m.chat;
 const dmPeer = c => c && c.kind === 'dm' ? c.members.find(x => x !== S.me.id) : null;
@@ -788,7 +813,8 @@ function doLogout(silent) {
     oldKeysSeen: new Map(),   // pkg3-69
     oldKeysRetry: new Map(),   // pkg3-71
     oldKeysRetryUp: new Map(),   // pkg3-72
-    seq: 0, view: null, threadId: null, quote: null, sig: ''
+    seq: 0, view: null, threadId: null, quote: null, sig: '',
+    typing: [], typingHeaderSig: ''   // pkg3-77: сигналы «пишет/загружает» чужие — выходим, они не наши
   });
   $('#messages').innerHTML = '';
   document.title = 'SEGA-CHAT';
@@ -1319,6 +1345,9 @@ async function refreshPushReady() {
   try { pushReady = (await pushState()) === 'on'; } catch (e) { pushReady = false; }
 }
 async function loopStep() {
+  // pkg3-77: в открытом чате кто-то набирает сообщение или грузит файл —
+  // держим окно бодрым, чтобы его письмо прилетело сразу, не в «тихий час»
+  if (!document.hidden && typingIn(S.view).length) wake('собеседник пишет');
   // открытая партия: с пушем окно живёт по общему расписанию (ход разбудит),
   // без пуша — держим бодрым, чтобы игра никогда не «зависала»
   if (gameOnScreen()) {
@@ -1344,8 +1373,29 @@ function loop() {
   clearTimeout(S.timer);
   S.timer = setTimeout(() => { loopStep().finally(loop); }, pollDelay());
 }
+// pkg3-77: отдельный лёгкий опрос «кто пишет/загружает» — каждые 4 секунды,
+// пока открыт чат и вкладка видна. Запрос крошечный (сервер отвечает из памяти,
+// базу не трогает), поэтому он не мешает ни «тихому часу», ни батарее заметнее
+// обычного. Тот же опрос гасит надпись, когда собеседник передумал или файл доехал.
+const TYPING_POLL_MS = Math.max(1500, Number(POLL_QS.get('typing')) || 4000);
+function refreshTypingHeader(chatId) {
+  const cid = chatId || S.view;
+  if (!cid || cid !== S.view) return;
+  const sig = typingSig(typingIn(cid));
+  if (sig === (S.typingHeaderSig || '')) return;
+  S.typingHeaderSig = sig;
+  renderTopbar();
+}
+setInterval(() => {
+  if (!S.token || !S.view || document.hidden) return;
+  const cid = S.view;
+  api('/api/typing?chat=' + encodeURIComponent(cid))
+    .then(r => { mergeTypingChat(cid, (r && r.typing) || []); refreshTypingHeader(cid); })
+    .catch(() => {});
+}, TYPING_POLL_MS);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && S.token) { noteTouch(); sync().catch(() => {}); loop(); }
+  else if (document.hidden) stopTypingSignal();   // pkg3-77: вкладку спрятали — «пишет…» гаснет сразу
 });
 window.addEventListener('focus', () => { if (S.token) { noteTouch(); markRead(); } });
 // служебный воркер (пуш из облака) будит спящее окно
@@ -1433,6 +1483,9 @@ async function applySyncMeta(data) {
   }
   S.invites = data.invites || [];
   if (typeof data.rnow === 'number') S.serverNow = data.rnow;   // pkg3-49: часы сервера
+  // pkg3-77: сигналы «пишет / загружает» пришли вместе с синхронизацией —
+  // обновляем список и сразу освежаем подпись под заголовком открытого чата
+  if (Array.isArray(data.typing)) { mergeTypingAll(data.typing); refreshTypingHeader(); }
   // pkg3-49: мои сохранённые личные чаты — по отметкам savedBy у самих чатов;
   // заодно плашка «вас добавили в личные чаты», когда собеседник сохранил переписку
   const meId0 = (S.me && S.me.id) || null;
@@ -2136,7 +2189,9 @@ function chatAvatarHtml(c, cls) {
   if (!c) return `<span class="av-wrap"><span class="avatar ${cls || ''}" style="background:#2353a2"><img class="av-logo" src="logo.png" alt=""></span></span>`;
   if (c.kind === 'dm') return avatarHtml(userById(dmPeer(c)), cls, true);
   const title = chatTitle(c);
-  let inner = escapeHtml(initials(title));
+  // pkg3-77: игровой чат узнаётся по значку НА ИКОНКЕ (● шашки, ♟ шахматы,
+  // ⚓ морской бой) — из названия значок убран, там остались только имена
+  let inner = c.kind === 'game' ? `<span class="gico">${gameIcon(c)}</span>` : escapeHtml(initials(title));
   if (S.eco) { /* иконки чатов в эконом-режиме не подгружаются */ }
   else if (c.iconRev) {
     const hit = iconCache.get(c.id);
@@ -2243,9 +2298,13 @@ function ckDiscHtml(p) {
 /** pkg3-42: в заголовке партии союз «и» вместо «против» — «Пётр и Мария» короче,
  * чем «Пётр против Марии», а на телефоне каждый знак на счету. Смысл не теряется:
  * значок игры и подписи «приглашение» / «завершена» остались на месте. */
+/** pkg3-77: имя игрока в заголовках партии. Соперника, которого нет в моих
+ * чатах, зовём «Кто-то» — честнее многоточия. */
+const gamePlayerName = id => (userById(id) || {}).name || 'Кто-то';
 function gameTitle(c) {
   const g = c.game || {};
-  const base = gameIcon(c) + ' ' + userNameById(g.white) + ' и ' + userNameById(g.black);
+  // pkg3-77: в названии — только имена (значок игры живёт на иконке чата)
+  const base = gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black);
   if (g.status === 'invite') return base + ' · приглашение';
   if (g.status === 'finished') return base + ' · завершена';
   return base;
@@ -2286,7 +2345,7 @@ function gameRailSub(c) {
   } catch (e) { return 'идёт партия…'; }
 }
 function openGameTitle(g) {
-  return userNameById(g.white) + ' и ' + userNameById(g.black);   // pkg3-42: «и» вместо «против»
+  return gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black);   // pkg3-42: «и» вместо «против»; pkg3-77: незнакомый — «Кто-то»
 }
 /** pkg3-41: партия разбирается тем движком, что записан в правилах игры:
  * шашки — createCheckers, шахматы — createChess. Записи ходов в истории
@@ -3413,7 +3472,7 @@ function renderRail() {
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
       <div class="ci-main">
-        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${isNewChat(c) && c.newUntil ? `<span class="tag-new" data-newcd="${c.id}" title="Чат из раздела «Новые»: удалится сам, если не сохранить">новые · ${escapeHtml(fmtLeft(c.newUntil))}</span>` : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}${c.kind === 'game' ? `<span class="tag-grp" title="${gameRulesOf(c) === 'checkers' ? 'шашки' : gameRulesOf(c) === 'seabattle' ? 'морской бой' : 'шахматы'}">${gameIcon(c)}</span>` : ''}</div>
+        <div class="ci-name">${escapeHtml(chatTitle(c))}${isChatMuted(c.id) ? '<span class="mute-mark" title="Без звука">🔇</span>' : ''}${isNewChat(c) && c.newUntil ? `<span class="tag-new" data-newcd="${c.id}" title="Чат из раздела «Новые»: удалится сам, если не сохранить">новые · ${escapeHtml(fmtLeft(c.newUntil))}</span>` : ''}${c.kind === 'group' ? `<span class="tag-grp">${c.members.length}</span>` : ''}</div>
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
       ${seen}
@@ -3511,6 +3570,27 @@ function renderRail() {
   $('#chat-list').innerHTML = html;
 }
 
+/** pkg3-77: строка для заголовка группы/игры — кто прямо сейчас пишет или
+ * загружает, с именами: «Сергей пишет…», «Сергей и Аня загружают…». */
+function typingLine(c) {
+  const ts = typingIn(c.id);
+  if (!ts.length) return '';
+  const nameOf = uid => escapeHtml((userById(uid) || {}).name || 'Кто-то');
+  const part = (list, one, many) => {
+    const names = list.map(t => nameOf(t.uid));
+    const joined = names.length === 1 ? names[0]
+      : names.length === 2 ? names[0] + ' и ' + names[1]
+      : names.slice(0, -1).join(', ') + ' и ' + names[names.length - 1];
+    return joined + ' ' + (names.length === 1 ? one : many);
+  };
+  const typ = ts.filter(t => t.kind !== 'upload');
+  const upl = ts.filter(t => t.kind === 'upload');
+  const bits = [];
+  if (typ.length) bits.push(part(typ, 'пишет…', 'пишут…'));
+  if (upl.length) bits.push(part(upl, 'загружает…', 'загружают…'));
+  return bits.join(' · ');
+}
+
 function renderTopbar() {
   const c = curChat();
   const hasChat = !!c;
@@ -3520,21 +3600,28 @@ function renderTopbar() {
     $('#chat-avatar').innerHTML = chatAvatarHtml(null);
     $('#chat-title').textContent = 'SEGA-CHAT';
     $('#chat-sub').textContent = 'выберите чат слева или создайте новый';
-    $('#input').placeholder = 'ну пиши, чё?';
+    $('#input').placeholder = 'Пишите';
     return;
   }
   $('#chat-avatar').innerHTML = chatAvatarHtml(c);
   $('#chat-title').textContent = chatTitle(c);
   if (c.kind === 'dm') {
     const u = userById(dmPeer(c));
-    $('#chat-sub').innerHTML = isOnline(u)
-      ? '<span style="color:#5c9c1e">в сети, смотрит чат</span> · личная переписка'
-      : 'был(а) ' + escapeHtml(fmtAgo(u && u.lastSeen)) + ' · личная переписка';
-    $('#input').placeholder = 'ну пиши, чё?';
+    // pkg3-77: «пишет…» / «загружает…» важнее дежурного «смотрит чат» —
+    // как только сигнал погас, строка сама возвращается к прежнему виду
+    const t = typingIn(c.id)[0];
+    const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…') : '';
+    $('#chat-sub').innerHTML = act
+      ? '<span style="color:#5c9c1e">' + act + '</span> · личная переписка'
+      : isOnline(u)
+        ? '<span style="color:#5c9c1e">в сети, смотрит чат</span> · личная переписка'
+        : 'был(а) ' + escapeHtml(fmtAgo(u && u.lastSeen)) + ' · личная переписка';
+    $('#input').placeholder = 'Пишите';
   } else {
     const online = c.members.map(userById).filter(isOnline).length;
-    $('#chat-sub').innerHTML = `${plural(c.members.length, 'участник', 'участника', 'участников')} · <span style="color:#5c9c1e">${online} в сети</span>`;
-    $('#input').placeholder = 'ну пиши, чё?';
+    const act = typingLine(c);   // pkg3-77: имена тех, кто пишет/загружает
+    $('#chat-sub').innerHTML = `${plural(c.members.length, 'участник', 'участника', 'участников')} · <span style="color:#5c9c1e">${act || online + ' в сети'}</span>`;
+    $('#input').placeholder = 'Пишите';
   }
 }
 
@@ -4219,7 +4306,9 @@ $('#chat-list').addEventListener('click', async e => {
 });
 async function openChat(id) {
   if (S.view) { S.drafts[S.view] = $('#input').value; captureChatPos(); }
+  stopTypingSignal();   // pkg3-77: ушли из чата — там больше не «пишем»
   S.view = id;
+  S.typingHeaderSig = '';
   S.threadId = null; S.quote = null;
   S.atBottom = true; S.sig = '';
   renderedChat = null; renderedOnce = false; renderedIds = new Set();
@@ -5712,6 +5801,7 @@ async function send({ textarea, parent, attachKey }) {
   if (!text && !att) return;
   const c = curChat();
   if (!c) return toast('Сначала выберите чат', true);
+  stopTypingSignal();   // pkg3-77: письмо само скажет «дописал» — сигнал «пишет…» гаснет
   const k = await chatKeyOf(c);
   if (!k) return toast('Не удалось получить ключ шифрования для этого чата', true);
   // pkg3-67: ключ, которым шифруется отправка, СРАЗУ кладётся в историю
@@ -5839,6 +5929,41 @@ function fireNotify(ticket) {
 $('#btn-send').addEventListener('click', () => send({ textarea: $('#input'), attachKey: 'attach' }));
 $('#thread-send').addEventListener('click', () => send({ textarea: $('#thread-input'), parent: S.threadId, attachKey: 'threadAttach' }));
 
+// pkg3-77: сигнал «пишу» на сервер. Отправляем не чаще раза в 3 секунды, пока
+// человек действительно набирает, и гасим через 5 секунд после последнего
+// символа (или сразу — при отправке, смене чата, уходе с вкладки). Сервер
+// хранит сигнал только в памяти и сам забудет его через 9 секунд — «залипших»
+// надписей «пишет…» не бывает даже тогда, когда браузер закрыли силой.
+let typingLastSig = 0, typingStopTimer = 0, typingChat = null;
+function postTyping(chatId, kind) {
+  api('/api/typing', { method: 'POST', body: { chat: chatId, kind } })
+    .then(r => { if (r && Array.isArray(r.typing)) { mergeTypingChat(chatId, r.typing); refreshTypingHeader(chatId); } })
+    .catch(() => {});
+}
+function sigTyping(kind) {
+  if (!S.token) return;
+  if (kind !== 'type') { stopTypingSignal(); return; }
+  const c = curChat();
+  if (!c) return;
+  if (typingChat && typingChat !== c.id) stopTypingSignal();   // перешли в другой чат — там гасим
+  typingChat = c.id;
+  const now = Date.now();
+  if (now - typingLastSig < 3000) { scheduleTypingStop(); return; }
+  typingLastSig = now;
+  scheduleTypingStop();
+  postTyping(c.id, 'type');
+}
+function scheduleTypingStop() {
+  clearTimeout(typingStopTimer);
+  typingStopTimer = setTimeout(() => { typingStopTimer = 0; stopTypingSignal(); }, 5000);
+}
+/** Немедленно замолчать: сообщение ушло, чат сменился или вкладку спрятали. */
+function stopTypingSignal() {
+  clearTimeout(typingStopTimer); typingStopTimer = 0; typingLastSig = 0;
+  const chatId = typingChat; typingChat = null;
+  if (chatId && S.token) postTyping(chatId, '');
+}
+
 function composerKeydown(e, sendFn) {
   if (mentionKeydown(e)) return;
   if (e.key === 'Escape' && S.quote) { S.quote = null; renderQuoteBar(); return; }
@@ -5846,8 +5971,8 @@ function composerKeydown(e, sendFn) {
 }
 $('#input').addEventListener('keydown', e => composerKeydown(e, () => send({ textarea: $('#input'), attachKey: 'attach' })));
 $('#thread-input').addEventListener('keydown', e => composerKeydown(e, () => send({ textarea: $('#thread-input'), parent: S.threadId, attachKey: 'threadAttach' })));
-$('#input').addEventListener('input', e => { autoGrow(e.target); mentionInput(e.target, $('#mention-pop')); });
-$('#thread-input').addEventListener('input', e => { autoGrow(e.target); mentionInput(e.target, $('#thread-mention-pop')); });
+$('#input').addEventListener('input', e => { autoGrow(e.target); mentionInput(e.target, $('#mention-pop')); if (e.target.value.trim()) sigTyping('type'); });
+$('#thread-input').addEventListener('input', e => { autoGrow(e.target); mentionInput(e.target, $('#thread-mention-pop')); if (e.target.value.trim()) sigTyping('type'); });
 
 // ─────────────────────────────────────────── эмодзи и звук уведомлений
 function insertAtCursor(textarea, text) {
