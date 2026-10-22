@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-76';
+const BUILD = 'pkg3-77';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -33,6 +33,57 @@ function createApi(store, opts = {}) {
   const UP_CHUNK = 900000;                                               // символов в одном куске загрузки
 
   let db = null;
+
+  // pkg3-77: «пишет / загружает» — короткоживущие сигналы ТОЛЬКО в памяти.
+  // Сервер не записывает их в базу и не читает содержимое сообщений: он просто
+  // помнит, что участник такого-то чата прямо сейчас набирает текст или грузит
+  // файл. Сигналы истекают сами (набор текста — 9 с, загрузка — 60 с), поэтому
+  // ни очисток по расписанию, ни полей в хранилище не нужно. В облачной функции
+  // память живёт, пока тёплый экземпляр, — индикатор остаётся необязательным
+  // удобством и ни на что критичное не влияет.
+  const TYPING_TTL_TYPE = Number(process.env.TYPING_TTL_TYPE || 9000);
+  const TYPING_TTL_UPLOAD = Number(process.env.TYPING_TTL_UPLOAD || 60000);
+  const typingNow = new Map();   // userId -> { chat, kind, ts }
+  function setTyping(userId, chatId, kind) {
+    if (!kind) { typingNow.delete(userId); return; }
+    typingNow.set(userId, { chat: chatId, kind: kind === 'upload' ? 'upload' : 'type', ts: Date.now() });
+  }
+  function freshTyping(userId, now) {
+    const t = typingNow.get(userId);
+    if (!t) return null;
+    const ttl = t.kind === 'upload' ? TYPING_TTL_UPLOAD : TYPING_TTL_TYPE;
+    if (now - t.ts > ttl) { typingNow.delete(userId); return null; }
+    return t;
+  }
+  /** Кто прямо сейчас пишет/загружает в одном чате (кроме самого спрашивающего). */
+  function typingInChat(chatId, now, exceptUid) {
+    const out = [];
+    for (const [userId, t] of typingNow) {
+      if (userId === exceptUid || t.chat !== chatId) continue;
+      if (freshTyping(userId, now)) out.push({ uid: userId, kind: t.kind });
+    }
+    return out;
+  }
+  /** То же по всем чатам участника разом — прикрепляется к ответу синхронизации. */
+  function typingInChats(chatIds, now, exceptUid) {
+    const mine = new Set(chatIds);
+    const out = [];
+    for (const [userId, t] of typingNow) {
+      if (userId === exceptUid || !mine.has(t.chat)) continue;
+      if (freshTyping(userId, now)) out.push({ uid: userId, chat: t.chat, kind: t.kind });
+    }
+    return out;
+  }
+  // Загрузка файла помечает себя сама: сервер знает чат и владельца файла
+  function markUploadTyping(userId, chatId) {
+    const t = typingNow.get(userId);
+    if (t && t.kind === 'upload' && t.chat === chatId) t.ts = Date.now();
+    else setTyping(userId, chatId, 'upload');
+  }
+  function clearUploadTyping(userId, chatId) {
+    const t = typingNow.get(userId);
+    if (t && t.kind === 'upload' && (!chatId || t.chat === chatId)) typingNow.delete(userId);
+  }
 
   // ------------------------------------------------------------- ответы
   const J = (status, json, headers) => ({ status, json, headers });
@@ -1300,6 +1351,7 @@ function createApi(store, opts = {}) {
         bondReqs: db.bondReqs.filter(r => r.to === me.id || r.from === me.id)
           .map(r => ({ id: r.id, from: r.from, to: r.to, chat: r.chat, createdAt: r.createdAt, state: r.state })),
         users: visibleUsers(me).map(publicUser),   // pkg3-48: видим только свой круг, остальных ищет /api/search
+        typing: typingInChats(mch.map(c => c.id), rnow, me.id),   // pkg3-77: кто пишет/загружает в моих чатах
         usage: usage(),
         me: publicUser(me),
         serverTime: rnow
@@ -1309,6 +1361,23 @@ function createApi(store, opts = {}) {
     // --- разослать уведомления (браузер просит об этом сразу после отправки)
     if (pathname === '/api/notify' && method === 'POST') {
       return J(200, await runNotify(req.body || {}, me));
+    }
+
+    // --- pkg3-77: сигналы «пишет / загружает» (короткоживущие, только в памяти).
+    // Содержимое сообщений сервер по-прежнему не видит: сигнал говорит лишь,
+    // ЧТО человек сейчас делает в чате, — как «в сети», только точнее.
+    if (pathname === '/api/typing' && method === 'POST') {
+      const b = req.body || {};
+      const chat = chatById(String(b.chat || ''));
+      if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+      const kind = b.kind === 'type' || b.kind === 'upload' ? b.kind : '';
+      if (kind) setTyping(me.id, chat.id, kind); else typingNow.delete(me.id);
+      return J(200, { ok: true, typing: typingInChat(chat.id, Date.now(), me.id) });
+    }
+    if (pathname === '/api/typing' && method === 'GET') {
+      const chat = chatById(String(query.get('chat') || ''));
+      if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+      return J(200, { typing: typingInChat(chat.id, Date.now(), me.id) });
     }
 
     // --- отметка «прочитано» (bucket: <chatId> | thr:<messageId>)
@@ -2633,6 +2702,7 @@ function createApi(store, opts = {}) {
         mime: String(b.mime || 'application/octet-stream').slice(0, 80),
         parts: Math.max(1, Number(b.parts) || 1), owner: me.id, ts: Date.now()
       });
+      markUploadTyping(me.id, chat.id);   // pkg3-77: собеседники видят «загружает…»
       return J(200, { upId, chunk: UP_CHUNK });
     }
     if (pathname === '/api/upload/chunk' && method === 'POST') {
@@ -2645,6 +2715,7 @@ function createApi(store, opts = {}) {
       if (i < 0 || i >= 5000) return E(400, 'Неверный номер куска');
       if (!b.data || b.data.length > UP_CHUNK + 8192) return E(413, 'Кусок больше допустимого');
       await store.putUpPart(meta.chat, b.upId, i, b.data);
+      markUploadTyping(me.id, meta.chat);   // pkg3-77: каждый кусок продлевает «загружает…»
       return J(200, { ok: true });
     }
     if (pathname === '/api/upload/fin' && method === 'POST') {
@@ -2659,6 +2730,7 @@ function createApi(store, opts = {}) {
       await store.putUpMeta(b.upId, meta);
       db.upBytes = (db.upBytes || 0) + stored;
       db.seq++; save();
+      clearUploadTyping(me.id, meta.chat);   // pkg3-77: файл доехал — «загружает…» гаснет
       return J(200, { ok: true, meta });
     }
     if (pathname.startsWith('/api/upload/') && method === 'GET') {
