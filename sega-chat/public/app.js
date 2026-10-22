@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-77';
+const BUILD = 'pkg3-78';
 /* pkg3-55.1: признак жизни для встроенного сторожа из index.html. Сторож ждёт
    20 секунд и, если файл скрипта не догрузился через сеть (туннель VPN, часы
    белых списков), показывает честную плашку с причинами и кнопкой «Повторить».
@@ -1305,7 +1305,7 @@ for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
 }
 function pollDelay() {
   if (pollMode() !== 'awake') return TICK_MS;
-  if (sbOnScreen()) return SB_GAME_MS;
+  if (sbOnScreen() || coinsOnScreen()) return SB_GAME_MS;   // pkg3-78: забег «Монет» тоже любит частый опрос
   return gameOnScreen() ? GAME_MS : FAST_MS;
 }
 function gameOnScreen() {
@@ -1321,6 +1321,13 @@ function sbOnScreen() {
 }
 /** pkg3-57: на этом устройстве есть флот идущей партии морского боя —
  * значит устройство обязано отвечать на выстрелы (страховка без пуша). */
+/** pkg3-78: открыт ли забег «Монет», который ещё не финализирован, — тогда
+ * опрос чаще: ждём чужие результаты раундов. S.coinsPlaying ставит renderCoins. */
+function coinsOnScreen() {
+  const c = curChat();
+  return !!(c && c.kind === 'game' && (c.game || {}).rules === 'coins'
+    && (c.game || {}).status === 'playing' && !document.hidden && S.coinsPlaying !== false);
+}
 function sbFleetOnDevice() {
   if (!S.me || !S.chats || !S.chats.length) return false;
   for (const c of S.chats) {
@@ -2073,7 +2080,16 @@ async function maybeAutoPush() {
 // ─────────────────────────────────────────── непрочитанное
 /** pkg3-57: служебное письмо партии (ход шахмат/шашек или выстрел морского
  * боя) — не «сообщение»: живёт на доске и в списке ходов, а не в ленте. */
-const isGameLetter = p => !!(p && typeof p.k === 'string' && (p.k === 'move' || p.k.slice(0, 3) === 'sb-'));
+const isGameLetter = p => !!(p && typeof p.k === 'string'
+  && (p.k === 'move' || p.k.slice(0, 3) === 'sb-' || p.k.slice(0, 6) === 'coins-'));
+/** pkg3-78: человечья подпись служебных писем «Монет» (превью, уведомления). */
+function coinsNote(p) {
+  if (!p || !p.k) return 'монеты';
+  if (p.k === 'coins-result') return 'результат раунда ' + (p.round | 0) + ': ' + (p.score | 0) + ' монет';
+  if (p.k === 'coins-surrender') return 'сдался в раунде ' + (p.round | 0);
+  if (p.k === 'coins-record') return 'новый рекорд забега: ' + (p.total | 0) + ' монет';
+  return 'монеты';
+}
 /** pkg3-36: видно ли сообщение в ленте. В игровом чате ходы живут на доске и
  * в списке ходов, а не в ленте; нерасшифрованное там же тоже прячется — его
  * вот-вот долечит boardSoon. Правило одно и для ленты, и для линии
@@ -2274,8 +2290,10 @@ const userNameById = id => (userById(id) || {}).name || '…';
  * Правила записаны в карточке игры (game.rules); старым партиям без метки
  * считаем шахматами, поэтому история не ломается. */
 const gameRulesOf = c => ((c && c.game && c.game.rules) === 'checkers') ? 'checkers'
-  : ((c && c.game && c.game.rules) === 'seabattle') ? 'seabattle' : 'chess';
-const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : gameRulesOf(c) === 'seabattle' ? '⚓' : '♟';
+  : ((c && c.game && c.game.rules) === 'seabattle') ? 'seabattle'
+  : ((c && c.game && c.game.rules) === 'coins') ? 'coins' : 'chess';   // pkg3-78: золотая лихорадка
+const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : gameRulesOf(c) === 'seabattle' ? '⚓'
+  : gameRulesOf(c) === 'coins' ? '🪙' : '♟';
 /** pkg3-56: человеческая подпись служебных писем морского боя (лента, превью, уведомления). */
 function sbNote(p) {
   if (!p || !p.k) return 'морской бой';
@@ -2303,6 +2321,13 @@ function ckDiscHtml(p) {
 const gamePlayerName = id => (userById(id) || {}).name || 'Кто-то';
 function gameTitle(c) {
   const g = c.game || {};
+  // pkg3-78: у «Монет» нет белых/чёрных — в названии список игроков забега
+  if (gameRulesOf(c) === 'coins') {
+    const names = (g.players || []).map(gamePlayerName);
+    const base = names.length > 1 ? names.join(', ') : 'Монеты · соло';
+    if (g.status === 'finished') return base + ' · завершена';
+    return base;
+  }
   // pkg3-77: в названии — только имена (значок игры живёт на иконке чата)
   const base = gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black);
   if (g.status === 'invite') return base + ' · приглашение';
@@ -2331,6 +2356,18 @@ function gameRailSub(c) {
       return 'морской бой · стреляет ' + userNameById(eng.turn() === 'w' ? g.white : g.black);
     } catch (e) { return 'морской бой…'; }
   }
+  // pkg3-78: «Монеты» — раунд забега или имя победителя
+  if (gameRulesOf(c) === 'coins') {
+    try {
+      const cs = coinsRunState(c);
+      if (cs.plan.final) {
+        const w = CE.winnerOf(cs.game, cs.letters, Date.now(), cs.run);
+        if ((g.players || []).length <= 1) return 'монеты · соло · забег ' + cs.run + ' завершён';
+        return w ? 'монеты · победил ' + w.ids.map(gamePlayerName).join(', ') : 'монеты · забег завершён';
+      }
+      return 'монеты · раунд ' + cs.plan.round + ' из ' + cs.rounds;
+    } catch (e) { return 'монеты…'; }
+  }
   try {
     const { eng, sans } = gameReplay(c);
     const st = eng.status();
@@ -2345,6 +2382,11 @@ function gameRailSub(c) {
   } catch (e) { return 'идёт партия…'; }
 }
 function openGameTitle(g) {
+  // pkg3-78: «Сейчас играют» в «Монеты» — вместо пары именуются все игроки забега
+  if (g && g.rules === 'coins') {
+    const names = (g.players || []).map(gamePlayerName);
+    return names.length > 1 ? names.join(', ') : 'Монеты';
+  }
   return gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black);   // pkg3-42: «и» вместо «против»; pkg3-77: незнакомый — «Кто-то»
 }
 /** pkg3-41: партия разбирается тем движком, что записан в правилах игры:
@@ -2417,8 +2459,9 @@ function gamePayloadHtml(p, chat) {
   if (!p || typeof p !== 'object' || !p.k) return '';
   const gc0 = chat || (p.game ? (S.chats || []).find(x => x.id === p.game) : null);
   const rules = (gc0 && gc0.game && gc0.game.rules) || p.rules || 'chess';
-  const ico = rules === 'checkers' ? '●' : rules === 'seabattle' ? '⚓' : '♟';
+  const ico = rules === 'checkers' ? '●' : rules === 'seabattle' ? '⚓' : rules === 'coins' ? '🪙' : '♟';
   if (p.k && p.k.slice(0, 3) === 'sb-') return `<div class="mv-line">${ico} ${escapeHtml(sbNote(p))}</div>`;
+  if (p.k && p.k.slice(0, 6) === 'coins-') return `<div class="mv-line">${ico} ${escapeHtml(coinsNote(p))}</div>`;   // pkg3-78
   if (p.k === 'move') return `<div class="mv-line">${ico} ${escapeHtml(rusSan(p.san) || (p.from + '–' + p.to))}</div>`;
   if (p.k === 'game-event') return `<div class="mv-sys">${escapeHtml(p.text || '')}</div>`;
   if (p.k === 'game-invite') {
@@ -2428,9 +2471,18 @@ function gamePayloadHtml(p, chat) {
     // pkg3-61: принятое приглашение — второй вход в игру для обеих сторон
     // (пригласившего и приглашённого), и остаётся им, пока игру не удалили
     const inGc = !!(gc && (gc.members || []).includes((S.me || {}).id));
-    const accepted = !!(gc && (inGc || (gc.game || {}).status !== 'invite'));
+    // pkg3-78: «Монеты» стартуют сразу, статус 'playing' ещё не значит «принято»:
+    // принято — когда адресат вошёл в состав игроков; отклонено — когда выпал из invitees
+    const coinsInv = rules === 'coins';
+    const toMember = !!(gc && (gc.members || []).includes(p.to));
+    const toInvited = !!(gc && (((gc.game || {}).invitees) || []).includes(p.to));
+    const accepted = coinsInv ? !!(gc && (toMember || inGc))
+      : !!(gc && (inGc || (gc.game || {}).status !== 'invite'));
+    const declinedCoins = coinsInv && !!gc && !toMember && !toInvited;
     let act;
-    if (accepted) {
+    if (declinedCoins) {
+      act = '<div class="tiny muted">Приглашение отклонено</div>';
+    } else if (accepted) {
       act = '<div class="tiny" style="color:#2c7a3f;font-weight:600">Приглашение принято ✓</div>'
         + (inGc ? `<div style="margin-top:8px"><button class="mini primary" data-game-enter="${escapeHtml(p.game)}">Войти в игру</button></div>` : '');
     } else if (gc && !mine) {
@@ -2438,9 +2490,11 @@ function gamePayloadHtml(p, chat) {
     } else if (pending && mine) {
       act = `<div style="margin-top:8px;display:flex;gap:6px">
         <button class="mini primary" data-game-accept="${escapeHtml(p.game)}" data-choice="${escapeHtml(p.colorChoice || '')}" data-rules="${escapeHtml(p.rules || '')}">Войти в игру</button>
-        <button class="mini danger" data-game-decline="${escapeHtml(p.game)}">Отклонить</button></div>`;
-    } else act = '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
-    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : 'шахматы'}</b>
+        <button class="mini danger" data-game-decline="${escapeHtml(p.game)}" data-rules="${escapeHtml(p.rules || '')}">Отклонить</button></div>`;
+    } else act = coinsInv
+      ? '<div class="tiny muted">Приглашение больше недействительно</div>'
+      : '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
+    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : rules === 'coins' ? 'монеты' : 'шахматы'}</b>
       <div class="tiny muted">${escapeHtml(p.note || '')}</div>${act}</div>`;
   }
   return '';
@@ -2612,6 +2666,8 @@ function renderBoard() {
     }
     return;
   }
+  // pkg3-78: «Монеты» — своя панель: карта с туманом войны, джойстик, результаты
+  if (gameRulesOf(c) === 'coins') return renderCoins(wrap, c);
   const { eng, sans, skipped } = gameReplay(c);
   const st = eng.status();
   const my = myGameColor(c);
@@ -3283,6 +3339,664 @@ async function postMove(draft) {
     toast('Ход не отправился (' + (ex.message || 'сбой сети') + ') — попробуйте ещё раз', true);
   }
 }
+// ─────────────────────────────────── pkg3-78: «Монеты» — золотая лихорадка ───────────────────────────────────
+/** Карта раунда и значки кэшируются: перерисовка не ходит в сеть по кругу. */
+const coinsImgs = {};
+function coinsImg(src) {
+  if (coinsImgs[src]) return coinsImgs[src];
+  const im = new Image();
+  im.onload = () => { try { if (S.coinsLive) coinsDraw(); } catch (e) {} };
+  im.src = src;
+  coinsImgs[src] = im;
+  return im;
+}
+/** Состояние забега на устройстве: идущий раунд переживёт перезагрузку страницы. */
+function coinsLocalGet(id) { try { return JSON.parse(localStorage.getItem('sega.coins.' + id)) || null; } catch (e) { return null; } }
+function coinsLocalSet(id, v) { try { if (v) localStorage.setItem('sega.coins.' + id, JSON.stringify(v)); else localStorage.removeItem('sega.coins.' + id); } catch (e) {} }
+/** Письма забега: расшифрованные payloads с автором и временем — вход для движка CE. */
+function coinsLetters(c) {
+  const out = [];
+  const msgs = S.messages.filter(m => m.chat === c.id && !m.parent && !m.failed).sort((a, b) => a.seq - b.seq);
+  for (const m of msgs) {
+    const p = S.plain.get(m.id);
+    if (!p || typeof p.k !== 'string' || p.k.slice(0, 6) !== 'coins-') continue;
+    out.push(Object.assign({}, p, { author: m.uid, ts: Number(m.ts) || 0 }));
+  }
+  return out;
+}
+/** Всё о забеге одним вычислением: раунд, план, таблица, победитель.
+ * Чужие результаты сразу перепроверяются перепроигрыванием пути по той же
+ * карте (CE.verify): неверный счёт becomes «не проверено» и обнуляется. */
+function coinsRunState(c, runWant) {
+  const g = c.game || {};
+  const letters0 = coinsLetters(c);
+  const solo = (g.players || []).length <= 1;
+  const maxRun = letters0.reduce((m, l) => Math.max(m, l.run || 1), 1);
+  const run = solo ? Math.max(1, Math.min(runWant || maxRun, maxRun + 1)) : 1;
+  const rounds = Math.max(1, Math.min(CE.MAX_ROUNDS, g.rounds | 0));
+  const genCache = {};
+  const gen = r => genCache[r] || (genCache[r] = CE.genRound(g.seed, r, run));
+  const letters = letters0.map(l => {
+    if (!CE.isResult(l) || (l.run || 1) !== run) return l;
+    const r = l.round | 0;
+    if (!(r >= 1 && r <= rounds)) return Object.assign({}, l, { score: 0, bad: true });
+    return CE.verify(gen(r), l, g.minutes) ? l : Object.assign({}, l, { score: 0, bad: true });
+  });
+  const now = Date.now();
+  const game = Object.assign({}, g, { rounds });
+  return {
+    g, game, solo, run, maxRun, rounds, gen, letters,
+    plan: CE.roundPlan(game, letters, now, run),
+    table: CE.table(game, letters, now, run),
+    winner: CE.winnerOf(game, letters, now, run)
+  };
+}
+/** Письмо забега уходит зашифрованным и будит остальных игроков пушем. */
+async function sendCoins(c, payload) {
+  const k = await chatKeyOf(c);
+  if (!k) { toast('Не удалось получить ключ шифрования для этой игры', true); return null; }
+  let blob;
+  try { blob = await encryptJSON(k.key, payload); }
+  catch (ex) { toast(ex.message || 'Не удалось зашифровать', true); return null; }
+  try {
+    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: c.id, blob, notify: 1 } });
+    S.plain.set(r.message.id, payload);
+    addMessages([r.message]);
+    cacheMsg(r.message);
+    if (r.usage) S.usage = r.usage;
+    if (r.notify) fireNotify(Object.assign({}, r.notify, { body: 'coins' }));
+    S.sig = ''; S.boardSig = ''; renderBoard(); renderRail();
+    return r.message;
+  } catch (ex) {
+    toast('Письмо забега не отправилось (' + (ex.message || 'сбой сети') + ') — попробуйте ещё раз', true);
+    return null;
+  }
+}
+/** Живой поиск: из локального состояния раунда. */
+function coinsMakeLive(c, cs, loc) {
+  const round = Number(loc.round) || cs.plan.round;
+  return {
+    chatId: c.id, cs, gen: cs.gen(round), minutes: Number(cs.g.minutes) || 3,
+    run: cs.run, round,
+    startedAt: Number(loc.startedAt) || 0, moves: String(loc.moves || ''),
+    x: loc.x | 0, y: loc.y | 0, score: loc.score | 0, got: (loc.got || []).slice(),
+    hg: loc.hg | 0, lanternUntil: loc.lanternUntil | 0, compassUntil: loc.compassUntil | 0,
+    sent: loc.sent || null, hunt: true, reveal: false, flash: null
+  };
+}
+/** Раскрытие карты после финиша: из своего письма (или локального sent). */
+function coinsLiveFromResult(c, cs, res, loc) {
+  const r = Number(res.round) || 1;
+  const gen = cs.gen(r);
+  const sim = CE.simulate(gen, res.moves);
+  const got = [];
+  for (let i = 0; i < sim.got.length; i++) if (sim.got[i]) got.push(i);
+  return {
+    chatId: c.id, cs, gen, minutes: Number(cs.g.minutes) || 3,
+    run: cs.run, round: r,
+    startedAt: Number(res.startedAt) || 0, moves: String(res.moves || ''),
+    x: sim.end[0], y: sim.end[1], score: res.score | 0, got, hg: sim.hg,
+    lanternUntil: 0, compassUntil: 0,
+    sent: (loc && loc.sent) || res, hunt: false, reveal: true, flash: null,
+    bad: res.bad === true
+  };
+}
+function coinsSaveLoc(L) {
+  coinsLocalSet(L.chatId, {
+    run: L.run, round: L.round, startedAt: L.startedAt, moves: L.moves,
+    x: L.x, y: L.y, score: L.score, got: L.got, hg: L.hg,
+    lanternUntil: L.lanternUntil, compassUntil: L.compassUntil, sent: L.sent || null
+  });
+}
+const coinsTimeLeft = L => Math.max(0, Number(L.startedAt) + (Number(L.minutes) * 60 + (L.hg | 0) * 10) * 1000 - Date.now());
+function coinsFmtSec(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+/** Клетки пути — для линии на раскрытой карте. */
+function coinsPath(gen, moves) {
+  const pts = [{ x: gen.start.x, y: gen.start.y }];
+  let x = gen.start.x, y = gen.start.y;
+  for (const ch of String(moves || '')) {
+    const d = CE.STEP[ch]; if (!d) continue;
+    const nx = x + d[0], ny = y + d[1];
+    if (CE.isWall(gen, nx, ny)) continue;
+    x = nx; y = ny; pts.push({ x, y });
+  }
+  return pts;
+}
+// ── движение: экранный крест и стрелки клавиатуры ──
+let coinsHold = { dir: null, t: 0, pid: null };
+function coinsHoldStart(dir, ev) {
+  if (ev && ev.pointerId !== undefined && coinsHold.pid !== null && coinsHold.pid !== ev.pointerId && coinsHold.dir) return;
+  coinsHoldStop();
+  coinsHold.dir = dir; coinsHold.pid = ev && ev.pointerId !== undefined ? ev.pointerId : null;
+  coinsStep(dir);
+  coinsHold.t = setInterval(() => { if (coinsHold.dir) coinsStep(coinsHold.dir); }, 170);
+}
+function coinsHoldStop() {
+  if (coinsHold.t) clearInterval(coinsHold.t);
+  coinsHold.t = 0; coinsHold.dir = null; coinsHold.pid = null;
+}
+window.addEventListener('blur', coinsHoldStop);
+const COINS_KEYS = { ArrowUp: 'U', ArrowDown: 'D', ArrowLeft: 'L', ArrowRight: 'R', KeyW: 'U', KeyS: 'D', KeyA: 'L', KeyD: 'R' };
+document.addEventListener('keydown', e => {
+  const L = S.coinsLive;
+  if (!L || !L.hunt) return;
+  const d = COINS_KEYS[e.code];
+  if (!d) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  coinsHoldStart(d);
+});
+document.addEventListener('keyup', e => { if (COINS_KEYS[e.code]) coinsHoldStop(); });
+function coinsStep(dir) {
+  const L = S.coinsLive;
+  if (!L || !L.hunt) return;
+  const d = CE.STEP[dir];
+  if (!d || coinsTimeLeft(L) <= 0) return;
+  const nx = L.x + d[0], ny = L.y + d[1];
+  if (CE.isWall(L.gen, nx, ny)) return;                       // в камень не ходим
+  L.x = nx; L.y = ny; L.moves += dir;
+  const ci = CE.coinAt(L.gen, nx, ny);
+  if (ci >= 0 && !L.got.includes(ci)) {
+    L.got.push(ci); L.score++;
+    L.flash = { text: '🪙 +1 монета', until: Date.now() + 1200 };
+  }
+  const bn = CE.bonusAt(L.gen, nx, ny);
+  if (bn) {
+    if (bn.t === 'hourglass') { L.hg++; L.flash = { text: '⏳ песочные часы: +10 секунд', until: Date.now() + 2200 }; }
+    if (bn.t === 'lantern') { L.lanternUntil = Date.now() + 15000; L.flash = { text: '🔦 фонарь: видно дальше 15 секунд', until: Date.now() + 2200 }; }
+    if (bn.t === 'compass') { L.compassUntil = Date.now() + 2500; L.flash = { text: '🧭 компас: стрелка к ближайшей монете', until: Date.now() + 2500 }; }
+  }
+  coinsSaveLoc(L);
+  coinsDraw(); coinsHud();
+}
+// ── canvas: карта, туман войны, артефакты, аватар ──
+let coinsFogCv = null;
+function coinsFogLayer(cw, ch, sx, sy, aura) {
+  if (!coinsFogCv) coinsFogCv = document.createElement('canvas');
+  const f = coinsFogCv;
+  if (f.width !== cw || f.height !== ch) { f.width = cw; f.height = ch; }
+  const x = f.getContext('2d');
+  x.clearRect(0, 0, cw, ch);
+  x.fillStyle = 'rgba(6,7,12,0.93)';
+  x.fillRect(0, 0, cw, ch);
+  x.globalCompositeOperation = 'destination-out';
+  const gr = x.createRadialGradient(sx, sy, aura * 0.3, sx, sy, aura);
+  gr.addColorStop(0, 'rgba(0,0,0,1)');
+  gr.addColorStop(0.72, 'rgba(0,0,0,0.92)');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = gr;
+  x.beginPath(); x.arc(sx, sy, aura, 0, Math.PI * 2); x.fill();
+  x.globalCompositeOperation = 'source-over';
+  return f;
+}
+function coinsDraw() {
+  const L = S.coinsLive;
+  if (!L) return;
+  const cv = document.getElementById('coins-canvas');
+  if (!cv || !cv.getContext) return;
+  try {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cw = cv.clientWidth || 320, ch = cv.clientHeight || 480;
+    if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) {
+      cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
+    const gen = L.gen;
+    const cell = cw / CE.W;
+    const mapW = cell * CE.W, mapH = cell * CE.H;
+    // камера: игрок в центре, у краёв карты упирается (фигура смещается к краю)
+    let camX = L.x * cell + cell / 2 - cw / 2;
+    let camY = L.y * cell + cell / 2 - ch / 2;
+    camX = Math.max(0, Math.min(camX, Math.max(0, mapW - cw)));
+    camY = Math.max(0, Math.min(camY, Math.max(0, mapH - ch)));
+    const sx = L.x * cell + cell / 2 - camX, sy = L.y * cell + cell / 2 - camY;
+    // 1) карта-картинка
+    const im = coinsImg('img/coins-map' + (gen.mapIdx + 1) + '.jpg');
+    if (im.complete && im.naturalWidth) ctx.drawImage(im, -camX, -camY, mapW, mapH);
+    else { ctx.fillStyle = '#3d4a38'; ctx.fillRect(0, 0, cw, ch); }
+    // 2) стены-лабиринт
+    for (let y = 0; y < CE.H; y++) {
+      for (let x = 0; x < CE.W; x++) {
+        if (!gen.walls[CE.idx(x, y)]) continue;
+        const dx = x * cell - camX, dy = y * cell - camY;
+        if (dx + cell < 0 || dy + cell < 0 || dx > cw || dy > ch) continue;
+        ctx.fillStyle = 'rgba(26,22,17,0.9)';
+        ctx.fillRect(dx, dy, cell, cell);
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.strokeRect(dx + 0.5, dy + 0.5, cell - 1, cell - 1);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(dx + 2, dy + 2, cell - 4, Math.max(2, cell * 0.12));
+      }
+    }
+    // 3) артефакты: в тумане их не видно — рисуем только в ареоле (или при раскрытии)
+    const lanternOn = L.lanternUntil > Date.now();
+    const aura = (lanternOn ? 4.6 : 2.6) * cell;
+    const near = (x, y) => L.reveal || Math.hypot(x - L.x, y - L.y) * cell <= aura;
+    const putImg = (src, cxp, cyp, size, alpha) => {
+      const i2 = coinsImg(src);
+      ctx.globalAlpha = alpha;
+      if (i2.complete && i2.naturalWidth) ctx.drawImage(i2, cxp - size / 2, cyp - size / 2, size, size);
+      else { ctx.fillStyle = 'rgba(245,197,66,' + alpha + ')'; ctx.beginPath(); ctx.arc(cxp, cyp, size / 3, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    };
+    for (const cn of gen.coins) {
+      const gi = CE.coinAt(gen, cn.x, cn.y);
+      const got = L.got.includes(gi);
+      if (!L.reveal) {
+        if (got || !near(cn.x, cn.y)) continue;
+        putImg('img/coins-coin.png', cn.x * cell - camX + cell / 2, cn.y * cell - camY + cell / 2, cell * 0.62, 1);
+      } else {
+        putImg('img/coins-coin.png', cn.x * cell - camX + cell / 2, cn.y * cell - camY + cell / 2, cell * 0.62, got ? 1 : 0.28);
+      }
+    }
+    for (const bn of gen.bonuses) {
+      if (!L.reveal && !near(bn.x, bn.y)) continue;
+      putImg('img/coins-' + bn.t + '.png', bn.x * cell - camX + cell / 2, bn.y * cell - camY + cell / 2, cell * 0.7, L.reveal ? 0.55 : 1);
+    }
+    // 4) раскрытие: линия моего пути
+    if (L.reveal) {
+      const pts = coinsPath(gen, L.moves);
+      ctx.strokeStyle = 'rgba(245,197,66,0.85)';
+      ctx.lineWidth = Math.max(2, cell * 0.09);
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      pts.forEach((p, i) => {
+        const pxp = p.x * cell - camX + cell / 2, pyp = p.y * cell - camY + cell / 2;
+        if (i === 0) ctx.moveTo(pxp, pyp); else ctx.lineTo(pxp, pyp);
+      });
+      ctx.stroke();
+    } else {
+      // 5) туман войны: всё вне ареола — во тьме
+      ctx.drawImage(coinsFogLayer(cw, ch, sx, sy, aura), 0, 0, cw, ch);
+      // 6) компас: стрелка к ближайшей ненайденной монете
+      if (L.compassUntil > Date.now()) {
+        let best = null, bd = 1e9;
+        gen.coins.forEach(cn => {
+          const gi = CE.coinAt(gen, cn.x, cn.y);
+          if (L.got.includes(gi)) return;
+          const d = Math.hypot(cn.x - L.x, cn.y - L.y);
+          if (d < bd) { bd = d; best = cn; }
+        });
+        if (best) {
+          const ang = Math.atan2(best.y - L.y, best.x - L.x);
+          const r0 = cell * 0.6, r1 = cell * 1.7;
+          const x0 = sx + Math.cos(ang) * r0, y0 = sy + Math.sin(ang) * r0;
+          const x1 = sx + Math.cos(ang) * r1, y1 = sy + Math.sin(ang) * r1;
+          ctx.save();
+          ctx.shadowColor = 'rgba(245,197,66,0.9)'; ctx.shadowBlur = 8;
+          ctx.strokeStyle = '#f5c542'; ctx.lineWidth = Math.max(2.5, cell * 0.1);
+          ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x1 + Math.cos(ang) * cell * 0.35, y1 + Math.sin(ang) * cell * 0.35);
+          ctx.lineTo(x1 + Math.cos(ang + 2.5) * cell * 0.3, y1 + Math.sin(ang + 2.5) * cell * 0.3);
+          ctx.lineTo(x1 + Math.cos(ang - 2.5) * cell * 0.3, y1 + Math.sin(ang - 2.5) * cell * 0.3);
+          ctx.closePath(); ctx.fillStyle = '#f5c542'; ctx.fill();
+          ctx.restore();
+        }
+      }
+    }
+    // 7) моя фигура — аватар чата (на раскрытии метка конца пути)
+    coinsDrawMe(ctx, sx, sy, cell);
+  } catch (e) { /* сбой отрисовки не смертелен */ }
+}
+function coinsDrawMe(ctx, sx, sy, cell) {
+  const r = cell * 0.42;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+  const av = avatarCache.get(S.me.id);
+  const im = av && av.src ? coinsImg(av.src) : null;
+  if (im && im.complete && im.naturalWidth) {
+    ctx.drawImage(im, sx - r, sy - r, r * 2, r * 2);
+  } else {
+    ctx.fillStyle = '#c8912a'; ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold ' + Math.round(r * 1.1) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(((S.me && S.me.name) || '?').slice(0, 1).toUpperCase(), sx, sy);
+  }
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(2, cell * 0.09); ctx.strokeStyle = '#f5c542'; ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.65)'; ctx.stroke();
+}
+function coinsHud() {
+  const L = S.coinsLive;
+  if (!L) return;
+  const t = document.getElementById('coins-timer');
+  if (t) {
+    const left = L.hunt ? coinsTimeLeft(L) : 0;
+    t.textContent = L.hunt ? coinsFmtSec(left) : '—';
+    if (t.classList) t.classList.toggle('low', L.hunt && left <= 30000);
+  }
+  const s = document.getElementById('coins-score');
+  if (s) s.textContent = '🪙 ' + (L.score | 0) + '/' + CE.COINS;
+  const b = document.getElementById('coins-bonus');
+  if (b) {
+    const now = Date.now(), chips = [];
+    if (L.hunt && L.lanternUntil > now) chips.push('🔦 ' + Math.ceil((L.lanternUntil - now) / 1000) + ' с');
+    if (L.hunt && L.compassUntil > now) chips.push('🧭 компас');
+    if (L.hg > 0) chips.push('⏳ +' + (L.hg * 10) + ' с');
+    if (L.flash && L.flash.until > now) chips.push(L.flash.text);
+    b.textContent = chips.join(' · ');
+  }
+}
+let coinsTicker = 0;
+function coinsTickerStart() {
+  if (coinsTicker) return;
+  coinsTicker = setInterval(() => {
+    try {
+      const L = S.coinsLive;
+      if (!L || !L.hunt) return;
+      if (coinsTimeLeft(L) <= 0) { coinsFinishRound(false); return; }
+      if (!document.getElementById('coins-canvas')) return;
+      coinsDraw(); coinsHud();
+    } catch (e) {}
+  }, 200);
+}
+// ── старт, финиш, сдача, повтор забега ──
+function coinsStartRound() {
+  const c = curChat();
+  if (!c || gameRulesOf(c) !== 'coins') return;
+  if ((c.roles || {})[S.me.id] !== 'player') return;
+  const cs = coinsRunState(c, (S.coinsRun || {})[c.id]);
+  if (cs.plan.final) return;
+  const r = cs.plan.round;
+  const gen = cs.gen(r);
+  coinsLocalSet(c.id, {
+    run: cs.run, round: r, startedAt: Date.now(), moves: '',
+    x: gen.start.x, y: gen.start.y, score: 0, got: [], hg: 0,
+    lanternUntil: 0, compassUntil: 0, sent: null
+  });
+  S.coinsLive = null; S.boardSig = '';
+  renderBoard();
+}
+let coinsFinishing = false;
+async function coinsFinishRound(surrender) {
+  const L = S.coinsLive;
+  if (!L || coinsFinishing) return;
+  const c = S.chats.find(x => x.id === L.chatId);
+  if (!c) return;
+  if (surrender) {
+    if (!confirm('Сдаться в этом забеге? Раунд закончится для вас без результата, следующие раунды пройдут без вашего участия.')) return;
+    coinsFinishing = true;
+    const m = await sendCoins(c, { k: 'coins-surrender', run: L.run, round: L.round });
+    coinsFinishing = false;
+    if (m) { coinsHoldStop(); coinsLocalSet(c.id, null); S.coinsLive = null; S.boardSig = ''; renderBoard(); renderRail(); toast('Вы сдались — забег продолжается без вас'); }
+    return;
+  }
+  if (L.sent || !L.hunt) return;
+  coinsFinishing = true;
+  L.hunt = false;
+  coinsHoldStop();
+  const limit = (Number(L.minutes) * 60 + (L.hg | 0) * 10) * 1000;
+  // финиш честный: даже если страницу открыли спустя часы, временем считается лимит
+  const finishedAt = Math.min(Date.now(), Number(L.startedAt) + limit + 400);
+  const payload = {
+    k: 'coins-result', run: L.run, round: L.round,
+    seedUsed: CE.runSeed(String(cs78seed(L)), L.run),
+    score: L.score | 0, moves: L.moves, end: [L.x, L.y], hg: L.hg | 0,
+    startedAt: Number(L.startedAt), finishedAt
+  };
+  L.sent = payload;
+  coinsSaveLoc(L);
+  S.boardSig = '';
+  renderBoard();                       // карта раскрывается сразу, не дожидаясь сети
+  const m = await sendCoins(c, payload);
+  coinsFinishing = false;
+  if (m) { toast('Результат раунда отправлен: ' + payload.score + ' монет'); renderRail(); }
+  else { S.boardSig = ''; renderBoard(); }
+}
+const cs78seed = L => (L.cs && L.cs.g && L.cs.g.seed) || '';
+async function coinsResend() {
+  const c = curChat();
+  if (!c || gameRulesOf(c) !== 'coins') return;
+  const loc = coinsLocalGet(c.id);
+  if (!loc || !loc.sent) { toast('Нечего досылать'); return; }
+  const m = await sendCoins(c, loc.sent);
+  if (m) toast('Результат дослан');
+}
+function coinsNewRun() {
+  const c = curChat();
+  if (!c || gameRulesOf(c) !== 'coins') return;
+  const cs = coinsRunState(c, (S.coinsRun || {})[c.id]);
+  if (!cs.solo || !cs.plan.final) return;
+  S.coinsRun[c.id] = cs.maxRun + 1;
+  coinsLocalSet(c.id, null);
+  S.coinsLive = null; S.boardSig = '';
+  renderBoard();
+}
+/** Соло: новый рекорд забега — письмо-метка и поздравление. */
+let coinsRecBusy = '';
+function coinsMaybeRecord(c, cs) {
+  if (!cs.solo || cs.run <= 1 || !cs.plan.final) return;
+  if (cs.letters.some(l => l.k === 'coins-record' && l.author === S.me.id && (l.run || 1) === cs.run)) return;
+  const my = cs.table.find(x => x.id === S.me.id);
+  const total = my ? my.total : 0;
+  let best = 0;
+  const now = Date.now();
+  for (let u = 1; u < cs.run; u++) {
+    const t = CE.table(cs.game, cs.letters, now, u);
+    const me = t.find(x => x.id === S.me.id);
+    if (me && me.total > best) best = me.total;
+  }
+  if (total <= best) return;
+  const key = c.id + ':' + cs.run;
+  if (coinsRecBusy === key) return;
+  coinsRecBusy = key;
+  sendCoins(c, { k: 'coins-record', run: cs.run, total }).then(() => {
+    toast('🏅 Новый рекорд забега: ' + total + ' монет!');
+  });
+}
+
+/** Состояние забега словами — в шапку панели и на телефон. */
+function coinsStatusText(cs, phase, plan, short) {
+  const g = cs.g;
+  if (phase === 'final') {
+    if (cs.solo) {
+      const me = cs.table.find(x => x.id === S.me.id);
+      return (short ? '' : 'Забег ' + cs.run + ' завершён: ') + 'всего ' + (me ? me.total : 0) + ' монет';
+    }
+    const w = cs.winner;
+    if (!w) return 'Забег завершён: монет не собрал никто';
+    const names = w.ids.map(gamePlayerName).join(', ');
+    return (w.ids.length > 1 ? 'Ничья: ' + names : (short ? 'Победил ' : 'Забег завершён, победил ') + names) + ' — ' + w.total + plural(w.total, ' монета', ' монеты', ' монет');
+  }
+  if (phase === 'out') return short ? 'Вы сдались' : 'Вы сдались — забег идёт без вас';
+  if (phase === 'viewer') return (short ? '' : 'Золотая лихорадка: ') + 'раунд ' + plan.round + ' из ' + cs.rounds;
+  if (phase === 'sending') return short ? 'Результат отправляется…' : 'Раунд ' + plan.round + ': результат отправляется…';
+  if (phase === 'reveal') {
+    const L = S.coinsLive;
+    const n = L ? (L.score | 0) : 0;
+    const miss = plan.missing.filter(x => x !== S.me.id);
+    return 'Раунд ' + plan.round + ': найдено ' + n + ' из ' + CE.COINS + ' монет' + (miss.length ? '. Ждём: ' + miss.map(gamePlayerName).join(', ') : '');
+  }
+  if (phase === 'hunt') return short ? 'Раунд ' + plan.round + ': поиск' : 'Раунд ' + plan.round + ' из ' + cs.rounds + ': ищем монеты!';
+  return short ? 'Раунд ' + plan.round + ' из ' + cs.rounds
+    : 'Раунд ' + plan.round + ' из ' + cs.rounds + '. Таймер раунда: ' + (Number(g.minutes) || 3) + ' мин — стартует с вашего личного старта';
+}
+/** Кто в игре: игроки и приглашённые, онлайн/офлайн и метки состояния. */
+function coinsPresenceHtml(cs, plan) {
+  const g = cs.g;
+  const resOf = CE.resultsOf(cs.game, cs.letters, plan.round, cs.run);
+  const surrOf = CE.surrenderedOf(cs.game, cs.letters, plan.round, cs.run);
+  const row = (id, invited) => {
+    const u = userById(id);
+    const on = isOnline(u);
+    let mark = '';
+    if (invited) mark = '<span class="cp-mark">приглашён</span>';
+    else if (surrOf.includes(id)) mark = '<span class="cp-mark">сдался</span>';
+    else if (plan.absent.includes(id)) mark = '<span class="cp-mark">не играл</span>';
+    else if (resOf[id]) mark = '<span class="cp-mark done">результат ✓</span>';
+    else if (!plan.final && plan.missing.includes(id)) mark = '<span class="cp-mark wait">ищет…</span>';
+    return `<span class="cp-item${on ? ' on' : ''}" title="${on ? 'в сети' : 'не в сети'}"><i class="cp-dot"></i>${escapeHtml(gamePlayerName(id))}${id === (S.me || {}).id ? ' (вы)' : ''}${mark}</span>`;
+  };
+  return (g.players || []).map(id => row(id, false)).join('') + (g.invitees || []).map(id => row(id, true)).join('');
+}
+/** Таблица результатов забега: очки по раундам, итог, метки честности. */
+function coinsTableHtml(cs) {
+  const head = '<tr><th>Игрок</th>' + Array.from({ length: cs.rounds }, (_, i) => '<th>Р' + (i + 1) + '</th>').join('') + '<th>Итог</th></tr>';
+  const rows = cs.table.map(row => {
+    const tds = row.per.map(cell => {
+      if (cell.score === null) return '<td class="ct-wait" title="результата ещё нет">…</td>';
+      if (cell.surrendered) return '<td class="ct-surr" title="сдался">сд.</td>';
+      if (cell.absent) return '<td class="ct-abs" title="не играл: срок ожидания истёк">0</td>';
+      if (cell.bad) return '<td class="ct-bad" title="не проверено: результат не сходится с перепроигрыванием пути — засчитан ноль">0*</td>';
+      return '<td>' + cell.score + '</td>';
+    }).join('');
+    const win = cs.plan.final && cs.winner && cs.winner.ids.includes(row.id);
+    return `<tr${win ? ' class="ct-win"' : ''}><td class="ct-name">${escapeHtml(gamePlayerName(row.id))}${row.id === S.me.id ? ' (вы)' : ''}</td>${tds}<td class="ct-total">${row.total}</td></tr>`;
+  }).join('');
+  return `<table class="coins-table">${head}${rows}</table>`;
+}
+/** Кого и почему ждём в текущем раунде. */
+function coinsWaitHtml(cs, plan) {
+  if (plan.final || !plan.missing.length) return '';
+  const names = plan.missing.map(gamePlayerName).join(', ');
+  return `<div class="coins-wait tiny muted">Раунд ${plan.round}: ждём результаты — ${escapeHtml(names)}. Срок ожидания — сутки, потом «не играл».</div>`;
+}
+/** Соло: все забеги устройства — переключение и сравнение, рекорд помечен. */
+function coinsRunsHtml(cs) {
+  const now = Date.now();
+  const recs = {};
+  for (const l of cs.letters) if (l.k === 'coins-record') recs[l.run || 1] = l.total | 0;
+  const chips = [];
+  const last = Math.max(cs.maxRun, cs.run);
+  for (let u = 1; u <= last; u++) {
+    const t = CE.table(cs.game, cs.letters, now, u);
+    const me = t.find(x => x.id === S.me.id);
+    const total = me ? me.total : 0;
+    chips.push(`<button class="mini run-chip${u === cs.run ? ' cur' : ''}" data-coins-run="${u}" title="Открыть забег ${u}">Забег ${u} · ${total}🪙${recs[u] !== undefined ? ' ⭐ рекорд' : ''}</button>`);
+  }
+  return `<div class="coins-runs"><div class="tiny muted">Забеги этого устройства — переключайте и сравнивайте:</div><div class="run-chips">${chips.join('')}</div></div>`;
+}
+/** Панель «Монет»: canvas-карта с туманом войны, крест-джойстик, присутствующие, результаты. */
+function renderCoins(wrap, c) {
+  const g = c.game || {};
+  const role = (c.roles || {})[S.me.id] || null;
+  S.coinsRun = S.coinsRun || {};
+  S.coinsRes = S.coinsRes || {};
+  const cs = coinsRunState(c, S.coinsRun[c.id]);
+  S.coinsRun[c.id] = cs.run;
+  const plan = cs.plan;
+  const isPlayer = role === 'player';
+  const mySurr = isPlayer ? (cs.letters.find(l => CE.isSurr(l) && l.author === S.me.id && (l.run || 1) === cs.run) || null) : null;
+  const resOf = CE.resultsOf(cs.game, cs.letters, plan.round, cs.run);
+  const myRes = isPlayer ? (resOf[S.me.id] || null) : null;
+  let loc = coinsLocalGet(c.id);
+  // локальный поиск устарел (раунд закрыт, началось новое, сменился забег) — стереть
+  if (loc && (Number(loc.run || 1) !== cs.run || Number(loc.round) !== plan.round)) { loc = null; coinsLocalSet(c.id, null); }
+  let phase;
+  if (!isPlayer) phase = 'viewer';
+  else if (plan.final) phase = 'final';
+  else if (mySurr) phase = 'out';
+  else if (loc && loc.sent && !myRes) phase = 'sending';
+  else if (myRes) phase = 'reveal';
+  else if (loc && loc.startedAt) phase = 'hunt';
+  else phase = 'start';
+  // pkg3-78: пока забег не финализирован — опрос ленты чаще (ждём чужие результаты)
+  S.coinsPlaying = isPlayer && !plan.final;
+  if (phase === 'final' && cs.solo) coinsMaybeRecord(c, cs);
+  if (phase === 'hunt') {
+    S.coinsLive = coinsMakeLive(c, cs, loc);
+    coinsTickerStart();
+    if (coinsTimeLeft(S.coinsLive) <= 0) { coinsFinishRound(false); return; }   // время вышло, пока вкладка спала
+  } else if ((phase === 'reveal' || phase === 'sending') && (myRes || (loc && loc.sent))) {
+    S.coinsLive = coinsLiveFromResult(c, cs, myRes || loc.sent, loc);
+  } else S.coinsLive = null;
+  // шапка: те же кнопки, что у прочих игр (делегирование #gm-leave/#gm-knocks)
+  const ctrl = [];
+  if (role) {
+    const label = role === 'viewer' ? 'Покинуть' : 'Выйти';
+    const full = role === 'viewer' ? 'Покинуть игру' : 'Покинуть забег: остальные продолжат без вас';
+    ctrl.push(`<button class="mini danger" id="gm-leave" title="${escapeHtml(full)}">${label}</button>`);
+  }
+  if (role === 'player' && (c.knocks || []).length) {
+    ctrl.push(`<button class="mini" id="gm-knocks" title="Заявки зрителей: ${c.knocks.length}">Заявки: ${c.knocks.length}</button>`);
+  }
+  const btnsRow = ctrl.length ? `<div class="bph-btns">${ctrl.join(' ')}</div>` : '';
+  const openRes = !!S.coinsRes[c.id];
+  const presSig = (g.players || []).concat(g.invitees || []).map(id => (isOnline(userById(id)) ? 1 : 0)).join('');
+  const sig = ['coins', c.id, cs.run, plan.round, plan.final ? 1 : 0, cs.letters.length, phase,
+    loc ? (loc.startedAt + (loc.sent ? ':s' : '')) : '-',
+    (g.players || []).join(','), (g.invitees || []).join(','),
+    phase === 'hunt' ? '' : presSig, openRes ? 1 : 0, role || '-', S.eco ? 1 : 0].join('|');
+  if (S.boardSig === sig && wrap.dataset.chat === c.id && wrap.firstChild) {
+    if (S.coinsLive) { coinsDraw(); coinsHud(); }   // панель та же — освежаем холст и цифры
+    return;
+  }
+  S.boardSig = sig; wrap.dataset.chat = c.id;
+  wrap.classList.remove('hidden');
+  const hud = (phase === 'hunt' || phase === 'reveal' || phase === 'sending')
+    ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-timer" id="coins-timer">—</span><span class="ch-score" id="coins-score">🪙</span><span class="ch-bonus" id="coins-bonus"></span></div>` : '';
+  let stage = '';
+  if (phase !== 'viewer') {
+    const pad = phase === 'hunt' ? `<div class="coins-pad">
+        <button class="cpad up" data-cdir="U" aria-label="Вверх">▲</button>
+        <button class="cpad left" data-cdir="L" aria-label="Влево">◀</button>
+        <button class="cpad right" data-cdir="R" aria-label="Вправо">▶</button>
+        <button class="cpad down" data-cdir="D" aria-label="Вниз">▼</button>
+      </div>` : '';
+    const ovl = phase === 'start' ? `<div class="coins-ovl">
+        <b>Раунд ${plan.round} из ${cs.rounds}</b>
+        <span class="tiny muted">Соберите как можно больше из ${CE.COINS} монет, пока не истекло время. Туман прячет карту — артефакты видны только вблизи. Управление: крест внизу справа или стрелки клавиатуры. Бонусы: 🔦 фонарь — видно дальше 15 секунд, 🧭 компас — стрелка к ближайшей монете, ⏳ песочные часы — +10 секунд.</span>
+        <button class="primary" id="coins-start">Начать раунд</button>
+      </div>` : '';
+    const badge = (phase === 'reveal' || phase === 'sending') && S.coinsLive
+      ? `<div class="coins-rev">Карта открыта: найдено ${S.coinsLive.score | 0} из ${CE.COINS} монет${S.coinsLive.bad ? ' · <b>не проверено — засчитан ноль</b>' : ''}</div>` : '';
+    stage = `<div class="coins-stage">
+        <canvas id="coins-canvas" aria-label="Карта забега"></canvas>
+        ${pad}${ovl}${badge}
+      </div>`;
+  }
+  let acts = '';
+  if (phase === 'hunt') acts = `<div class="coins-acts"><button class="mini danger" id="coins-surrender" title="Закончить забег для себя">Сдаться</button></div>`;
+  if (phase === 'sending') acts = `<div class="coins-acts"><button class="mini primary" id="coins-resend">Дослать результат</button><span class="tiny muted">письмо с результатом не ушло — нажмите, чтобы повторить</span></div>`;
+  if (phase === 'final' && cs.solo) acts = `<div class="coins-acts"><button class="primary" id="coins-again">Начать снова</button><span class="tiny muted">новый забег — новый порядок карт; прежние результаты останутся в таблице</span></div>`;
+  if (phase === 'final' && !cs.solo) acts = `<div class="coins-acts tiny muted">Сыграть ещё раз? Создайте новую игру: «Новая игра» → «Монеты».</div>`;
+  const resHtml = `<div class="coins-results${openRes ? ' open' : ''}">
+      <div class="cr-head"><b>Результаты</b>${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? ' · забег ' + cs.run : ''}</div>
+      ${coinsTableHtml(cs)}
+      ${coinsWaitHtml(cs, plan)}
+      ${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? coinsRunsHtml(cs) : ''}
+    </div>`;
+  wrap.innerHTML = `<div class="board-panel coins-panel">
+    <div class="bp-head">
+      <div class="bph-top"><span class="bph-full">${escapeHtml(coinsStatusText(cs, phase, plan, false))}</span><span class="bph-short">${escapeHtml(coinsStatusText(cs, phase, plan, true))}</span></div>
+      ${btnsRow}
+    </div>
+    ${hud}
+    ${stage}
+    ${acts}
+    <div class="coins-presence">${coinsPresenceHtml(cs, plan)}</div>
+    <button class="mini coins-restoggle" id="coins-restoggle">Результаты</button>
+    ${resHtml}
+  </div>`;
+  const b1 = $('#coins-start', wrap); if (b1) b1.addEventListener('click', coinsStartRound);
+  const b2 = $('#coins-surrender', wrap); if (b2) b2.addEventListener('click', () => coinsFinishRound(true));
+  const b3 = $('#coins-resend', wrap); if (b3) b3.addEventListener('click', coinsResend);
+  const b4 = $('#coins-again', wrap); if (b4) b4.addEventListener('click', coinsNewRun);
+  const b5 = $('#coins-restoggle', wrap);
+  if (b5) b5.addEventListener('click', () => { S.coinsRes[c.id] = !S.coinsRes[c.id]; S.boardSig = ''; renderBoard(); });
+  for (const chip of $$('[data-coins-run]', wrap)) {
+    chip.addEventListener('click', () => { S.coinsRun[c.id] = Number(chip.dataset.coinsRun) || 1; S.boardSig = ''; renderBoard(); });
+  }
+  for (const btn of $$('.cpad', wrap)) {
+    const dir = btn.dataset.cdir;
+    btn.addEventListener('pointerdown', ev => { ev.preventDefault(); try { btn.setPointerCapture(ev.pointerId); } catch (e) {} coinsHoldStart(dir, ev); });
+    btn.addEventListener('pointerup', () => coinsHoldStop());
+    btn.addEventListener('pointercancel', () => coinsHoldStop());
+    btn.addEventListener('contextmenu', ev => ev.preventDefault());
+  }
+  coinsDraw(); coinsHud();
+}
+
 async function acceptGame(id, choice, rules) {
   let color = undefined;
   if (choice === 'choice') {
@@ -3306,7 +4020,10 @@ async function acceptGame(id, choice, rules) {
     const ck = await chatKeyOf(c);
     if (ck) {
       const sbGame = (c.game || {}).rules === 'seabattle';
-      const payload = { k: 'game-event', text: sbGame
+      const coinsGame = (c.game || {}).rules === 'coins';   // pkg3-78
+      const payload = { k: 'game-event', text: coinsGame
+        ? '«Монеты»: ' + userNameById(S.me.id) + ' в игре — можно начинать забег'
+        : sbGame
         ? 'Партия началась: ' + userNameById(c.game.white) + ' стреляет первым. Расставьте флот и жмите «В бой!»'
         : 'Партия началась: ' + userNameById(c.game.white) + ' (белые) против ' + userNameById(c.game.black) + ' (чёрные)' };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: id, blob: await encryptJSON(ck.key, payload) } });
@@ -3320,8 +4037,11 @@ async function acceptGame(id, choice, rules) {
   loadUi.hide();
   S.sig = ''; renderAll(); renderMessages(true); renderBoard();
 }
-async function declineGame(id) {
-  if (!confirm('Отклонить приглашение? Игра будет удалена.')) return;
+async function declineGame(id, rules) {
+  // pkg3-78: отказ от «Монет» чужой забег не удаляет — остальные продолжают без меня
+  if (!confirm(rules === 'coins'
+    ? 'Отклонить приглашение в «Монеты»? Другие игроки продолжат забег без вас.'
+    : 'Отклонить приглашение? Игра будет удалена.')) return;
   await api('/api/games/' + id + '/decline', { method: 'POST', body: {} });
   await sync(false); renderAll();
   toast('Приглашение отклонено');
@@ -3339,8 +4059,12 @@ async function leaveGameSmart() {
 async function leaveGame(kind) {
   const c = curChat();
   if (!c || c.kind !== 'game') return;
+  // pkg3-78: выход из «Монет» — не поражение: остальные продолжают забег
+  const coinsLeave = gameRulesOf(c) === 'coins';
   const asks = {
-    resign: 'Вы сдаётесь? Партия завершится победой соперника, и вы покинете чат-игру.',
+    resign: coinsLeave
+      ? 'Покинуть забег «Монеты»? Остальные игроки продолжат без вас. Если вы последний игрок — игра удалится.'
+      : 'Вы сдаётесь? Партия завершится победой соперника, и вы покинете чат-игру.',
     cancel: 'Отменить приглашение? Игра ещё не началась и будет удалена без следа.',
     close: 'Закрыть и удалить игру? Партия завершена; чат-игра исчезнет у всех оставшихся участников и зрителей. История ходов удалится безвозвратно.',
     viewer: 'Покинуть игру в роли зрителя?'
@@ -3362,22 +4086,34 @@ async function openKnocks(c) {
 }
 async function openNewGame() {
   const users = S.users.filter(u => u.id !== S.me.id && !u.displayAs);   // pkg3-62: слитых не зовём
-  if (!users.length) { toast('Пока некого пригласить в игру', true); return; }
-  // pkg3-41: раздел «Игра» знает две игры — шахматы и русские шашки
-  modal('Новая игра', `
-    <label>Игра<select id="ng-rules">
+  // pkg3-78: «Монеты» умеют соло-забег — их можно создать, даже когда звать некого
+  const pairOpts = users.length ? `
       <option value="chess">Шахматы</option>
       <option value="checkers">Шашки (русские)</option>
-      <option value="seabattle">Морской бой</option>
+      <option value="seabattle">Морской бой</option>` : '';
+  modal('Новая игра', `
+    <label>Игра<select id="ng-rules">${pairOpts}
+      <option value="coins">Монеты — золотая лихорадка</option>
     </select></label>
-    <label>Соперник<select id="ng-opp">${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}</select></label>
-    <label>Ваш цвет<select id="ng-color">
-      <option value="random">Случайно</option>
-      <option value="white">Белые</option>
-      <option value="black">Чёрные</option>
-      <option value="choice">Пусть выберет соперник</option>
-    </select></label>
-    <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
+    <div id="ng-pair"${users.length ? '' : ' class="hidden"'}>
+      <label>Соперник<select id="ng-opp">${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}</select></label>
+      <label>Ваш цвет<select id="ng-color">
+        <option value="random">Случайно</option>
+        <option value="white">Белые</option>
+        <option value="black">Чёрные</option>
+        <option value="choice">Пусть выберет соперник</option>
+      </select></label>
+      <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
+    </div>
+    <div id="ng-coins" class="hidden">
+      <label>Минут на раунд (1–30)<input id="ng-min" type="number" min="1" max="30" step="1" value="3"></label>
+      <label>Раундов (1–6, по одному на карту)<input id="ng-rounds" type="number" min="1" max="6" step="1" value="3"></label>
+      <label>Позвать игроков — не больше трёх (никого = соло-забег)</label>
+      <div class="ng-pick" id="ng-pick">${users.length
+        ? users.map(u => `<label class="ng-pick-row"><input type="checkbox" value="${escapeHtml(u.id)}"><span>${escapeHtml(u.name)}</span></label>`).join('')
+        : '<div class="tiny muted">Пока некого позвать — доступен соло-забег: рекорды и сравнение забегов останутся у вас.</div>'}</div>
+      <p class="hint">Карта у всех одна: порядок карт, монеты и бонусы рождаются из общего зерна. Каждый стартует раунд, когда удобно, — таймер идёт с личного старта.</p>
+    </div>
     <button class="primary" id="ng-go">Создать и пригласить</button>`);
   // pkg3-56: в морском бое «цвет» определяет, кто стреляет первым, — подпись честная
   // pkg3-57: и варианты ответа честные — «Я» и «Соперник», никаких «белых/чёрных»
@@ -3393,11 +4129,22 @@ async function openNewGame() {
       if (opt.value === 'black') opt.textContent = sb ? 'Соперник стреляет первым' : 'Чёрные';
       if (opt.value === 'choice') opt.textContent = sb ? 'Пусть решит соперник' : 'Пусть выберет соперник';
     }
+    // pkg3-78: «Монеты» — своя половина окна: минуты, раунды и список гостей
+    const coins = $('#ng-rules').value === 'coins';
+    const pr = $('#ng-pair'), co = $('#ng-coins');
+    if (pr) pr.classList.toggle('hidden', coins || !users.length);
+    if (co) co.classList.toggle('hidden', !coins);
+    $('#ng-go').textContent = coins ? (coinsPicked().length ? 'Создать и пригласить' : 'Начать соло-забег') : 'Создать и пригласить';
   };
+  const pickBox = $('#ng-pick');
+  if (pickBox) pickBox.addEventListener('change', ngLblSync);
   $('#ng-rules').addEventListener('change', ngLblSync);
   ngLblSync();
+  if (!users.length) { $('#ng-rules').value = 'coins'; ngLblSync(); }
   $('#ng-go').addEventListener('click', async () => {
-    const opp = $('#ng-opp').value, color = $('#ng-color').value, rules = $('#ng-rules').value;
+    const rules = $('#ng-rules').value;
+    if (rules === 'coins') { await createCoinsGame(); return; }
+    const opp = $('#ng-opp').value, color = $('#ng-color').value;
     try {
       const raw = crypto.getRandomValues(new Uint8Array(32));
       const keys = {};
@@ -3426,6 +4173,47 @@ async function openNewGame() {
       toast('Игра создана, приглашение отправлено');
     } catch (ex) { toast(ex.message, true); }
   });
+}
+/** pkg3-78: отмеченные гости для «Монет». */
+function coinsPicked() {
+  return $$('#ng-pick input[type=checkbox]').filter(x => x.checked).map(x => x.value);
+}
+/** pkg3-78: создание забега «Монеты» — соло или компанией до четырёх человек. */
+async function createCoinsGame() {
+  const picks = coinsPicked();
+  if (picks.length > 3) { toast('Позвать можно максимум троих — всего четыре игрока', true); return; }
+  const minutes = Math.min(30, Math.max(1, Math.round(Number($('#ng-min').value) || 3)));
+  const rounds = Math.min(6, Math.max(1, Math.round(Number($('#ng-rounds').value) || 3)));
+  try {
+    const raw = crypto.getRandomValues(new Uint8Array(32));
+    const keys = {};
+    for (const id of [S.me.id, ...picks]) {
+      const pk = await pairKeyWith(id);
+      if (!pk) throw new Error('У одного из игроков нет ключа шифрования — попросите его войти в чат');
+      keys[id] = { blob: await aesEncryptBytes(pk, raw) };
+    }
+    const seed = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+    const r = await api('/api/games', { method: 'POST', body: { rules: 'coins', players: picks, minutes, rounds, seed, keys } });
+    const gid = r.chat.id;
+    S.chatKeys.set(gid, { key: await importAes(raw), raw });
+    hide($('#modal'));
+    for (const opp of picks) {
+      const dm = (await api('/api/dm', { method: 'POST', body: { peer: opp } })).chat;
+      const dk = await chatKeyOf(dm);
+      const inv = {
+        k: 'game-invite', game: gid, to: opp, rules: 'coins',
+        note: 'Золотая лихорадка: ' + rounds + ' раунд(а) по ' + minutes + ' мин · до четверых · старт, когда удобно'
+      };
+      const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
+      S.plain.set(rr.message.id, inv);
+      addMessages([rr.message]);
+      cacheMsg(rr.message);
+    }
+    await sync(false); renderAll();
+    toast(picks.length ? 'Забег создан — приглашения отправлены' : 'Соло-забег создан — удачи!');
+    await openChat(gid);
+    renderBoard();
+  } catch (ex) { toast(ex.message, true); }
 }
 
 function renderRail() {
@@ -3507,8 +4295,8 @@ function renderRail() {
     // pkg3-54: «Сейчас играют» сворачивается, как остальные разделы
     const liveRows = open.map(g => `<div class="chat-item game-live">
         <div class="ci-main">
-          <div class="ci-name">${g.rules === 'checkers' ? '●' : g.rules === 'seabattle' ? '⚓' : '♟'} ${escapeHtml(openGameTitle(g))}</div>
-          <div class="ci-last">идёт партия${g.rules === 'checkers' ? ' в шашки' : g.rules === 'seabattle' ? ' · морской бой' : ''} · ${plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
+          <div class="ci-name">${g.rules === 'checkers' ? '●' : g.rules === 'seabattle' ? '⚓' : g.rules === 'coins' ? '🪙' : '♟'} ${escapeHtml(openGameTitle(g))}</div>
+          <div class="ci-last">${g.rules === 'coins' ? 'идёт золотая лихорадка' : 'идёт партия' + (g.rules === 'checkers' ? ' в шашки' : g.rules === 'seabattle' ? ' · морской бой' : '') + ' · ' + plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
         </div>
         <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
       </div>`).join('');
@@ -7205,7 +7993,7 @@ document.addEventListener('click', async e => {
     return;
   }
   const dec = e.target.closest('[data-game-decline]');
-  if (dec) { try { await declineGame(dec.dataset.gameDecline); } catch (ex) { toast(ex.message, true); } return; }
+  if (dec) { try { await declineGame(dec.dataset.gameDecline, dec.dataset.rules); } catch (ex) { toast(ex.message, true); } return; }
   const kb = e.target.closest('[data-knock-btn]');
   if (kb) {
     e.stopPropagation();

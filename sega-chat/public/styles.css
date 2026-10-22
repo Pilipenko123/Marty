@@ -1493,3 +1493,72 @@ html,body{overflow-x:hidden}
 .crop-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 /* Превью первого кадра в панели вложения перед отправкой. */
 .fc-thumb{width:44px;height:32px;border-radius:5px;object-fit:cover;flex:none;background:#0e1a24}
+
+/* ─────────── pkg3-78: «Монеты» — золотая лихорадка с туманом войны ─────────── */
+.coins-panel{max-width:min(100%,560px);}
+.coins-hud{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;
+  margin:0 0 8px;font-weight:600;font-size:13.5px;}
+.coins-hud .ch-round{padding:2px 8px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);}
+.coins-hud .ch-timer{padding:2px 10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);
+  font-variant-numeric:tabular-nums;min-width:4.5em;text-align:center;}
+.coins-hud .ch-timer.low{color:#e5484d;border-color:#e5484d;animation:coins-blink 1s step-start infinite;}
+@keyframes coins-blink{50%{opacity:.4}}
+.coins-hud .ch-score{padding:2px 8px;border-radius:8px;background:rgba(245,197,66,.14);border:1px solid rgba(200,145,42,.5);}
+.coins-hud .ch-bonus{font-weight:500;color:var(--muted);min-height:1em;}
+.coins-stage{position:relative;width:100%;border-radius:12px;overflow:hidden;background:#141821;
+  box-shadow:0 2px 10px rgba(0,0,0,.25);}
+#coins-canvas{display:block;width:100%;height:min(64dvh,620px);touch-action:none;}
+/* крест-джойстик внизу справа: держи кнопку — фигура шагает каждые 170 мс */
+.coins-pad{position:absolute;right:10px;bottom:10px;display:grid;
+  grid-template-columns:repeat(3,50px);grid-template-rows:repeat(2,50px);gap:4px;user-select:none;}
+.cpad{border-radius:50%;border:1.5px solid rgba(245,197,66,.75);background:rgba(12,14,20,.62);
+  color:#f5c542;font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent;padding:0;}
+.cpad:active{background:rgba(245,197,66,.35);}
+.cpad.up{grid-column:2;grid-row:1;}
+.cpad.left{grid-column:1;grid-row:2;}
+.cpad.down{grid-column:2;grid-row:2;}
+.cpad.right{grid-column:3;grid-row:2;}
+.coins-ovl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:20px;text-align:center;background:rgba(8,10,16,.86);color:#fff;}
+.coins-ovl .tiny{max-width:440px;line-height:1.45;}
+.coins-rev{position:absolute;top:8px;left:8px;right:8px;text-align:center;pointer-events:none;
+  background:rgba(8,10,16,.78);color:#f5c542;border:1px solid rgba(245,197,66,.5);
+  border-radius:10px;padding:5px 8px;font-size:12.5px;font-weight:600;}
+.coins-acts{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:8px;flex-wrap:wrap;}
+.coins-presence{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:center;margin-top:10px;font-size:12.5px;}
+.cp-item{display:inline-flex;align-items:center;gap:5px;opacity:.72;}
+.cp-item.on{opacity:1;}
+.cp-dot{width:8px;height:8px;border-radius:50%;background:#9aa3af;flex:none;}
+.cp-item.on .cp-dot{background:#37c871;box-shadow:0 0 4px rgba(55,200,113,.7);}
+.cp-mark{font-size:11px;padding:1px 6px;border-radius:7px;background:rgba(127,127,127,.18);}
+.cp-mark.done{background:rgba(55,200,113,.18);}
+.cp-mark.wait{background:rgba(245,197,66,.18);}
+.coins-results{margin-top:10px;}
+.coins-results .cr-head{display:flex;gap:6px;justify-content:center;margin-bottom:6px;align-items:baseline;}
+table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
+.coins-table th,.coins-table td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line);}
+.coins-table th{color:var(--muted);font-weight:600;font-size:12px;}
+.coins-table .ct-name{text-align:left;font-weight:600;}
+.coins-table .ct-total{font-weight:700;color:#b07d1e;}
+.coins-table tr.ct-win td{background:rgba(245,197,66,.12);}
+.coins-table .ct-wait{color:var(--muted);}
+.coins-table .ct-surr,.coins-table .ct-abs{opacity:.65;font-size:11.5px;}
+.coins-table .ct-bad{color:#e5484d;font-weight:700;}
+.coins-wait{margin-top:6px;text-align:center;}
+.coins-runs{margin-top:10px;text-align:center;}
+.run-chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:5px;}
+.run-chip.cur{border-color:#c8912a;box-shadow:0 0 0 1px #c8912a inset;}
+/* на телефоне результаты прячутся за кнопку, на широком экране живут под доской */
+.coins-restoggle{display:none;margin:10px auto 0;}
+@media (max-width:959px){
+  .coins-restoggle{display:block;}
+  .coins-results{display:none;}
+  .coins-results.open{display:block;}
+  #coins-canvas{height:min(58dvh,520px);}
+  .coins-pad{right:6px;bottom:6px;grid-template-columns:repeat(3,46px);grid-template-rows:repeat(2,46px);}
+}
+/* окно «Новая игра»: список гостей «Монет» — галочки в прокручиваемой рамке */
+.ng-pick{display:flex;flex-direction:column;gap:4px;max-height:170px;overflow:auto;
+  border:1px solid var(--line);border-radius:8px;padding:6px 8px;}
+.ng-pick-row{display:flex;align-items:center;gap:7px;cursor:pointer;padding:1px 0;}
