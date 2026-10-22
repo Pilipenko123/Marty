@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-77';
+const BUILD = 'pkg3-78';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -486,11 +486,16 @@ function createApi(store, opts = {}) {
     };
   }
 
-  /** Живые приглашения: адресат видит их до вступления в игру. */
+  /** Живые приглашения: адресат видит их до вступления в игру.
+   * pkg3-78: у «Монет» приглашение живёт списком invitees и не гаснет от того,
+   * что партия уже идёт (создатель стартует забег, не дожидаясь ответов). */
   function openInvites(uid) {
     return db.chats
-      .filter(c => c.kind === 'game' && c.game && c.game.status === 'invite' && c.game.invitee === uid)
-      .map(c => ({ id: c.id, owner: c.ownerId, colorChoice: c.game.colorChoice, createdAt: c.createdAt }));
+      .filter(c => c.kind === 'game' && c.game
+        && (c.game.status === 'invite' && c.game.invitee === uid
+          || (c.game.rules === 'coins' && ['invite', 'playing'].includes(c.game.status)
+            && Array.isArray(c.game.invitees) && c.game.invitees.includes(uid))))
+      .map(c => ({ id: c.id, owner: c.ownerId, colorChoice: c.game.colorChoice, rules: c.game.rules || 'chess', createdAt: c.createdAt }));
   }
 
   /** Открытые игры для тех, кто не участник: справочник «постучаться в зрители».
@@ -514,9 +519,12 @@ function createApi(store, opts = {}) {
     }
     return db.chats
       .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing' && !c.members.includes(uid))
-      .filter(c => me.isAdmin || circle.has(c.game.white) || circle.has(c.game.black))
+      // pkg3-78: у «Монет» нет белых/чёрных — круг проверяем по списку игроков
+      .filter(c => me.isAdmin || circle.has(c.game.white) || circle.has(c.game.black)
+        || (Array.isArray(c.game.players) && c.game.players.some(p => circle.has(p))))
       .map(c => ({
         id: c.id, white: c.game.white, black: c.game.black,
+        players: Array.isArray(c.game.players) ? c.game.players : null,
         rules: c.game.rules || 'chess',
         createdAt: c.createdAt, knocks: (c.knocks || []).length,
         moves: (db.stats.chats[c.id] || {}).n || 0
@@ -528,9 +536,12 @@ function createApi(store, opts = {}) {
   function myKnockedGames(uid) {
     return db.chats
       .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing'
-        && (c.game.white === uid || c.game.black === uid) && (c.knocks || []).length)
+        && (c.game.white === uid || c.game.black === uid
+          || (Array.isArray(c.game.players) && c.game.players.includes(uid)))   // pkg3-78: «Монеты»
+        && (c.knocks || []).length)
       .map(c => ({
         id: c.id, white: c.game.white, black: c.game.black,
+        players: Array.isArray(c.game.players) ? c.game.players : null,
         rules: c.game.rules || 'chess',
         createdAt: c.createdAt, knocks: (c.knocks || []).length,
         moves: (db.stats.chats[c.id] || {}).n || 0
@@ -616,8 +627,11 @@ function createApi(store, opts = {}) {
         // завершённую не трогаем: зрители и игроки могут перечитывать историю
         if (g.status === 'invite') { if (!c.members.includes(c.ownerId)) dead.push(c.id); }
         else if (g.status === 'playing') {
-          const players = [g.white, g.black].filter(Boolean);
-          if (players.length < 2 || players.some(pl => !c.members.includes(pl))) dead.push(c.id);
+          // pkg3-78: у «Монет» нет белых/чёрных — забег жив, пока в составе есть
+          // хотя бы один игрок (соло — норма; вышли все — чат стирается)
+          const coins = g.rules === 'coins';
+          const players = coins ? (g.players || []) : [g.white, g.black].filter(Boolean);
+          if (players.length < (coins ? 1 : 2) || players.some(pl => !c.members.includes(pl))) dead.push(c.id);
         }
       }
     }
@@ -757,7 +771,7 @@ function createApi(store, opts = {}) {
       // pkg3-57: подпись пуша — только из готового набора (сервер не читает
       // переписку, а клиенту важно разбудить устройство соперника в морском
       // бою внятным текстом). Неизвестный знак — прежняя подпись по умолчанию.
-      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию' };
+      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию', coins: '«Монеты»: есть новости забега — откройте партию' };
       sent += await notifyPush(chat, me, NOTIFY_BODIES[String(b.body || '')]);
       if (kind === 'thr' && m) {
         const author = db.users.find(u => u.id === m.uid);
@@ -2142,6 +2156,54 @@ function createApi(store, opts = {}) {
     // --- чаты-игры: шахматы и шашки как чат (правила живут в клиентах, сервер слеп)
     if (pathname === '/api/games' && method === 'POST') {
       const b = req.body || {};
+      // pkg3-78: «Монеты» — золотая лихорадка. Соперник не обязателен: можно играть
+      // одному или позвать до трёх человек сразу (всего четверо). Сервер правила
+      // не понимает (переписка сквозная) — только записывает в карточку зерно
+      // карты, минуты и число раундов; карты и раскладки рождаются на устройствах
+      // сами. Раундов не больше шести — по числу карт в комплекте.
+      if (String(b.rules || '') === 'coins') {
+        const invited = Array.from(new Set((Array.isArray(b.players) ? b.players : []).map(x => String(x))))
+          .filter(id => id && id !== me.id);
+        if (invited.length > 3) return E(400, 'В монеты играют максимум вчетвером');
+        for (const id of invited) {
+          const u = db.users.find(x => x.id === id);
+          if (!u) return E(404, 'Соперник не найден');
+          if (u.displayAs) return E(400, 'Эта учётка слита с другой — пригласите настоящую');   // pkg3-62
+        }
+        if (liveGamesOf(me.id) >= MAX_LIVE_GAMES) {
+          return E(400, 'У вас уже ' + MAX_LIVE_GAMES + ' одновременные партии — завершите одну, чтобы начать новую');
+        }
+        const minutes = Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)));
+        const rounds = Math.min(6, Math.max(1, Math.round(Number(b.rounds) || 3)));
+        const seed = String(b.seed || '').replace(/[^0-9a-f]/gi, '').slice(0, 64) || crypto.randomBytes(16).toString('hex');
+        const keys = {};
+        for (const id of [me.id, ...invited]) {
+          const k = (b.keys || {})[id];
+          if (!k || !k.blob) return E(400, 'Нет ключа чата для одного из участников');
+          keys[id] = { by: me.id, blob: String(k.blob).slice(0, 4096) };
+        }
+        const chat = {
+          id: uid(), kind: 'game', ownerId: me.id, createdAt: Date.now(),
+          members: [me.id], roles: { [me.id]: 'player' }, keys, knocks: [],
+          // pkg3-78: забег в «Монеты» начинается сразу (создатель может играть
+          // один, не дожидаясь ответов); кто ещё зовётся — живёт в invitees,
+          // а «playing» не мешает приглашению оставаться в силе.
+          game: {
+            rules: 'coins', status: 'playing',
+            invitees: invited, players: [me.id], seed, minutes, rounds, result: null
+          }
+        };
+        db.chats.push(chat);
+        db.stats.chats[chat.id] = { n: 0, b: 0, t: chat.createdAt };
+        // приглашение приходит в личный чат каждому позванному (как в шахматах)
+        for (const id of invited) {
+          const gdm = ensureDm(me.id, id);
+          gdm.savedBy = Array.from(new Set([...(gdm.savedBy || []), me.id, id]));
+          gdm.openedBy = Array.from(new Set([...(gdm.openedBy || []), me.id, id]));
+        }
+        db.seq++; save();
+        return J(200, { chat: publicChat(chat, me.id) });
+      }
       const opp = db.users.find(u => u.id === String(b.opponent || ''));
       if (!opp) return E(404, 'Соперник не найден');
       if (opp.displayAs) return E(400, 'Эта учётка слита с другой — пригласите настоящую');   // pkg3-62
@@ -2188,6 +2250,22 @@ function createApi(store, opts = {}) {
     if (pathname.startsWith('/api/games/') && pathname.endsWith('/accept') && method === 'POST') {
       const chat = chatById(pathname.split('/')[3]);
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      // pkg3-78: «Монеты» — приглашение адресовано списку, цветов нет: принявший
+      // просто становится игроком и стартует свой раунд, когда удобно.
+      if (chat.game.rules === 'coins') {
+        const inv = Array.isArray(chat.game.invitees) ? chat.game.invitees : [];
+        if (!inv.includes(me.id)) return E(403, 'Приглашение адресовано не вам или уже обработано');
+        if (liveGamesOf(me.id) >= MAX_LIVE_GAMES) {
+          return E(400, 'У вас уже ' + MAX_LIVE_GAMES + ' одновременные партии — примите новую, когда завершите одну');
+        }
+        chat.game.invitees = inv.filter(x => x !== me.id);
+        chat.game.players = Array.from(new Set([...(chat.game.players || []), me.id]));
+        if (!chat.members.includes(me.id)) chat.members.push(me.id);
+        chat.roles[me.id] = 'player';
+        chat.game.status = 'playing';
+        db.seq++; save();
+        return J(200, { ok: true, chat: publicChat(chat, me.id) });
+      }
       if (chat.game.status !== 'invite' || chat.game.invitee !== me.id) {
         return E(403, 'Приглашение адресовано не вам или уже обработано');
       }
@@ -2214,6 +2292,16 @@ function createApi(store, opts = {}) {
     if (pathname.startsWith('/api/games/') && pathname.endsWith('/decline') && method === 'POST') {
       const chat = chatById(pathname.split('/')[3]);
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
+      // pkg3-78: отказ от «Монет» игру НЕ удаляет — остальные продолжают забег,
+      // просто отказавшего вычёркиваем из списка приглашённых.
+      if (chat.game.rules === 'coins') {
+        const inv = Array.isArray(chat.game.invitees) ? chat.game.invitees : [];
+        if (!inv.includes(me.id)) return E(403, 'Приглашение адресовано не вам');
+        chat.game.invitees = inv.filter(x => x !== me.id);
+        delete chat.keys[me.id];
+        db.seq++; save();
+        return J(200, { ok: true });
+      }
       if (chat.game.status !== 'invite' || chat.game.invitee !== me.id) return E(403, 'Приглашение адресовано не вам');
       dropChat(chat.id);
       db.chats = db.chats.filter(c => c.id !== chat.id);
@@ -2225,6 +2313,24 @@ function createApi(store, opts = {}) {
       const chat = chatById(pathname.split('/')[3]);
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
       if (!chat.members.includes(me.id)) return E(403, 'Вы не участник этой игры');
+      // pkg3-78: выход из «Монет» — не «сдался победителю», а просто вышел:
+      // остальные продолжают забег, а раунды больше не ждут результатов ушедшего.
+      // Игру стираем, только если игроков не осталось вовсе.
+      if (chat.game.rules === 'coins') {
+        chat.members = chat.members.filter(x => x !== me.id);
+        delete chat.roles[me.id];
+        delete chat.keys[me.id];
+        chat.game.players = (chat.game.players || []).filter(x => x !== me.id);
+        chat.game.invitees = (chat.game.invitees || []).filter(x => x !== me.id);
+        let wiped = false;
+        if (!chat.game.players.length) {
+          dropChat(chat.id);
+          db.chats = db.chats.filter(c => c.id !== chat.id);
+          wiped = true;
+        }
+        db.seq++; save();
+        return J(200, { ok: true, resigned: false, wiped });
+      }
       const isPlayer = (chat.roles || {})[me.id] === 'player';
       let resigned = false;
       if (isPlayer && chat.game.status === 'playing') {
