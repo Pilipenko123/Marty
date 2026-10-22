@@ -27,7 +27,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  «Монеты» — движок · pkg3-78');
+console.log('  «Монеты» — движок · pkg3-79');
 console.log('══════════════════════════════════════════════════\n');
 
 // ─────────────────────────── движок: раскладки из зерна ───────────────────────────
@@ -181,6 +181,16 @@ function pathTo(gen, target) {
   const tA = CE.table(game, [res('A', 1, T0 + 60000, 4)], T0 + CE.GRACE_MS + 61000, 1);
   const rowB2 = tA.find(x => x.id === 'B');
   ok(rowB2.per[0].absent === true && rowB2.per[0].score === 0, '«не играл» — ноль очков в таблице');
+  // pkg3-79: соло — ждать некого, суток и «не играл» нет; старый забег не «завершается» сам
+  const soloG = Object.assign({}, game, { players: ['A'] });
+  const soloPlan = CE.roundPlan(soloG, [], T0 + CE.GRACE_MS + 61000, 1);
+  ok(!soloPlan.final && soloPlan.absent.length === 0 && soloPlan.missing.join() === 'A',
+    'соло: сутки спустя раунд открыт, «не играл» не ставится, забег не «завершён»');
+  ok(CE.absentOf(soloG, [], 1, 1, T0 + CE.GRACE_MS + 61000).length === 0, 'соло: absentOf пуст');
+  const tSolo = CE.table(soloG, [], T0 + CE.GRACE_MS + 61000, 1);
+  ok(tSolo.length === 1 && tSolo[0].per[0].score === null, 'соло: несостоявшийся раунд — прочерк, а не ноль');
+  const soloSurr = [{ k: 'coins-surrender', author: 'A', round: 1, run: 1, ts: T0 + 31000 }];
+  ok(CE.roundPlan(soloG, soloSurr, T0 + 90000, 1).final === true, 'соло: сдался — забег завершён, как прежде');
   // соло-забеги: письма забега №2 не смешиваются с забегом №1
   const lRun2 = Object.assign(res('A', 1, T0 + 60000, 7), { run: 2 });
   const t2 = CE.table(game, [res('A', 1, T0 + 60000, 2), lRun2], T0 + 90000, 2);
@@ -339,7 +349,7 @@ r = await call(base, '/api/messages', { method: 'POST', body: { chat: soloId, bl
 ok(r.status === 403, 'чужое письмо в забег не пустить — Гоша не участник соло-забега Поли');
 
 console.log('\n──────────────────────────────────────────────────');
-console.log(`  «Монеты» pkg3-78: ${good} ✓, провалов ${bad}`);
+console.log(`  «Монеты» pkg3-79: ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
 proc.kill('SIGTERM');

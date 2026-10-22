@@ -197,7 +197,8 @@ const sw = readFileSync(join(PUB, 'sw.js'), 'utf8');
 const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
-ok(sw.includes('sega-static-v71'), 'кэш статики поднят до v71 (карты «Монет» кэшируются)');
+const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
+ok(sw.includes('sega-static-v72'), 'кэш статики поднят до v72 (карты «Монет» кэшируются)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -485,7 +486,8 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-78';") && apiJs.includes("const BUILD = 'pkg3-78';"), 'клиент и сервер помечены pkg3-78');
+ok(appJs.includes("const BUILD = 'pkg3-79';") && apiJs.includes("const BUILD = 'pkg3-79';"), 'клиент и сервер помечены pkg3-79');
+ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
 ok(appJs.includes("$('#ic-prev').addEventListener('click', () => openChatIconView(c));"), 'в редакторе иконки предпросмотр тоже открывается крупной');
