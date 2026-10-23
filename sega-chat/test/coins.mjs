@@ -2,8 +2,10 @@
  * pkg3-78: «Монеты» — золотая лихорадка с туманом войны.
  *   • движок CE: раскладки из зерна детерминированы, порядок карт — перестановка,
  *     монеты достижимы, simulate/verify ловят подделку счёта, финиша и времени;
- *   • план забега: раунд закрывается, когда результаты у всех НЕ сдавшихся,
- *     сдавшийся не блокирует, опоздавший на сутки — «не играл» и ноль очков;
+ *   • план забега (pkg3-82 — личный темп): каждый игрок проходит раунды сам,
+ *     никого не дожидаясь; забег завершается, когда ВСЕ не сдавшиеся прошли
+ *     ВСЕ раунды; сдавшийся не блокирует; правила «сутки — не играл» больше
+ *     нет (старый нетронутый забег не закрывается задним числом);
  *   • соло: у каждого забега своё зерно, письмо забега №2 не смешивается с №1;
  *   • сервер: создание (соло и до троих гостей), лимиты (4 игрока, 6 раундов,
  *     30 минут, живые партии), accept/decline/leave без удаления чужого забега.
@@ -161,22 +163,26 @@ function pathTo(gen, target) {
   ok(CE.verify(gen, Object.assign({}, res2, { hg: res2.hg + 1 }), 3) === false, 'попытка зачесть часы дважды проверкой ловится');
 }
 
-// ─────────────────────────── движок: план забега и таблица ───────────────────────────
+// ─────────────── движок: план забега и таблица (pkg3-82 — личный темп) ───────────────
 {
   const T0 = 1700000000000;
   const game = { players: ['A', 'B'], rounds: 2, minutes: 3, createdAt: T0, seed: SEED };
   const res = (author, round, ts, score) => ({ k: 'coins-result', author, round, run: 1, ts, score: score || 0, moves: '', end: [6, 12], hg: 0, startedAt: ts - 60000, finishedAt: ts });
   let plan = CE.roundPlan(game, [], T0 + 1000, 1);
-  ok(plan.round === 1 && !plan.complete && plan.missing.join() === 'A,B', 'чистый старт: раунд 1, ждём обоих');
+  ok(plan.final === false && plan.waiting.join() === 'A,B' && plan.per.A.next === 1 && plan.per.B.next === 1,
+    'чистый старт: забег не завершён, оба игрока на раунде 1 — каждый видит «Начать раунд»');
   plan = CE.roundPlan(game, [res('A', 1, T0 + 60000)], T0 + 70000, 1);
-  ok(plan.round === 1 && !plan.complete && plan.missing.join() === 'B', 'результат одного получен — ждём второго');
-  const both = [res('A', 1, T0 + 60000), res('B', 1, T0 + 90000)];
-  plan = CE.roundPlan(game, both, T0 + 100000, 1);
-  ok(plan.round === 2 && !plan.complete && !plan.final, 'оба результата в доме — открыт раунд 2 (он ещё не закрыт)');
-  const all4 = both.concat([res('A', 2, T0 + 200000), res('B', 2, T0 + 210000)]);
-  plan = CE.roundPlan(game, all4, T0 + 220000, 1);
-  ok(plan.final === true, 'последний раунд закрыт — забег финализирован');
-  const t = CE.table(game, all4, T0 + 220000, 1);
+  ok(plan.per.A.next === 2 && plan.per.B.next === 1 && !plan.final,
+    'pkg3-82 (правка 1): A закончил раунд 1 и уже на раунде 2 — соперника B он не ждёт');
+  const aDone = [res('A', 1, T0 + 60000, 5), res('A', 2, T0 + 120000, 7)];
+  plan = CE.roundPlan(game, aDone, T0 + 130000, 1);
+  ok(plan.per.A.finished === true && plan.per.A.next === null && !plan.final && plan.waiting.join() === 'B',
+    'A прошёл все раунды — забег ждёт только B (правки 1 и 3)');
+  const all = aDone.concat([res('B', 1, T0 + 200000, 3), res('B', 2, T0 + 260000, 9)]);
+  plan = CE.roundPlan(game, all, T0 + 270000, 1);
+  ok(plan.final === true && plan.lastDone === 2,
+    'правка 3: все прошли все раунды — забег завершён, таблица у всех появится автоматически');
+  const t = CE.table(game, all, T0 + 270000, 1);
   ok(t.length === 2 && t.every(r2 => r2.per.length === 2), 'таблица: строка на игрока, по клетке на раунд');
   const win = CE.winnerOf(game, [res('A', 1, T0 + 60000, 5), res('B', 1, T0 + 70000, 3),
     res('A', 2, T0 + 200000, 3), res('B', 2, T0 + 210000, 4)], T0 + 300000, 1);
@@ -186,33 +192,36 @@ function pathTo(gen, target) {
   ok(tie && tie.ids.length === 2, 'равные итоги — ничья (победителей двое)');
   ok(CE.winnerOf(game, [res('A', 1, T0 + 60000, 0), res('B', 1, T0 + 70000, 0)], T0 + 300000, 1) === null,
     'нули у всех — победителя нет');
-  // сдавшийся не блокирует раунды
+  // сдавшийся не блокирует забег
   const surrB = { k: 'coins-surrender', author: 'B', round: 1, run: 1, ts: T0 + 30000 };
-  plan = CE.roundPlan(game, [res('A', 1, T0 + 60000), surrB], T0 + 70000, 1);
-  ok(plan.round === 2, 'соперник сдался — раунд закрыт без его результата');
+  plan = CE.roundPlan(game, aDone.concat([surrB]), T0 + 130000, 1);
+  ok(plan.final === true && plan.per.B.surrenderedAt === 1,
+    'соперник сдался — забег завершается без него, оставшиеся играют до конца');
   const tS = CE.table(game, [res('A', 1, T0 + 60000, 9), surrB], T0 + 70000, 1);
   const rowB = tS.find(x => x.id === 'B');
-  ok(rowB.surrenderedAt === 1 && rowB.per[0].surrendered === true, 'в таблице сдавшийся помечен по всем раундам');
+  ok(rowB.surrenderedAt === 1 && rowB.per[0].surrendered === true && rowB.per[1].surrendered === true,
+    'в таблице сдавшийся помечен по всем раундам со сдачи');
   // сдались все — забег завершён, победителя нет
   const surrAll = [surrB, { k: 'coins-surrender', author: 'A', round: 1, run: 1, ts: T0 + 31000 }];
   plan = CE.roundPlan(game, surrAll, T0 + 90000, 1);
   ok(plan.final === true, 'сдались все — забег завершён');
   ok(CE.winnerOf(game, surrAll, T0 + 90000, 1) === null, 'победителя у всеобщей сдачи нет');
-  // опоздавший: сутки — и раунд закрывается сам, прогульщик с нулём
-  plan = CE.roundPlan(game, [res('A', 1, T0 + 60000)], T0 + CE.GRACE_MS + 61000, 1);
-  ok(plan.round === 2, 'сутки без результата — раунд 1 закрыт и открыт раунд 2');
-  ok(CE.absentOf(game, [res('A', 1, T0 + 60000)], 1, 1, T0 + CE.GRACE_MS + 61000).join() === 'B',
-    'прогульщик раунда 1 помечен «не играл»');
-  const tA = CE.table(game, [res('A', 1, T0 + 60000, 4)], T0 + CE.GRACE_MS + 61000, 1);
-  const rowB2 = tA.find(x => x.id === 'B');
-  ok(rowB2.per[0].absent === true && rowB2.per[0].score === 0, '«не играл» — ноль очков в таблице');
-  // pkg3-79: соло — ждать некого, суток и «не играл» нет; старый забег не «завершается» сам
+  // pkg3-82 (правка 1): правила «сутки — не играл» больше нет: старый нетронутый
+  // забег НЕ закрывается задним числом — болезнь «нулевого счёта» вылечена
+  const old = Object.assign({}, game, { createdAt: T0 - 10 * 86400000 });
+  plan = CE.roundPlan(old, [], T0, 1);
+  ok(plan.final === false && plan.per.A.next === 1 && plan.per.B.next === 1,
+    'забег, которого не касались 10 суток, жив: оба игрока снова видят «Начать раунд», а не нули');
+  ok(!CE.absentOf && CE.GRACE_MS === undefined,
+    'в движке нет ни «не играл», ни суточного срока — игра честно ждёт игроков');
+  const late = CE.table(game, [res('A', 1, T0 + 10 * 86400000, 6)], T0 + 11 * 86400000, 1);
+  ok(late.find(x => x.id === 'A').per[0].score === 6, 'результат, сданный хоть через неделю, засчитывается — срока у раунда нет');
+  // соло: ждать некого; спустя сутки забег сам не «завершается»
   const soloG = Object.assign({}, game, { players: ['A'] });
-  const soloPlan = CE.roundPlan(soloG, [], T0 + CE.GRACE_MS + 61000, 1);
-  ok(!soloPlan.final && soloPlan.absent.length === 0 && soloPlan.missing.join() === 'A',
-    'соло: сутки спустя раунд открыт, «не играл» не ставится, забег не «завершён»');
-  ok(CE.absentOf(soloG, [], 1, 1, T0 + CE.GRACE_MS + 61000).length === 0, 'соло: absentOf пуст');
-  const tSolo = CE.table(soloG, [], T0 + CE.GRACE_MS + 61000, 1);
+  const soloPlan = CE.roundPlan(soloG, [], T0 + 10 * 86400000, 1);
+  ok(!soloPlan.final && soloPlan.waiting.join() === 'A' && soloPlan.per.A.next === 1,
+    'соло: спустя сутки раунд открыт — забег не «завершается» сам');
+  const tSolo = CE.table(soloG, [], T0 + 10 * 86400000, 1);
   ok(tSolo.length === 1 && tSolo[0].per[0].score === null, 'соло: несостоявшийся раунд — прочерк, а не ноль');
   const soloSurr = [{ k: 'coins-surrender', author: 'A', round: 1, run: 1, ts: T0 + 31000 }];
   ok(CE.roundPlan(soloG, soloSurr, T0 + 90000, 1).final === true, 'соло: сдался — забег завершён, как прежде');
@@ -348,12 +357,20 @@ ok((r.d.invites || []).some(x => x.id === gameId), 'забег жив: Даша 
 r = await call(base, `/api/games/${gameId}/decline`, { method: 'POST', body: {} }, P.c.token);
 ok(r.status === 403, 'отклонить дважды нельзя');
 
-// ── справочник «Сейчас играют»: забег виден знакомым, игроки — в карточке
+// ── справочник «Сейчас играют» (pkg3-82, правка 5): забег виден знакомым не
+// сразу, а как только хотя бы ДВОЕ игроков сдали результаты раундов
 await call(base, '/api/dm', { method: 'POST', body: { peer: P.b.id } }, P.e.token);
+r = await call(base, '/api/sync?since=999999999&rsince=0', {}, P.e.token);
+ok(!(r.d.games || []).some(x => x.id === gameId),
+  'pkg3-82: игроков уже двое, но результатов ещё нет — в чужом «Сейчас играют» забега нет');
+await call(base, '/api/messages', { method: 'POST', body: { chat: gameId, blob: 'enc:' + hex(), notify: 1, mark: 'coins-result' } }, P.a.token);
+r = await call(base, '/api/sync?since=999999999&rsince=0', {}, P.e.token);
+ok(!(r.d.games || []).some(x => x.id === gameId), 'pkg3-82: результат сдал один игрок — забег по-прежнему не светится');
+await call(base, '/api/messages', { method: 'POST', body: { chat: gameId, blob: 'enc:' + hex(), notify: 1, mark: 'coins-result' } }, P.b.token);
 r = await call(base, '/api/sync?since=999999999&rsince=0', {}, P.e.token);
 const live = (r.d.games || []).find(x => x.id === gameId);
 ok(!!live && live.rules === 'coins' && Array.isArray(live.players) && live.players.includes(P.a.id) && live.players.includes(P.b.id),
-'забег попал в «Сейчас играют» к знакомому: правила и список игроков на месте');
+  'pkg3-82: результаты сдали двое — забег попал в «Сейчас играют» к знакомому: правила и список игроков на месте');
 
 // ── выход из забега: остальные продолжают, с последним игра стирается
 r = await call(base, `/api/games/${gameId}/accept`, { method: 'POST', body: {} }, P.d.token);

@@ -74,7 +74,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-81', 'сервер помечен pkg3-81');
+ok(r.status === 200 && r.d.build === 'pkg3-82', 'сервер помечен pkg3-82');
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
@@ -113,12 +113,20 @@ ok(sg.chats.some(c => c.id === run1 && (c.roles || {})[g2Id] === 'player'),
   'пункт 9: принял — игра появилась в «Игровых чатах» с ролью игрока');
 ok(!sg.games.some(g => g.id === run1), 'своя игра в «Сейчас играют» не дублируется');
 
-// Вася отклонил — игроков осталось двое, забег виден у Васи в «Сейчас играют»
+// Вася отклонил — игроков осталось двое, но pkg3-82 (правка 5): забег виден
+// знакомым, только когда хотя бы ДВОЕ сдали результаты раундов
 r = await call(base, `/api/games/${run1}/decline`, { method: 'POST', body: {} }, v1);
 ok(r.status === 200, 'Вася отклонил приглашение');
 sv = await st(v1);
+ok(!sv.games.some(g => g.id === run1),
+  'пункт 9 + правка 5 (pkg3-82): результатов ещё нет — забег у Васи не светится (зрителю нечего смотреть)');
+await call(base, '/api/messages', { method: 'POST', body: { chat: run1, blob: 'enc:' + hex(), notify: 1, mark: 'coins-result' } }, g1);
+sv = await st(v1);
+ok(!sv.games.some(g => g.id === run1), 'правка 5 (pkg3-82): результат сдал один — другим забег по-прежнему не виден');
+await call(base, '/api/messages', { method: 'POST', body: { chat: run1, blob: 'enc:' + hex(), notify: 1, mark: 'coins-result' } }, g2);
+sv = await st(v1);
 ok(sv.games.some(g => g.id === run1),
-  'пункт 9: отказался, но игроков осталось больше одного — забег виден у Васи в «Сейчас играют» (может постучаться в зрители)');
+  'правка 5 (pkg3-82): результаты сдали двое — забег появился в «Сейчас играют» (можно постучаться в зрители)');
 
 // ── пункт 8: вышел — игра исчезает у тебя совсем
 r = await call(base, `/api/games/${run1}/leave`, { method: 'POST', body: {} }, g1);
@@ -201,11 +209,11 @@ ok(css.includes('user-select:none;-webkit-user-select:none;-webkit-touch-callout
   'пункт 1: выделение текста и перетаскивание у карты запрещены стилями');
 ok(appJs.includes("cv.addEventListener('selectstart', ev => ev.preventDefault());") && appJs.includes('sel.removeAllRanges()'),
   'пункт 1: JavaScript гасит уже возникшее выделение и не начинает новое');
-// пункт 2: вскрытая карта ждёт кнопку «Далее»
-ok(appJs.includes('const locDone = !!(loc && loc.sent && Number(loc.round) < plan.round && !plan.final);'),
-  'пункт 2: след законченного раунда не стирается, пока план ушёл вперёд — карта стоит до «Далее»');
-ok(appJs.includes('id="coins-next"') && appJs.includes('Далее: раунд'),
-  'пункт 2: кнопка «Далее» открывает следующий раунд');
+// пункт 2: вскрытая карта ждёт кнопку (pkg3-82: «Следующий раунд» / «Результаты»)
+ok(appJs.includes("phase = by[S.me.id] ? 'reveal' : 'sending';"),
+  'пункт 2 (pkg3-82): след законченного раунда не стирается сам — карта стоит до своей кнопки');
+ok(appJs.includes('id="coins-next"') && appJs.includes('Следующий раунд'),
+  'пункт 2 (pkg3-82): кнопка «Следующий раунд» открывает следующий раунд в личном темпе');
 // пункт 3: находка подписана на карте и растворяется за 2 секунды
 ok(appJs.includes('function coinsFlash(L, text)') && appJs.includes('until: Date.now() + 2000, total: 2000'),
   'пункт 3: подпись находки живёт 2 секунды');
@@ -238,8 +246,8 @@ ok(apiJs.includes('chat.game.leftBy = Array.from(new Set([...(chat.game.leftBy |
   'пункт 8: сервер записывает вышедшего — игра у него больше не всплывает');
 ok(apiJs.includes('c.game.invitee !== uid') && apiJs.includes('c.game.invitees.includes(uid)'),
   'пункт 9: справочник «Сейчас играют» не показывает игры с непринятым приглашением');
-ok(apiJs.includes("c.game.rules !== 'coins' || (Array.isArray(c.game.players) && c.game.players.length >= 2)"),
-  'пункт 9: соло-забег в справочнике не светится');
+ok(apiJs.includes('c.game.reported) && c.game.reported.length >= 2'),
+  'пункт 9 + правка 5 (pkg3-82): соло не светится; компания — только после результатов двоих игроков');
 // пункт 9: письмо отказа
 ok(appJs.includes("k: 'game-decline'") && appJs.includes('отклонил(а) приглашение в'),
   'пункт 9: отказавший шлёт пригласившему шифрованное письмо — тот видит, кто отказался');
@@ -254,10 +262,10 @@ ok(apiJs.includes('const watchNow = new Map();') && apiJs.includes('function isW
 ok(apiJs.includes('if (skipWatchers && isWatchingGame(u.id, chat.id)) continue;'),
   'пункт 11: notifyPush пропускает смотрящих');
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-81';") && apiJs.includes("const BUILD = 'pkg3-81';"),
-  'BUILD pkg3-81 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v74';"), 'кэш статики поднят до v74');
-ok(gs.includes("version: 'pkg3-81'"), 'звуковой движок помечен pkg3-81');
+ok(appJs.includes("const BUILD = 'pkg3-82';") && apiJs.includes("const BUILD = 'pkg3-82';"),
+  'BUILD pkg3-82 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v75';"), 'кэш статики поднят до v75');
+ok(gs.includes("version: 'pkg3-82'"), 'звуковой движок помечен pkg3-82');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');
 

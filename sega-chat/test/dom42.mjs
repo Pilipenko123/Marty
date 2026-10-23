@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v74'), 'кэш статики поднят до v74 (одиннадцать правок владельца подхватятся сразу)');
+ok(sw.includes('sega-static-v75'), 'кэш статики поднят до v75 (шесть правок «Золотой лихорадки» подхватятся сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-81';") && apiJs.includes("const BUILD = 'pkg3-81';"), 'клиент и сервер помечены pkg3-81');
+ok(appJs.includes("const BUILD = 'pkg3-82';") && apiJs.includes("const BUILD = 'pkg3-82';"), 'клиент и сервер помечены pkg3-82');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -551,7 +551,10 @@ ok(coinsEng.includes('const MAX_PLAYERS = 4') && coinsEng.includes('const MAPS =
   'движок: до 4 игроков, 6 карт, 40 монет одного достоинства');
 ok(coinsEng.includes('function genRound') && coinsEng.includes('function simulate') && coinsEng.includes('function verify'),
   'движок: раскладка из зерна, перепроигрывание пути и проверка чужого результата');
-ok(coinsEng.includes('GRACE_MS = 24 * 3600 * 1000'), 'срок ожидания результата раунда — сутки, потом «не играл»');
+ok(coinsEng.includes('function progressOf') && coinsEng.includes('function surrenderOf'),
+  'pkg3-82: прогресс каждого игрока считается движком по его собственным письмам');
+ok(!coinsEng.includes('GRACE_MS') && !coinsEng.includes('absentOf'),
+  'pkg3-82: правила «сутки без результата — не играл» больше нет — забег никого не закрывает задним числом');
 ok(coinsEng.includes('function roundPlan') && coinsEng.includes('function winnerOf'),
   'план раундов и победитель считаются движком — одинаково на всех устройствах');
 ok(apiJs.includes('В «Золотую лихорадку» играют максимум вчетвером'), 'сервер: гостей не больше трёх — всего четыре игрока');
@@ -596,6 +599,36 @@ ok(sw.includes('\\.jpg'), 'картинки карт кэшируются сер
 ok(html.includes('<script src="game-sound.js"></script>') && html.indexOf('game-sound.js') < html.indexOf('src="app.js"'),
   'звуковой движок игр подключён в index.html раньше клиента');
 ok(html.includes('id="game-sound"') && html.includes('Звук в играх'), 'в настройках — тумблер «Звук в играх»');
+
+// pkg3-82: шесть правок «Золотой лихорадки» — личный темп, кнопки раундов, соло-финал, «Сейчас играют», музыка
+const gsJs = readFileSync(join(PUB, 'game-sound.js'), 'utf8');
+ok(coinsEng.includes('function roundPlan') && coinsEng.includes('waiting') && coinsEng.includes('lastDone'),
+  'правки 1–3: план забега — личный прогресс каждого (per/waiting), забег ждёт ВСЕХ; раунды не закрываются по сроку');
+ok(appJs.includes('const mine = (plan.per || {})[S.me.id]') && appJs.includes('const myNext'),
+  'правки 1–3: клиент играет СВОЙ следующий раунд — соперников не ждёт');
+ok(appJs.includes('Следующий раунд') && appJs.includes('id="coins-next"'),
+  'правка 2: после раунда — вскрытая карта и кнопка «Следующий раунд»');
+ok(appJs.includes('id="coins-resbtn"') && appJs.includes("if (phase === 'final' && cs.solo) acts"),
+  'правки 2 и 4: после последнего раунда — кнопка «Результаты»; в соло финал открывается картой');
+ok(appJs.includes('id="coins-again2"') && appJs.includes('hide($(\'#modal\')); coinsNewRun();'),
+  'правка 4: в соло «Начать снова» живёт под таблицей результатов — забеги копятся в ней же');
+ok(appJs.includes('const finalTable = (phase === \'final\' && !(cs.solo && S.coinsLive))'),
+  'правка 3: у компании финал — таблица результатов автоматически у всех (с победителем)');
+ok(apiJs.includes("b.mark === 'coins-result'") && apiJs.includes('chat.game.reported'),
+  'правка 5: сервер запоминает открытую метку «игрок сдал результат» — письмо он по-прежнему не читает');
+ok(apiJs.includes('c.game.reported) && c.game.reported.length >= 2'),
+  'правка 5: чужой забег виден в «Сейчас играют», только когда результаты сдали хотя бы двое');
+ok(appJs.includes("if (payload && payload.k === 'coins-result') body.mark = 'coins-result';"),
+  'правка 5: клиент ставит метку только на письме с результатом раунда');
+ok(gsJs.includes('us.buffer = ub; us.connect(ctx.destination); us.start(0);'),
+  'правка 6: iOS-отпирание звука — бесшумный буфер при создании аудиоконтекста');
+ok(gsJs.includes('try { const rp = ctx.resume(); if (rp && rp.catch) rp.catch(() => {}); } catch (e) {}') && gsJs.includes('setTimeout(pump, 500)'),
+  'правка 6: насос музыки будит уснувший контекст сам, а не ждёт вечно');
+ok(gsJs.includes('m.nextAt = ctx.currentTime + 0.05;') && gsJs.includes('0.085') && gsJs.includes('0.09)'),
+  'правка 6: мелодия не «стреляет очередью из прошлого», переставлена на текущий такт и стала слышнее');
+ok(appJs.includes('GS.isEnabled() && GS.musicPref() && !GS.isPlaying()') && appJs.includes('GS.startMusic(L.gen.mapIdx);'),
+  'правка 6: тикер забега лечит мелодию сам — запускает её снова, если контекст не ожил с первого раза');
+ok(gsJs.includes("version: 'pkg3-82'"), 'звуковой движок помечен pkg3-82');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

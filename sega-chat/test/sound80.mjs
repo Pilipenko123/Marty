@@ -169,16 +169,16 @@ ok(appJs.includes('const leavingNow = leavingGet();') && appJs.includes('S.chats
 ok(appJs.includes('if (kind === \'close\' || kind === \'viewer\') { leaveGameNow(c); return; }'),
   'законченная партия и место зрителя покидаются без ожидания ответа сервера');
 
-// пункт 4: конец раунда — вся карта и «Далее»
-ok(appJs.includes('id="coins-next"') && appJs.includes('Далее: раунд'),
-  'после раунда — кнопка «Далее», включающая следующий раунд');
+// пункт 4: конец раунда — вся карта и «Следующий раунд» (pkg3-82: свой темп)
+ok(appJs.includes('id="coins-next"') && appJs.includes('Следующий раунд'),
+  'после раунда — кнопка «Следующий раунд», включающая следующий раунд лично у игрока (pkg3-82)');
 ok(appJs.includes('class="coins-miss"') && appJs.includes('Не собрано:'),
   'на раскрытой карте честно посчитаны несобранные монеты и артефакты');
 ok(css.includes('.coins-miss{') && css.includes('.coins-waitall{'), 'плашки «не собрано» и «ждём остальных» оформлены');
 
 // пункт 2: первый финишировавший ждёт остальных
-ok(appJs.includes('Вы закончили все раунды') && appJs.includes('Остальные игроки ещё не закончили'),
-  'закончил раньше всех — видна отметка, что остальные ещё играют');
+ok(appJs.includes('Вы закончили все раунды') && appJs.includes('Остальные игроки ещё ищут'),
+  'закончил раньше всех — видна отметка, что остальные ещё играют (pkg3-82: темп у каждого личный)');
 ok(appJs.includes('Новый забег компанией можно начать только через «+»'),
   'новая игра компанией — только через «+» (никакой кнопки «начать снова» у компании)');
 ok(appJs.includes("if (phase === 'final' && cs.solo) acts") && appJs.includes("if (phase === 'final' && !cs.solo) acts"),
@@ -187,8 +187,8 @@ ok(appJs.includes("if (phase === 'final' && cs.solo) acts") && appJs.includes("i
 // пункт 7: финал — автоматически таблица вместо карты
 ok(appJs.includes('coins-final-table') && appJs.includes('Итоги забега'),
   'когда все закончили, вместо карты автоматически появляется таблица итогов');
-ok(appJs.includes("if (phase !== 'final' && phase !== 'out')"),
-  'в финале карта не рисуется вовсе — только итоги и победитель (pkg3-81: зрителю карта показывается)');
+ok(appJs.includes('const showStage = phase !== \'out\' && (phase !== \'final\' || !!(cs.solo && S.coinsLive));'),
+  'в финале компании карта не рисуется — только итоги и победитель; pkg3-82: соло-финал открывается картой последнего раунда');
 ok(!appJs.includes('Карта последнего раунда'), 'pkg3-79 «карта последнего раунда» в финале заменена таблицей (пункт 7)');
 
 // пункт 8: управление пальцем по карте, крестовина убрана
@@ -206,9 +206,9 @@ ok(!html.includes('Монеты') && appJs.includes('<option value="coins">Зо�
 ok(apiJs.includes('«Золотая лихорадка»: есть новости забега'), 'пуш сервера тоже говорит «Золотая лихорадка»');
 
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-81';") && apiJs.includes("const BUILD = 'pkg3-81';"),
-  'BUILD pkg3-81 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v74';"), 'кэш статики поднят до v74');
+ok(appJs.includes("const BUILD = 'pkg3-82';") && apiJs.includes("const BUILD = 'pkg3-82';"),
+  'BUILD pkg3-82 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v75';"), 'кэш статики поднят до v75');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');
