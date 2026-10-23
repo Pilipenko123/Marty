@@ -50,9 +50,13 @@ input,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 #screen-loading .muted{color:#b9d3e0}
 
 label{display:block;font-size:12px;color:var(--muted);margin:12px 0 0}
-input[type=text],input[type=password],input[type=search],textarea{
+/* pkg3-81 (пункт 6): числовые окошки («минут на раунд», «раундов») оформлены
+   так же, как текстовые, — цифры тёмные на светлом поле, в тёмной теме светлые на тёмном */
+input[type=text],input[type=password],input[type=search],input[type=number],textarea{
   width:100%;margin-top:5px;background:#fff;border:1px solid #d7dfe5;border-radius:8px;padding:10px 12px;outline:none;
+  color:#17222b;
   transition:border-color .15s,box-shadow .15s}
+input[type=number]{width:auto;min-width:110px;}
 /* pkg3-38: в модальных окнах выпадающий список стоит ниже подписи — с заметным промежутком */
 .modal-body label select{display:block;width:100%;margin-top:8px;padding:9px 11px;background:#fff;
   border:1px solid #d7dfe5;border-radius:8px;font-family:inherit;font-size:14px;color:var(--text);outline:none;
@@ -365,6 +369,7 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 :root[data-theme="dark"] input[type=text],
 :root[data-theme="dark"] input[type=password],
 :root[data-theme="dark"] input[type=search],
+:root[data-theme="dark"] input[type=number],
 :root[data-theme="dark"] textarea{background:var(--panel-2);border-color:var(--line);color:var(--text)}
 :root[data-theme="dark"] .modal-body label select{background:var(--panel-2);border-color:var(--line);color:var(--text)}
 :root[data-theme="dark"] .composer-row textarea,
@@ -1212,7 +1217,7 @@ html,body{overflow-x:hidden}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .err{color:#ff7d97}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider{color:#d678c8}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider::before,:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .divider::after{background:rgba(138,43,255,.45)}
-:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=text],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=password],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=search],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea{
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=text],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=password],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=search],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) input[type=number],:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) textarea{
   background:rgba(5,2,18,.7);border:1.5px solid rgba(0,229,255,.35);color:var(--text)}
 /* pkg3-38: выпадающие списки модалок в неоновой гамме */
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .modal-body label select{
@@ -1496,15 +1501,23 @@ html,body{overflow-x:hidden}
 
 /* ───── pkg3-78/80: «Золотая лихорадка» — забег с туманом войны ───── */
 .coins-panel{max-width:min(100%,560px);}
-.coins-hud{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;
+/* pkg3-81 (пункт 3): строка над картой больше не переносится — длинные подписи
+   находок рисуются прямо на карте (растворяются за 2 с), поэтому кнопка музыки
+   не перескакивает на новую строку и карта не дёргается */
+.coins-hud{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:nowrap;
   margin:0 0 8px;font-weight:600;font-size:13.5px;}
-.coins-hud .ch-round{padding:2px 8px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);}
+.coins-hud .ch-round{padding:2px 8px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);flex:none;}
 .coins-hud .ch-timer{padding:2px 10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);
-  font-variant-numeric:tabular-nums;min-width:4.5em;text-align:center;}
+  font-variant-numeric:tabular-nums;min-width:4.5em;text-align:center;flex:none;}
 .coins-hud .ch-timer.low{color:#e5484d;border-color:#e5484d;animation:coins-blink 1s step-start infinite;}
 @keyframes coins-blink{50%{opacity:.4}}
-.coins-hud .ch-score{padding:2px 8px;border-radius:8px;background:rgba(245,197,66,.14);border:1px solid rgba(200,145,42,.5);}
-.coins-hud .ch-bonus{font-weight:500;color:var(--muted);min-height:1em;}
+.coins-hud .ch-score{padding:2px 8px;border-radius:8px;background:rgba(245,197,66,.14);border:1px solid rgba(200,145,42,.5);flex:none;}
+.coins-hud .ch-bonus{font-weight:500;color:var(--muted);min-height:1em;min-width:0;flex:0 1 auto;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* pkg3-81 (пункт 1): палец, скользящий по карте, не выделяет ни текст панели,
+   ни саму карту как элемент — выделение и перетаскивание запрещены */
+.coins-hud,.coins-stage,#coins-canvas,.coins-acts,.coins-rev,.coins-miss,.coins-waitall,.coins-ovl{
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
 .coins-stage{position:relative;width:100%;border-radius:12px;overflow:hidden;background:#141821;
   box-shadow:0 2px 10px rgba(0,0,0,.25);}
 #coins-canvas{display:block;width:100%;height:min(64dvh,620px);touch-action:none;}
@@ -1550,7 +1563,7 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .coins-next{min-width:220px;}
 .coins-waitall{margin:10px auto 0;max-width:520px;text-align:center;padding:10px 12px;border-radius:10px;
   background:rgba(245,197,66,.10);border:1px solid rgba(200,145,42,.45);font-size:13.5px;line-height:1.5;}
-.coins-hud .ch-music{padding:2px 8px;border-radius:8px;}
+.coins-hud .ch-music{padding:2px 8px;border-radius:8px;flex:none;}
 @media (max-width:959px){
   #coins-canvas{height:min(58dvh,520px);}
 }

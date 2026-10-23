@@ -8,13 +8,19 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-80';
+const BUILD = 'pkg3-81';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
+   pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
+   ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
+   телефона, все монеты собраны — раунд кончается досрочно, цифры настроек
+   читаются, счёт победителя без дубля, вышедший игру больше не видит,
+   приглашение не светится в «Сейчас играют», зритель видит карту, пуш не
+   мешает тому, кто смотрит на доску.
    Если файл вдруг не догрузился, работает тихая заглушка: отсутствие звука
    не имеет права ломать игру. */
 const GS = (typeof window !== 'undefined' && window.GS) || {
   version: 'none', SFX: {},
-  ensure() {}, play() {}, startMusic() { return false; }, stopMusic() {},
+  ensure() {}, wake() {}, play() {}, startMusic() { return false; }, stopMusic() {},
   musicPref() { return false; }, setMusicPref() {}, toggleMusicPref() { return false; },
   setEnabled() {}, isEnabled() { return false; }, isPlaying() { return false; },
   letterSound() { return null; }, melodyFor() { return null; }
@@ -1317,7 +1323,8 @@ function wake(why) {
 }
 // pkg3-80: первое касание заодно «отпирает» звуковой движок игр — браузер
 // разрешает звук только после жеста человека
-const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); GS.ensure(); bootstrapNotifyEngines(); wake('касание окна'); };
+// pkg3-81 (пункт 4): то же касание будит звук после сна телефона
+const noteTouch = () => { lastTouch = Date.now(); primeNotifySound(); GS.ensure(); GS.wake(); bootstrapNotifyEngines(); wake('касание окна'); };
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   document.addEventListener(ev, noteTouch, { passive: true });
 }
@@ -1419,10 +1426,21 @@ setInterval(() => {
     .catch(() => {});
 }, TYPING_POLL_MS);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && S.token) { noteTouch(); sync().catch(() => {}); loop(); }
+  if (!document.hidden && S.token) { noteTouch(); coinsWakeAudio(); sync().catch(() => {}); loop(); }
   else if (document.hidden) stopTypingSignal();   // pkg3-77: вкладку спрятали — «пишет…» гаснет сразу
 });
-window.addEventListener('focus', () => { if (S.token) { noteTouch(); markRead(); } });
+window.addEventListener('focus', () => { if (S.token) { noteTouch(); coinsWakeAudio(); markRead(); } });
+/** pkg3-81 (пункт 4): телефон уснул и вернулся — звук игр пропадал, потому что
+ * мобильный браузер замораживает аудио без жеста человека, а контекст иногда
+ * закрывает вовсе. При возвращении будим движок, а если поиск монет ещё идёт —
+ * возобновляем мелодию карты. То же самое делает первое касание (noteTouch). */
+function coinsWakeAudio() {
+  try {
+    GS.wake();
+    const L = S.coinsLive;
+    if (L && L.hunt && GS.isEnabled() && GS.musicPref()) GS.startMusic(L.gen.mapIdx);
+  } catch (e) {}
+}
 // служебный воркер (пуш из облака) будит спящее окно
 // pkg3-57: бодрствующее окно тоже добирает новинки СРАЗУ, не дожидаясь
 // следующего опроса, — иначе выстрел и автоответ в морском бою ползут
@@ -2318,6 +2336,7 @@ function preview(m) {
   if (gp && gp.k === 'move') return gico + ' ход ' + (rusSan(gp.san) || (gp.from + '–' + gp.to));
   if (gp && gp.k && gp.k.slice(0, 3) === 'sb-') return gico + ' ' + sbNote(gp);
   if (gp && gp.k === 'game-invite') return gico + ' приглашение в игру';
+  if (gp && gp.k === 'game-decline') return gico + ' приглашение в игру отклонено';   // pkg3-81
   if (gp && gp.k === 'game-event') return gico + ' ' + (gp.text || 'событие игры');
   if (!m) return '';
   const p = S.plain.get(m.id) || {};
@@ -2509,6 +2528,14 @@ function gamePayloadHtml(p, chat) {
   if (p.k && p.k.slice(0, 6) === 'coins-') return `<div class="mv-line">${ico} ${escapeHtml(coinsNote(p))}</div>`;   // pkg3-78
   if (p.k === 'move') return `<div class="mv-line">${ico} ${escapeHtml(rusSan(p.san) || (p.from + '–' + p.to))}</div>`;
   if (p.k === 'game-event') return `<div class="mv-sys">${escapeHtml(p.text || '')}</div>`;
+  // pkg3-81 (пункт 9): отказ от приглашения — пригласивший видит, кто отказался
+  if (p.k === 'game-decline') {
+    const gname = rules === 'coins' ? '«Золотую лихорадку»'
+      : rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : 'шахматы';
+    const who = p.by === (S.me || {}).id ? 'Вы отклонили приглашение в '
+      : userNameById(p.by) + ' отклонил(а) приглашение в ';
+    return `<div class="mv-sys">${ico} ${escapeHtml(who + gname)}</div>`;
+  }
   if (p.k === 'game-invite') {
     const mine = p.to === (S.me || {}).id;
     const gc = (S.chats || []).find(x => x.id === p.game);
@@ -3528,6 +3555,7 @@ function coinsLiveFromResult(c, cs, res, loc) {
     x: sim.end[0], y: sim.end[1], score: res.score | 0, got, bgot, hg: sim.hg,
     lanternUntil: 0, compassUntil: 0,
     sent: (loc && loc.sent) || res, hunt: false, reveal: true, flash: null,
+    who: res.author || null,   // pkg3-81 (пункт 10): чей путь показан (зрителю — не свой)
     bad: res.bad === true
   };
 }
@@ -3595,7 +3623,7 @@ function coinsStep(dir) {
   if (ci >= 0 && !L.got.includes(ci)) {
     L.got.push(ci); L.score++;
     GS.play('coin');
-    L.flash = { text: '🪙 +1 монета', until: Date.now() + 1200 };
+    coinsFlash(L, '🪙 +1 монета');
   }
   // pkg3-80: бонус подбирается ОДИН раз и тут же исчезает с карты — как монета.
   // Раньше часы можно было «фармить», шагая по клетке туда-сюда.
@@ -3603,12 +3631,24 @@ function coinsStep(dir) {
   if (bi >= 0 && !(L.bgot || (L.bgot = [])).includes(bi)) {
     L.bgot.push(bi);
     const t = (L.gen.bonuses[bi] || {}).t;
-    if (t === 'hourglass') { L.hg++; GS.play('hourglass'); L.flash = { text: '⏳ песочные часы: +10 секунд', until: Date.now() + 2200 }; }
-    if (t === 'lantern') { L.lanternUntil = Date.now() + 15000; GS.play('lantern'); L.flash = { text: '🔦 фонарь: видно дальше 15 секунд', until: Date.now() + 2200 }; }
-    if (t === 'compass') { L.compassUntil = Date.now() + 2500; GS.play('compass'); L.flash = { text: '🧭 компас: стрелка к ближайшей монете', until: Date.now() + 2500 }; }
+    if (t === 'hourglass') { L.hg++; GS.play('hourglass'); coinsFlash(L, '⏳ песочные часы: +10 секунд'); }
+    if (t === 'lantern') { L.lanternUntil = Date.now() + 15000; GS.play('lantern'); coinsFlash(L, '🔦 фонарь: видно дальше 15 секунд'); }
+    if (t === 'compass') { L.compassUntil = Date.now() + 2500; GS.play('compass'); coinsFlash(L, '🧭 компас: стрелка к ближайшей монете'); }
   }
   coinsSaveLoc(L);
   coinsDraw(); coinsHud();
+  // pkg3-81 (пункт 5): собраны ВСЕ монеты карты — раунд заканчивается досрочно,
+  // не дожидаясь таймера: победный сигнал, открытая карта и кнопка «Далее»
+  if (L.hunt && L.got.length >= L.gen.coins.length) {
+    toast('🏆 Все монеты собраны! Раунд завершён досрочно');
+    coinsFinishRound(true);
+  }
+}
+/** pkg3-81 (пункт 3): находка подписывается ПРЯМО НА КАРТЕ — надпись в стороне
+ * от аватара плавно растворяется за 2 секунды. Панель над картой не растёт,
+ * кнопка музыки не перескакивает на новую строку и карта не дёргается. */
+function coinsFlash(L, text) {
+  L.flash = { text, born: Date.now(), until: Date.now() + 2000, total: 2000 };
 }
 // ── canvas: карта, туман войны, артефакты, аватар ──
 let coinsFogCv = null;
@@ -3744,14 +3784,40 @@ function coinsDraw() {
       }
     }
     // 7) моя фигура — аватар чата (на раскрытии метка конца пути)
-    coinsDrawMe(ctx, sx, sy, cell);
+    coinsDrawMe(ctx, sx, sy, cell, L.who);
+    // 8) pkg3-81 (пункт 3): свежая находка подписывается ПРЯМО НА КАРТЕ —
+    // надпись появляется в стороне от аватара и плавно растворяется за 2 секунды
+    if (L.hunt && L.flash && L.flash.until) {
+      const left = L.flash.until - Date.now();
+      if (left <= 0) L.flash = null;
+      else {
+        const a = Math.max(0.04, Math.min(1, left / (L.flash.total || 2000)));
+        const ty = sy > ch / 2 ? ch * 0.14 : ch * 0.86;   // где аватара нет
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.font = '600 ' + Math.max(12.5, Math.round(cell * 0.4)) + 'px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const tw = Math.min(cw - 16, ctx.measureText(L.flash.text).width);
+        const bx = cw / 2, padX = 10, padY = 6;
+        ctx.fillStyle = 'rgba(8,10,16,0.78)';
+        ctx.fillRect(bx - tw / 2 - padX, ty - padY - 1, tw + padX * 2, padY * 2 + 2);
+        ctx.strokeStyle = 'rgba(245,197,66,0.6)';
+        ctx.strokeRect(bx - tw / 2 - padX, ty - padY - 1, tw + padX * 2, padY * 2 + 2);
+        ctx.fillStyle = '#f5c542';
+        ctx.fillText(L.flash.text, bx, ty, tw);
+        ctx.restore();
+      }
+    }
   } catch (e) { /* сбой отрисовки не смертелен */ }
 }
-function coinsDrawMe(ctx, sx, sy, cell) {
+function coinsDrawMe(ctx, sx, sy, cell, who) {
+  // pkg3-81 (пункт 10): зритель видит путь того игрока, чья карта открыта, —
+  // фигура рисуется с ЕГО аватаром, а не с аватаром зрителя
+  const uid = who || (S.me || {}).id;
   const r = cell * 0.42;
   ctx.save();
   ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-  const av = avatarCache.get(S.me.id);
+  const av = avatarCache.get(uid);
   const im = av && av.src ? coinsImg(av.src) : null;
   if (im && im.complete && im.naturalWidth) {
     ctx.drawImage(im, sx - r, sy - r, r * 2, r * 2);
@@ -3760,7 +3826,7 @@ function coinsDrawMe(ctx, sx, sy, cell) {
     ctx.fillStyle = '#fff';
     ctx.font = 'bold ' + Math.round(r * 1.1) + 'px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(((S.me && S.me.name) || '?').slice(0, 1).toUpperCase(), sx, sy);
+    ctx.fillText(String((userById(uid) || {}).name || '?').slice(0, 1).toUpperCase(), sx, sy);
   }
   ctx.restore();
   ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
@@ -3784,7 +3850,8 @@ function coinsHud() {
     if (L.hunt && L.lanternUntil > now) chips.push('🔦 ' + Math.ceil((L.lanternUntil - now) / 1000) + ' с');
     if (L.hunt && L.compassUntil > now) chips.push('🧭 компас');
     if (L.hg > 0) chips.push('⏳ +' + (L.hg * 10) + ' с');
-    if (L.flash && L.flash.until > now) chips.push(L.flash.text);
+    // pkg3-81 (пункт 3): подписи находок здесь больше не появляются — они
+    // рисуются прямо на карте и гаснут за 2 секунды, панель не разъезжается
     b.textContent = chips.join(' · ');
   }
 }
@@ -3823,10 +3890,11 @@ function coinsStartRound() {
   renderBoard();
 }
 let coinsFinishing = false;
-/** Конец раунда (время вышло или вкладка спала): карта раскрывается целиком,
- * результат улетает письмом. pkg3-80: отдельной кнопки «Сдаться» больше нет —
- * покинуть забег можно единственной кнопкой «Выйти» над картой (coinsLeaveSmart). */
-async function coinsFinishRound() {
+/** Конец раунда (время вышло, вкладка спала или собраны все монеты — early):
+ * карта раскрывается целиком, результат улетает письмом. pkg3-80: отдельной
+ * кнопки «Сдаться» больше нет — покинуть забег можно единственной кнопкой
+ * «Выйти» над картой (coinsLeaveSmart). */
+async function coinsFinishRound(early) {
   const L = S.coinsLive;
   if (!L || coinsFinishing) return;
   const c = S.chats.find(x => x.id === L.chatId);
@@ -3836,7 +3904,8 @@ async function coinsFinishRound() {
   L.hunt = false;
   coinsHoldStop();
   GS.stopMusic();          // pkg3-80: раунд окончен — музыка карты замолкает
-  GS.play('roundend');
+  // pkg3-81 (пункт 5): досрочный финиш «все монеты собраны» — победный сигнал
+  GS.play(early ? 'victory' : 'roundend');
   const limit = (Number(L.minutes) * 60 + (L.hg | 0) * 10) * 1000;
   // финиш честный: даже если страницу открыли спустя часы, временем считается лимит
   const finishedAt = Math.min(Date.now(), Number(L.startedAt) + limit + 400);
@@ -3908,7 +3977,9 @@ function coinsStatusText(cs, phase, plan, short) {
     const w = cs.winner;
     if (!w) return 'Забег завершён: монет не собрал никто';
     const names = w.ids.map(gamePlayerName).join(', ');
-    return (w.ids.length > 1 ? 'Ничья: ' + names : (short ? 'Победил ' : 'Забег завершён, победил ') + names) + ' — ' + w.total + plural(w.total, ' монета', ' монеты', ' монет');
+    // pkg3-81 (пункт 7): plural() сам печатает число — второй раз его приписывать
+    // не нужно, иначе выходило «Победил Серёга — 200200 монет»
+    return (w.ids.length > 1 ? 'Ничья: ' + names : (short ? 'Победил ' : 'Забег завершён, победил ') + names) + ' — ' + plural(w.total, 'монета', 'монеты', 'монет');
   }
   if (phase === 'out') return short ? 'Вы сдались' : 'Вы сдались — забег идёт без вас';
   if (phase === 'viewer') return (short ? '' : 'Золотая лихорадка: ') + 'раунд ' + plan.round + ' из ' + cs.rounds;
@@ -3916,8 +3987,11 @@ function coinsStatusText(cs, phase, plan, short) {
   if (phase === 'reveal') {
     const L = S.coinsLive;
     const n = L ? (L.score | 0) : 0;
-    const miss = plan.missing.filter(x => x !== S.me.id);
-    return 'Раунд ' + plan.round + ': найдено ' + n + ' из ' + CE.COINS + ' монет' + (miss.length ? '. Ждём: ' + miss.map(gamePlayerName).join(', ') : '');
+    // pkg3-81 (пункт 2): номер раунда берём из вскрытой карты — план забега
+    // может быть уже на следующем раунде, а человек ещё смотрит на этот
+    const rnd = L ? (L.round | 0) : plan.round;
+    const miss = rnd === plan.round ? plan.missing.filter(x => x !== S.me.id) : [];
+    return 'Раунд ' + rnd + ': найдено ' + n + ' из ' + CE.COINS + ' монет' + (miss.length ? '. Ждём: ' + miss.map(gamePlayerName).join(', ') : '');
   }
   if (phase === 'hunt') return short ? 'Раунд ' + plan.round + ': поиск' : 'Раунд ' + plan.round + ' из ' + cs.rounds + ': ищем монеты!';
   return short ? 'Раунд ' + plan.round + ' из ' + cs.rounds
@@ -4013,6 +4087,9 @@ function coinsDragBind(cv) {
   cv.addEventListener('pointerdown', ev => {
     ev.preventDefault();
     try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+    // pkg3-81 (пункт 1): палец на карте не должен ничего выделять — ни текст
+    // панели, ни саму карту как элемент; уже возникшее выделение гасим сразу
+    try { const sel = document.getSelection && document.getSelection(); if (sel && sel.removeAllRanges) sel.removeAllRanges(); } catch (e) {}
     pid = ev.pointerId; ox = ev.clientX; oy = ev.clientY; cur = null;
     GS.ensure();
   });
@@ -4032,6 +4109,10 @@ function coinsDragBind(cv) {
   cv.addEventListener('pointercancel', up);
   cv.addEventListener('lostpointercapture', up);
   cv.addEventListener('contextmenu', ev => ev.preventDefault());
+  // pkg3-81 (пункт 1): браузер не начинает выделение текста и перетаскивание
+  // картинки, пока палец ездит по карте
+  cv.addEventListener('selectstart', ev => ev.preventDefault());
+  cv.addEventListener('dragstart', ev => ev.preventDefault());
 }
 /** Панель «Золотой лихорадки»: canvas-карта с туманом войны, управление
  * перетаскиванием, присутствующие, результаты окном (pkg3-80). */
@@ -4047,12 +4128,19 @@ function renderCoins(wrap, c) {
   const resOf = CE.resultsOf(cs.game, cs.letters, plan.round, cs.run);
   const myRes = isPlayer ? (resOf[S.me.id] || null) : null;
   let loc = coinsLocalGet(c.id);
-  // локальный поиск устарел (раунд закрыт, началось новое, сменился забег) — стереть
-  if (loc && (Number(loc.run || 1) !== cs.run || Number(loc.round) !== plan.round)) { loc = null; coinsLocalSet(c.id, null); }
+  // локальный поиск устарел (сменился забег) — стереть
+  if (loc && Number(loc.run || 1) !== cs.run) { loc = null; coinsLocalSet(c.id, null); }
+  // pkg3-81 (пункт 2): вскрытая карта законченного раунда сама НЕ исчезает —
+  // она стоит на экране, пока человек не нажмёт «Далее». Раньше раунд
+  // закрывался общими усилиями, план забега переходил к следующему раунду,
+  // локальный след тут же стирался — и карта пропадала за долю секунды.
+  const locDone = !!(loc && loc.sent && Number(loc.round) < plan.round && !plan.final);
+  if (loc && Number(loc.round) !== plan.round && !locDone) { loc = null; coinsLocalSet(c.id, null); }
   let phase;
   if (!isPlayer) phase = 'viewer';
   else if (plan.final) phase = 'final';
   else if (mySurr) phase = 'out';
+  else if (locDone) phase = 'reveal';
   else if (loc && loc.sent && !myRes) phase = 'sending';
   else if (myRes) phase = 'reveal';
   else if (loc && loc.startedAt) phase = 'hunt';
@@ -4066,6 +4154,14 @@ function renderCoins(wrap, c) {
     if (coinsTimeLeft(S.coinsLive) <= 0) { coinsFinishRound(); return; }   // время вышло, пока вкладка спала
   } else if ((phase === 'reveal' || phase === 'sending') && (myRes || (loc && loc.sent))) {
     S.coinsLive = coinsLiveFromResult(c, cs, myRes || loc.sent, loc);
+  } else if (phase === 'viewer') {
+    // pkg3-81 (пункт 10): зритель видит НЕ только таблицу — как только хоть
+    // один раунд закончен, перед ним открытая карта с путём того, кто
+    // сдал результат последним. Живые позиции игроков не передаются по сети
+    // (переписка зашифрована), поэтому во время поиска — честная заглушка.
+    const vres = cs.letters.filter(l => CE.isResult(l) && (l.run || 1) === cs.run)
+      .sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))[0] || null;
+    S.coinsLive = vres ? coinsLiveFromResult(c, cs, vres, null) : null;
   } else S.coinsLive = null;
   // pkg3-80: в финале карты нет — вместо неё автоматически таблица результатов
   // с объявлением победителя (пункт 7 владельца)
@@ -4103,13 +4199,21 @@ function renderCoins(wrap, c) {
   S.boardSig = sig; wrap.dataset.chat = c.id;
   wrap.classList.remove('hidden');
   const hud = (phase === 'hunt' || phase === 'reveal' || phase === 'sending')
-    ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-timer" id="coins-timer">—</span><span class="ch-score" id="coins-score">🪙</span><span class="ch-bonus" id="coins-bonus"></span>${phase === 'hunt' ? `<button class="mini ch-music" id="coins-music" title="Фоновая музыка этой карты">${musicOn ? '🎵 музыка: вкл' : '🎵 музыка: выкл'}</button>` : ''}</div>` : '';
+    ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-timer" id="coins-timer">—</span><span class="ch-score" id="coins-score">🪙</span><span class="ch-bonus" id="coins-bonus"></span>${phase === 'hunt' ? `<button class="mini ch-music" id="coins-music" title="Фоновая музыка этой карты">${musicOn ? '🎵 музыка: вкл' : '🎵 музыка: выкл'}</button>` : ''}</div>`
+    // pkg3-81 (пункт 10): у зрителя своя компактная шапка — раунд и роль
+    : phase === 'viewer'
+    ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-score">👁 вы зритель</span></div>` : '';
   let stage = '';
-  if (phase !== 'viewer' && phase !== 'final' && phase !== 'out') {
+  // pkg3-81 (пункт 10): карта показывается и зрителю — открытый путь того,
+  // кто последним закончил раунд; пока раунд идёт — честная заглушка
+  if (phase !== 'final' && phase !== 'out') {
     const ovl = phase === 'start' ? `<div class="coins-ovl">
         <b>Раунд ${plan.round} из ${cs.rounds}</b>
         <span class="tiny muted">Соберите как можно больше из ${CE.COINS} монет, пока не истекло время. Туман прячет карту — артефакты видны только вблизи. Управление: на телефоне — проведите пальцем по карте в нужную сторону (фигура идёт, пока палец не отпущен), на компьютере — стрелки клавиатуры. Бонусы подбираются один раз и исчезают с карты: 🔦 фонарь — видно дальше 15 секунд, 🧭 компас — стрелка к ближайшей монете, ⏳ песочные часы — +10 секунд.</span>
         <button class="primary" id="coins-start">Начать раунд</button>
+      </div>` : (phase === 'viewer' && !S.coinsLive) ? `<div class="coins-ovl">
+        <b>Раунд ${plan.round} из ${cs.rounds}: идёт поиск</b>
+        <span class="tiny muted">Игроки ищут монеты. Живые шаги по сети не летают — переписка зашифрована, сервер о поиске не знает ничего. Как только игрок закончит раунд, здесь появится открытая карта с его путём и находками.</span>
       </div>` : '';
     // pkg3-80 (пункт 4): время вышло — карта открыта ЦЕЛИКОМ, несобранные
     // монеты и артефакты видны, счётчик честный
@@ -4118,8 +4222,13 @@ function renderCoins(wrap, c) {
       const L = S.coinsLive;
       const missC = Math.max(0, CE.COINS - (L.score | 0));
       const missB = Math.max(0, (L.gen.bonuses || []).length - (L.bgot || []).length);
-      badge = `<div class="coins-rev">Карта открыта: найдено ${L.score | 0} из ${CE.COINS} монет${L.bad ? ' · <b>не проверено — засчитан ноль</b>' : ''}</div>
-        <div class="coins-miss">Не собрано: ${missC} ${plural(missC, 'монета', 'монеты', 'монет')} · ${missB} ${plural(missB, 'артефакт', 'артефакта', 'артефактов')}</div>`;
+      badge = `<div class="coins-rev">${L.score >= L.gen.coins.length ? '🏆 Все монеты собраны! ' : ''}Карта открыта: найдено ${L.score | 0} из ${CE.COINS} монет${L.bad ? ' · <b>не проверено — засчитан ноль</b>' : ''}</div>
+        <div class="coins-miss">Не собрано: ${plural(missC, 'монета', 'монеты', 'монет')} · ${plural(missB, 'артефакт', 'артефакта', 'артефактов')}</div>`;
+    }
+    // pkg3-81 (пункт 10): подпись зрительской карты — чей путь открыт
+    if (phase === 'viewer' && S.coinsLive) {
+      const L = S.coinsLive;
+      badge = `<div class="coins-rev">Раунд ${L.round | 0}: карта ${L.who ? escapeHtml(gamePlayerName(L.who)) : 'игрока'} открыта · найдено ${L.score | 0} из ${CE.COINS} монет</div>`;
     }
     stage = `<div class="coins-stage">
         <canvas id="coins-canvas" aria-label="Карта забега"></canvas>
@@ -4226,7 +4335,30 @@ async function declineGame(id, rules) {
   if (!confirm(rules === 'coins'
     ? 'Отклонить приглашение в «Золотую лихорадку»? Другие игроки продолжат забег без вас.'
     : 'Отклонить приглашение? Игра будет удалена.')) return;
+  // pkg3-81 (пункт 9): пригласивший узнаёт об отказе — шлём ему шифрованное
+  // письмо в личный чат ещё до удаления игры (иначе у пар-игр не осталось бы
+  // даже карточки, из которой видно, кто звал). Он получит обычное уведомление.
+  const inv = (S.invites || []).find(x => x.id === id);
+  let inviter = inv && inv.owner ? inv.owner : null;
+  if (!inviter) {
+    const lm = S.messages.find(m => { const p = S.plain.get(m.id); return p && p.k === 'game-invite' && p.game === id && m.uid !== S.me.id; });
+    if (lm) inviter = lm.uid;
+  }
   await api('/api/games/' + id + '/decline', { method: 'POST', body: {} });
+  if (inviter && inviter !== S.me.id) {
+    try {
+      const dm = (await api('/api/dm', { method: 'POST', body: { peer: inviter } })).chat;
+      const dk = await chatKeyOf(dm);
+      if (dk) {
+        const note = { k: 'game-decline', game: id, rules: rules || 'chess', by: S.me.id };
+        const rr = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: dm.id, blob: await encryptJSON(dk.key, note), notify: 1 } });
+        S.plain.set(rr.message.id, note);
+        addMessages([rr.message]);
+        cacheMsg(rr.message);
+        if (rr.notify) fireNotify(rr.notify);   // «Новое сообщение» — разбудит телефон пригласившего
+      }
+    } catch (e) { /* письмо отказа — любезность, не обязанность: игра уже отклонена */ }
+  }
   await sync(false); renderAll();
   toast('Приглашение отклонено');
 }
@@ -6285,7 +6417,7 @@ function openSectionMenu(id) {
   const n = (s.chats || []).length;
   modal('Раздел «' + s.name + '»', `
     <div class="card">
-      <p class="hint">В разделе ${n} ${plural(n, 'чат', 'чата', 'чатов')}. Раздел виден только вам.</p>
+      <p class="hint">В разделе ${plural(n, 'чат', 'чата', 'чатов')}. Раздел виден только вам.</p>
       <div class="set-row"><span class="ico" data-ic="pencil"></span>
         <div class="t"><b>Переименовать</b><span>другое название папки</span></div>
         <button class="mini" id="sec-rename" type="button">Открыть</button></div>

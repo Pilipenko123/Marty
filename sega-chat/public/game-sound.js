@@ -179,8 +179,12 @@
   function ensure() {
     if (!AC) return null;
     try {
+      // pkg3-81 (пункт 4): телефонный браузер после сна иногда вовсе закрывает
+      // аудиоконтекст — тогда заводим новый; «приснувший» или «прерванный»
+      // (iOS после блокировки экрана) — будим
+      if (ctx && ctx.state === 'closed') ctx = null;
       if (!ctx) ctx = new AC();
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
       return ctx;
     } catch (e) { return null; }
   }
@@ -255,9 +259,9 @@
     if (!enabled || !musicPref()) { stopMusic(); return false; }
     const c = ensure(); if (!c) return false;
     const i = ((Math.floor(Number(mapIdx) || 0) % ROOTS.length) + ROOTS.length) % ROOTS.length;
-    if (music && music.map === i) return true;                  // уже звучит эта карта
+    if (music && music.map === i && music.ctx === c) return true;   // уже звучит эта карта
     stopMusic();
-    music = { map: i, melody: melodyFor(i), timer: 0, nextAt: c.currentTime + 0.08, nodes: [] };
+    music = { map: i, ctx: c, melody: melodyFor(i), timer: 0, nextAt: c.currentTime + 0.08, nodes: [] };
     try { pump(); } catch (e) { stopMusic(); return false; }
     return true;
   }
@@ -293,21 +297,45 @@
     enabled = !!on;
     if (!enabled) stopMusic();
   }
+  /** pkg3-81 (пункт 4): разбудить звук после сна телефона / возврата на вкладку.
+   * Контекст мог быть закрыт системой — тогда музыка перепривязывается к новому;
+   * запланированное «в прошлом» не выстреливает очередью, а продолжается с такта. */
+  function wake() {
+    if (!AC || !enabled) return;
+    try {
+      const c = ensure();
+      if (!c) return;
+      if (music) {
+        if (music.ctx !== c) { music.nodes = []; music.ctx = c; }
+        if (!(music.nextAt > c.currentTime)) music.nextAt = c.currentTime + 0.05;
+        if (music.timer) clearTimeout(music.timer);
+        music.timer = setTimeout(pump, 60);
+      }
+    } catch (e) {}
+  }
   // вкладка спрятана — контекст засыпает (музыка ставится на паузу), вернулись — просыпается
   if (hasWin) {
     try {
       glob.document.addEventListener('visibilitychange', () => {
         try {
-          if (!ctx) return;
-          if (glob.document.hidden) { if (ctx.state === 'running') ctx.suspend().catch(() => {}); }
-          else if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+          if (glob.document.hidden) {
+            if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
+          } else wake();
         } catch (e) {}
       });
+      // pkg3-81 (пункт 4): телефон вернулся из спящего режима — будим звук всеми
+      // способами: страница показана, окно в фокусе, первое же касание/клавиша
+      // (iOS отпускает аудиоконтекст только человеку под жест)
+      glob.addEventListener('pageshow', wake);
+      glob.addEventListener('focus', wake);
+      for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+        glob.document.addEventListener(ev, wake, { capture: true, passive: true });
+      }
     } catch (e) {}
   }
 
   const GS = {
-    version: 'pkg3-80',
+    version: 'pkg3-81',
     SFX: SFX,
     ROOTS: ROOTS,
     PENT: PENT,
@@ -317,6 +345,7 @@
     noteHz: noteHz,
     letterSound: letterSound,
     ensure: ensure,
+    wake: wake,
     play: play,
     startMusic: startMusic,
     stopMusic: stopMusic,
