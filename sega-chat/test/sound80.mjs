@@ -187,8 +187,8 @@ ok(appJs.includes("if (phase === 'final' && cs.solo) acts") && appJs.includes("i
 // пункт 7: финал — автоматически таблица вместо карты
 ok(appJs.includes('coins-final-table') && appJs.includes('Итоги забега'),
   'когда все закончили, вместо карты автоматически появляется таблица итогов');
-ok(appJs.includes("if (phase !== 'viewer' && phase !== 'final' && phase !== 'out')"),
-  'в финале карта не рисуется вовсе — только итоги и победитель');
+ok(appJs.includes("if (phase !== 'final' && phase !== 'out')"),
+  'в финале карта не рисуется вовсе — только итоги и победитель (pkg3-81: зрителю карта показывается)');
 ok(!appJs.includes('Карта последнего раунда'), 'pkg3-79 «карта последнего раунда» в финале заменена таблицей (пункт 7)');
 
 // пункт 8: управление пальцем по карте, крестовина убрана
@@ -206,9 +206,9 @@ ok(!html.includes('Монеты') && appJs.includes('<option value="coins">Зо�
 ok(apiJs.includes('«Золотая лихорадка»: есть новости забега'), 'пуш сервера тоже говорит «Золотая лихорадка»');
 
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-80';") && apiJs.includes("const BUILD = 'pkg3-80';"),
-  'BUILD pkg3-80 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v73';"), 'кэш статики поднят до v73');
+ok(appJs.includes("const BUILD = 'pkg3-81';") && apiJs.includes("const BUILD = 'pkg3-81';"),
+  'BUILD pkg3-81 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v74';"), 'кэш статики поднят до v74');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');

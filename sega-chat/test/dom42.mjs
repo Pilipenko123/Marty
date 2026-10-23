@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v73'), 'кэш статики поднят до v73 (звук игр и новая панель забега подхватятся сразу)');
+ok(sw.includes('sega-static-v74'), 'кэш статики поднят до v74 (одиннадцать правок владельца подхватятся сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-80';") && apiJs.includes("const BUILD = 'pkg3-80';"), 'клиент и сервер помечены pkg3-80');
+ok(appJs.includes("const BUILD = 'pkg3-81';") && apiJs.includes("const BUILD = 'pkg3-81';"), 'клиент и сервер помечены pkg3-81');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -577,7 +577,8 @@ ok(!appJs.includes('id="coins-surrender"') && appJs.includes('async function coi
   'pkg3-80: одна кнопка «Выйти» над картой — «сдаться» отдельной кнопкой больше не нужно');
 ok(appJs.includes('function coinsNewRun') && appJs.includes('Начать снова'), 'соло: «начать снова» открывает новый забег');
 ok(appJs.includes('coinsMaybeRecord') && appJs.includes('Новый рекорд забега'), 'соло: новый рекорд забега отмечается письмом и поздравлением');
-ok(appJs.includes('avatarCache.get(S.me.id)'), 'фигура игрока — его аватар из чата');
+ok(appJs.includes('const uid = who || (S.me || {}).id;') && appJs.includes('avatarCache.get(uid)'),
+  'фигура игрока — его аватар из чата (pkg3-81: зритель видит аватар владельца пути)');
 ok(appJs.includes('coinsPresenceHtml') && appJs.includes('cp-dot'), 'доска показывает, кто в игре и кто в сети');
 ok(appJs.includes('coins-restoggle') && appJs.includes('function coinsOpenResults'), 'кнопка «Результаты» открывает таблицу всех игроков окном');
 ok(css.includes('.coins-restoggle{display:block;margin:10px auto 0;}') && css.includes('.coins-results.open{display:block;}'),
