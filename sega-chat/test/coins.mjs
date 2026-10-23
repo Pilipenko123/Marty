@@ -27,7 +27,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  «Монеты» — движок · pkg3-79');
+console.log('  «Золотая лихорадка» — движок · pkg3-80');
 console.log('══════════════════════════════════════════════════\n');
 
 // ─────────────────────────── движок: раскладки из зерна ───────────────────────────
@@ -123,7 +123,7 @@ function pathTo(gen, target) {
   ok(CE.verify(gen, Object.assign({}, res, { hg: res.hg + 1 }), 3) === false, 'приписанные песочные часы проверка ловит');
   ok(CE.verify(gen, Object.assign({}, res, { finishedAt: res.startedAt + 5 * 60 * 1000 }), 3) === false, 'результат вне лимита времени проверка ловит');
   ok(CE.verify(gen, null, 3) === false && CE.verify(gen, {}, 3) === false, 'пустышка вместо результата не проходит');
-  // песочные часы удлиняют лимит ровно на 10 секунд за каждый заход на клетку
+  // песочные часы удлиняют лимит ровно на 10 секунд — и подбираются ОДИН раз
   const hgCell = gen.bonuses.find(b => b.t === 'hourglass');
   ok(!!hgCell, 'песочные часы на карте есть');
   const mv = pathTo(gen, hgCell);
@@ -134,6 +134,31 @@ function pathTo(gen, target) {
   const badRes = { score: back.score, end: back.end, hg: 0, moves: mv, startedAt: 0, finishedAt: limitMs + 2999 };
   ok(CE.verify(gen, okRes, 3) === true, 'с часами лимит честно длиннее — результат проходит');
   ok(CE.verify(gen, badRes, 3) === false, 'заниженное число часов результат не спасает');
+}
+
+// ─────────────────── pkg3-80: бонус одноразовый — как монета ───────────────────
+{
+  const gen = CE.genRound(SEED, 1, 1);
+  const hgi = gen.bonuses.findIndex(b => b.t === 'hourglass');
+  ok(hgi >= 0 && typeof CE.bonusIdxAt === 'function', 'движок знает индекс бонуса на клетке (bonusIdxAt)');
+  const hgc = gen.bonuses[hgi];
+  // соседняя открытая клетка БЕЗ бонуса — чтобы «шаг прочь» ничего не подобрал
+  const OPP = { U: 'D', D: 'U', L: 'R', R: 'L' };
+  let nbDir = null;
+  for (const [ch, d] of Object.entries(CE.STEP)) {
+    const nx = hgc.x + d[0], ny = hgc.y + d[1];
+    if (CE.inB(nx, ny) && !CE.isWall(gen, nx, ny) && CE.bonusIdxAt(gen, nx, ny) < 0) { nbDir = ch; break; }
+  }
+  ok(!!nbDir, 'рядом с часами есть открытая клетка, куда можно шагнуть прочь');
+  const base = pathTo(gen, hgc);
+  const s1 = CE.simulate(gen, base);
+  const s2 = CE.simulate(gen, base + nbDir + OPP[nbDir]);   // подобрал → шаг прочь → вернулся
+  ok(s2.hg === s1.hg, 'повторный заход на собранную клетку время не увеличивает — часы нельзя «фармить»');
+  ok(Array.isArray(s2.bgot) || s2.bgot instanceof Uint8Array, 'перепроигрывание возвращает подобранные бонусы (bgot) — клиент прячет их с карты');
+  ok(!!s2.bgot[hgi], 'подобранный бонус отмечен в bgot');
+  const res2 = { score: s2.score, end: s2.end, hg: s2.hg, moves: base + nbDir + OPP[nbDir], startedAt: 0, finishedAt: 1000 };
+  ok(CE.verify(gen, res2, 3) === true, 'честный результат «подобрал — отошёл — вернулся» проходит проверку');
+  ok(CE.verify(gen, Object.assign({}, res2, { hg: res2.hg + 1 }), 3) === false, 'попытка зачесть часы дважды проверкой ловится');
 }
 
 // ─────────────────────────── движок: план забега и таблица ───────────────────────────
@@ -349,7 +374,7 @@ r = await call(base, '/api/messages', { method: 'POST', body: { chat: soloId, bl
 ok(r.status === 403, 'чужое письмо в забег не пустить — Гоша не участник соло-забега Поли');
 
 console.log('\n──────────────────────────────────────────────────');
-console.log(`  «Монеты» pkg3-79: ${good} ✓, провалов ${bad}`);
+console.log(`  «Золотая лихорадка» pkg3-80: ${good} ✓, провалов ${bad}`);
 console.log('──────────────────────────────────────────────────\n');
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
 proc.kill('SIGTERM');

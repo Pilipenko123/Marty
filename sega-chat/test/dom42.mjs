@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v72'), 'кэш статики поднят до v72 (карты «Монет» кэшируются)');
+ok(sw.includes('sega-static-v73'), 'кэш статики поднят до v73 (звук игр и новая панель забега подхватятся сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-79';") && apiJs.includes("const BUILD = 'pkg3-79';"), 'клиент и сервер помечены pkg3-79');
+ok(appJs.includes("const BUILD = 'pkg3-80';") && apiJs.includes("const BUILD = 'pkg3-80';"), 'клиент и сервер помечены pkg3-80');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -543,10 +543,10 @@ ok(appJs.includes('c.kind === \'game\' ? `<span class="gico">${gameIcon(c)}</spa
 ok(!appJs.includes('tag-grp" title="${gameRulesOf'), 'маленькая плашка со значком после названия игрового чата убрана');
 ok(css.includes('.avatar .gico{'), 'крупный значок игры на иконке оформлен в стилях');
 
-// pkg3-78: «Монеты» — золотая лихорадка с туманом войны
+// pkg3-78: «Золотая лихорадка» — забег с туманом войны (pkg3-80: звук, управление пальцем, одна кнопка выхода)
 const coinsEng = readFileSync(join(PUB, 'coins-engine.js'), 'utf8');
 ok(html.includes('<script src="coins-engine.js"></script>') && html.indexOf('coins-engine.js') < html.indexOf('src="app.js"'),
-  'движок «Монет» подключён в index.html раньше клиента');
+  'движок «Золотой лихорадки» подключён в index.html раньше клиента');
 ok(coinsEng.includes('const MAX_PLAYERS = 4') && coinsEng.includes('const MAPS = 6') && coinsEng.includes('const COINS = 40'),
   'движок: до 4 игроков, 6 карт, 40 монет одного достоинства');
 ok(coinsEng.includes('function genRound') && coinsEng.includes('function simulate') && coinsEng.includes('function verify'),
@@ -554,40 +554,47 @@ ok(coinsEng.includes('function genRound') && coinsEng.includes('function simulat
 ok(coinsEng.includes('GRACE_MS = 24 * 3600 * 1000'), 'срок ожидания результата раунда — сутки, потом «не играл»');
 ok(coinsEng.includes('function roundPlan') && coinsEng.includes('function winnerOf'),
   'план раундов и победитель считаются движком — одинаково на всех устройствах');
-ok(apiJs.includes('В монеты играют максимум вчетвером'), 'сервер: гостей не больше трёх — всего четыре игрока');
+ok(apiJs.includes('В «Золотую лихорадку» играют максимум вчетвером'), 'сервер: гостей не больше трёх — всего четыре игрока');
 ok(apiJs.includes('Math.min(6, Math.max(1, Math.round(Number(b.rounds) || 3)))') && apiJs.includes('Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)))'),
   'сервер: раундов 1–6, минут 1–30 (по умолчанию 3)');
 ok(apiJs.includes("if (chat.game.rules === 'coins') {"), 'сервер знает «Монеты» в accept/decline/leave');
 ok(apiJs.includes('invitees = inv.filter(x => x !== me.id)'), 'отказ и принятие вычёркивают из списка приглашённых, чужой забег не убивая');
-ok(apiJs.includes("coins: '«Монеты»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
-ok(appJs.includes("gameRulesOf(c) === 'coins' ? '🪙'"), 'значок «Монет» живёт на иконке чата');
+ok(apiJs.includes("coins: '«Золотая лихорадка»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
+ok(appJs.includes("gameRulesOf(c) === 'coins' ? '🪙'"), 'значок «Золотой лихорадки» живёт на иконке чата');
 ok(appJs.includes('function renderCoins') && appJs.includes('coins-canvas'), 'клиент рисует забег на canvas (карта, стены, туман)');
 ok(appJs.includes('function coinsFogLayer') && appJs.includes("rgba(6,7,12,0.93)"), 'туман войны: вне ареола всё во тьме');
 ok(appJs.includes('lanternUntil = Date.now() + 15000'), 'фонарь: +видимость на 15 секунд');
 ok(appJs.includes('L.hg++') && appJs.includes('+10 секунд'), 'песочные часы: +10 секунд к таймеру');
 ok(appJs.includes('compassUntil = Date.now() + 2500'), 'компас: стрелка к ближайшей монете вспыхивает на 2,5 секунды');
-ok(appJs.includes('coinsHoldStart') && appJs.includes('}, 170);'), 'крест-джойстик: держишь кнопку — фигура шагает каждые 170 мс');
+ok(appJs.includes('coinsHoldStart') && appJs.includes('}, 170);'), 'фигура шагает каждые 170 мс, пока управление удержано (палец или клавиша)');
 ok(appJs.includes('COINS_KEYS') && appJs.includes('ArrowUp'), 'стрелки клавиатуры тоже ведут фигуру');
 ok(appJs.includes("k: 'coins-result'") && appJs.includes("k: 'coins-surrender'") && appJs.includes("k: 'coins-record'"),
   'письма забега: результат, сдача и рекорд соло-забега');
 ok(appJs.includes('CE.verify(') && appJs.includes('не проверено'), 'чужой результат перепроверяется; неверный помечен «не проверено» и обнулён');
 ok(appJs.includes('coinsFinishRound(false)') && appJs.includes('Math.min(Date.now(), Number(L.startedAt) + limit + 400)'),
   'таймер кончился — результат уходит сам; время финиша честное (не дальше лимита)');
-ok(appJs.includes('id="coins-surrender"') && appJs.includes('Сдаться'), 'кнопка «сдаться» всегда под рукой');
+ok(!appJs.includes('id="coins-surrender"') && appJs.includes('async function coinsLeaveSmart'),
+  'pkg3-80: одна кнопка «Выйти» над картой — «сдаться» отдельной кнопкой больше не нужно');
 ok(appJs.includes('function coinsNewRun') && appJs.includes('Начать снова'), 'соло: «начать снова» открывает новый забег');
 ok(appJs.includes('coinsMaybeRecord') && appJs.includes('Новый рекорд забега'), 'соло: новый рекорд забега отмечается письмом и поздравлением');
 ok(appJs.includes('avatarCache.get(S.me.id)'), 'фигура игрока — его аватар из чата');
 ok(appJs.includes('coinsPresenceHtml') && appJs.includes('cp-dot'), 'доска показывает, кто в игре и кто в сети');
-ok(appJs.includes('coins-restoggle') && appJs.includes('id="coins-restoggle"'), 'на телефоне результаты — за кнопкой «Результаты»');
-ok(css.includes('.coins-restoggle{display:none;margin:10px auto 0;}') && css.includes('.coins-results.open{display:block;}'),
-  'на широком экране результаты под доской, на узком — за кнопкой');
-ok(css.includes('.coins-pad{') && css.includes('.cpad.up{'), 'крест-джойстик оформлен стилями');
+ok(appJs.includes('coins-restoggle') && appJs.includes('function coinsOpenResults'), 'кнопка «Результаты» открывает таблицу всех игроков окном');
+ok(css.includes('.coins-restoggle{display:block;margin:10px auto 0;}') && css.includes('.coins-results.open{display:block;}'),
+  'кнопка «Результаты» видна на всех экранах — таблица открывается окном');
+ok(!css.includes('.cpad{') && !appJs.includes('data-cdir') && appJs.includes('function coinsDragBind'),
+  'pkg3-80: крест-джойстик убран — на телефоне фигура идёт за пальцем, проведённым по карте');
 ok(css.includes('#coins-canvas{') && css.includes('touch-action:none'), 'холст забега оформлен и не тянет страницу пальцем');
-ok(css.includes('.ng-pick{'), 'список гостей «Монет» в окне «Новая игра» оформлен');
+ok(css.includes('.ng-pick{'), 'список гостей «Золотой лихорадки» в окне «Новая игра» оформлен');
 ok(appJs.includes('function createCoinsGame') && appJs.includes('Начать соло-забег'), 'окно «Новая игра» умеет соло-забег без соперников');
 ok(appJs.includes("p.k.slice(0, 6) !== 'coins-'") || appJs.includes("p.k.slice(0, 6) === 'coins-'"), 'письма забега — служебные: не лента и не «непрочитанные»');
 ok(appJs.includes('sega.coins.'), 'идущий раунд переживает перезагрузку страницы (память устройства)');
 ok(sw.includes('\\.jpg'), 'картинки карт кэшируются сервис-работником');
+
+// pkg3-80: звук игр — синтез кодом (Web Audio), настройка и музыка карт
+ok(html.includes('<script src="game-sound.js"></script>') && html.indexOf('game-sound.js') < html.indexOf('src="app.js"'),
+  'звуковой движок игр подключён в index.html раньше клиента');
+ok(html.includes('id="game-sound"') && html.includes('Звук в играх'), 'в настройках — тумблер «Звук в играх»');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
