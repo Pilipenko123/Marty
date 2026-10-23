@@ -33,8 +33,9 @@
 (function (glob) {
   const W = 13, H = 26;          // клеток (карты-картинки примерно 1:2)
   const COINS = 40;              // монет на карте, все одного достоинства
-  const MAPS = 6;                // картин-карт в комплекте
-  const MAX_ROUNDS = MAPS;       // раундов не больше, чем карт
+  const MAPS = 13;               // картин-карт в комплекте (pkg3-85: семь новых карт владельца)
+  const MAX_ROUNDS = 6;          // раундов не больше шести: забег берёт СЛУЧАЙНЫЕ шесть
+                                 // из тринадцати — порядок из зерна, каждый забег новый
   const MAX_PLAYERS = 4;         // игроков в партии (соло — это 1)
   const WALL_P = 0.20;           // базовая доля стен до carve-прохода
   const BONUS_PLAN = ['compass', 'compass', 'lantern', 'lantern', 'hourglass', 'hourglass'];

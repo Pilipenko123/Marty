@@ -1582,3 +1582,7 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .ng-game .gimg-ng{width:64px;height:64px;border-radius:14px;background:#fff;display:block}
 .ng-game span{font-weight:600;font-size:13px}
 #ng-back{margin:0 0 8px}
+
+/* pkg3-85: степпер времени раунда «Сталкера» (шаг 10 секунд) */
+.ng-sec{display:flex;align-items:center;gap:10px;margin:2px 0 10px}
+.ng-sec b{min-width:52px;text-align:center;font-size:16px}

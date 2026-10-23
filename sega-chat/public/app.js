@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-84';
+const BUILD = 'pkg3-85';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -3594,6 +3594,11 @@ function coinsFmtSec(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
+/** pkg3-85: время раунда в секундах: новые карты игр держат sec, старые — целые
+ * минуты; здесь оба случая читаются одинаково. */
+const coinsSecOf = g => Math.round(Number(g && g.sec) > 0 ? Number(g.sec) : (Number(g && g.minutes) || 3) * 60);
+/** pkg3-85: человекочитаемое время раунда: 1:00, 1:10, 12:30. */
+const fmtCoinsTime = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
 /** Клетки пути — для линии на раскрытой карте. */
 function coinsPath(gen, moves) {
   const pts = [{ x: gen.start.x, y: gen.start.y }];
@@ -4034,7 +4039,7 @@ function coinsStatusText(cs, phase, plan, short) {
   const mine = (plan.per || {})[S.me.id] || {};
   const r0 = mine.next || 1;
   return short ? 'Раунд ' + r0 + ' из ' + cs.rounds
-    : 'Раунд ' + r0 + ' из ' + cs.rounds + '. Таймер раунда: ' + (Number(g.minutes) || 3) + ' мин — стартует с вашего личного старта';
+    : 'Раунд ' + r0 + ' из ' + cs.rounds + '. Время раунда: ' + fmtCoinsTime(coinsSecOf(g)) + ' — стартует с вашего личного старта';
 }
 /** Кто в игре: игроки и приглашённые, онлайн/офлайн и метки состояния. */
 function coinsPresenceHtml(cs, plan) {
@@ -4574,7 +4579,13 @@ async function openNewGameSettings(rules, users) {
       <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
     </div>` : `
     <div id="ng-coins">
-      <label>Минут на раунд (1–30)<input id="ng-min" type="number" min="1" max="30" step="1" value="3"></label>
+      <label>Время раунда (10 секунд — 30 минут, шаг 10 секунд)</label>
+      <div class="ng-sec" id="ng-secwrap">
+        <button class="mini" id="ng-sec-minus" type="button">− 10 с</button>
+        <b id="ng-sec-view">1:00</b>
+        <button class="mini" id="ng-sec-plus" type="button">+ 10 с</button>
+        <input id="ng-sec" type="hidden" value="60">
+      </div>
       <label>Раундов (1–6, по одному на карту)<input id="ng-rounds" type="number" min="1" max="6" step="1" value="3"></label>
       <label>Позвать игроков — не больше трёх (никого = соло-забег)</label>
       <div class="ng-pick" id="ng-pick">${users.length
@@ -4591,6 +4602,14 @@ async function openNewGameSettings(rules, users) {
   if (pickBox) pickBox.addEventListener('change', goLbl);
   const back = $('#ng-back');
   if (back) back.addEventListener('click', () => openNewGame());
+  // pkg3-85: время раунда — степпером по 10 секунд (по умолчанию 1 минута)
+  const secIn = $('#ng-sec'), secView = $('#ng-sec-view');
+  const secSync = () => { if (secView && secIn) secView.textContent = fmtCoinsTime(Number(secIn.value) || 60); };
+  const secStep = d => { if (!secIn) return; secIn.value = String(Math.min(1800, Math.max(10, (Number(secIn.value) || 60) + d))); secSync(); };
+  const secMinus = $('#ng-sec-minus'), secPlus = $('#ng-sec-plus');
+  if (secMinus) secMinus.addEventListener('click', () => secStep(-10));
+  if (secPlus) secPlus.addEventListener('click', () => secStep(10));
+  secSync();
   goLbl();
   $('#ng-go').addEventListener('click', async () => {
     if (rules === 'coins') { await createCoinsGame(); return; }
@@ -4633,7 +4652,7 @@ function coinsPicked() {
 async function createCoinsGame() {
   const picks = coinsPicked();
   if (picks.length > 3) { toast('Позвать можно максимум троих — всего четыре игрока', true); return; }
-  const minutes = Math.min(30, Math.max(1, Math.round(Number($('#ng-min').value) || 3)));
+  const sec = Math.min(1800, Math.max(10, Math.round((Number($('#ng-sec').value) || 60) / 10) * 10));
   const rounds = Math.min(6, Math.max(1, Math.round(Number($('#ng-rounds').value) || 3)));
   try {
     const raw = crypto.getRandomValues(new Uint8Array(32));
@@ -4644,7 +4663,7 @@ async function createCoinsGame() {
       keys[id] = { blob: await aesEncryptBytes(pk, raw) };
     }
     const seed = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
-    const r = await api('/api/games', { method: 'POST', body: { rules: 'coins', players: picks, minutes, rounds, seed, keys } });
+    const r = await api('/api/games', { method: 'POST', body: { rules: 'coins', players: picks, minutes: sec / 60, sec, rounds, seed, keys } });
     const gid = r.chat.id;
     S.chatKeys.set(gid, { key: await importAes(raw), raw });
     hide($('#modal'));
@@ -4653,7 +4672,7 @@ async function createCoinsGame() {
       const dk = await chatKeyOf(dm);
       const inv = {
         k: 'game-invite', game: gid, to: opp, rules: 'coins',
-        note: 'Сталкер: ' + rounds + ' раунд(а) по ' + minutes + ' мин · до четверых · старт, когда удобно'
+        note: 'Сталкер: ' + rounds + ' раунд(а) по ' + fmtCoinsTime(sec) + ' · до четверых · старт, когда удобно'
       };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
       S.plain.set(rr.message.id, inv);
