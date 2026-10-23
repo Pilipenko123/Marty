@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-82';
+const BUILD = 'pkg3-83';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -828,7 +828,7 @@ function createApi(store, opts = {}) {
       // pkg3-57: подпись пуша — только из готового набора (сервер не читает
       // переписку, а клиенту важно разбудить устройство соперника в морском
       // бою внятным текстом). Неизвестный знак — прежняя подпись по умолчанию.
-      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию', coins: '«Золотая лихорадка»: есть новости забега — откройте партию' };
+      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию', coins: '«Сталкер»: есть новости забега — откройте партию' };
       sent += await notifyPush(chat, me, NOTIFY_BODIES[String(b.body || '')], gameBody);
       if (kind === 'thr' && m) {
         const author = db.users.find(u => u.id === m.uid);
@@ -2235,7 +2235,7 @@ function createApi(store, opts = {}) {
       if (String(b.rules || '') === 'coins') {
         const invited = Array.from(new Set((Array.isArray(b.players) ? b.players : []).map(x => String(x))))
           .filter(id => id && id !== me.id);
-        if (invited.length > 3) return E(400, 'В «Золотую лихорадку» играют максимум вчетвером');
+        if (invited.length > 3) return E(400, 'В «Сталкер» играют максимум вчетвером');
         for (const id of invited) {
           const u = db.users.find(x => x.id === id);
           if (!u) return E(404, 'Соперник не найден');
