@@ -1571,3 +1571,14 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .ng-pick{display:flex;flex-direction:column;gap:4px;max-height:170px;overflow:auto;
   border:1px solid var(--line);border-radius:8px;padding:6px 8px;}
 .ng-pick-row{display:flex;align-items:center;gap:7px;cursor:pointer;padding:1px 0;}
+
+/* pkg3-83: иконки игр — плитки владельца (шахматы, шашки, морской бой, «Сталкер») */
+.avatar .gimg{width:100%;height:100%;object-fit:cover;border-radius:50%;background:#fff;display:block}
+.gmini{width:16px;height:16px;vertical-align:-3px;border-radius:4px;background:#fff;display:inline-block}
+.ng-games{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 10px}
+.ng-game{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 8px;
+  border:1px solid var(--line);border-radius:14px;background:var(--panel-2);color:var(--text);cursor:pointer}
+.ng-game:hover{border-color:var(--accent)}
+.ng-game .gimg-ng{width:64px;height:64px;border-radius:14px;background:#fff;display:block}
+.ng-game span{font-weight:600;font-size:13px}
+#ng-back{margin:0 0 8px}

@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-82';
+const BUILD = 'pkg3-83';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -2071,7 +2071,7 @@ function showDesktopNotification(m) {
   // pkg3-36: ходы и события партии подписываем по-человечески (раньше любое
   // сообщение без текста показывалось как «📷 изображение»)
   // pkg3-41: значок — по игре чата, запись хода — по-русски
-  const gico = gameIcon(c);
+  const gico = gameIconImg(gameRulesOf(c), 'gmini');   // pkg3-83: в ленте — иконка-картинка
   const body = p.k === 'move' ? `${gico} ход ${rusSan(p.san) || (p.from + '–' + p.to)} · ${author.name}`
     : p.k === 'game-event' ? `${gico} ${p.text || 'событие игры'}`
     : (p.k && p.k.slice(0, 3) === 'sb-') ? `${gico} ${sbNote(p)} · ${author.name}`
@@ -2147,11 +2147,11 @@ const isGameLetter = p => !!(p && typeof p.k === 'string'
 /** pkg3-78: человечья подпись служебных писем забега (превью, уведомления).
  * pkg3-80: игра называется «Золотая лихорадка». */
 function coinsNote(p) {
-  if (!p || !p.k) return 'золотая лихорадка';
+  if (!p || !p.k) return 'сталкер';
   if (p.k === 'coins-result') return 'результат раунда ' + (p.round | 0) + ': ' + (p.score | 0) + ' монет';
   if (p.k === 'coins-surrender') return 'сдался в раунде ' + (p.round | 0);
   if (p.k === 'coins-record') return 'новый рекорд забега: ' + (p.total | 0) + ' монет';
-  return 'золотая лихорадка';
+  return 'сталкер';
 }
 /** pkg3-36: видно ли сообщение в ленте. В игровом чате ходы живут на доске и
  * в списке ходов, а не в ленте; нерасшифрованное там же тоже прячется — его
@@ -2270,7 +2270,7 @@ function chatAvatarHtml(c, cls) {
   const title = chatTitle(c);
   // pkg3-77: игровой чат узнаётся по значку НА ИКОНКЕ (● шашки, ♟ шахматы,
   // ⚓ морской бой) — из названия значок убран, там остались только имена
-  let inner = c.kind === 'game' ? `<span class="gico">${gameIcon(c)}</span>` : escapeHtml(initials(title));
+  let inner = c.kind === 'game' ? gameIconImg(gameRulesOf(c), 'gimg') : escapeHtml(initials(title));
   if (S.eco) { /* иконки чатов в эконом-режиме не подгружаются */ }
   else if (c.iconRev) {
     const hit = iconCache.get(c.id);
@@ -2358,6 +2358,17 @@ const gameRulesOf = c => ((c && c.game && c.game.rules) === 'checkers') ? 'check
   : ((c && c.game && c.game.rules) === 'coins') ? 'coins' : 'chess';   // pkg3-78: золотая лихорадка
 const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : gameRulesOf(c) === 'seabattle' ? '⚓'
   : gameRulesOf(c) === 'coins' ? '🪙' : '♟';
+/** pkg3-83 (пункт 3): иконки игр — плитки, нарисованные владельцем (лист 2×2
+ * разрезан на четыре файла). Картинками оформлены аватары чатов, письма-партии
+ * в ленте и меню «Новая игра»; в чисто текстовых строках (превью списка,
+ * подписи ходов) остаются прежние значки-символы: в текст картинку не поставить. */
+const GAME_ICON_SRC = { chess: 'img/game-chess.png', checkers: 'img/game-checkers.png', seabattle: 'img/game-seabattle.png', coins: 'img/game-stalker.png' };
+const gameIconSrc = rules => GAME_ICON_SRC[rules] || GAME_ICON_SRC.chess;
+const gameIconImg = (rules, cls) => `<img class="${cls || 'gimg'}" src="${gameIconSrc(rules)}" alt="">`;
+/** pkg3-83 (пункт 1): игра зовётся «Сталкер» (прежнее имя — «Золотая лихорадка»).
+ * Внутренний id coins и письма coins-* НЕ менялись — старые чаты и забеги живы. */
+const GAME_NAMES = { chess: 'Шахматы', checkers: 'Шашки (русские)', seabattle: 'Морской бой', coins: 'Сталкер' };
+const gameNameOf = rules => GAME_NAMES[rules] || String(rules || '');
 /** pkg3-56: человеческая подпись служебных писем морского боя (лента, превью, уведомления). */
 function sbNote(p) {
   if (!p || !p.k) return 'морской бой';
@@ -2388,7 +2399,7 @@ function gameTitle(c) {
   // pkg3-78: у «Золотой лихорадки» нет белых/чёрных — в названии список игроков забега
   if (gameRulesOf(c) === 'coins') {
     const names = (g.players || []).map(gamePlayerName);
-    const base = names.length > 1 ? names.join(', ') : 'Золотая лихорадка · соло';
+    const base = names.length > 1 ? names.join(', ') : 'Сталкер · соло';
     if (g.status === 'finished') return base + ' · завершена';
     return base;
   }
@@ -2426,17 +2437,17 @@ function gameRailSub(c) {
       const cs = coinsRunState(c);
       if (cs.plan.final) {
         const w = CE.winnerOf(cs.game, cs.letters, Date.now(), cs.run);
-        if ((g.players || []).length <= 1) return 'лихорадка · соло · забег ' + cs.run + ' завершён';
-        return w ? 'лихорадка · победил ' + w.ids.map(gamePlayerName).join(', ') : 'лихорадка · забег завершён';
+        if ((g.players || []).length <= 1) return 'сталкер · соло · забег ' + cs.run + ' завершён';
+        return w ? 'сталкер · победил ' + w.ids.map(gamePlayerName).join(', ') : 'сталкер · забег завершён';
       }
       // pkg3-82 (правка 1): раунды идут личным темпом — в списке чатов
       // виден СВОЙ следующий раунд; у зрителя — сколько раундов закрыто
       const myPer = (cs.plan.per || {})[S.me.id];
-      if (myPer && myPer.next) return 'лихорадка · ваш раунд ' + myPer.next + ' из ' + cs.rounds;
-      if (myPer) return 'лихорадка · все раунды пройдены — ждём остальных';
-      if (cs.plan.lastDone) return 'лихорадка · закрыто раундов: ' + cs.plan.lastDone + ' из ' + cs.rounds;
-      return 'лихорадка · ждём первого старта';
-    } catch (e) { return 'золотая лихорадка…'; }
+      if (myPer && myPer.next) return 'сталкер · ваш раунд ' + myPer.next + ' из ' + cs.rounds;
+      if (myPer) return 'сталкер · все раунды пройдены — ждём остальных';
+      if (cs.plan.lastDone) return 'сталкер · закрыто раундов: ' + cs.plan.lastDone + ' из ' + cs.rounds;
+      return 'сталкер · ждём первого старта';
+    } catch (e) { return 'сталкер…'; }
   }
   try {
     const { eng, sans } = gameReplay(c);
@@ -2455,7 +2466,7 @@ function openGameTitle(g) {
   // pkg3-78: «Сейчас играют» в «Золотой лихорадке» — вместо пары именуются все игроки забега
   if (g && g.rules === 'coins') {
     const names = (g.players || []).map(gamePlayerName);
-    return names.length > 1 ? names.join(', ') : 'Золотая лихорадка';
+    return names.length > 1 ? names.join(', ') : 'Сталкер';
   }
   return gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black);   // pkg3-42: «и» вместо «против»; pkg3-77: незнакомый — «Кто-то»
 }
@@ -2529,14 +2540,14 @@ function gamePayloadHtml(p, chat) {
   if (!p || typeof p !== 'object' || !p.k) return '';
   const gc0 = chat || (p.game ? (S.chats || []).find(x => x.id === p.game) : null);
   const rules = (gc0 && gc0.game && gc0.game.rules) || p.rules || 'chess';
-  const ico = rules === 'checkers' ? '●' : rules === 'seabattle' ? '⚓' : rules === 'coins' ? '🪙' : '♟';
+  const ico = gameIconImg(rules, 'gmini');   // pkg3-83: иконка-картинка в письмах партии
   if (p.k && p.k.slice(0, 3) === 'sb-') return `<div class="mv-line">${ico} ${escapeHtml(sbNote(p))}</div>`;
   if (p.k && p.k.slice(0, 6) === 'coins-') return `<div class="mv-line">${ico} ${escapeHtml(coinsNote(p))}</div>`;   // pkg3-78
   if (p.k === 'move') return `<div class="mv-line">${ico} ${escapeHtml(rusSan(p.san) || (p.from + '–' + p.to))}</div>`;
   if (p.k === 'game-event') return `<div class="mv-sys">${escapeHtml(p.text || '')}</div>`;
   // pkg3-81 (пункт 9): отказ от приглашения — пригласивший видит, кто отказался
   if (p.k === 'game-decline') {
-    const gname = rules === 'coins' ? '«Золотую лихорадку»'
+    const gname = rules === 'coins' ? '«Сталкер»'
       : rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : 'шахматы';
     const who = p.by === (S.me || {}).id ? 'Вы отклонили приглашение в '
       : userNameById(p.by) + ' отклонил(а) приглашение в ';
@@ -2572,7 +2583,7 @@ function gamePayloadHtml(p, chat) {
     } else act = coinsInv
       ? '<div class="tiny muted">Приглашение больше недействительно</div>'
       : '<div class="tiny muted">Приглашение больше недействительно (игра удалена)</div>';
-    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : rules === 'coins' ? '«Золотую лихорадку»' : 'шахматы'}</b>
+    return `<div class="invite-card">${ico} <b>Приглашение в ${rules === 'checkers' ? 'шашки' : rules === 'seabattle' ? 'морской бой' : rules === 'coins' ? '«Сталкер»' : 'шахматы'}</b>
       <div class="tiny muted">${escapeHtml(p.note || '')}</div>${act}</div>`;
   }
   return '';
@@ -4004,7 +4015,7 @@ function coinsStatusText(cs, phase, plan, short) {
   if (phase === 'out') return short ? 'Вы сдались' : 'Вы сдались — забег идёт без вас';
   // pkg3-82 (правки 1–3): общий раунд исчез — у каждого игрока свой темп;
   // зритель видит, сколько раундов уже закрыто хоть кем-то
-  if (phase === 'viewer') return (short ? '' : 'Золотая лихорадка: ') + (plan.lastDone ? 'закрыто раундов: ' + plan.lastDone + ' из ' + cs.rounds : 'забег начался — ждём первые результаты');
+  if (phase === 'viewer') return (short ? '' : 'Сталкер: ') + (plan.lastDone ? 'закрыто раундов: ' + plan.lastDone + ' из ' + cs.rounds : 'забег начался — ждём первые результаты');
   if (phase === 'sending') return short ? 'Результат отправляется…' : 'Результат раунда отправляется…';
   if (phase === 'reveal') {
     const L = S.coinsLive;
@@ -4098,7 +4109,7 @@ function coinsOpenResults() {
       ${soloFinal ? `<div class="coins-acts"><button class="primary" id="coins-again2">Начать снова</button><span class="tiny muted">новый забег — новый порядок карт; прежние результаты останутся в таблице</span></div>` : ''}
       <p class="hint">Таблица — на данный момент. В раундах, где результат ещё не пришёл, стоит «…»: чужие находки во время раунда не видны никому, таковы правила забега.</p>
     </div>`;
-  modal('Золотая лихорадка — результаты', html);
+  modal('Сталкер — результаты', html);
   const again2 = $('#modal #coins-again2');
   if (again2) again2.addEventListener('click', () => { hide($('#modal')); coinsNewRun(); });
   for (const chip of $('#modal [data-coins-run]')) {
@@ -4177,6 +4188,10 @@ function renderCoins(wrap, c) {
   let phase;
   if (!isPlayer) phase = 'viewer';
   else if (mySurr) phase = 'out';
+  // pkg3-83 (пункт 2): финал забега ГЛАВНЕЕ локального следа вскрытой карты —
+  // иначе игрок, закончивший последним (у него ещё жив loc.sent), застревал
+  // на «вы прошли все раунды — ждём остальных» и не видел победителя
+  else if (plan.final) phase = 'final';
   else if (loc && loc.startedAt && !loc.sent) phase = 'hunt';
   else if (loc && loc.sent) {
     // pkg3-81 (пункт 2) + pkg3-82: вскрытая карта стоит, пока не нажата
@@ -4184,8 +4199,7 @@ function renderCoins(wrap, c) {
     const by = CE.resultsOf(cs.game, cs.letters, Number(loc.round) || 1, cs.run);
     phase = by[S.me.id] ? 'reveal' : 'sending';
   }
-  else if (mine.results > 0 && !plan.final) phase = 'reveal';
-  else if (plan.final) phase = 'final';
+  else if (mine.results > 0) phase = 'reveal';
   else phase = 'start';
   // pkg3-78: пока забег не финализирован — опрос ленты чаще (ждём чужие результаты)
   S.coinsPlaying = isPlayer && !plan.final;
@@ -4283,9 +4297,15 @@ function renderCoins(wrap, c) {
       </div>`;
   }
   // pkg3-80/82 (правка 3): финал компании — таблица результатов появляется
-  // АВТОМАТИЧЕСКИ у всех, с объявлением победителя
+  // АВТОМАТИЧЕСКИ у всех; pkg3-83 (пункт 2): победитель объявлен и в её шапке
+  const wLine = cs.winner
+    ? ' · ' + (cs.winner.ids.length > 1
+      ? 'ничья: ' + cs.winner.ids.map(gamePlayerName).join(', ')
+      : 'победил ' + gamePlayerName(cs.winner.ids[0]))
+      + ' — ' + plural(cs.winner.total, 'монета', 'монеты', 'монет')
+    : '';
   const finalTable = (phase === 'final' && !(cs.solo && S.coinsLive)) ? `<div class="coins-results open coins-final-table">
-      <div class="cr-head"><b>Итоги забега${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? ' · забег ' + cs.run : ''}</b></div>
+      <div class="cr-head"><b>Итоги забега${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? ' · забег ' + cs.run : ''}${wLine}</b></div>
       ${coinsTableHtml(cs)}
       ${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? coinsRunsHtml(cs) : ''}
     </div>` : '';
@@ -4310,7 +4330,7 @@ function renderCoins(wrap, c) {
   // и «Начать снова» — за кнопкой «Результаты» (таблица пополняется каждым
   // новым забегом, пока игрок не вышел из игры)
   if (phase === 'final' && cs.solo) acts = `<div class="coins-acts"><button class="primary" id="coins-resbtn">Результаты</button><span class="tiny muted">таблица всех забегов этого устройства; «Начать снова» — под таблицей</span></div>`;
-  if (phase === 'final' && !cs.solo) acts = `<div class="coins-acts tiny muted">Сыграть ещё раз компанией? Новый забег создаётся только через «+»: «Новая игра» → «Золотая лихорадка».</div>`;
+  if (phase === 'final' && !cs.solo) acts = `<div class="coins-acts tiny muted">Сыграть ещё раз компанией? Новый забег создаётся только через «+»: «Новая игра» → «Сталкер».</div>`;
   wrap.innerHTML = `<div class="board-panel coins-panel">
     <div class="bp-head">
       <div class="bph-top"><span class="bph-full">${escapeHtml(coinsStatusText(cs, phase, plan, false))}</span><span class="bph-short">${escapeHtml(coinsStatusText(cs, phase, plan, true))}</span></div>
@@ -4365,7 +4385,7 @@ async function acceptGame(id, choice, rules) {
       const sbGame = (c.game || {}).rules === 'seabattle';
       const coinsGame = (c.game || {}).rules === 'coins';   // pkg3-78
       const payload = { k: 'game-event', text: coinsGame
-        ? '«Золотая лихорадка»: ' + userNameById(S.me.id) + ' в игре — можно начинать забег'
+        ? '«Сталкер»: ' + userNameById(S.me.id) + ' в игре — можно начинать забег'
         : sbGame
         ? 'Партия началась: ' + userNameById(c.game.white) + ' стреляет первым. Расставьте флот и жмите «В бой!»'
         : 'Партия началась: ' + userNameById(c.game.white) + ' (белые) против ' + userNameById(c.game.black) + ' (чёрные)' };
@@ -4384,7 +4404,7 @@ async function acceptGame(id, choice, rules) {
 async function declineGame(id, rules) {
   // pkg3-78: отказ от «Золотой лихорадки» чужой забег не удаляет — остальные продолжают без меня
   if (!confirm(rules === 'coins'
-    ? 'Отклонить приглашение в «Золотую лихорадку»? Другие игроки продолжат забег без вас.'
+    ? 'Отклонить приглашение в «Сталкер»? Другие игроки продолжат забег без вас.'
     : 'Отклонить приглашение? Игра будет удалена.')) return;
   // pkg3-81 (пункт 9): пригласивший узнаёт об отказе — шлём ему шифрованное
   // письмо в личный чат ещё до удаления игры (иначе у пар-игр не осталось бы
@@ -4478,7 +4498,7 @@ async function coinsLeaveSmart(c) {
   const mySurr = role === 'player'
     ? (cs.letters.find(l => CE.isSurr(l) && l.author === S.me.id && (l.run || 1) === cs.run) || null) : null;
   if (role !== 'player' || cs.plan.final || mySurr) { leaveGameNow(c); return; }
-  if (!confirm('Покинуть забег «Золотой лихорадки»? В таблице вы будете помечены «сдался», остальные игроки продолжат без вас.')) return;
+  if (!confirm('Покинуть забег «Сталкер»? В таблице вы будете помечены «сдался», остальные игроки продолжат без вас.')) return;
   // pkg3-82: сдаёмся на СВОЁМ текущем раунде — общего раунда забега больше нет
   const mineP = (cs.plan.per || {})[S.me.id];
   const locP = coinsLocalGet(c.id);
@@ -4494,7 +4514,7 @@ async function leaveGame(kind) {
   const coinsLeave = gameRulesOf(c) === 'coins';
   const asks = {
     resign: coinsLeave
-      ? 'Покинуть забег «Золотой лихорадки»? Остальные игроки продолжат без вас. Если вы последний игрок — игра удалится.'
+      ? 'Покинуть забег «Сталкер»? Остальные игроки продолжат без вас. Если вы последний игрок — игра удалится.'
       : 'Вы сдаётесь? Партия завершится победой соперника, и вы покинете чат-игру.',
     cancel: 'Отменить приглашение? Игра ещё не началась и будет удалена без следа.',
     close: 'Закрыть и удалить игру? Партия завершена; чат-игра исчезнет у всех оставшихся участников и зрителей. История ходов удалится безвозвратно.',
@@ -4515,28 +4535,45 @@ async function openKnocks(c) {
     <button class="mini" data-knock-approve="${escapeHtml(u.id)}">пустить</button>
     <button class="mini danger" data-knock-reject="${escapeHtml(u.id)}">отказать</button></div>`).join(''));
 }
+/** pkg3-83 (пункт 4): «Новая игра» открывается в ДВА шага. Шаг первый — список
+ * игр с иконками-плитками владельца и названиями; шаг второй — настройки
+ * выбранной игры (соперник и кто ходит первый / минуты, раунды и гости).
+ * Прежде список и настройки жили в одном окне с выпадающим списком игр. */
 async function openNewGame() {
   const users = S.users.filter(u => u.id !== S.me.id && !u.displayAs);   // pkg3-62: слитых не зовём
-  // pkg3-78: «Золотая лихорадка» умеет соло-забег — их можно создать, даже когда звать некого
-  const pairOpts = users.length ? `
-      <option value="chess">Шахматы</option>
-      <option value="checkers">Шашки (русские)</option>
-      <option value="seabattle">Морской бой</option>` : '';
+  const list = ['chess', 'checkers', 'seabattle', 'coins'].filter(r => r === 'coins' || users.length);
   modal('Новая игра', `
-    <label>Игра<select id="ng-rules">${pairOpts}
-      <option value="coins">Золотая лихорадка</option>
-    </select></label>
+    <div class="ng-games" id="ng-games">
+      ${list.map(r => `<button class="ng-game" data-ng-rules="${r}">
+        ${gameIconImg(r, 'gimg-ng')}
+        <span>${escapeHtml(gameNameOf(r))}</span>
+      </button>`).join('')}
+    </div>
+    <p class="hint">${users.length
+      ? 'Выберите игру — откроются её настройки: соперник, кто ходит первым, время и раунды.'
+      : 'Пока некого позвать — доступен только «Сталкер»: соло-забег открыт всегда.'}</p>`);
+  for (const b of $$('#ng-games [data-ng-rules]')) {
+    b.addEventListener('click', () => openNewGameSettings(b.getAttribute('data-ng-rules'), users));
+  }
+}
+/** pkg3-83: второй шаг — настройки выбранной игры и создание партии. */
+async function openNewGameSettings(rules, users) {
+  const pair = rules !== 'coins';
+  const sb = rules === 'seabattle';
+  modal('Новая игра · ' + gameNameOf(rules), `
+    <button class="mini" id="ng-back">← к списку игр</button>
+    ${pair ? `
     <div id="ng-pair"${users.length ? '' : ' class="hidden"'}>
       <label>Соперник<select id="ng-opp">${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}</select></label>
-      <label>Ваш цвет<select id="ng-color">
+      <label>${sb ? 'Кто стреляет первым' : 'Ваш цвет'}<select id="ng-color">
         <option value="random">Случайно</option>
-        <option value="white">Белые</option>
-        <option value="black">Чёрные</option>
-        <option value="choice">Пусть выберет соперник</option>
+        <option value="white">${sb ? 'Я стреляю первым' : 'Белые'}</option>
+        <option value="black">${sb ? 'Соперник стреляет первым' : 'Чёрные'}</option>
+        <option value="choice">${sb ? 'Пусть решит соперник' : 'Пусть выберет соперник'}</option>
       </select></label>
       <p class="hint">Сопернику придёт приглашение в личном чате с кнопками «Войти в игру» и «Отклонить».</p>
-    </div>
-    <div id="ng-coins" class="hidden">
+    </div>` : `
+    <div id="ng-coins">
       <label>Минут на раунд (1–30)<input id="ng-min" type="number" min="1" max="30" step="1" value="3"></label>
       <label>Раундов (1–6, по одному на карту)<input id="ng-rounds" type="number" min="1" max="6" step="1" value="3"></label>
       <label>Позвать игроков — не больше трёх (никого = соло-забег)</label>
@@ -4544,36 +4581,18 @@ async function openNewGame() {
         ? users.map(u => `<label class="ng-pick-row"><input type="checkbox" value="${escapeHtml(u.id)}"><span>${escapeHtml(u.name)}</span></label>`).join('')
         : '<div class="tiny muted">Пока некого позвать — доступен соло-забег: рекорды и сравнение забегов останутся у вас.</div>'}</div>
       <p class="hint">Карта у всех одна: порядок карт, монеты и бонусы рождаются из общего зерна. Каждый стартует раунд, когда удобно, — таймер идёт с личного старта.</p>
-    </div>
+    </div>`}
     <button class="primary" id="ng-go">Создать и пригласить</button>`);
-  // pkg3-56: в морском бое «цвет» определяет, кто стреляет первым, — подпись честная
-  // pkg3-57: и варианты ответа честные — «Я» и «Соперник», никаких «белых/чёрных»
-  const ngColorLbl = $('#ng-color') ? $('#ng-color').parentElement : null;
-  const ngLblSync = () => {
-    const sel = $('#ng-color');
-    const sb = $('#ng-rules').value === 'seabattle';
-    if (ngColorLbl && ngColorLbl.firstChild && ngColorLbl.firstChild.nodeType === 3) {
-      ngColorLbl.firstChild.nodeValue = sb ? 'Кто стреляет первым' : 'Ваш цвет';
-    }
-    if (sel) for (const opt of sel.options) {
-      if (opt.value === 'white') opt.textContent = sb ? 'Я стреляю первым' : 'Белые';
-      if (opt.value === 'black') opt.textContent = sb ? 'Соперник стреляет первым' : 'Чёрные';
-      if (opt.value === 'choice') opt.textContent = sb ? 'Пусть решит соперник' : 'Пусть выберет соперник';
-    }
-    // pkg3-78: «Золотая лихорадка» — своя половина окна: минуты, раунды и список гостей
-    const coins = $('#ng-rules').value === 'coins';
-    const pr = $('#ng-pair'), co = $('#ng-coins');
-    if (pr) pr.classList.toggle('hidden', coins || !users.length);
-    if (co) co.classList.toggle('hidden', !coins);
-    $('#ng-go').textContent = coins ? (coinsPicked().length ? 'Создать и пригласить' : 'Начать соло-забег') : 'Создать и пригласить';
+  const goLbl = () => {
+    const go = $('#ng-go');
+    if (go) go.textContent = (!pair && !coinsPicked().length) ? 'Начать соло-забег' : 'Создать и пригласить';
   };
   const pickBox = $('#ng-pick');
-  if (pickBox) pickBox.addEventListener('change', ngLblSync);
-  $('#ng-rules').addEventListener('change', ngLblSync);
-  ngLblSync();
-  if (!users.length) { $('#ng-rules').value = 'coins'; ngLblSync(); }
+  if (pickBox) pickBox.addEventListener('change', goLbl);
+  const back = $('#ng-back');
+  if (back) back.addEventListener('click', () => openNewGame());
+  goLbl();
   $('#ng-go').addEventListener('click', async () => {
-    const rules = $('#ng-rules').value;
     if (rules === 'coins') { await createCoinsGame(); return; }
     const opp = $('#ng-opp').value, color = $('#ng-color').value;
     try {
@@ -4593,7 +4612,7 @@ async function openNewGame() {
       const inv = {
         k: 'game-invite', game: gid, to: opp, colorChoice: color, rules,
         note: 'Соперник: ' + S.me.name + (color === 'choice'
-          ? (rules === 'seabattle' ? ' · кто стреляет первым, решите вы' : ' · цвет выберете вы')
+          ? (sb ? ' · кто стреляет первым, решите вы' : ' · цвет выберете вы')
           : '')
       };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
@@ -4605,6 +4624,7 @@ async function openNewGame() {
     } catch (ex) { toast(ex.message, true); }
   });
 }
+/** pkg3-78: отмеченные гости для «Сталкера». */
 /** pkg3-78: отмеченные гости для «Золотой лихорадки». */
 function coinsPicked() {
   return $$('#ng-pick input[type=checkbox]').filter(x => x.checked).map(x => x.value);
@@ -4633,7 +4653,7 @@ async function createCoinsGame() {
       const dk = await chatKeyOf(dm);
       const inv = {
         k: 'game-invite', game: gid, to: opp, rules: 'coins',
-        note: 'Золотая лихорадка: ' + rounds + ' раунд(а) по ' + minutes + ' мин · до четверых · старт, когда удобно'
+        note: 'Сталкер: ' + rounds + ' раунд(а) по ' + minutes + ' мин · до четверых · старт, когда удобно'
       };
       const rr = await api('/api/messages', { method: 'POST', body: { chat: dm.id, blob: await encryptJSON(dk.key, inv) } });
       S.plain.set(rr.message.id, inv);
@@ -4727,7 +4747,7 @@ function renderRail() {
     const liveRows = open.map(g => `<div class="chat-item game-live">
         <div class="ci-main">
           <div class="ci-name">${g.rules === 'checkers' ? '●' : g.rules === 'seabattle' ? '⚓' : g.rules === 'coins' ? '🪙' : '♟'} ${escapeHtml(openGameTitle(g))}</div>
-          <div class="ci-last">${g.rules === 'coins' ? 'идёт золотая лихорадка' : 'идёт партия' + (g.rules === 'checkers' ? ' в шашки' : g.rules === 'seabattle' ? ' · морской бой' : '') + ' · ' + plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
+          <div class="ci-last">${g.rules === 'coins' ? 'идёт «Сталкер»' : 'идёт партия' + (g.rules === 'checkers' ? ' в шашки' : g.rules === 'seabattle' ? ' · морской бой' : '') + ' · ' + plural(g.moves || 0, 'ход', 'хода', 'ходов')}${g.knocks ? ' · заявок: ' + g.knocks : ''}</div>
         </div>
         <button class="mini" data-knock-btn="${escapeHtml(g.id)}">постучаться</button>
       </div>`).join('');
