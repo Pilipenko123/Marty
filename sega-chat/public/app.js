@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-81';
+const BUILD = 'pkg3-82';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -2429,7 +2429,13 @@ function gameRailSub(c) {
         if ((g.players || []).length <= 1) return 'лихорадка · соло · забег ' + cs.run + ' завершён';
         return w ? 'лихорадка · победил ' + w.ids.map(gamePlayerName).join(', ') : 'лихорадка · забег завершён';
       }
-      return 'лихорадка · раунд ' + cs.plan.round + ' из ' + cs.rounds;
+      // pkg3-82 (правка 1): раунды идут личным темпом — в списке чатов
+      // виден СВОЙ следующий раунд; у зрителя — сколько раундов закрыто
+      const myPer = (cs.plan.per || {})[S.me.id];
+      if (myPer && myPer.next) return 'лихорадка · ваш раунд ' + myPer.next + ' из ' + cs.rounds;
+      if (myPer) return 'лихорадка · все раунды пройдены — ждём остальных';
+      if (cs.plan.lastDone) return 'лихорадка · закрыто раундов: ' + cs.plan.lastDone + ' из ' + cs.rounds;
+      return 'лихорадка · ждём первого старта';
     } catch (e) { return 'золотая лихорадка…'; }
   }
   try {
@@ -3513,7 +3519,13 @@ async function sendCoins(c, payload) {
   try { blob = await encryptJSON(k.key, payload); }
   catch (ex) { toast(ex.message || 'Не удалось зашифровать', true); return null; }
   try {
-    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body: { chat: c.id, blob, notify: 1 } });
+    const body = { chat: c.id, blob, notify: 1 };
+    // pkg3-82 (правка 5): письмо с результатом раунда несёт ОТКРЫТУЮ метку —
+    // сервер письмо не читает (blob зашифрован), он лишь запоминает, что игрок
+    // сдал результат: забег попадает в чужое «Сейчас играют», только когда
+    // таких игроков хотя бы двое
+    if (payload && payload.k === 'coins-result') body.mark = 'coins-result';
+    const r = await api('/api/messages', { method: 'POST', timeout: 15000, body });
     S.plain.set(r.message.id, payload);
     addMessages([r.message]);
     cacheMsg(r.message);
@@ -3528,7 +3540,7 @@ async function sendCoins(c, payload) {
 }
 /** Живой поиск: из локального состояния раунда. */
 function coinsMakeLive(c, cs, loc) {
-  const round = Number(loc.round) || cs.plan.round;
+  const round = Number(loc.round) || 1;   // pkg3-82: раунд — из локального следа (общего плана раундов больше нет)
   return {
     chatId: c.id, cs, gen: cs.gen(round), minutes: Number(cs.g.minutes) || 3,
     run: cs.run, round,
@@ -3862,6 +3874,10 @@ function coinsTickerStart() {
     try {
       const L = S.coinsLive;
       if (!L || !L.hunt) return;
+      // pkg3-82 (правка 6): мелодия карты лечится сама — если аудиоконтекст
+      // не ожил с первой попытки (телефон спал, вкладка пряталась), тикер
+      // повторяет старт; насос внутри движка будит контекст каждые полсекунды
+      if (GS.isEnabled() && GS.musicPref() && !GS.isPlaying()) GS.startMusic(L.gen.mapIdx);
       const left = coinsTimeLeft(L);
       if (left <= 0) { coinsFinishRound(false); return; }
       // pkg3-80: за полминуты до конца раунда — спокойное двойное напоминание
@@ -3878,7 +3894,11 @@ function coinsStartRound() {
   if ((c.roles || {})[S.me.id] !== 'player') return;
   const cs = coinsRunState(c, (S.coinsRun || {})[c.id]);
   if (cs.plan.final) return;
-  const r = cs.plan.round;
+  // pkg3-82 (правка 1): стартуем СВОЙ следующий раунд — соперников не ждём,
+  // они идут своим чередом; номер раунда считают наши же письма-результаты
+  const mine = (cs.plan.per || {})[S.me.id];
+  if (!mine || mine.finished || mine.surrenderedAt !== null || !mine.next) return;
+  const r = mine.next;
   const gen = cs.gen(r);
   coinsLocalSet(c.id, {
     run: cs.run, round: r, startedAt: Date.now(), moves: '',
@@ -3982,35 +4002,44 @@ function coinsStatusText(cs, phase, plan, short) {
     return (w.ids.length > 1 ? 'Ничья: ' + names : (short ? 'Победил ' : 'Забег завершён, победил ') + names) + ' — ' + plural(w.total, 'монета', 'монеты', 'монет');
   }
   if (phase === 'out') return short ? 'Вы сдались' : 'Вы сдались — забег идёт без вас';
-  if (phase === 'viewer') return (short ? '' : 'Золотая лихорадка: ') + 'раунд ' + plan.round + ' из ' + cs.rounds;
-  if (phase === 'sending') return short ? 'Результат отправляется…' : 'Раунд ' + plan.round + ': результат отправляется…';
+  // pkg3-82 (правки 1–3): общий раунд исчез — у каждого игрока свой темп;
+  // зритель видит, сколько раундов уже закрыто хоть кем-то
+  if (phase === 'viewer') return (short ? '' : 'Золотая лихорадка: ') + (plan.lastDone ? 'закрыто раундов: ' + plan.lastDone + ' из ' + cs.rounds : 'забег начался — ждём первые результаты');
+  if (phase === 'sending') return short ? 'Результат отправляется…' : 'Результат раунда отправляется…';
   if (phase === 'reveal') {
     const L = S.coinsLive;
     const n = L ? (L.score | 0) : 0;
-    // pkg3-81 (пункт 2): номер раунда берём из вскрытой карты — план забега
-    // может быть уже на следующем раунде, а человек ещё смотрит на этот
-    const rnd = L ? (L.round | 0) : plan.round;
-    const miss = rnd === plan.round ? plan.missing.filter(x => x !== S.me.id) : [];
-    return 'Раунд ' + rnd + ': найдено ' + n + ' из ' + CE.COINS + ' монет' + (miss.length ? '. Ждём: ' + miss.map(gamePlayerName).join(', ') : '');
+    // pkg3-81 (пункт 2): номер раунда берём из вскрытой карты
+    const rnd = L ? (L.round | 0) : (((plan.per || {})[S.me.id] || {}).results || 1);
+    const mine = (plan.per || {})[S.me.id] || {};
+    if (mine.finished) return short ? 'Все раунды пройдены' : 'Вы прошли все раунды — ждём остальных игроков';
+    return 'Раунд ' + rnd + ': найдено ' + n + ' из ' + CE.COINS + ' монет';
   }
-  if (phase === 'hunt') return short ? 'Раунд ' + plan.round + ': поиск' : 'Раунд ' + plan.round + ' из ' + cs.rounds + ': ищем монеты!';
-  return short ? 'Раунд ' + plan.round + ' из ' + cs.rounds
-    : 'Раунд ' + plan.round + ' из ' + cs.rounds + '. Таймер раунда: ' + (Number(g.minutes) || 3) + ' мин — стартует с вашего личного старта';
+  if (phase === 'hunt') {
+    const L = S.coinsLive;
+    const rnd = L ? (L.round | 0) : 1;
+    return short ? 'Раунд ' + rnd + ': поиск' : 'Раунд ' + rnd + ' из ' + cs.rounds + ': ищем монеты!';
+  }
+  const mine = (plan.per || {})[S.me.id] || {};
+  const r0 = mine.next || 1;
+  return short ? 'Раунд ' + r0 + ' из ' + cs.rounds
+    : 'Раунд ' + r0 + ' из ' + cs.rounds + '. Таймер раунда: ' + (Number(g.minutes) || 3) + ' мин — стартует с вашего личного старта';
 }
 /** Кто в игре: игроки и приглашённые, онлайн/офлайн и метки состояния. */
 function coinsPresenceHtml(cs, plan) {
   const g = cs.g;
-  const resOf = CE.resultsOf(cs.game, cs.letters, plan.round, cs.run);
-  const surrOf = CE.surrenderedOf(cs.game, cs.letters, plan.round, cs.run);
+  // pkg3-82 (правки 1–3): темп у каждого личный — метка показывает прогресс
+  // игрока (сколько раундов сдал), а не общий раунд забега
   const row = (id, invited) => {
     const u = userById(id);
     const on = isOnline(u);
+    const per = (plan.per || {})[id];
     let mark = '';
     if (invited) mark = '<span class="cp-mark">приглашён</span>';
-    else if (surrOf.includes(id)) mark = '<span class="cp-mark">сдался</span>';
-    else if (plan.absent.includes(id)) mark = '<span class="cp-mark">не играл</span>';
-    else if (resOf[id]) mark = '<span class="cp-mark done">результат ✓</span>';
-    else if (!plan.final && plan.missing.includes(id)) mark = '<span class="cp-mark wait">ищет…</span>';
+    else if (per && per.surrenderedAt !== null) mark = '<span class="cp-mark">сдался</span>';
+    else if (per && per.finished) mark = '<span class="cp-mark done">все раунды ✓</span>';
+    else if (per && per.results > 0) mark = '<span class="cp-mark done">' + per.results + ' из ' + plan.rounds + ' раундов ✓</span>';
+    else if (per && !plan.final) mark = '<span class="cp-mark wait">ещё не начал</span>';
     return `<span class="cp-item${on ? ' on' : ''}" title="${on ? 'в сети' : 'не в сети'}"><i class="cp-dot"></i>${escapeHtml(gamePlayerName(id))}${id === (S.me || {}).id ? ' (вы)' : ''}${mark}</span>`;
   };
   return (g.players || []).map(id => row(id, false)).join('') + (g.invitees || []).map(id => row(id, true)).join('');
@@ -4022,7 +4051,6 @@ function coinsTableHtml(cs) {
     const tds = row.per.map(cell => {
       if (cell.score === null) return '<td class="ct-wait" title="результата ещё нет">…</td>';
       if (cell.surrendered) return '<td class="ct-surr" title="сдался">сд.</td>';
-      if (cell.absent) return '<td class="ct-abs" title="не играл: срок ожидания истёк">0</td>';
       if (cell.bad) return '<td class="ct-bad" title="не проверено: результат не сходится с перепроигрыванием пути — засчитан ноль">0*</td>';
       return '<td>' + cell.score + '</td>';
     }).join('');
@@ -4031,11 +4059,11 @@ function coinsTableHtml(cs) {
   }).join('');
   return `<table class="coins-table">${head}${rows}</table>`;
 }
-/** Кого и почему ждём в текущем раунде. */
+/** Кого ещё ждём: у каждого свой темп, ждём личный финиш каждого. */
 function coinsWaitHtml(cs, plan) {
-  if (plan.final || !plan.missing.length) return '';
-  const names = plan.missing.map(gamePlayerName).join(', ');
-  return `<div class="coins-wait tiny muted">Раунд ${plan.round}: ждём результаты — ${escapeHtml(names)}. Срок ожидания — сутки, потом «не играл».</div>`;
+  if (plan.final || !plan.waiting.length) return '';
+  const names = plan.waiting.map(gamePlayerName).join(', ');
+  return `<div class="coins-wait tiny muted">Ещё в пути: ${escapeHtml(names)}. Каждый проходит раунды в своём темпе; как только все закончат — появятся итоги и победитель.</div>`;
 }
 /** Соло: все забеги устройства — переключение и сравнение, рекорд помечен. */
 function coinsRunsHtml(cs) {
@@ -4058,15 +4086,22 @@ function coinsOpenResults() {
   const c = curChat();
   if (!c || gameRulesOf(c) !== 'coins') return;
   const cs = coinsRunState(c, (S.coinsRun || {})[c.id]);
+  // pkg3-82 (правка 4): в соло после последнего раунда «Начать снова» живёт
+  // прямо под таблицей — результаты всех забегов копятся в ней же, пока
+  // игрок не выйдет из игры
+  const soloFinal = cs.solo && cs.plan.final;
   const html = `<div class="coins-results open">
       ${coinsTableHtml(cs)}
       ${coinsWaitHtml(cs, cs.plan)}
       ${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? coinsRunsHtml(cs) : ''}
       <div class="coins-presence">${coinsPresenceHtml(cs, cs.plan)}</div>
+      ${soloFinal ? `<div class="coins-acts"><button class="primary" id="coins-again2">Начать снова</button><span class="tiny muted">новый забег — новый порядок карт; прежние результаты останутся в таблице</span></div>` : ''}
       <p class="hint">Таблица — на данный момент. В раундах, где результат ещё не пришёл, стоит «…»: чужие находки во время раунда не видны никому, таковы правила забега.</p>
     </div>`;
   modal('Золотая лихорадка — результаты', html);
-  for (const chip of $$('#modal [data-coins-run]')) {
+  const again2 = $('#modal #coins-again2');
+  if (again2) again2.addEventListener('click', () => { hide($('#modal')); coinsNewRun(); });
+  for (const chip of $('#modal [data-coins-run]')) {
     chip.addEventListener('click', () => {
       S.coinsRun[c.id] = Number(chip.dataset.coinsRun) || 1;
       hide($('#modal')); S.boardSig = ''; renderBoard();
@@ -4125,25 +4160,32 @@ function renderCoins(wrap, c) {
   const plan = cs.plan;
   const isPlayer = role === 'player';
   const mySurr = isPlayer ? (cs.letters.find(l => CE.isSurr(l) && l.author === S.me.id && (l.run || 1) === cs.run) || null) : null;
-  const resOf = CE.resultsOf(cs.game, cs.letters, plan.round, cs.run);
-  const myRes = isPlayer ? (resOf[S.me.id] || null) : null;
+  // pkg3-82 (правки 1–3): темп личный — прогресс каждого игрока считается по
+  // его собственным письмам; общего «текущего раунда» забега больше нет.
+  // Я могу проходить раунды, не дожидаясь соперника, и он может делать так же;
+  // забег ждёт, пока ВСЕ пройдут ВСЕ раунды, — тогда таблица появляется у всех.
+  const mine = (plan.per || {})[S.me.id] || { results: 0, done: [], next: null, finished: false, surrenderedAt: null };
+  const myNext = (isPlayer && !mySurr && !mine.finished) ? (mine.next || null) : null;
+  // моё последнее письмо-результат — из него вскрывается карта после перезагрузки
+  let myLastRes = null;
+  if (isPlayer) {
+    for (const l of cs.letters) if (CE.isResult(l) && l.author === S.me.id && (!myLastRes || (l.round | 0) > (myLastRes.round | 0))) myLastRes = l;
+  }
   let loc = coinsLocalGet(c.id);
   // локальный поиск устарел (сменился забег) — стереть
   if (loc && Number(loc.run || 1) !== cs.run) { loc = null; coinsLocalSet(c.id, null); }
-  // pkg3-81 (пункт 2): вскрытая карта законченного раунда сама НЕ исчезает —
-  // она стоит на экране, пока человек не нажмёт «Далее». Раньше раунд
-  // закрывался общими усилиями, план забега переходил к следующему раунду,
-  // локальный след тут же стирался — и карта пропадала за долю секунды.
-  const locDone = !!(loc && loc.sent && Number(loc.round) < plan.round && !plan.final);
-  if (loc && Number(loc.round) !== plan.round && !locDone) { loc = null; coinsLocalSet(c.id, null); }
   let phase;
   if (!isPlayer) phase = 'viewer';
-  else if (plan.final) phase = 'final';
   else if (mySurr) phase = 'out';
-  else if (locDone) phase = 'reveal';
-  else if (loc && loc.sent && !myRes) phase = 'sending';
-  else if (myRes) phase = 'reveal';
-  else if (loc && loc.startedAt) phase = 'hunt';
+  else if (loc && loc.startedAt && !loc.sent) phase = 'hunt';
+  else if (loc && loc.sent) {
+    // pkg3-81 (пункт 2) + pkg3-82: вскрытая карта стоит, пока не нажата
+    // «Следующий раунд» / «Результаты»; письмо пришло — reveal, не пришло — sending
+    const by = CE.resultsOf(cs.game, cs.letters, Number(loc.round) || 1, cs.run);
+    phase = by[S.me.id] ? 'reveal' : 'sending';
+  }
+  else if (mine.results > 0 && !plan.final) phase = 'reveal';
+  else if (plan.final) phase = 'final';
   else phase = 'start';
   // pkg3-78: пока забег не финализирован — опрос ленты чаще (ждём чужие результаты)
   S.coinsPlaying = isPlayer && !plan.final;
@@ -4152,8 +4194,14 @@ function renderCoins(wrap, c) {
     S.coinsLive = coinsMakeLive(c, cs, loc);
     coinsTickerStart();
     if (coinsTimeLeft(S.coinsLive) <= 0) { coinsFinishRound(); return; }   // время вышло, пока вкладка спала
-  } else if ((phase === 'reveal' || phase === 'sending') && (myRes || (loc && loc.sent))) {
-    S.coinsLive = coinsLiveFromResult(c, cs, myRes || loc.sent, loc);
+  } else if (phase === 'reveal' || phase === 'sending') {
+    const by = (loc && loc.sent) ? (CE.resultsOf(cs.game, cs.letters, Number(loc.round) || 1, cs.run)[S.me.id] || null) : null;
+    const src = by || (loc && loc.sent) || myLastRes;
+    S.coinsLive = src ? coinsLiveFromResult(c, cs, src, loc) : null;
+  } else if (phase === 'final' && cs.solo && myLastRes) {
+    // pkg3-82 (правка 4): соло-финал — открытая карта последнего раунда,
+    // а таблица результатов и «Начать снова» — за кнопкой «Результаты»
+    S.coinsLive = coinsLiveFromResult(c, cs, myLastRes, null);
   } else if (phase === 'viewer') {
     // pkg3-81 (пункт 10): зритель видит НЕ только таблицу — как только хоть
     // один раунд закончен, перед ним открытая карта с путём того, кто
@@ -4163,8 +4211,6 @@ function renderCoins(wrap, c) {
       .sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))[0] || null;
     S.coinsLive = vres ? coinsLiveFromResult(c, cs, vres, null) : null;
   } else S.coinsLive = null;
-  // pkg3-80: в финале карты нет — вместо неё автоматически таблица результатов
-  // с объявлением победителя (пункт 7 владельца)
   // музыка карты звучит только во время поиска и только при поднятой панели
   if (phase === 'hunt' && S.coinsLive) GS.startMusic(S.coinsLive.gen.mapIdx); else GS.stopMusic();
   // финал забега озвучивается один раз на устройство: победа или спокойная кода
@@ -4172,8 +4218,7 @@ function renderCoins(wrap, c) {
     const w = cs.winner;
     gameEndSound(c, cs.solo || (w && w.ids.includes(S.me.id)) ? 'victory' : 'end-neutral');
   } else gameEndSound(c, 'play');
-  // шапка: ОДНА кнопка «Выйти» над картой (пункт 5 владельца: «Выйти» и
-  // «Сдаться» дублировали друг друга — сдаться можно тем же выходом)
+  // шапка: ОДНА кнопка «Выйти» над картой (pkg3-80, пункт 5)
   const ctrl = [];
   if (role) {
     const label = role === 'viewer' ? 'Покинуть' : 'Выйти';
@@ -4188,7 +4233,7 @@ function renderCoins(wrap, c) {
   const btnsRow = ctrl.length ? `<div class="bph-btns">${ctrl.join(' ')}</div>` : '';
   const musicOn = GS.musicPref();
   const presSig = (g.players || []).concat(g.invitees || []).map(id => (isOnline(userById(id)) ? 1 : 0)).join('');
-  const sig = ['coins', c.id, cs.run, plan.round, plan.final ? 1 : 0, cs.letters.length, phase,
+  const sig = ['coins', c.id, cs.run, mine.results, myNext || '-', plan.final ? 1 : 0, plan.lastDone, cs.letters.length, phase,
     loc ? (loc.startedAt + (loc.sent ? ':s' : '')) : '-',
     (g.players || []).join(','), (g.invitees || []).join(','),
     phase === 'hunt' ? '' : presSig, musicOn ? 1 : 0, role || '-', S.eco ? 1 : 0].join('|');
@@ -4198,27 +4243,29 @@ function renderCoins(wrap, c) {
   }
   S.boardSig = sig; wrap.dataset.chat = c.id;
   wrap.classList.remove('hidden');
-  const hud = (phase === 'hunt' || phase === 'reveal' || phase === 'sending')
-    ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-timer" id="coins-timer">—</span><span class="ch-score" id="coins-score">🪙</span><span class="ch-bonus" id="coins-bonus"></span>${phase === 'hunt' ? `<button class="mini ch-music" id="coins-music" title="Фоновая музыка этой карты">${musicOn ? '🎵 музыка: вкл' : '🎵 музыка: выкл'}</button>` : ''}</div>`
+  // номер раунда в шапке — тот, чья карта сейчас на экране (свой темп)
+  const shownRound = S.coinsLive ? (S.coinsLive.round | 0) : (myNext || plan.lastDone || 1);
+  // pkg3-82 (правка 4): в соло-финале карта ПОКАЗЫВАЕТСЯ (в компании финал — таблица)
+  const showStage = phase !== 'out' && (phase !== 'final' || !!(cs.solo && S.coinsLive));
+  const hud = (phase === 'hunt' || phase === 'reveal' || phase === 'sending' || (phase === 'final' && cs.solo && S.coinsLive))
+    ? `<div class="coins-hud"><span class="ch-round">Раунд ${shownRound}/${cs.rounds}</span><span class="ch-timer" id="coins-timer">—</span><span class="ch-score" id="coins-score">🪙</span><span class="ch-bonus" id="coins-bonus"></span>${phase === 'hunt' ? `<button class="mini ch-music" id="coins-music" title="Фоновая музыка этой карты">${musicOn ? '🎵 музыка: вкл' : '🎵 музыка: выкл'}</button>` : ''}</div>`
     // pkg3-81 (пункт 10): у зрителя своя компактная шапка — раунд и роль
     : phase === 'viewer'
-    ? `<div class="coins-hud"><span class="ch-round">Раунд ${plan.round}/${cs.rounds}</span><span class="ch-score">👁 вы зритель</span></div>` : '';
+    ? `<div class="coins-hud"><span class="ch-round">${S.coinsLive ? 'Раунд ' + shownRound + '/' + cs.rounds : 'Забег идёт'}</span><span class="ch-score">👁 вы зритель</span></div>` : '';
   let stage = '';
-  // pkg3-81 (пункт 10): карта показывается и зрителю — открытый путь того,
-  // кто последним закончил раунд; пока раунд идёт — честная заглушка
-  if (phase !== 'final' && phase !== 'out') {
+  if (showStage) {
     const ovl = phase === 'start' ? `<div class="coins-ovl">
-        <b>Раунд ${plan.round} из ${cs.rounds}</b>
-        <span class="tiny muted">Соберите как можно больше из ${CE.COINS} монет, пока не истекло время. Туман прячет карту — артефакты видны только вблизи. Управление: на телефоне — проведите пальцем по карте в нужную сторону (фигура идёт, пока палец не отпущен), на компьютере — стрелки клавиатуры. Бонусы подбираются один раз и исчезают с карты: 🔦 фонарь — видно дальше 15 секунд, 🧭 компас — стрелка к ближайшей монете, ⏳ песочные часы — +10 секунд.</span>
+        <b>Раунд ${myNext || 1} из ${cs.rounds}</b>
+        <span class="tiny muted">Соберите как можно больше из ${CE.COINS} монет, пока не истекло время. Туман прячет карту — артефакты видны только вблизи. Управление: на телефоне — проведите пальцем по карте в нужную сторону (фигура идёт, пока палец не отпущен), на компьютере — стрелки клавиатуры. Бонусы подбираются один раз и исчезают с карты: 🔦 фонарь — видно дальше 15 секунд, 🧭 компас — стрелка к ближайшей монете, ⏳ песочные часы — +10 секунд.${cs.solo ? '' : ' Каждый игрок проходит раунды в своём темпе — ждать соперников не нужно.'}</span>
         <button class="primary" id="coins-start">Начать раунд</button>
       </div>` : (phase === 'viewer' && !S.coinsLive) ? `<div class="coins-ovl">
-        <b>Раунд ${plan.round} из ${cs.rounds}: идёт поиск</b>
-        <span class="tiny muted">Игроки ищут монеты. Живые шаги по сети не летают — переписка зашифрована, сервер о поиске не знает ничего. Как только игрок закончит раунд, здесь появится открытая карта с его путём и находками.</span>
+        <b>Забег начался: идёт поиск</b>
+        <span class="tiny muted">Игроки ищут монеты — каждый в своём темпе. Живые шаги по сети не летают — переписка зашифрована, сервер о поиске не знает ничего. Как только игрок закончит раунд, здесь появится открытая карта с его путём и находками.</span>
       </div>` : '';
     // pkg3-80 (пункт 4): время вышло — карта открыта ЦЕЛИКОМ, несобранные
     // монеты и артефакты видны, счётчик честный
     let badge = '';
-    if ((phase === 'reveal' || phase === 'sending') && S.coinsLive) {
+    if ((phase === 'reveal' || phase === 'sending' || (phase === 'final' && cs.solo)) && S.coinsLive) {
       const L = S.coinsLive;
       const missC = Math.max(0, CE.COINS - (L.score | 0));
       const missB = Math.max(0, (L.gen.bonuses || []).length - (L.bgot || []).length);
@@ -4235,8 +4282,9 @@ function renderCoins(wrap, c) {
         ${ovl}${badge}
       </div>`;
   }
-  // pkg3-80 (пункт 7): финал — автоматически таблица результатов вместо карты
-  const finalTable = phase === 'final' ? `<div class="coins-results open coins-final-table">
+  // pkg3-80/82 (правка 3): финал компании — таблица результатов появляется
+  // АВТОМАТИЧЕСКИ у всех, с объявлением победителя
+  const finalTable = (phase === 'final' && !(cs.solo && S.coinsLive)) ? `<div class="coins-results open coins-final-table">
       <div class="cr-head"><b>Итоги забега${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? ' · забег ' + cs.run : ''}</b></div>
       ${coinsTableHtml(cs)}
       ${cs.solo && Math.max(cs.maxRun, cs.run) > 1 ? coinsRunsHtml(cs) : ''}
@@ -4244,22 +4292,24 @@ function renderCoins(wrap, c) {
   let acts = '';
   if (phase === 'hunt') acts = `<div class="coins-acts tiny muted">Проведите пальцем по карте — фигура пойдёт в эту сторону. Стрелки клавиатуры тоже работают.</div>`;
   if (phase === 'sending') acts = `<div class="coins-acts"><button class="mini primary" id="coins-resend">Дослать результат</button><span class="tiny muted">письмо с результатом не ушло — нажмите, чтобы повторить</span></div>`;
-  // pkg3-80 (пункты 2 и 4): «Далее» включает следующий раунд; пока остальные
-  // не закончили — честная отметка, что ждём, и никакой кнопки «начать снова»
-  if (phase === 'reveal' || phase === 'sending') {
-    const myRound = S.coinsLive ? (S.coinsLive.round | 0) : plan.round;
-    if (!plan.final && plan.round > myRound) {
-      acts += `<div class="coins-acts"><button class="primary coins-next" id="coins-next">Далее: раунд ${plan.round} →</button></div>`;
-    } else if (!plan.final) {
-      const names = plan.missing.filter(x => x !== S.me.id).map(gamePlayerName);
-      const allMine = plan.round >= cs.rounds;
-      acts += `<div class="coins-waitall">${allMine ? '✅ Вы закончили все раунды. ' : 'Вы закончили раунд ' + myRound + '. '}Остальные игроки ещё не закончили${names.length ? ': <b>' + escapeHtml(names.join(', ')) + '</b>' : ''}.`
-        + (allMine
-          ? ' Как только все закончат, таблица результатов появится автоматически. Новый забег компанией можно начать только через «+».'
-          : ' Когда все сдадут результаты раунда, появится кнопка «Далее».') + `</div>`;
+  // pkg3-82 (правка 2): после каждого раунда — вскрытая карта и кнопка
+  // «Следующий раунд» (свой темп — никого не ждём); после последнего своего
+  // раунда — кнопка «Результаты» и честная отметка, кого ещё ждём
+  if (phase === 'reveal') {
+    if (myNext) {
+      acts += `<div class="coins-acts"><button class="primary coins-next" id="coins-next">Следующий раунд: ${myNext} из ${cs.rounds} →</button></div>`;
+    } else {
+      acts += `<div class="coins-acts"><button class="primary" id="coins-resbtn">Результаты</button></div>`;
+      if (!cs.solo && !plan.final) {
+        const names = plan.waiting.filter(x => x !== S.me.id).map(gamePlayerName);
+        acts += `<div class="coins-waitall">✅ Вы закончили все раунды. Остальные игроки ещё ищут${names.length ? ': <b>' + escapeHtml(names.join(', ')) + '</b>' : ''}. Как только все закончат, таблица результатов появится автоматически. Новый забег компанией можно начать только через «+».</div>`;
+      }
     }
   }
-  if (phase === 'final' && cs.solo) acts = `<div class="coins-acts"><button class="primary" id="coins-again">Начать снова</button><span class="tiny muted">новый забег — новый порядок карт; прежние результаты останутся в таблице</span></div>`;
+  // pkg3-82 (правка 4): соло-финал — карта последнего раунда, а результаты
+  // и «Начать снова» — за кнопкой «Результаты» (таблица пополняется каждым
+  // новым забегом, пока игрок не вышел из игры)
+  if (phase === 'final' && cs.solo) acts = `<div class="coins-acts"><button class="primary" id="coins-resbtn">Результаты</button><span class="tiny muted">таблица всех забегов этого устройства; «Начать снова» — под таблицей</span></div>`;
   if (phase === 'final' && !cs.solo) acts = `<div class="coins-acts tiny muted">Сыграть ещё раз компанией? Новый забег создаётся только через «+»: «Новая игра» → «Золотая лихорадка».</div>`;
   wrap.innerHTML = `<div class="board-panel coins-panel">
     <div class="bp-head">
@@ -4278,6 +4328,7 @@ function renderCoins(wrap, c) {
   const b4 = $('#coins-again', wrap); if (b4) b4.addEventListener('click', coinsNewRun);
   const b5 = $('#coins-restoggle', wrap); if (b5) b5.addEventListener('click', coinsOpenResults);
   const b6 = $('#coins-next', wrap); if (b6) b6.addEventListener('click', () => { GS.ensure(); coinsStartRound(); });
+  const b7 = $('#coins-resbtn', wrap); if (b7) b7.addEventListener('click', coinsOpenResults);
   const bm = $('#coins-music', wrap);
   if (bm) bm.addEventListener('click', () => {
     const on = GS.toggleMusicPref();
@@ -4428,7 +4479,11 @@ async function coinsLeaveSmart(c) {
     ? (cs.letters.find(l => CE.isSurr(l) && l.author === S.me.id && (l.run || 1) === cs.run) || null) : null;
   if (role !== 'player' || cs.plan.final || mySurr) { leaveGameNow(c); return; }
   if (!confirm('Покинуть забег «Золотой лихорадки»? В таблице вы будете помечены «сдался», остальные игроки продолжат без вас.')) return;
-  try { await sendCoins(c, { k: 'coins-surrender', run: cs.run, round: cs.plan.round }); } catch (e) {}
+  // pkg3-82: сдаёмся на СВОЁМ текущем раунде — общего раунда забега больше нет
+  const mineP = (cs.plan.per || {})[S.me.id];
+  const locP = coinsLocalGet(c.id);
+  const curRound = (locP && Number(locP.round)) || (mineP && mineP.next) || 1;
+  try { await sendCoins(c, { k: 'coins-surrender', run: cs.run, round: curRound }); } catch (e) {}
   coinsLocalSet(c.id, null);
   leaveGameNow(c);
 }

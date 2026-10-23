@@ -154,7 +154,7 @@
     let b = 0;
     while (b < beats) {
       const d = [1, 1, 2, 2, 4][Math.floor(r() * 5)];
-      const rest = r() < 0.22;                            // паузы — музыка дышит
+      const rest = r() < 0.15;                            // паузы — музыка дышит (pkg3-82: реже — мелодия слышнее)
       const len = Math.min(d, beats - b);
       if (!rest && len > 0) {
         const n = PENT[Math.floor(r() * PENT.length)] + (r() < 0.3 ? 12 : 0);
@@ -183,8 +183,18 @@
       // аудиоконтекст — тогда заводим новый; «приснувший» или «прерванный»
       // (iOS после блокировки экрана) — будим
       if (ctx && ctx.state === 'closed') ctx = null;
-      if (!ctx) ctx = new AC();
-      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+      if (!ctx) {
+        ctx = new AC();
+        // pkg3-82 (правка 6): iOS отпирает звук только жестом и неохотно —
+        // проигрываем бесшумный буфер сразу при создании контекста (ensure
+        // зовётся из-под касания/клика), иначе мелодия карты может не зазвучать
+        try {
+          const ub = ctx.createBuffer(1, 1, 22050);
+          const us = ctx.createBufferSource();
+          us.buffer = ub; us.connect(ctx.destination); us.start(0);
+        } catch (e) {}
+      }
+      if (ctx.state !== 'running') { const rp = ctx.resume(); if (rp && rp.catch) rp.catch(() => {}); }
       return ctx;
     } catch (e) { return null; }
   }
@@ -239,16 +249,28 @@
   function pump() {
     const m = music;
     if (!m || !ctx) return;
-    if (ctx.state !== 'running') { m.timer = setTimeout(pump, 600); return; }  // вкладка спит — подождём
+    // pkg3-82 (правка 6): контекст могли закрыть (сон телефона) — музыка
+    // переставится на новый при следующем wake/касании (music.ctx !== ctx)
+    if (ctx.state === 'closed') { ctx = null; return; }
+    if (ctx.state !== 'running') {
+      // pkg3-82 (правка 6): не просто ждём — пробуем разбудить контекст сами;
+      // после сна телефона resume() иногда срабатывает не с первой попытки
+      try { const rp = ctx.resume(); if (rp && rp.catch) rp.catch(() => {}); } catch (e) {}
+      m.timer = setTimeout(pump, 500);
+      return;
+    }
+    // pkg3-82 (правка 6): якорь «в прошлом» (контекст спал) не выстреливает
+    // очередью нот — продолжаем с текущего такта
+    if (!(m.nextAt > ctx.currentTime)) m.nextAt = ctx.currentTime + 0.05;
     const spb = 60 / m.melody.bpm;
     const loopDur = m.melody.beats * spb;
     while (m.nextAt < ctx.currentTime + 1.2) {
       const at = m.nextAt;
       for (const n of m.melody.notes) {
-        m.nodes.push(tone(ctx, 'triangle', noteHz(m.melody, n.n, false), at + n.b * spb, n.d * spb * 0.9, 0.045));
+        m.nodes.push(tone(ctx, 'triangle', noteHz(m.melody, n.n, false), at + n.b * spb, n.d * spb * 0.9, 0.085));
       }
       for (const n of m.melody.bass) {
-        m.nodes.push(tone(ctx, 'sine', noteHz(m.melody, n.n, true), at + n.b * spb, n.d * spb * 0.85, 0.05));
+        m.nodes.push(tone(ctx, 'sine', noteHz(m.melody, n.n, true), at + n.b * spb, n.d * spb * 0.85, 0.09));
       }
       m.nextAt += loopDur;
     }
@@ -335,7 +357,7 @@
   }
 
   const GS = {
-    version: 'pkg3-81',
+    version: 'pkg3-82',
     SFX: SFX,
     ROOTS: ROOTS,
     PENT: PENT,

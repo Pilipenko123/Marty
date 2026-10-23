@@ -7,15 +7,18 @@
  * coins-map1..6.jpg) — порядок карт в забеге случайный, но одинаковый у всех: он,
  * как и раскладки, рождается из зерна (seed). Поэтому максимум раундов = 6.
  *
- * Раунды: каждый игрок стартует сам, когда удобно; таймер (по умолчанию
- * 3 минуты) идёт с личного старта. Кончилось время — раунд заканчивается
- * показом всей карты: несобранные монеты и артефакты видны, а дальше кнопка
- * «Далее» открывает следующий раунд (pkg3-80). Результат улетает
- * зашифрованным письмом coins-result. Другие устройства
- * перепроигрывают путь по той же карте (simulate) и сверяют счёт, финиш и
- * лимит времени — мухлевать нельзя. Раунд закрыт, когда результаты собрались
- * у всех НЕ сдавшихся игроков (или вышел срок ожидания CE.GRACE_MS).
- * Когда закрыт последний раунд — монеты суммируются, объявляется победитель.
+ * Раунды (pkg3-82 — личный темп): каждый игрок стартует сам, когда удобно;
+ * таймер (по умолчанию 3 минуты) идёт с личного старта. Кончилось время —
+ * раунд заканчивается показом всей карты: несобранные монеты и артефакты
+ * видны, а дальше кнопка «Следующий раунд» открывает следующий — НЕ дожидаясь
+ * соперников: чужие раунды идут своим чередом. Результат улетает зашифрованным
+ * письмом coins-result. Другие устройства перепроигрывают путь по той же карте
+ * (simulate) и сверяют счёт, финиш и лимит времени — мухлевать нельзя.
+ * Забег ждёт, пока ВСЕ игроки пройдут ВСЕ раунды (или сдадутся), — тогда
+ * монеты суммируются, таблица появляется у всех автоматически и объявляется
+ * победитель. Правила «сутки без результата — не играл» БОЛЬШЕ НЕТ: игра
+ * никого не закрывает задним числом; кто не хочет ждать — выходит кнопкой
+ * «Выйти» (в таблице — «сдался», остальные продолжают).
  *
  * Письма игры:
  *   coins-result    { run, round, seedUsed, score, moves, end, hg, startedAt, finishedAt }
@@ -33,7 +36,6 @@
   const MAPS = 6;                // картин-карт в комплекте
   const MAX_ROUNDS = MAPS;       // раундов не больше, чем карт
   const MAX_PLAYERS = 4;         // игроков в партии (соло — это 1)
-  const GRACE_MS = 24 * 3600 * 1000;   // сутки ждём результат раунда, потом «не играл»
   const WALL_P = 0.20;           // базовая доля стен до carve-прохода
   const BONUS_PLAN = ['compass', 'compass', 'lantern', 'lantern', 'hourglass', 'hourglass'];
 
@@ -170,109 +172,75 @@
     return by;
   }
   /**
-   * Сдавшиеся к раунду r: письмо «сдался», пришедшее не позже окна игры раунда
-   * (открытие + лимит минут + запас 90 с). Сдавший не блокирует раунды и не
-   * претендует на очки; в таблице он помечен.
+   * pkg3-82 (правки 1–3 владельца): раунды идут ЛИЧНЫМ темпом — никто никого
+   * не ждёт между раундами. Забег завершён, когда все НЕ сдавшиеся игроки
+   * прошли ВСЕ раунды. Правила «сутки — не играл» больше нет: игра никого не
+   * закрывает задним числом (прежние «нулевые» забеги оживают).
    */
-  function surrenderedOf(game, letters, r, run) {
-    const players = game.players || [];
-    const win = (Number(game.minutes) * 60 + 90) * 1000;
-    const out = [];
-    for (const p of players) {
-      const s = (letters || []).filter(x => isSurr(x) && x.author === p && (x.run || 1) === (run || 1))
-        .sort((a, b) => a.ts - b.ts)[0];
-      if (!s) continue;
-      const roundAtSurr = Math.min(game.rounds | 0, Math.max(1, r));   // письмо относится к своему раунду
-      if (s.round <= r && s.ts <= openTsOf(game, letters, s.round, run) + win) out.push(p);
-      void roundAtSurr;
+  function roundsOf(game) {
+    return Math.max(1, Math.min(MAX_ROUNDS, game.rounds | 0));
+  }
+  /** Письмо сдачи игрока в забеге run: номер раунда (или null). */
+  function surrenderOf(game, letters, p, run) {
+    const s = (letters || []).filter(x => isSurr(x) && x.author === p && (x.run || 1) === (run || 1))
+      .sort((a, b) => a.ts - b.ts)[0];
+    return s ? Math.max(1, Math.min(roundsOf(game), s.round | 0 || 1)) : null;
+  }
+  /** Личный прогресс игрока: сыгранные раунды, следующий раунд, финиш. */
+  function progressOf(game, letters, run) {
+    const rounds = roundsOf(game);
+    const per = {};
+    for (const p of (game.players || [])) {
+      const done = [];
+      for (let r = 1; r <= rounds; r++) if (resultsOf(game, letters, r, run)[p]) done.push(r);
+      const surr = surrenderOf(game, letters, p, run);
+      let next = null;
+      if (surr === null) {
+        for (let r = 1; r <= rounds; r++) if (!done.includes(r)) { next = r; break; }
+      }
+      per[p] = {
+        results: done.length, done: done, next: next,
+        surrenderedAt: surr, finished: surr !== null || done.length >= rounds
+      };
     }
-    return out;
-  }
-  function openTsOf(game, letters, r, run) {
-    if (r <= 1) return Number(game.createdAt) || 0;
-    const prev = Object.values(resultsOf(game, letters, r - 1, run));
-    const surr = surrenderedOfRaw(game, letters, r - 1, run);
-    if (!prev.length && !surr.length) return openTsOf(game, letters, r - 1, run);
-    const ts = prev.map(x => Number(x.ts) || 0).concat(surr.map(x => Number(x.ts) || 0));
-    return Math.max.apply(null, ts);
-  }
-  function surrenderedOfRaw(game, letters, r, run) {
-    const players = game.players || [];
-    return (letters || []).filter(x => isSurr(x) && x.round === r && (x.run || 1) === (run || 1) && players.includes(x.author));
-  }
-  /** Живые игроки раунда: все, кроме сдавшихся к нему. */
-  function activeOf(game, letters, r, run) {
-    const surr = surrenderedOf(game, letters, r, run);
-    return (game.players || []).filter(p => !surr.includes(p));
-  }
-  function closeTs(game, letters, r, run) {
-    const active = activeOf(game, letters, r, run);
-    const by = resultsOf(game, letters, r, run);
-    const have = active.filter(p => by[p]);
-    const o = openTsOf(game, letters, r, run);
-    if (active.length && have.length === active.length) return Math.max.apply(null, active.map(p => Number(by[p].ts) || 0));
-    return o + GRACE_MS;
+    return per;
   }
   /**
-   * Не сыграли раунд (срок вышел): «не играл» и ноль очков.
-   * pkg3-79: в соло («Золотая лихорадка» в одиночку) ждать некого — суток нет и «не играл»
-   * не ставится; иначе забег, созданный давно, мгновенно «завершался» пустым.
-   */
-  function absentOf(game, letters, r, run, now) {
-    if ((game.players || []).length <= 1) return [];
-    const active = activeOf(game, letters, r, run);
-    const by = resultsOf(game, letters, r, run);
-    const missing = active.filter(p => !by[p]);
-    if (!missing.length) return [];
-    return (Number(now) >= closeTs(game, letters, r, run)) ? missing : [];
-  }
-  /**
-   * План забега: какой раунд играем, закрыт ли он, кого ждём; final — последний
-   * раунд закрыт, можно объявлять победителя. Считается одинаково на всех
-   * устройствах по одному набору писем.
+   * План забега: личный прогресс каждого игрока (per), кого ещё ждём
+   * (waiting), завершён ли забег (final) и какой раунд последним закрыл
+   * хоть кто-то (lastDone — для зрителя и списка чатов). Считается одинаково
+   * на всех устройствах по одному набору писем.
    */
   function roundPlan(game, letters, now, run) {
-    const rounds = Math.max(1, Math.min(MAX_ROUNDS, game.rounds | 0));
-    for (let r = 1; r <= rounds; r++) {
-      const active = activeOf(game, letters, r, run);
-      const by = resultsOf(game, letters, r, run);
-      const absent = absentOf(game, letters, r, run, now);
-      // сдались ВСЕ — играть некому: забег завершён (победителя не будет)
-      if (!active.length) {
-        return { round: r, missing: [], absent: [], complete: true, final: true, openTs: openTsOf(game, letters, r, run), closeTs: closeTs(game, letters, r, run) };
-      }
-      const missing = active.filter(p => !by[p] && !absent.includes(p));
-      const complete = !missing.length && active.length > 0;
-      const base = { round: r, missing, absent, openTs: openTsOf(game, letters, r, run), closeTs: closeTs(game, letters, r, run) };
-      if (!complete) return Object.assign(base, { complete: false, final: false });
-      if (r === rounds) return Object.assign(base, { complete: true, final: true });
-    }
-    return { round: rounds, missing: [], absent: [], complete: true, final: true, openTs: 0, closeTs: 0 };
-  }
-  /** Таблица забега: очки по раундам, итог, метки (сдался / не играл / не проверено). */
-  function table(game, letters, now, run) {
-    const rounds = Math.max(1, Math.min(MAX_ROUNDS, game.rounds | 0));
+    const rounds = roundsOf(game);
     const players = game.players || [];
-    const surrAll = {};
-    for (const p of players) {
-      const s = (letters || []).filter(x => isSurr(x) && x.author === p && (x.run || 1) === (run || 1)).sort((a, b) => a.ts - b.ts)[0];
-      surrAll[p] = s ? s.round : null;
+    const per = progressOf(game, letters, run);
+    const active = players.filter(p => per[p] && per[p].surrenderedAt === null);
+    const waiting = active.filter(p => !per[p].finished);
+    // все прошли все раунды (или сдались; игроков не осталось) — забег завершён
+    const final = !waiting.length;
+    let lastDone = 0;
+    for (const l of (letters || [])) {
+      if (isResult(l) && (l.run || 1) === (run || 1) && players.includes(l.author) && (l.round | 0) > lastDone) lastDone = l.round | 0;
     }
+    return { rounds: rounds, per: per, active: active, waiting: waiting, missing: waiting, final: final, lastDone: lastDone };
+  }
+  /** Таблица забега: очки по раундам, итог, метки (сдался / не проверено).
+   * Раунд без результата — прочерк («…»), а не ноль: игрок ещё не дошёл. */
+  function table(game, letters, now, run) {
+    const rounds = roundsOf(game);
+    const players = game.players || [];
     const rows = players.map(p => {
+      const surr = surrenderOf(game, letters, p, run);
       const per = [];
       let total = 0;
       for (let r = 1; r <= rounds; r++) {
-        const by = resultsOf(game, letters, r, run);
-        const res = by[p];
-        const surr = surrAll[p] !== null && surrAll[p] <= r;
-        if (res && Number(res.ts) <= closeTs(game, letters, r, run)) {
-          per.push({ r, score: res.score | 0, bad: res.bad === true });
-          if (!surr || Number(res.ts) <= closeTs(game, letters, r, run)) total += res.score | 0;
-        } else if (surr) per.push({ r, score: 0, surrendered: true });
-        else if (absentOf(game, letters, r, run, now).includes(p)) per.push({ r, score: 0, absent: true });
-        else per.push({ r, score: null });
+        const res = resultsOf(game, letters, r, run)[p];
+        if (res) { per.push({ r: r, score: res.score | 0, bad: res.bad === true }); total += res.score | 0; }
+        else if (surr !== null && surr <= r) per.push({ r: r, score: 0, surrendered: true });
+        else per.push({ r: r, score: null });
       }
-      return { id: p, per, total, surrenderedAt: surrAll[p] };
+      return { id: p, per: per, total: total, surrenderedAt: surr };
     });
     rows.sort((a, b) => b.total - a.total);
     return rows;
@@ -286,10 +254,10 @@
   }
 
   const CE = {
-    W, H, COINS, MAPS, MAX_ROUNDS, MAX_PLAYERS, GRACE_MS, WALL_P,
+    W, H, COINS, MAPS, MAX_ROUNDS, MAX_PLAYERS, WALL_P,
     fnv, rng, idx, inB, mapsOrder, runSeed, genRound, simulate, verify,
     coinAt, bonusAt, bonusIdxAt, isWall, STEP,
-    isResult, isSurr, resultsOf, surrenderedOf, activeOf, openTs: openTsOf, closeTs, absentOf, roundPlan, table, winnerOf
+    isResult, isSurr, resultsOf, roundsOf, surrenderOf, progressOf, roundPlan, table, winnerOf
   };
   glob.CE = CE;
   if (typeof module !== 'undefined' && module.exports) {
