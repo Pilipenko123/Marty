@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-83';
+const BUILD = 'pkg3-84';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -728,6 +728,36 @@ function createApi(store, opts = {}) {
 
   let dirty = false;
   function save() { dirty = true; }
+
+  // pkg3-84: щадящее фоновое сохранение на «настоящем» сервере (файловое
+  // хранилище): запрос с изменением отвечает СРАЗУ, а накопленные изменения
+  // дописывает фоновая волна (~раз в секунду, частые изменения сливаются в
+  // одну запись). Прежде каждый такой запрос синхронно переписывал всю базу
+  // до ответа — на выросшей базе и тесном VPS это вешало сервер шквалом
+  // записей (диагноз владельца: iowait 70 %, ответы по 15–27 секунд).
+  // По умолчанию и в тестах режим ВЫКЛЮЧЕН — пишем до ответа, как прежде
+  // (детерминизм тестов и облачная функция, засыпающая после ответа).
+  // На VPS режим включает строка .env, которую дописывает установщик.
+  const BG_FLUSH = store.name === 'file' && String(process.env.FILE_FLUSH_BG || '') === '1';
+  const BG_EVERY = Math.max(150, Number(process.env.FILE_FLUSH_MS || 1200));
+  if (BG_FLUSH) {
+    const bgFlushLoop = () => setTimeout(() => {
+      bgFlushLoop();
+      if (!(dirty || store.dirty)) return;
+      dirty = false; store.dirty = false;
+      store.flushAsync()
+        .then(ok => { if (!ok) dirty = true; })      // не дописалось — повторим следующей волной
+        .catch(() => { dirty = true; });
+    }, BG_EVERY);
+    bgFlushLoop();
+    // любой выход (перезапуск службы, остановка systemd) дописывает всё синхронно
+    process.on('exit', () => {
+      if (dirty || store.dirty) {
+        dirty = false; store.dirty = false;
+        try { store.flush(); } catch (e) { console.error('финальное сохранение не удалось:', e.message); }
+      }
+    });
+  }
 
   // ------------------------------------------------------------- уведомления
   // Облачная функция засыпает сразу после того, как ответила браузеру, поэтому
@@ -3172,7 +3202,9 @@ function createApi(store, opts = {}) {
 
   // ------------------------------------------------------------- точка входа
   async function handle(req) {
-    dirty = false;
+    // pkg3-84: в фоновом режиме флажок принадлежит волне сохранения —
+    // запрос его не сбрасывает, иначе изменение могло бы потеряться
+    if (!BG_FLUSH) dirty = false;
     db = await store.load();
     try { pruneGhostChats(); } catch (e) { /* чистка не должна ломать запрос */ }
     let out;
@@ -3183,10 +3215,15 @@ function createApi(store, opts = {}) {
       throw e;
     }
     if (dirty || store.dirty) {
-      try {
-        await store.flush(db);
-      } catch (e) {
-        return { status: 503, json: { error: 'Не удалось сохранить данные: ' + e.message } };
+      if (BG_FLUSH) {
+        // pkg3-84: ответ не держим — изменения подберёт фоновая волна
+        // (на выходе службу дожмёт синхронный финальный сброс)
+      } else {
+        try {
+          await store.flush(db);
+        } catch (e) {
+          return { status: 503, json: { error: 'Не удалось сохранить данные: ' + e.message } };
+        }
       }
     }
     return out;

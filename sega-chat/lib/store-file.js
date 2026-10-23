@@ -22,6 +22,48 @@ function createFileStore(opts = {}) {
     fs.renameSync(tmp, dbFile);
   }
 
+  // pkg3-84: щадящее фоновое сохранение. Прежде КАЖДЫЙ запрос с изменением
+  // (письмо, отметка «прочитано», принятие приглашения…) синхронно переписывал
+  // всю базу ДО ответа — на выросшей базе (десятки мегабайт) и тесном VPS это
+  // на минуты вешало сервер шквалом синхронных записей (iowait 70 %).
+  // Теперь фоновая волна пишет базу сама: асинхронно (цикл обработки запросов
+  // не блокируется), сливая частые изменения в одну запись. Атомарность та же:
+  // временный файл + переименование. Одновременно пишется не более одной волны;
+  // изменения, пришедшие во время записи, дописываются следующей волной.
+  const tmpBg = dbFile + '.tmp-bg';
+  let bgWriting = false, bgPending = false;
+  function flushAsync() {
+    if (bgWriting) { bgPending = true; return Promise.resolve(); }
+    bgWriting = true; bgPending = false;
+    let txt;
+    try { txt = JSON.stringify(db); }
+    catch (e) { bgWriting = false; return Promise.reject(e); }
+    return new Promise(resolve => {
+      fs.writeFile(tmpBg, txt, err => {
+        if (err) {
+          bgWriting = false; bgPending = false;
+          console.error('фоновое сохранение: запись не удалась:', err.message);
+          return resolve(false);
+        }
+        fs.rename(tmpBg, dbFile, err2 => {
+          bgWriting = false;
+          if (err2) {
+            console.error('фоновое сохранение: переименование не удалось:', err2.message);
+            const again2 = bgPending;
+            bgPending = false;
+            resolve(false);
+            if (again2) flushAsync();
+            return;
+          }
+          const again = bgPending;
+          bgPending = false;
+          resolve(true);
+          if (again) flushAsync();
+        });
+      });
+    });
+  }
+
   const store = {
     name: 'file',
     dirty: false,
@@ -51,6 +93,7 @@ function createFileStore(opts = {}) {
     async load() { if (!db) await store.open(); return db; },
     async reserveSeq() { db.seq++; store.dirty = true; return db.seq; },
     async flush() { writeNow(); },
+    flushAsync,   // pkg3-84: фоновая волна сохранения (не блокирует ответы)
 
     // сессии, сообщения и аватары здесь всегда в памяти — подгружать нечего
     async getSession(token) { return db.sessions[token] || null; },
