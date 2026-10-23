@@ -199,16 +199,16 @@ ok(!appJs.includes('class="coins-pad"') && !css.includes('.coins-pad{'),
 ok(appJs.includes('COINS_KEYS') && appJs.includes('ArrowUp'), 'на ПК управление с клавиатуры: стрелки и WASD');
 
 // пункт 9: название
-ok(appJs.includes('Золотая лихорадка') && !appJs.includes("'Монеты · соло'"),
-  'игра зовётся «Золотая лихорадка» — в списке, в окне «Новая игра», в приглашениях');
-ok(!html.includes('Монеты') && appJs.includes('<option value="coins">Золотая лихорадка</option>'),
-  'в окне «Новая игра» — «Золотая лихорадка»; старых «Монет» в разметке нет');
-ok(apiJs.includes('«Золотая лихорадка»: есть новости забега'), 'пуш сервера тоже говорит «Золотая лихорадка»');
+ok(appJs.includes("coins: 'Сталкер'") && !appJs.includes("'Монеты · соло'"),
+  'pkg3-83: игра зовётся «Сталкер» — внутренности прежние (id coins, письма coins-*), старые чаты живы');
+ok(appJs.includes('data-ng-rules="${r}"') && appJs.includes("gameIconImg(r, 'gimg-ng')"),
+  'pkg3-83: в окне «Новая игра» — плитки игр с иконками владельца');
+ok(apiJs.includes('«Сталкер»: есть новости забега'), 'pkg3-83: пуш сервера говорит «Сталкер»');
 
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-82';") && apiJs.includes("const BUILD = 'pkg3-82';"),
-  'BUILD pkg3-82 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v75';"), 'кэш статики поднят до v75');
+ok(appJs.includes("const BUILD = 'pkg3-83';") && apiJs.includes("const BUILD = 'pkg3-83';"),
+  'BUILD pkg3-83 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v76';"), 'кэш статики поднят до v76');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');

@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v75'), 'кэш статики поднят до v75 (шесть правок «Золотой лихорадки» подхватятся сразу)');
+ok(sw.includes('sega-static-v76'), 'кэш статики поднят до v76 (имя «Сталкер», иконки и меню подхватятся сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-82';") && apiJs.includes("const BUILD = 'pkg3-82';"), 'клиент и сервер помечены pkg3-82');
+ok(appJs.includes("const BUILD = 'pkg3-83';") && apiJs.includes("const BUILD = 'pkg3-83';"), 'клиент и сервер помечены pkg3-83');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -539,9 +539,9 @@ ok(appJs.includes("const gamePlayerName = id => (userById(id) || {}).name || 'К
   'незнакомый соперник называется «Кто-то», а не «…»');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'название чата и заголовок доски собираются одними словами');
-ok(appJs.includes('c.kind === \'game\' ? `<span class="gico">${gameIcon(c)}</span>`'), 'значок игры переехал на иконку чата');
+ok(appJs.includes("c.kind === 'game' ? gameIconImg(gameRulesOf(c), 'gimg')"), 'значок игры переехал на иконку чата (pkg3-83: иконка-картинка владельца)');
 ok(!appJs.includes('tag-grp" title="${gameRulesOf'), 'маленькая плашка со значком после названия игрового чата убрана');
-ok(css.includes('.avatar .gico{'), 'крупный значок игры на иконке оформлен в стилях');
+ok(css.includes('.avatar .gimg{'), 'иконка игры на аватаре чата оформлена в стилях (pkg3-83)');
 
 // pkg3-78: «Золотая лихорадка» — забег с туманом войны (pkg3-80: звук, управление пальцем, одна кнопка выхода)
 const coinsEng = readFileSync(join(PUB, 'coins-engine.js'), 'utf8');
@@ -557,12 +557,12 @@ ok(!coinsEng.includes('GRACE_MS') && !coinsEng.includes('absentOf'),
   'pkg3-82: правила «сутки без результата — не играл» больше нет — забег никого не закрывает задним числом');
 ok(coinsEng.includes('function roundPlan') && coinsEng.includes('function winnerOf'),
   'план раундов и победитель считаются движком — одинаково на всех устройствах');
-ok(apiJs.includes('В «Золотую лихорадку» играют максимум вчетвером'), 'сервер: гостей не больше трёх — всего четыре игрока');
+ok(apiJs.includes('В «Сталкер» играют максимум вчетвером'), 'сервер: гостей не больше трёх — всего четыре игрока');
 ok(apiJs.includes('Math.min(6, Math.max(1, Math.round(Number(b.rounds) || 3)))') && apiJs.includes('Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)))'),
   'сервер: раундов 1–6, минут 1–30 (по умолчанию 3)');
 ok(apiJs.includes("if (chat.game.rules === 'coins') {"), 'сервер знает «Монеты» в accept/decline/leave');
 ok(apiJs.includes('invitees = inv.filter(x => x !== me.id)'), 'отказ и принятие вычёркивают из списка приглашённых, чужой забег не убивая');
-ok(apiJs.includes("coins: '«Золотая лихорадка»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
+ok(apiJs.includes("coins: '«Сталкер»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
 ok(appJs.includes("gameRulesOf(c) === 'coins' ? '🪙'"), 'значок «Золотой лихорадки» живёт на иконке чата');
 ok(appJs.includes('function renderCoins') && appJs.includes('coins-canvas'), 'клиент рисует забег на canvas (карта, стены, туман)');
 ok(appJs.includes('function coinsFogLayer') && appJs.includes("rgba(6,7,12,0.93)"), 'туман войны: вне ареола всё во тьме');
@@ -629,6 +629,27 @@ ok(gsJs.includes('m.nextAt = ctx.currentTime + 0.05;') && gsJs.includes('0.085')
 ok(appJs.includes('GS.isEnabled() && GS.musicPref() && !GS.isPlaying()') && appJs.includes('GS.startMusic(L.gen.mapIdx);'),
   'правка 6: тикер забега лечит мелодию сам — запускает её снова, если контекст не ожил с первого раза');
 ok(gsJs.includes("version: 'pkg3-82'"), 'звуковой движок помечен pkg3-82');
+
+// pkg3-83: имя «Сталкер», иконки владельца, двухшаговое меню, победитель не прячется
+ok(appJs.includes("const GAME_NAMES = { chess: 'Шахматы', checkers: 'Шашки (русские)', seabattle: 'Морской бой', coins: 'Сталкер' };"),
+  'пункт 1: имена игр собраны в одном месте; «Сталкер» — новое имя «Золотой лихорадки»');
+ok(!appJs.includes('<option value="coins">Золотая лихорадка</option>') && !appJs.includes("modal('Золотая лихорадка"),
+  'пункт 1: старого имени больше нет ни в окне игр, ни в заголовке результатов');
+ok(apiJs.includes("coins: '«Сталкер»: есть новости забега — откройте партию'"),
+  'пункт 1: пуш сервера зовёт игру по-новому');
+ok(appJs.includes("gameIconImg(gameRulesOf(c), 'gimg')") && appJs.includes("gameIconImg(rules, 'gmini')"),
+  'пункт 3: аватар чата и письма партии в ленте рисуют иконку-картинку, а не символ');
+for (const f of ['game-chess.png', 'game-checkers.png', 'game-seabattle.png', 'game-stalker.png']) {
+  ok(readFileSync(join(PUB, 'img', f)).length > 4000, 'пункт 3: файл иконки ' + f + ' на месте и не пустой');
+}
+ok(css.includes('.avatar .gimg{') && css.includes('.gmini{') && css.includes('.ng-games{'),
+  'пункт 3: стили иконок — круг в аватаре, мини в ленте, плитки в меню');
+ok(appJs.includes('id="ng-games"') && appJs.includes('async function openNewGameSettings') && appJs.includes('← к списку игр'),
+  'пункт 4: «+» сначала показывает список игр с иконками, настройки — вторым шагом, с кнопкой «назад»');
+ok(appJs.indexOf("else if (plan.final) phase = 'final';") < appJs.indexOf("else if (loc && loc.startedAt && !loc.sent) phase = 'hunt';"),
+  'пункт 2: финал забега главнее вскрытой карты — закончивший последним сразу видит победителя, а не «ждём остальных»');
+ok(appJs.includes('const wLine = cs.winner') && appJs.includes("'победил ' + gamePlayerName(cs.winner.ids[0])"),
+  'пункт 2: победитель объявлен в шапке таблицы результатов (и в строке над панелью, как прежде)');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

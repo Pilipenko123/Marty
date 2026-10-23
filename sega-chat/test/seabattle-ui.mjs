@@ -289,10 +289,13 @@ ok(ev(`(function(){ const { eng } = gameReplay(S.chats[0]); return eng._state().
   'все выстрелы разобраны — «висящих» нет');
 
 // ── pkg3-57: честные подписи «я / соперник» вместо «белые / чёрные» ──
+// pkg3-83 (пункт 4): меню «+» двухшаговое — сначала плитки игр, потом настройки
 ev('openNewGame()');
 doc = w.document;
-ok(!!doc.querySelector('#ng-rules'), 'окно «Новая игра» открылось');
-ev(`(function(){ const s = $('#ng-rules'); s.value = 'seabattle'; s.dispatchEvent(new Event('change')); })()`);
+ok(!!doc.querySelector('#ng-games'), 'окно «Новая игра» открылось списком игр (шаг первый)');
+ok(!!doc.querySelector('[data-ng-rules="seabattle"]') && !!doc.querySelector('[data-ng-rules="coins"]')
+  && !!doc.querySelector('#ng-games img'), 'плитки всех игр с иконками-картинками на месте');
+ev(`(function(){ document.querySelector('[data-ng-rules="seabattle"]').click(); })()`);
 {
   const lbl = ev(`$('#ng-color').parentElement.firstChild.nodeValue`);
   const opts = ev(`[...$('#ng-color').options].map(o => o.value + ':' + o.textContent).join('|')`);
@@ -301,7 +304,7 @@ ev(`(function(){ const s = $('#ng-rules'); s.value = 'seabattle'; s.dispatchEven
     'варианты ответа: «Я стреляю первым» / «Соперник стреляет первым» — без «белых» и «чёрных»');
   ok(opts.includes('choice:Пусть решит соперник'), 'вариант «Пусть решит соперник» на месте');
 }
-ev(`(function(){ const s = $('#ng-rules'); s.value = 'chess'; s.dispatchEvent(new Event('change')); })()`);
+ev(`(function(){ $('#ng-back').click(); document.querySelector('[data-ng-rules="chess"]').click(); })()`);
 {
   const lbl = ev(`$('#ng-color').parentElement.firstChild.nodeValue`);
   const opts = ev(`[...$('#ng-color').options].map(o => o.value + ':' + o.textContent).join('|')`);
