@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-81';
+const BUILD = 'pkg3-82';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -546,8 +546,13 @@ function createApi(store, opts = {}) {
       // даже если остальные ещё играют
       .filter(c => !(Array.isArray(c.game.leftBy) && c.game.leftBy.includes(uid)))
       // pkg3-81 (пункт 9): соло-забег «Золотой лихорадки» — личное дело игрока:
-      // в справочнике «Сейчас играют» он не светится и зрителей не зовёт
-      .filter(c => c.game.rules !== 'coins' || (Array.isArray(c.game.players) && c.game.players.length >= 2))
+      // в справочнике «Сейчас играют» он не светится и зрителей не зовёт.
+      // pkg3-82 (правка 5): и компания появляется у знакомых не сразу, а как
+      // только хотя бы ДВОЕ игроков сдали результаты раундов — до этого
+      // зрителю смотреть нечего (карта открывается только по чужому финишу)
+      .filter(c => c.game.rules !== 'coins'
+        || ((Array.isArray(c.game.players) && c.game.players.length >= 2)
+          && (Array.isArray(c.game.reported) && c.game.reported.length >= 2)))
       // pkg3-78: у «Монет» нет белых/чёрных — круг проверяем по списку игроков
       .filter(c => me.isAdmin || circle.has(c.game.white) || circle.has(c.game.black)
         || (Array.isArray(c.game.players) && c.game.players.some(p => circle.has(p))))
@@ -623,6 +628,15 @@ function createApi(store, opts = {}) {
     db.messages = db.messages.filter(m => m.chat !== chatId);
     // pkg3-57: слепки флота «Морского боя» стираем вместе с игрой
     for (const u of db.users) if (u.sbFleets && u.sbFleets[chatId]) delete u.sbFleets[chatId];
+    // pkg3-82: стёртый чат не оставляет следов и в личных пометках участников —
+    // прочитанное, «Новые», отклонённые и скрытые списки чистятся (игра
+    // удаляется со всей перепиской, как и обещано)
+    for (const u of db.users) {
+      if (u.reads && u.reads[chatId] !== undefined) delete u.reads[chatId];
+      if (u.newChats && u.newChats[chatId]) delete u.newChats[chatId];
+      if (Array.isArray(u.declined) && u.declined.includes(chatId)) u.declined = u.declined.filter(x => x !== chatId);
+      if (Array.isArray(u.hiddenChats) && u.hiddenChats.includes(chatId)) u.hiddenChats = u.hiddenChats.filter(x => x !== chatId);
+    }
     const cs = db.stats.chats[chatId];
     if (cs) {
       db.stats.bytes = Math.max(0, db.stats.bytes - cs.b);
@@ -2068,6 +2082,17 @@ function createApi(store, opts = {}) {
       const m = { id: uid(), seq: await store.reserveSeq(), uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote, upId: b.upId || null };
       db.messages.push(m);
       addStat(m, 1);
+      // pkg3-82 (правка 5): открытая метка письма с результатом раунда
+      // «Золотой лихорадки». Сервер письмо НЕ читает (blob зашифрован) — он
+      // лишь запоминает, КТО из игроков уже сдал хотя бы один результат:
+      // забег попадает в чужой справочник «Сейчас играют», только когда
+      // таких игроков хотя бы двое (раньше игра светилась сразу после
+      // принятия приглашения, хотя зрителю смотреть ещё нечего).
+      if (chat.kind === 'game' && chat.game && chat.game.rules === 'coins'
+        && b.mark === 'coins-result' && Array.isArray(chat.game.players)
+        && chat.game.players.includes(me.id)) {
+        chat.game.reported = Array.from(new Set([...(chat.game.reported || []), me.id]));
+      }
       // pkg3-48/49: новое письмо возвращает спрятанный личный чат в списки
       // адресата (снятием скрытия); автор письма всегда остаётся «открывшим»
       // чат и держит его у себя в «Личных чатах» — даже если раньше убрал
