@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-84';
+const BUILD = 'pkg3-85';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -2274,7 +2274,14 @@ function createApi(store, opts = {}) {
         if (liveGamesOf(me.id) >= MAX_LIVE_GAMES) {
           return E(400, 'У вас уже ' + MAX_LIVE_GAMES + ' одновременные партии — завершите одну, чтобы начать новую');
         }
-        const minutes = Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)));
+        // pkg3-85: время раунда в секундах с градацией 10 секунд; по умолчанию
+        // 1 минута. Старые клиенты и тесты шлют целые минуты — чтим и их
+        let sec;
+        if (b.sec !== undefined) sec = Math.round(Number(b.sec) / 10) * 10;
+        else if (b.minutes !== undefined) sec = (Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)))) * 60;
+        else sec = 60;   // pkg3-85: время не указано — минута
+        sec = Math.min(1800, Math.max(10, sec || 60));
+        const minutes = sec / 60;
         const rounds = Math.min(6, Math.max(1, Math.round(Number(b.rounds) || 3)));
         const seed = String(b.seed || '').replace(/[^0-9a-f]/gi, '').slice(0, 64) || crypto.randomBytes(16).toString('hex');
         const keys = {};
@@ -2291,7 +2298,7 @@ function createApi(store, opts = {}) {
           // а «playing» не мешает приглашению оставаться в силе.
           game: {
             rules: 'coins', status: 'playing',
-            invitees: invited, players: [me.id], seed, minutes, rounds, result: null
+            invitees: invited, players: [me.id], seed, minutes, sec, rounds, result: null
           }
         };
         db.chats.push(chat);
