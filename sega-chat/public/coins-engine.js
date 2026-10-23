@@ -1,14 +1,17 @@
 'use strict';
 /**
- * SEGA-CHAT · движок «coins» (pkg3-78). Золотая лихорадка с туманом войны:
+ * SEGA-CHAT · движок «coins» — «Золотая лихорадка» (pkg3-78, pkg3-80).
+ * Золотая лихорадка с туманом войны:
  * поле 13×26 поверх карты-картинки, монеты одного достоинства, стены-лабиринт,
  * бонусы (компас, фонарь, песочные часы). Карт в комплекте ШЕСТЬ (img/
  * coins-map1..6.jpg) — порядок карт в забеге случайный, но одинаковый у всех: он,
  * как и раскладки, рождается из зерна (seed). Поэтому максимум раундов = 6.
  *
  * Раунды: каждый игрок стартует сам, когда удобно; таймер (по умолчанию
- * 3 минуты) идёт с личного старта. Кончилось время (или нажата «сдаться») —
- * результат улетает зашифрованным письмом coins-result. Другие устройства
+ * 3 минуты) идёт с личного старта. Кончилось время — раунд заканчивается
+ * показом всей карты: несобранные монеты и артефакты видны, а дальше кнопка
+ * «Далее» открывает следующий раунд (pkg3-80). Результат улетает
+ * зашифрованным письмом coins-result. Другие устройства
  * перепроигрывают путь по той же карте (simulate) и сверяют счёт, финиш и
  * лимит времени — мухлевать нельзя. Раунд закрыт, когда результаты собрались
  * у всех НЕ сдавшихся игроков (или вышел срок ожидания CE.GRACE_MS).
@@ -109,14 +112,21 @@
 
   const coinAt = (gen, x, y) => gen.coins.findIndex(c => c.x === x && c.y === y);
   const bonusAt = (gen, x, y) => gen.bonuses.find(b => b.x === x && b.y === y) || null;
+  const bonusIdxAt = (gen, x, y) => gen.bonuses.findIndex(b => b.x === x && b.y === y);
   const isWall = (gen, x, y) => !inB(x, y) || !!gen.walls[idx(x, y)];
   const STEP = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
 
-  /** Перепроигрывание пути (проверка чужого результата и подсчёт своего). */
+  /** Перепроигрывание пути (проверка чужого результата и подсчёт своего).
+   * pkg3-80: бонус подбирается ОДИН раз — как монета. Часы, компас и фонарь
+   * больше не «фармятся» повторными заходами на ту же клетку: повторный шаг
+   * на собранный бонус ничего не даёт, а собранные бонусы исчезают с карты. */
   function simulate(gen, moves) {
     const got = new Uint8Array(gen.coins.length);
+    const bgot = new Uint8Array(gen.bonuses.length);
     let x = gen.start.x, y = gen.start.y, score = 0, hg = 0, steps = 0;
     const s0 = coinAt(gen, x, y); if (s0 >= 0) { got[s0] = 1; score++; }
+    const b0 = bonusIdxAt(gen, x, y);
+    if (b0 >= 0) { bgot[b0] = 1; if (gen.bonuses[b0].t === 'hourglass') hg++; }
     for (const ch of String(moves || '')) {
       const d = STEP[ch]; if (!d) continue;
       const nx = x + d[0], ny = y + d[1];
@@ -124,10 +134,13 @@
       x = nx; y = ny; steps++;
       const ci = coinAt(gen, x, y);
       if (ci >= 0 && !got[ci]) { got[ci] = 1; score++; }
-      const b = bonusAt(gen, x, y);
-      if (b && b.t === 'hourglass') hg++;
+      const bi = bonusIdxAt(gen, x, y);
+      if (bi >= 0 && !bgot[bi]) {
+        bgot[bi] = 1;
+        if (gen.bonuses[bi].t === 'hourglass') hg++;
+      }
     }
-    return { score, end: [x, y], hg, got, steps };
+    return { score, end: [x, y], hg, got, bgot, steps };
   }
 
   /** Сверка результата: счёт, финиш, часы и уложился ли в лимит времени. */
@@ -202,7 +215,7 @@
   }
   /**
    * Не сыграли раунд (срок вышел): «не играл» и ноль очков.
-   * pkg3-79: в соло («Монеты» в одиночку) ждать некого — суток нет и «не играл»
+   * pkg3-79: в соло («Золотая лихорадка» в одиночку) ждать некого — суток нет и «не играл»
    * не ставится; иначе забег, созданный давно, мгновенно «завершался» пустым.
    */
   function absentOf(game, letters, r, run, now) {
@@ -275,7 +288,7 @@
   const CE = {
     W, H, COINS, MAPS, MAX_ROUNDS, MAX_PLAYERS, GRACE_MS, WALL_P,
     fnv, rng, idx, inB, mapsOrder, runSeed, genRound, simulate, verify,
-    coinAt, bonusAt, isWall, STEP,
+    coinAt, bonusAt, bonusIdxAt, isWall, STEP,
     isResult, isSurr, resultsOf, surrenderedOf, activeOf, openTs: openTsOf, closeTs, absentOf, roundPlan, table, winnerOf
   };
   glob.CE = CE;
