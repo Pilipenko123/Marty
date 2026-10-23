@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-79';
+const BUILD = 'pkg3-80';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -537,7 +537,7 @@ function createApi(store, opts = {}) {
     return db.chats
       .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing'
         && (c.game.white === uid || c.game.black === uid
-          || (Array.isArray(c.game.players) && c.game.players.includes(uid)))   // pkg3-78: «Монеты»
+          || (Array.isArray(c.game.players) && c.game.players.includes(uid)))   // pkg3-78: «Золотая лихорадка»
         && (c.knocks || []).length)
       .map(c => ({
         id: c.id, white: c.game.white, black: c.game.black,
@@ -627,7 +627,7 @@ function createApi(store, opts = {}) {
         // завершённую не трогаем: зрители и игроки могут перечитывать историю
         if (g.status === 'invite') { if (!c.members.includes(c.ownerId)) dead.push(c.id); }
         else if (g.status === 'playing') {
-          // pkg3-78: у «Монет» нет белых/чёрных — забег жив, пока в составе есть
+          // pkg3-78: у «Золотой лихорадки» нет белых/чёрных — забег жив, пока в составе есть
           // хотя бы один игрок (соло — норма; вышли все — чат стирается)
           const coins = g.rules === 'coins';
           const players = coins ? (g.players || []) : [g.white, g.black].filter(Boolean);
@@ -771,7 +771,7 @@ function createApi(store, opts = {}) {
       // pkg3-57: подпись пуша — только из готового набора (сервер не читает
       // переписку, а клиенту важно разбудить устройство соперника в морском
       // бою внятным текстом). Неизвестный знак — прежняя подпись по умолчанию.
-      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию', coins: '«Монеты»: есть новости забега — откройте партию' };
+      const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию', coins: '«Золотая лихорадка»: есть новости забега — откройте партию' };
       sent += await notifyPush(chat, me, NOTIFY_BODIES[String(b.body || '')]);
       if (kind === 'thr' && m) {
         const author = db.users.find(u => u.id === m.uid);
@@ -2156,7 +2156,7 @@ function createApi(store, opts = {}) {
     // --- чаты-игры: шахматы и шашки как чат (правила живут в клиентах, сервер слеп)
     if (pathname === '/api/games' && method === 'POST') {
       const b = req.body || {};
-      // pkg3-78: «Монеты» — золотая лихорадка. Соперник не обязателен: можно играть
+      // pkg3-78: «Золотая лихорадка». Соперник не обязателен: можно играть
       // одному или позвать до трёх человек сразу (всего четверо). Сервер правила
       // не понимает (переписка сквозная) — только записывает в карточку зерно
       // карты, минуты и число раундов; карты и раскладки рождаются на устройствах
@@ -2164,7 +2164,7 @@ function createApi(store, opts = {}) {
       if (String(b.rules || '') === 'coins') {
         const invited = Array.from(new Set((Array.isArray(b.players) ? b.players : []).map(x => String(x))))
           .filter(id => id && id !== me.id);
-        if (invited.length > 3) return E(400, 'В монеты играют максимум вчетвером');
+        if (invited.length > 3) return E(400, 'В «Золотую лихорадку» играют максимум вчетвером');
         for (const id of invited) {
           const u = db.users.find(x => x.id === id);
           if (!u) return E(404, 'Соперник не найден');
@@ -2185,7 +2185,7 @@ function createApi(store, opts = {}) {
         const chat = {
           id: uid(), kind: 'game', ownerId: me.id, createdAt: Date.now(),
           members: [me.id], roles: { [me.id]: 'player' }, keys, knocks: [],
-          // pkg3-78: забег в «Монеты» начинается сразу (создатель может играть
+          // pkg3-78: забег в «Золотую лихорадку» начинается сразу (создатель может играть
           // один, не дожидаясь ответов); кто ещё зовётся — живёт в invitees,
           // а «playing» не мешает приглашению оставаться в силе.
           game: {
@@ -2250,7 +2250,7 @@ function createApi(store, opts = {}) {
     if (pathname.startsWith('/api/games/') && pathname.endsWith('/accept') && method === 'POST') {
       const chat = chatById(pathname.split('/')[3]);
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
-      // pkg3-78: «Монеты» — приглашение адресовано списку, цветов нет: принявший
+      // pkg3-78: «Золотая лихорадка» — приглашение адресовано списку, цветов нет: принявший
       // просто становится игроком и стартует свой раунд, когда удобно.
       if (chat.game.rules === 'coins') {
         const inv = Array.isArray(chat.game.invitees) ? chat.game.invitees : [];
@@ -2313,7 +2313,7 @@ function createApi(store, opts = {}) {
       const chat = chatById(pathname.split('/')[3]);
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
       if (!chat.members.includes(me.id)) return E(403, 'Вы не участник этой игры');
-      // pkg3-78: выход из «Монет» — не «сдался победителю», а просто вышел:
+      // pkg3-78: выход из «Золотой лихорадки» — не «сдался победителю», а просто вышел:
       // остальные продолжают забег, а раунды больше не ждут результатов ушедшего.
       // Игру стираем, только если игроков не осталось вовсе.
       if (chat.game.rules === 'coins') {

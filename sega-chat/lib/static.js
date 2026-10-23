@@ -8,7 +8,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
-  // pkg3-79: карты «Монет» — jpg; без своей строки браузер получал «application/octet-stream»
+  // pkg3-79: карты «Золотой лихорадки» — jpg; без своей строки браузер получал «application/octet-stream»
   // и при запрете распознавания типа отказывался показывать картинку (пустое поле)
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
   '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.json': 'application/json; charset=utf-8'
