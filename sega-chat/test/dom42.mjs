@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v77'), 'кэш статики поднят до v77 (лечение сохранения подхватится сразу)');
+ok(sw.includes('sega-static-v78'), 'кэш статики поднят до v78 (семь новых карт подхватятся сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-84';") && apiJs.includes("const BUILD = 'pkg3-84';"), 'клиент и сервер помечены pkg3-84');
+ok(appJs.includes("const BUILD = 'pkg3-85';") && apiJs.includes("const BUILD = 'pkg3-85';"), 'клиент и сервер помечены pkg3-85');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -547,8 +547,9 @@ ok(css.includes('.avatar .gimg{'), 'иконка игры на аватаре ч
 const coinsEng = readFileSync(join(PUB, 'coins-engine.js'), 'utf8');
 ok(html.includes('<script src="coins-engine.js"></script>') && html.indexOf('coins-engine.js') < html.indexOf('src="app.js"'),
   'движок «Золотой лихорадки» подключён в index.html раньше клиента');
-ok(coinsEng.includes('const MAX_PLAYERS = 4') && coinsEng.includes('const MAPS = 6') && coinsEng.includes('const COINS = 40'),
-  'движок: до 4 игроков, 6 карт, 40 монет одного достоинства');
+ok(coinsEng.includes('const MAX_PLAYERS = 4') && coinsEng.includes('const MAPS = 13') && coinsEng.includes('const COINS = 40'),
+  'движок: до 4 игроков, колода из 13 карт (pkg3-85), 40 монет одного достоинства');
+ok(coinsEng.includes('const MAX_ROUNDS = 6;'), 'pkg3-85: раундов по-прежнему не больше шести — из тринадцати карт выбираются шесть');
 ok(coinsEng.includes('function genRound') && coinsEng.includes('function simulate') && coinsEng.includes('function verify'),
   'движок: раскладка из зерна, перепроигрывание пути и проверка чужого результата');
 ok(coinsEng.includes('function progressOf') && coinsEng.includes('function surrenderOf'),
@@ -559,7 +560,8 @@ ok(coinsEng.includes('function roundPlan') && coinsEng.includes('function winner
   'план раундов и победитель считаются движком — одинаково на всех устройствах');
 ok(apiJs.includes('В «Сталкер» играют максимум вчетвером'), 'сервер: гостей не больше трёх — всего четыре игрока');
 ok(apiJs.includes('Math.min(6, Math.max(1, Math.round(Number(b.rounds) || 3)))') && apiJs.includes('Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)))'),
-  'сервер: раундов 1–6, минут 1–30 (по умолчанию 3)');
+  'сервер: раундов 1–6; целые минуты чтутся у старых клиентов, у новых — секунды (pkg3-85: по умолчанию 1 минута)');
+ok(apiJs.includes('else sec = 60;'), 'pkg3-85: время не указано — по умолчанию минута');
 ok(apiJs.includes("if (chat.game.rules === 'coins') {"), 'сервер знает «Монеты» в accept/decline/leave');
 ok(apiJs.includes('invitees = inv.filter(x => x !== me.id)'), 'отказ и принятие вычёркивают из списка приглашённых, чужой забег не убивая');
 ok(apiJs.includes("coins: '«Сталкер»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
@@ -628,7 +630,7 @@ ok(gsJs.includes('m.nextAt = ctx.currentTime + 0.05;') && gsJs.includes('0.085')
   'правка 6: мелодия не «стреляет очередью из прошлого», переставлена на текущий такт и стала слышнее');
 ok(appJs.includes('GS.isEnabled() && GS.musicPref() && !GS.isPlaying()') && appJs.includes('GS.startMusic(L.gen.mapIdx);'),
   'правка 6: тикер забега лечит мелодию сам — запускает её снова, если контекст не ожил с первого раза');
-ok(gsJs.includes("version: 'pkg3-82'"), 'звуковой движок помечен pkg3-82');
+ok(gsJs.includes("version: 'pkg3-85'"), 'звуковой движок помечен pkg3-85');
 
 // pkg3-83: имя «Сталкер», иконки владельца, двухшаговое меню, победитель не прячется
 ok(appJs.includes("const GAME_NAMES = { chess: 'Шахматы', checkers: 'Шашки (русские)', seabattle: 'Морской бой', coins: 'Сталкер' };"),
@@ -650,6 +652,25 @@ ok(appJs.indexOf("else if (plan.final) phase = 'final';") < appJs.indexOf("else 
   'пункт 2: финал забега главнее вскрытой карты — закончивший последним сразу видит победителя, а не «ждём остальных»');
 ok(appJs.includes('const wLine = cs.winner') && appJs.includes("'победил ' + gamePlayerName(cs.winner.ids[0])"),
   'пункт 2: победитель объявлен в шапке таблицы результатов (и в строке над панелью, как прежде)');
+
+// pkg3-85: тринадцать карт «Сталкера» и время раунда с шагом 10 секунд
+ok(coinsEng.includes('const MAPS = 13;') && coinsEng.includes('const MAX_ROUNDS = 6;'),
+  'пункт 1: колода из тринадцати карт, раундов по-прежнему не больше шести — на забег выбираются шесть случайных');
+for (let i = 7; i <= 13; i++) {
+  ok(readFileSync(join(PUB, 'img', 'coins-map' + i + '.jpg')).length > 40000,
+    'пункт 1: новая карта coins-map' + i + '.jpg на месте и не пустая');
+}
+ok(gsJs.includes('329.63'), 'пункт 1: у тринадцати карт — тринадцать тональностей мелодий');
+ok(appJs.includes('id="ng-sec-minus"') && appJs.includes('id="ng-sec-plus"') && appJs.includes('id="ng-sec-view"'),
+  'пункт 2: время раунда крутится кнопками «− 10 с» / «+ 10 с»');
+ok(appJs.includes('<input id="ng-sec" type="hidden" value="60">'),
+  'пункт 2: по умолчанию — одна минута');
+ok(appJs.includes('const coinsSecOf =') && appJs.includes('const fmtCoinsTime ='),
+  'пункт 2: старые игры (целые минуты) и новые (секунды) читаются одним кодом');
+ok(apiJs.includes('sec = Math.min(1800, Math.max(10, sec || 60));'),
+  'пункт 2: сервер держит границы 10 секунд — 30 минут с шагом 10 секунд');
+ok(apiJs.includes('invitees: invited, players: [me.id], seed, minutes, sec, rounds, result: null'),
+  'пункт 2: карточка игры несёт и секунды, и дробные минуты — старым клиентам всё читается');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

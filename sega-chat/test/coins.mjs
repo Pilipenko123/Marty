@@ -66,8 +66,8 @@ const SEED = 'c0ffee00feed1234';
   const order1 = CE.mapsOrder(SEED, 1);
   const order1b = CE.mapsOrder(SEED, 1);
   ok(JSON.stringify(order1) === JSON.stringify(order1b), 'порядок карт из зерна воспроизводится точно');
-  ok(order1.length === CE.MAPS && [...order1].sort((x, y) => x - y).join() === '0,1,2,3,4,5',
-    'порядок карт — перестановка всех шести карт');
+  ok(order1.length === CE.MAPS && [...order1].sort((x, y) => x - y).join() === Array.from({ length: CE.MAPS }, (_, i) => i).join(),
+    'порядок карт — перестановка всей колоды из ' + CE.MAPS + ' карт');
   const order2 = CE.mapsOrder(CE.runSeed(SEED, 2), 2);
   ok(JSON.stringify(order1) !== JSON.stringify(order2), 'у соло-забега №2 свой порядок карт');
   ok(CE.runSeed(SEED, 1) === String(SEED) && CE.runSeed(SEED, 2) !== String(SEED), 'первый забег — на исходном зерне, следующие — на производных');
@@ -136,6 +136,12 @@ function pathTo(gen, target) {
   const badRes = { score: back.score, end: back.end, hg: 0, moves: mv, startedAt: 0, finishedAt: limitMs + 2999 };
   ok(CE.verify(gen, okRes, 3) === true, 'с часами лимит честно длиннее — результат проходит');
   ok(CE.verify(gen, badRes, 3) === false, 'заниженное число часов результат не спасает');
+  // pkg3-85: дробные минуты (секунды с шагом 10 с) честно меняют лимит
+  const mv70 = pathTo(gen, gen.coins[0]);
+  const s70 = CE.simulate(gen, mv70);
+  const res70 = { score: s70.score, end: s70.end, hg: s70.hg, moves: mv70, startedAt: 0, finishedAt: 65 * 1000 };
+  ok(CE.verify(gen, res70, 70 / 60) === true, 'pkg3-85: 65 секунд укладываются в лимит «1:10»');
+  ok(CE.verify(gen, res70, 1) === false, 'pkg3-85: тот же результат не влезает в прежний лимит «1 мин» — лимит считается из секунд');
 }
 
 // ─────────────────── pkg3-80: бонус одноразовый — как монета ───────────────────
@@ -310,13 +316,24 @@ ok(r.status === 400 && /максимум вчетвером/.test(r.d.error || '
 r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [P.d.id], minutes: 99, rounds: 99, keys: keysOf([P.c.id, P.d.id]) } }, P.c.token);
 ok(r.status === 200 && r.d.chat.game.minutes === 30 && r.d.chat.game.rounds === 6, '99 минут стали 30, 99 раундов — 6 (карт в комплекте шесть)');
 
+// ── pkg3-85: время раунда в секундах с градацией 10 с, по умолчанию 1 минута
+r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [], sec: 75, rounds: 2, seed: 'abc123', keys: keysOf([P.a.id]) } }, P.a.token);
+ok(r.status === 200 && r.d.chat.game.sec === 80 && Math.abs(r.d.chat.game.minutes - 80 / 60) < 1e-9,
+  'pkg3-85: 75 секунд округлились до 80 по шагу 10 с; минуты хранятся дробно (старые клиенты читают и их)');
+r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [], rounds: 2, seed: 'abc123', keys: keysOf([P.a.id]) } }, P.a.token);
+ok(r.status === 200 && r.d.chat.game.sec === 60, 'pkg3-85: время не указано — по умолчанию 1 минута');
+r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [], sec: 5, rounds: 2, seed: 'abc123', keys: keysOf([P.e.id]) } }, P.e.token);
+ok(r.status === 200 && r.d.chat.game.sec === 10, 'pkg3-85: меньше 10 секунд не бывает — нижняя граница шага');
+r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [], sec: 99999, rounds: 2, seed: 'abc123', keys: keysOf([P.e.id]) } }, P.e.token);
+ok(r.status === 200 && r.d.chat.game.sec === 1800, 'pkg3-85: больше 30 минут не бывает — верхняя граница');
+
 // ── забег на четверых: создатель играет сразу, трое — в приглашённых; зерно чистится
 r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [P.a.id, P.c.id, P.d.id], seed: 'QQ-deadBEEF-77', keys: keysOf([P.b.id, P.a.id, P.c.id, P.d.id]) } }, P.b.token);
 ok(r.status === 200 && r.d.chat.game.seed === 'deadBEEF77', 'зерно карты очищено от мусора (остались только шестнадцатеричные знаки)');
 const gameId = r.d.chat.id;
 ok(r.d.chat.game.players.length === 1 && r.d.chat.game.invitees.length === 3 && r.d.chat.game.status === 'playing'
-  && r.d.chat.game.minutes === 3 && r.d.chat.game.rounds === 3,
-'забег на четверых: создатель играет сразу, трое приглашены, 3 раунда по 3 минуты');
+  && r.d.chat.game.sec === 60 && r.d.chat.game.minutes === 1 && r.d.chat.game.rounds === 3,
+'забег на четверых: создатель играет сразу, трое приглашены, 3 раунда по 1 минуте (pkg3-85: новый дефолт)');
 
 // ── ключ чата обязателен для каждого участника
 r = await call(base, '/api/games', { method: 'POST', body: { rules: 'coins', players: [P.a.id], keys: keysOf([P.e.id]) } }, P.e.token);

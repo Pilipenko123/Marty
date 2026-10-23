@@ -33,9 +33,10 @@ console.log('══════════════════════�
   const a = GS.melodyFor(0), b = GS.melodyFor(0);
   ok(JSON.stringify(a) === JSON.stringify(b), 'мелодия карты рождается из зерна — два вызова дают одни и те же ноты');
   const set = new Set();
-  for (let i = 0; i < 6; i++) set.add(JSON.stringify(GS.melodyFor(i)));
-  ok(set.size === 6, 'у всех шести карт — шесть разных мелодий');
-  ok(GS.melodyFor(9).map === 3 && GS.melodyFor(-1).map === 5, 'номер карты заворачивается в диапазон 0..5');
+  for (let i = 0; i < 13; i++) set.add(JSON.stringify(GS.melodyFor(i)));
+  ok(set.size === 13, 'у всех тринадцати карт — тринадцать разных мелодий');
+  ok(GS.melodyFor(13).map === 0 && GS.melodyFor(-1).map === 12, 'номер карты заворачивается в диапазон 0..12');
+  ok(GS.ROOTS.length === 13, 'у тринадцати карт — тринадцать своих тональностей');
   let calm = true, ranged = true, bassOk = true;
   for (let i = 0; i < 6; i++) {
     const m = GS.melodyFor(i);
@@ -206,9 +207,9 @@ ok(appJs.includes('data-ng-rules="${r}"') && appJs.includes("gameIconImg(r, 'gim
 ok(apiJs.includes('«Сталкер»: есть новости забега'), 'pkg3-83: пуш сервера говорит «Сталкер»');
 
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-84';") && apiJs.includes("const BUILD = 'pkg3-84';"),
-  'BUILD pkg3-84 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v77';"), 'кэш статики поднят до v77');
+ok(appJs.includes("const BUILD = 'pkg3-85';") && apiJs.includes("const BUILD = 'pkg3-85';"),
+  'BUILD pkg3-85 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v78';"), 'кэш статики поднят до v78');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');
