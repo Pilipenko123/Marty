@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/run-all.mjs && node test/test-cluster.mjs && node test/test-backup.mjs && node test/chess-perft.mjs && node test/checkers.mjs && node test/test-local-cache.mjs && node test/dom42.mjs && node test/boot.mjs && node test/import-backup.mjs && node test/import-ydb.mjs && node test/sections.mjs && node test/body-methods.mjs && node test/newrules54.mjs && node test/boot-fail.mjs && node test/watchdog55.mjs && node test/seabattle.mjs && node test/seabattle-ui.mjs && node test/sbfleet.mjs && node test/admin-mod.mjs && node test/groupkeys.mjs && node test/storage.mjs && node test/typing77.mjs && node test/static79.mjs && node test/sound80.mjs && node test/games81.mjs && node test/coins.mjs && node test/recover.mjs"
+    "test": "node test/run-all.mjs && node test/test-cluster.mjs && node test/test-backup.mjs && node test/chess-perft.mjs && node test/checkers.mjs && node test/test-local-cache.mjs && node test/dom42.mjs && node test/boot.mjs && node test/import-backup.mjs && node test/import-ydb.mjs && node test/sections.mjs && node test/body-methods.mjs && node test/newrules54.mjs && node test/boot-fail.mjs && node test/watchdog55.mjs && node test/seabattle.mjs && node test/seabattle-ui.mjs && node test/sbfleet.mjs && node test/admin-mod.mjs && node test/groupkeys.mjs && node test/storage.mjs && node test/typing77.mjs && node test/static79.mjs && node test/sound80.mjs && node test/games81.mjs && node test/games82.mjs && node test/coins.mjs && node test/recover.mjs"
   },
   "engines": {
     "node": ">=16"
