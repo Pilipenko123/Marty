@@ -95,6 +95,11 @@ ensure_key SEGA_ROLE primary
 ensure_key SEGA_LABEL '"VPS (основной)"'   # значение с пробелом — в кавычках, как и было
 ensure_key SEGA_STANDBY_URL ""
 ensure_key SEGA_STANDBY_TOKEN "$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+# pkg3-84: щадящее фоновое сохранение базы на VPS: запрос с изменением отвечает
+# сразу, базу дописывает фоновая волна (~раз в секунду), на выходе — синхронный
+# дожжим. Без этого каждый изменяющий запрос синхронно переписывал всю базу
+# до ответа — на выросшей базе и тесном тарифе сервер временами «задыхался».
+ensure_key FILE_FLUSH_BG 1
 chmod 600 "$APP/.env"
 OLD_TOKEN="$(sed -n 's/^SEGA_STANDBY_TOKEN=//p' "$APP/.env" | head -1)"
 if grep -q '^VAPID_PUBLIC_KEY=' "$APP/.env"; then
