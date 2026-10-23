@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-80';
+const BUILD = 'pkg3-81';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -63,6 +63,25 @@ function createApi(store, opts = {}) {
       if (freshTyping(userId, now)) out.push({ uid: userId, kind: t.kind });
     }
     return out;
+  }
+  /** pkg3-81 (пункт 11 владельца): «смотрю на доску». Пока игровой чат открыт
+   * на экране, клиент каждые несколько секунд спрашивает /api/typing — сервер
+   * запоминает: человек СМОТРИТ на эту партию. Пуш «ход в игре» такому человеку
+   * не отправляется: игра и так перед глазами (а спящее окно пуш разбудит,
+   * когда сигнал «смотрю» истечёт сам). Сигнал живёт только в памяти. */
+  const WATCH_TTL = Number(process.env.WATCH_TTL_MS || 12000);
+  const watchNow = new Map();   // userId -> { chat, ts }
+  function setWatching(userId, chatId) { watchNow.set(userId, { chat: chatId, ts: Date.now() }); }
+  function freshWatch(userId, now) {
+    const w = watchNow.get(userId);
+    if (!w) return null;
+    if ((now || Date.now()) - w.ts > WATCH_TTL) { watchNow.delete(userId); return null; }
+    return w;
+  }
+  /** Смотрит ли человек прямо сейчас на доску ИМЕННО этой игры. */
+  function isWatchingGame(userId, chatId, now) {
+    const w = freshWatch(userId, now || Date.now());
+    return !!(w && w.chat === chatId);
   }
   /** То же по всем чатам участника разом — прикрепляется к ответу синхронизации. */
   function typingInChats(chatIds, now, exceptUid) {
@@ -519,6 +538,16 @@ function createApi(store, opts = {}) {
     }
     return db.chats
       .filter(c => c.kind === 'game' && c.game && c.game.status === 'playing' && !c.members.includes(uid))
+      // pkg3-81 (пункт 9): приглашение ещё не принято — игра НЕ показывается
+      // в «Сейчас играют»: она ждёт ответа в личном чате, а не зовёт постучаться
+      .filter(c => c.game.invitee !== uid
+        && !(Array.isArray(c.game.invitees) && c.game.invitees.includes(uid)))
+      // pkg3-81 (пункт 8): вышел из игры — она исчезает у тебя совсем,
+      // даже если остальные ещё играют
+      .filter(c => !(Array.isArray(c.game.leftBy) && c.game.leftBy.includes(uid)))
+      // pkg3-81 (пункт 9): соло-забег «Золотой лихорадки» — личное дело игрока:
+      // в справочнике «Сейчас играют» он не светится и зрителей не зовёт
+      .filter(c => c.game.rules !== 'coins' || (Array.isArray(c.game.players) && c.game.players.length >= 2))
       // pkg3-78: у «Монет» нет белых/чёрных — круг проверяем по списку игроков
       .filter(c => me.isAdmin || circle.has(c.game.white) || circle.has(c.game.black)
         || (Array.isArray(c.game.players) && c.game.players.some(p => circle.has(p))))
@@ -726,14 +755,17 @@ function createApi(store, opts = {}) {
   /**
    * Разослать уведомление участникам чата (кроме отправителя).
    * Возвращает число доставок; на всё про всё — не дольше PUSH_BUDGET.
+   * pkg3-81 (пункт 11): skipWatchers — не будить тех, у кого эта партия
+   * открыта на экране прямо сейчас (их окно и так получит письмо опросом).
    */
-  async function notifyPush(chat, sender, body) {
+  async function notifyPush(chat, sender, body, skipWatchers) {
     if (!pushEnabled() || !chat) return 0;
     const webpush = pusher();
     const payload = JSON.stringify({ title: 'SEGA-CHAT', body: body || 'Новое сообщение', tag: chat.id });
     const jobs = [];
     for (const u of db.users) {
       if (u.id === sender.id || !chat.members.includes(u.id)) continue;
+      if (skipWatchers && isWatchingGame(u.id, chat.id)) continue;
       for (const sub of (u.pushSubs || [])) jobs.push(deliver(webpush, u, sub, payload));
     }
     if (!jobs.length) return 0;
@@ -760,10 +792,21 @@ function createApi(store, opts = {}) {
    * ждёт доставки: сообщение у него на экране появляется мгновенно.
    */
   async function runNotify(b, me) {
-    if (!pushEnabled()) return { ok: true, sent: 0, push: false };
     const kind = String(b.kind || b.k || 'msg');
     const chat = chatById(b.chat);
     if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+    // pkg3-81 (пункт 11): пуш «ход в игре» / «новости забега» НЕ уходит тем,
+    // у кого эта партия сейчас открыта на экране, — они видят ход своими глазами.
+    // Считаем смотрящих даже когда пуш выключен: число возвращается клиенту и тестам.
+    const gameBody = (kind === 'msg' || kind === 'thr')
+      && ['game', 'coins'].includes(String(b.body || ''));
+    let watched = 0;
+    if (gameBody) {
+      for (const u of db.users) {
+        if (u.id !== me.id && chat.members.includes(u.id) && isWatchingGame(u.id, chat.id)) watched++;
+      }
+    }
+    if (!pushEnabled()) return { ok: true, sent: 0, push: false, watched };
     let sent = 0;
     if (kind === 'msg' || kind === 'thr') {
       const m = b.mid ? await findMessage(b.mid) : null;
@@ -772,7 +815,7 @@ function createApi(store, opts = {}) {
       // переписку, а клиенту важно разбудить устройство соперника в морском
       // бою внятным текстом). Неизвестный знак — прежняя подпись по умолчанию.
       const NOTIFY_BODIES = { game: 'Ход в игре — откройте партию', coins: '«Золотая лихорадка»: есть новости забега — откройте партию' };
-      sent += await notifyPush(chat, me, NOTIFY_BODIES[String(b.body || '')]);
+      sent += await notifyPush(chat, me, NOTIFY_BODIES[String(b.body || '')], gameBody);
       if (kind === 'thr' && m) {
         const author = db.users.find(u => u.id === m.uid);
         if (author && author.id !== me.id) sent += await notifyPushTo(author, me, me.name + ' прокомментировал(а) ваше сообщение');
@@ -789,7 +832,7 @@ function createApi(store, opts = {}) {
     } else {
       return E(400, 'Непонятный тип уведомления');
     }
-    return { ok: true, sent };
+    return { ok: true, sent, watched };
   }
 
   // ------------------------------------------------------------- журнал изменений
@@ -1391,6 +1434,9 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/typing' && method === 'GET') {
       const chat = chatById(String(query.get('chat') || ''));
       if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
+      // pkg3-81 (пункт 11): этот же лёгкий опрос — сигнал «доска перед глазами»:
+      // пока игровой чат открыт и виден, клиент спрашивает его каждые 4 секунды.
+      if (chat.kind === 'game') setWatching(me.id, chat.id);
       return J(200, { typing: typingInChat(chat.id, Date.now(), me.id) });
     }
 
@@ -2322,6 +2368,9 @@ function createApi(store, opts = {}) {
         delete chat.keys[me.id];
         chat.game.players = (chat.game.players || []).filter(x => x !== me.id);
         chat.game.invitees = (chat.game.invitees || []).filter(x => x !== me.id);
+        // pkg3-81 (пункт 8): вышел — игра исчезает у тебя совсем: её больше нет
+        // ни в «Игровых чатах», ни в «Сейчас играют», ни постучаться
+        chat.game.leftBy = Array.from(new Set([...(chat.game.leftBy || []), me.id]));
         let wiped = false;
         if (!chat.game.players.length) {
           dropChat(chat.id);
@@ -2344,6 +2393,8 @@ function createApi(store, opts = {}) {
       chat.members = chat.members.filter(x => x !== me.id);
       delete chat.roles[me.id];
       delete chat.keys[me.id];
+      // pkg3-81 (пункт 8): ушёл — партия больше не показывается тебе в «Сейчас играют»
+      chat.game.leftBy = Array.from(new Set([...(chat.game.leftBy || []), me.id]));
       let wiped = false;
       const playersIn = [chat.game.white, chat.game.black].filter(x => x && chat.members.includes(x));
       if (!playersIn.length) {
@@ -2385,6 +2436,10 @@ function createApi(store, opts = {}) {
       if (!chat || chat.kind !== 'game') return E(404, 'Игра не найдена');
       if (chat.members.includes(me.id)) return E(400, 'Вы уже в этой игре');
       if (chat.game.status !== 'playing') return E(400, 'Игра ещё не началась или уже закончена');
+      // pkg3-81 (пункт 8): из игры, которую сам покинул, не стучатся
+      if (Array.isArray(chat.game.leftBy) && chat.game.leftBy.includes(me.id)) {
+        return E(403, 'Вы вышли из этой игры — она у вас больше не показывается');
+      }
       chat.knocks = chat.knocks || [];
       if (!chat.knocks.includes(me.id)) chat.knocks.push(me.id);
       db.seq++; save();
