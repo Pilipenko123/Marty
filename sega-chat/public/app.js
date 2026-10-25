@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-85';
+const BUILD = 'pkg3-86';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4544,6 +4544,254 @@ async function openKnocks(c) {
  * игр с иконками-плитками владельца и названиями; шаг второй — настройки
  * выбранной игры (соперник и кто ходит первый / минуты, раунды и гости).
  * Прежде список и настройки жили в одном окне с выпадающим списком игр. */
+// ─────────────────────────── pkg3-86: «Моя музыка» ───────────────────────────
+/** Плеер мессенджера: ОДИН звуковой элемент на всё приложение; плейлисты —
+ * списки ПРЯМЫХ ссылок на аудиофайлы (треки на VPS не хранятся). Публичные
+ * плейлисты видны участникам, «только я» зашифрованы личным ключом владельца.
+ * Трансляция в статус и «слушать вместе» — следующий выпуск (этап Б). */
+const MUS = { a: null, list: [], idx: -1, plId: null };
+function musicAudio() {
+  if (!MUS.a) {
+    MUS.a = new Audio();
+    MUS.a.preload = 'metadata';
+    MUS.a.addEventListener('ended', () => musicStep(1, true));
+    MUS.a.addEventListener('play', musicFabSync);
+    MUS.a.addEventListener('pause', musicFabSync);
+    MUS.a.addEventListener('timeupdate', musicTickUi);
+  }
+  return MUS.a;
+}
+/** Загрузка моих списков: публичные открыто, личные — расшифровка личным ключом. */
+async function musicLoad() {
+  const r = await api('/api/music');
+  const pub = Array.isArray(r.pub) ? r.pub : [];
+  let priv = [], km = null;
+  if (r.key) {
+    try { km = await importAes(await aesDecryptBytes(S.priv, r.key)); } catch (e) { km = null; }
+  }
+  if (r.priv && km) { try { const p = await decryptJSON(km, r.priv); priv = Array.isArray(p) ? p : []; } catch (e) { priv = []; } }
+  S.music = { pub, priv, km, keyWrap: r.key || null };
+  return S.music;
+}
+/** Сохранение: публичные открыто, личные — шифротекст на ключе музыки. */
+async function musicSave() {
+  const m = S.music;
+  if (!m) return;
+  let key = m.keyWrap || null, privBlob = null;
+  if (m.priv.length) {
+    if (!m.km) {
+      const raw = crypto.getRandomValues(new Uint8Array(32));
+      m.km = await importAes(raw);
+      key = await aesEncryptBytes(S.pub, raw);
+    }
+    privBlob = await encryptJSON(m.km, m.priv);
+  }
+  m.keyWrap = key;
+  await api('/api/music', { method: 'POST', body: { pub: m.pub, priv: privBlob, key } });
+}
+const musicAll = () => ((S.music && S.music.pub) || []).concat((S.music && S.music.priv) || []);
+const musicFind = id => musicAll().find(p => p.id === id) || null;
+const musicUid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function musicPlay(pl, idx) {
+  MUS.list = (pl && pl.tracks) || [];
+  MUS.idx = idx;
+  MUS.plId = (pl && pl.id) || null;
+  const t = MUS.list[idx];
+  if (!t) return;
+  const a = musicAudio();
+  a.src = t.url;
+  a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
+  musicNowUi(); musicFabSync();
+}
+function musicStep(d, auto) {
+  if (!MUS.list.length) return;
+  let n = MUS.idx + d;
+  if (n >= MUS.list.length) { if (auto) { const a = musicAudio(); a.pause(); a.currentTime = 0; musicFabSync(); return; } n = 0; }
+  if (n < 0) n = MUS.list.length - 1;
+  musicPlay(musicFind(MUS.plId) || { id: MUS.plId, tracks: MUS.list }, n);
+}
+function musicNowUi() {
+  const el = document.getElementById('mus-now');
+  if (!el) return;
+  const t = MUS.list[MUS.idx];
+  el.textContent = t ? ('♪ ' + (t.title || t.url)) : '—';
+}
+function musicTickUi() {
+  const a = MUS.a;
+  const time = document.getElementById('mus-time');
+  const seek = document.getElementById('mus-seek');
+  if (!a || !time) return;
+  const d = isFinite(a.duration) ? a.duration : 0;
+  time.textContent = coinsFmtSec(a.currentTime * 1000) + ' / ' + (d ? coinsFmtSec(d * 1000) : '—:—');
+  if (seek && d) seek.value = String(Math.round(a.currentTime / d * 100));
+}
+function musicFabSync() {
+  let fab = document.getElementById('music-fab');
+  const on = !!(MUS.a && !MUS.a.paused && !MUS.a.ended);
+  if (!fab) {
+    fab = document.createElement('button');
+    fab.id = 'music-fab';
+    fab.className = 'music-fab';
+    fab.addEventListener('click', () => openMusic());
+    document.body.appendChild(fab);
+  }
+  fab.classList.toggle('on', on);
+  fab.textContent = on ? '🎵 играет' : '';
+}
+/** Прямая ли ссылка? Пробуем услышать файл за 6 секунд (метаданные аудио). */
+function musicProbe(url) {
+  return new Promise(res => {
+    const p = new Audio();
+    p.preload = 'metadata';
+    const t = setTimeout(() => res(false), 6000);
+    p.onloadedmetadata = () => { clearTimeout(t); res(true); };
+    p.onerror = () => { clearTimeout(t); res(false); };
+    p.src = url;
+  });
+}
+/** Обложка трека: картинка → квадрат 96 px, data-URL (лёгкий, лежит в списке). */
+function musicCoverOf(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = 96; c.height = 96;
+        const x = c.getContext('2d');
+        const s = Math.min(img.width, img.height);
+        x.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 96, 96);
+        res(c.toDataURL('image/jpeg', 0.72));
+      };
+      img.onerror = () => rej(new Error('Картинка не читается'));
+      img.src = fr.result;
+    };
+    fr.onerror = () => rej(new Error('Файл не читается'));
+    fr.readAsDataURL(file);
+  });
+}
+/** Окно «Моя музыка»: плейлисты слева, треки и плеер справа. */
+async function openMusic(wantId) {
+  try {
+    if (!S.music) await musicLoad();
+  } catch (e) { toast('Не удалось загрузить плейлисты: ' + (e.message || e), true); return; }
+  const m = S.music;
+  const all = musicAll();
+  const plId = wantId || MUS.plId || (all[0] && all[0].id) || null;
+  const pl = musicFind(plId);
+  modal('Моя музыка', `<div class="mus-wrap">
+    <div class="mus-left">
+      <div class="mus-pls">${all.map(p => `<button class="mus-pl${p.id === plId ? ' cur' : ''}" data-mus-pl="${escapeHtml(p.id)}">${escapeHtml(p.name)} <span class="tiny muted">${p.vis === 'priv' ? '· только я' : '· публичный'} · ${(p.tracks || []).length}</span></button>`).join('') || '<div class="tiny muted">Плейлистов пока нет.</div>'}</div>
+      <div class="mus-acts"><button class="mini" id="mus-add-pl">+ плейлист</button>${pl ? ' <button class="mini" id="mus-ren-pl">переименовать</button> <button class="mini" id="mus-vis-pl">видимость</button> <button class="mini danger" id="mus-del-pl">удалить</button>' : ''}</div>
+    </div>
+    <div class="mus-right">
+      ${pl ? `<div class="mus-trs">${(pl.tracks || []).map((t, i) => `<div class="mus-tr${MUS.plId === pl.id && MUS.idx === i ? ' cur' : ''}">
+          <button class="mini" data-mus-play="${i}" title="Играть">▶</button>
+          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n">${escapeHtml(t.title || t.url)}</span></span>
+          <button class="mini" data-mus-edit="${i}">правка</button>
+          <button class="mini danger" data-mus-del="${i}" title="Убрать трек">×</button>
+        </div>`).join('') || '<div class="tiny muted">В плейлисте пока нет треков — добавьте первый ниже.</div>'}</div>
+      <div class="mus-add">
+        <input id="mus-url" type="text" placeholder="Прямая ссылка на файл (…/track.mp3, .ogg, .m4a)">
+        <input id="mus-title" type="text" placeholder="Название трека (необязательно)">
+        <input id="mus-cover" type="file" accept="image/*">
+        <button class="mini primary" id="mus-add-tr">Добавить трек</button>
+        <span class="tiny muted">ссылки на страницы (Яндекс.Музыка, VK, YouTube) не играются — только прямые на файл</span>
+      </div>` : '<div class="tiny muted">Создайте первый плейлист слева — в нём будут треки-ссылки на файлы.</div>'}
+      <div class="mus-player">
+        <b id="mus-now">—</b>
+        <div class="mus-ctl">
+          <button class="mini" id="mus-prev" title="Предыдущий">⏮</button>
+          <button class="mini primary" id="mus-toggle">▶ / ⏸</button>
+          <button class="mini" id="mus-next" title="Следующий">⏭</button>
+          <input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка">
+          <span id="mus-time" class="tiny muted">0:00 / —:—</span>
+          <input id="mus-vol" type="range" min="0" max="100" value="90" title="Громкость">
+        </div>
+      </div>
+    </div>
+  </div>`);
+  musicNowUi(); musicTickUi();
+  for (const b of $$('#modal [data-mus-pl]')) b.addEventListener('click', () => openMusic(b.getAttribute('data-mus-pl')));
+  for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => musicPlay(pl, Number(b.getAttribute('data-mus-play'))));
+  for (const b of $$('#modal [data-mus-edit]')) b.addEventListener('click', async () => {
+    const i = Number(b.getAttribute('data-mus-edit'));
+    const t = pl.tracks[i];
+    const url = prompt('Прямая ссылка на файл:', t.url);
+    if (url === null) return;
+    const title = prompt('Название трека:', t.title || '');
+    if (title === null) return;
+    t.url = url.trim() || t.url; t.title = title.trim();
+    await musicSave(); openMusic(pl.id);
+  });
+  for (const b of $$('#modal [data-mus-del]')) b.addEventListener('click', async () => {
+    const i = Number(b.getAttribute('data-mus-del'));
+    if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
+    pl.tracks.splice(i, 1);
+    await musicSave(); openMusic(pl.id);
+  });
+  const addPl = $('#mus-add-pl');
+  if (addPl) addPl.addEventListener('click', async () => {
+    const name = prompt('Название плейлиста:');
+    if (!name || !name.trim()) return;
+    const vis = confirm('Показывать плейлист другим участникам?\n«ОК» — публичный (виден из вашего аватара), «Отмена» — только я (зашифрован)') ? 'pub' : 'priv';
+    const np = { id: musicUid(), name: name.trim(), vis, tracks: [] };
+    m[vis].push(np);
+    await musicSave(); openMusic(np.id);
+  });
+  const renPl = $('#mus-ren-pl');
+  if (renPl) renPl.addEventListener('click', async () => {
+    const name = prompt('Новое название плейлиста:', pl.name);
+    if (!name || !name.trim()) return;
+    pl.name = name.trim();
+    await musicSave(); openMusic(pl.id);
+  });
+  const visPl = $('#mus-vis-pl');
+  if (visPl) visPl.addEventListener('click', async () => {
+    const to = pl.vis === 'pub' ? 'priv' : 'pub';
+    if (!confirm(to === 'pub' ? 'Сделать плейлист публичным (виден другим участникам)?' : 'Скрыть плейлист «только я» (будет зашифрован)?')) return;
+    m[pl.vis] = m[pl.vis].filter(x => x.id !== pl.id);
+    pl.vis = to; m[to].push(pl);
+    await musicSave(); openMusic(pl.id);
+  });
+  const delPl = $('#mus-del-pl');
+  if (delPl) delPl.addEventListener('click', async () => {
+    if (!confirm('Удалить плейлист «' + pl.name + '» со всеми треками?')) return;
+    m[pl.vis] = m[pl.vis].filter(x => x.id !== pl.id);
+    if (MUS.plId === pl.id) { const a = musicAudio(); a.pause(); a.src = ''; MUS.list = []; MUS.idx = -1; MUS.plId = null; musicFabSync(); }
+    await musicSave(); openMusic(null);
+  });
+  const addTr = $('#mus-add-tr');
+  if (addTr) addTr.addEventListener('click', async () => {
+    const url = ($('#mus-url').value || '').trim();
+    if (!/^https:\/\/.+/i.test(url)) { toast('Ссылка должна начинаться с https://', true); return; }
+    const title = ($('#mus-title').value || '').trim();
+    let cover = '';
+    const cf = $('#mus-cover').files && $('#mus-cover').files[0];
+    if (cf) { try { cover = await musicCoverOf(cf); } catch (e) { toast('Обложка не получилась: ' + e.message, true); } }
+    const okProbe = await musicProbe(url);
+    if (!okProbe && !confirm('За 6 секунд файл по ссылке не откликнулся: похоже, это адрес СТРАНИЦЫ, а не файла (ссылки Яндекс.Музыки, VK, YouTube, my.mail.ru не играются). Добавить всё равно?')) return;
+    pl.tracks.push({ id: musicUid(), url, title: title || url, cover });
+    await musicSave(); openMusic(pl.id);
+  });
+  const tog = $('#mus-toggle');
+  if (tog) tog.addEventListener('click', () => {
+    const a = musicAudio();
+    if (!a.src) { if (pl && (pl.tracks || []).length) musicPlay(pl, 0); return; }
+    if (a.paused) a.play().catch(() => toast('Не удалось проиграть трек', true)); else a.pause();
+  });
+  const prev = $('#mus-prev'), next = $('#mus-next');
+  if (prev) prev.addEventListener('click', () => musicStep(-1, false));
+  if (next) next.addEventListener('click', () => musicStep(1, false));
+  const seek = $('#mus-seek');
+  if (seek) seek.addEventListener('input', () => {
+    const a = musicAudio();
+    if (a && isFinite(a.duration) && a.duration) a.currentTime = Number(seek.value) / 100 * a.duration;
+  });
+  const vol = $('#mus-vol');
+  if (vol) vol.addEventListener('input', () => { musicAudio().volume = Number(vol.value) / 100; });
+}
+
 async function openNewGame() {
   const users = S.users.filter(u => u.id !== S.me.id && !u.displayAs);   // pkg3-62: слитых не зовём
   const list = ['chess', 'checkers', 'seabattle', 'coins'].filter(r => r === 'coins' || users.length);
@@ -4553,6 +4801,10 @@ async function openNewGame() {
         ${gameIconImg(r, 'gimg-ng')}
         <span>${escapeHtml(gameNameOf(r))}</span>
       </button>`).join('')}
+      <button class="ng-game" data-ng-music="1" title="Плеер с плейлистами ссылок на треки">
+        <span class="gimg-ng ng-music-ico">🎵</span>
+        <span>Моя музыка</span>
+      </button>
     </div>
     <p class="hint">${users.length
       ? 'Выберите игру — откроются её настройки: соперник, кто ходит первым, время и раунды.'
@@ -4560,6 +4812,8 @@ async function openNewGame() {
   for (const b of $$('#ng-games [data-ng-rules]')) {
     b.addEventListener('click', () => openNewGameSettings(b.getAttribute('data-ng-rules'), users));
   }
+  const mb = $('#ng-games [data-ng-music]');
+  if (mb) mb.addEventListener('click', () => openMusic());
 }
 /** pkg3-83: второй шаг — настройки выбранной игры и создание партии. */
 async function openNewGameSettings(rules, users) {
