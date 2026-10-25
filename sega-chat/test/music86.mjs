@@ -67,7 +67,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-86', 'сервер помечен pkg3-86');
+ok(r.status === 200 && r.d.build === 'pkg3-87', 'сервер помечен pkg3-87');
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
@@ -119,10 +119,12 @@ ok(dbTxt.includes('soundhelix') === false || dbTxt.includes('musicPub'),
 
 // ── метки клиента
 const appJs = readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
+const indexHtml = readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
 const apiJs = readFileSync(path.join(ROOT, 'lib', 'api.js'), 'utf8');
 const css = readFileSync(path.join(ROOT, 'public', 'styles.css'), 'utf8');
-ok(appJs.includes('<span>Моя музыка</span>') && appJs.includes('data-ng-music="1"'),
-  'в меню «+» — плитка «Моя музыка»');
+ok(indexHtml.includes('data-plus="music"') && appJs.includes("act === 'music'"),
+  'в меню «+» — плашка «Моя музыка» (pkg3-87: прямо в первом меню)');
+ok(!appJs.includes('data-ng-music'), 'из списка игр музыка ушла (не игра)');
 ok(appJs.includes('function musicPlay(pl, idx)') && appJs.includes('id="mus-seek"') && appJs.includes('id="mus-vol"'),
   'плеер: играть/пауза, следующий/предыдущий, перемотка и громкость');
 ok(appJs.includes('function musicProbe(url)') && appJs.includes('setTimeout(() => res(false), 6000)'),

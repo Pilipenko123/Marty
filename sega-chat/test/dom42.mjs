@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v79'), 'кэш статики поднят до v79 (плеер «Моя музыка» подхватится сразу)');
+ok(sw.includes('sega-static-v80'), 'кэш статики поднят до v79 (плеер «Моя музыка» подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-86';") && apiJs.includes("const BUILD = 'pkg3-86';"), 'клиент и сервер помечены pkg3-86');
+ok(appJs.includes("const BUILD = 'pkg3-87';") && apiJs.includes("const BUILD = 'pkg3-87';"), 'клиент и сервер помечены pkg3-87');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -528,8 +528,9 @@ ok(appJs.includes('function sigTyping') && appJs.includes('function stopTypingSi
   'клиент: сигнал «пишет…» пока набираешь текст (не чаще раза в 3 с, молчок через 5 с)');
 ok(appJs.includes('function typingLine') && appJs.includes("'пишет…', 'пишут…'") && appJs.includes("'загружает…', 'загружают…'"),
   'в группе и игре заголовок называет имена: «Сергей пишет…», «Сергей и Аня загружают…»');
-ok(appJs.includes("const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…') : '';"),
-  'в личном чате «пишет…»/«загружает…» сменяет «в сети, смотрит чат»');
+ok(appJs.includes("const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…')")
+  && appJs.includes("const ms = musicStatusOf(u && u.id);"),
+  'в личном чате «пишет…»/«загружает…»/«🎵 слушает» сменяют «в сети, смотрит чат»');
 ok(appJs.includes("wake('собеседник пишет')"), 'пока собеседник пишет, окно бодрствует — его письмо прилетит сразу');
 ok(appJs.includes("else if (document.hidden) stopTypingSignal();"), 'спрятали вкладку — сигнал «пишет…» гаснет немедленно');
 const gt77 = appJs.slice(appJs.indexOf('function gameTitle'));
@@ -570,8 +571,8 @@ ok(apiJs.includes("pathname.startsWith('/api/music/')") && apiJs.includes('чу�
   'сервер: другим отдаются ТОЛЬКО публичные плейлисты; личные и ключ — никогда');
 ok(apiJs.includes('me.musicPriv = b.priv;') && apiJs.includes('me.musicKeyWrap = b.key;'),
   'сервер хранит личный список шифротекстом и завёрнутый ключ — слеп, как к переписке');
-ok(appJs.includes('async function openMusic(') && appJs.includes('data-ng-music'),
-  'в меню «+» — плитка «Моя музыка», открывающая плеер');
+ok(appJs.includes('async function openMusic(') && html.includes('data-plus="music"'),
+  'в меню «+» — плашка «Моя музыка», открывающая плеер');
 ok(appJs.includes('function musicProbe(url)') && appJs.includes('похоже, это адрес СТРАНИЦЫ, а не файла'),
   'плеер честно предупреждает: ссылка на страницу (Яндекс.Музыка, VK, YouTube) не проигрывается');
 ok(appJs.includes('async function musicSave()') && appJs.includes('encryptJSON(m.km, m.priv)'),
@@ -581,6 +582,16 @@ ok(appJs.includes('function musicFabSync()') && appJs.includes("fab.id = 'music-
 ok(appJs.includes('function musicCoverOf(file)') && appJs.includes('c.width = 96; c.height = 96;'),
   'обложка трека ужимается до квадрата 96 px и лежит в списке лёгкой картинкой');
 ok(css.includes('.mus-wrap{') && css.includes('.music-fab{'), 'окно плеера и плавающая кнопка оформлены в стилях');
+
+// pkg3-87: этап Б — статус «🎵 слушает», «слушать вместе», чужие публичные списки
+ok(apiJs.includes('const musicNow = new Map()') && apiJs.includes("if (b.kind === 'music')"),
+  'сервер: звуковой статус живёт только в памяти и не привязан к чату');
+ok(apiJs.includes('music: musicInScope(') && appJs.includes('function mergeMusicStatus('),
+  'синхронизация и опрос несут статус «🎵 слушает» только моему кругу');
+ok(appJs.includes('async function musicTogether(') && appJs.includes("if (p.k === 'mus-together')"),
+  '«слушать вместе»: запечатанное письмо-карточка с якорем (трек, позиция, время)');
+ok(appJs.includes('async function openMusicOf(') && css.includes('.mus-of-tr'),
+  'у чужого аватара — окно публичных плейлистов: только чтение, трек идёт с источника');
 ok(apiJs.includes("if (chat.game.rules === 'coins') {"), 'сервер знает «Монеты» в accept/decline/leave');
 ok(apiJs.includes('invitees = inv.filter(x => x !== me.id)'), 'отказ и принятие вычёркивают из списка приглашённых, чужой забег не убивая');
 ok(apiJs.includes("coins: '«Сталкер»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
