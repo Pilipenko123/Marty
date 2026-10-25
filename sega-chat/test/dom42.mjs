@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v78'), 'кэш статики поднят до v78 (семь новых карт подхватятся сразу)');
+ok(sw.includes('sega-static-v79'), 'кэш статики поднят до v79 (плеер «Моя музыка» подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-85';") && apiJs.includes("const BUILD = 'pkg3-85';"), 'клиент и сервер помечены pkg3-85');
+ok(appJs.includes("const BUILD = 'pkg3-86';") && apiJs.includes("const BUILD = 'pkg3-86';"), 'клиент и сервер помечены pkg3-86');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -562,6 +562,25 @@ ok(apiJs.includes('В «Сталкер» играют максимум вчет�
 ok(apiJs.includes('Math.min(6, Math.max(1, Math.round(Number(b.rounds) || 3)))') && apiJs.includes('Math.min(30, Math.max(1, Math.round(Number(b.minutes) || 3)))'),
   'сервер: раундов 1–6; целые минуты чтутся у старых клиентов, у новых — секунды (pkg3-85: по умолчанию 1 минута)');
 ok(apiJs.includes('else sec = 60;'), 'pkg3-85: время не указано — по умолчанию минута');
+
+// pkg3-86: «Моя музыка» — плеер с плейлистами ссылок; треки на сервере не хранятся
+ok(apiJs.includes("pathname === '/api/music' && method === 'GET'") && apiJs.includes("pathname === '/api/music' && method === 'POST'"),
+  'сервер: свои плейлисты читаются и сохраняются маршрутом /api/music');
+ok(apiJs.includes("pathname.startsWith('/api/music/')") && apiJs.includes('чужие личные списки и ключ не отдаются никогда'),
+  'сервер: другим отдаются ТОЛЬКО публичные плейлисты; личные и ключ — никогда');
+ok(apiJs.includes('me.musicPriv = b.priv;') && apiJs.includes('me.musicKeyWrap = b.key;'),
+  'сервер хранит личный список шифротекстом и завёрнутый ключ — слеп, как к переписке');
+ok(appJs.includes('async function openMusic(') && appJs.includes('data-ng-music'),
+  'в меню «+» — плитка «Моя музыка», открывающая плеер');
+ok(appJs.includes('function musicProbe(url)') && appJs.includes('похоже, это адрес СТРАНИЦЫ, а не файла'),
+  'плеер честно предупреждает: ссылка на страницу (Яндекс.Музыка, VK, YouTube) не проигрывается');
+ok(appJs.includes('async function musicSave()') && appJs.includes('encryptJSON(m.km, m.priv)'),
+  'плейлисты «только я» шифруются ключом музыки, завёрнутым в мой публичный ключ');
+ok(appJs.includes('function musicFabSync()') && appJs.includes("fab.id = 'music-fab';"),
+  'пока музыка играет, вне окна живёт плавающая кнопка «🎵 играет»');
+ok(appJs.includes('function musicCoverOf(file)') && appJs.includes('c.width = 96; c.height = 96;'),
+  'обложка трека ужимается до квадрата 96 px и лежит в списке лёгкой картинкой');
+ok(css.includes('.mus-wrap{') && css.includes('.music-fab{'), 'окно плеера и плавающая кнопка оформлены в стилях');
 ok(apiJs.includes("if (chat.game.rules === 'coins') {"), 'сервер знает «Монеты» в accept/decline/leave');
 ok(apiJs.includes('invitees = inv.filter(x => x !== me.id)'), 'отказ и принятие вычёркивают из списка приглашённых, чужой забег не убивая');
 ok(apiJs.includes("coins: '«Сталкер»: есть новости забега — откройте партию'"), 'пуш забега говорит по-человечески');
