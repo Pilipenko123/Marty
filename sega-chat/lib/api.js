@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-85';
+const BUILD = 'pkg3-86';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -2533,6 +2533,39 @@ function createApi(store, opts = {}) {
       chat.knocks = (chat.knocks || []).filter(x => x !== String(b.uid || ''));
       db.seq++; save();
       return J(200, { ok: true });
+    }
+
+    // pkg3-86: «Моя музыка» — плейлисты ссылок на треки. САМИ ТРЕКИ на сервере
+    // не хранятся: сюда прилетают только списки (название, ссылка, обложка).
+    // Публичные плейлисты открыты (по замыслу видны участникам), «только я» —
+    // шифротекст на ключе владельца; ключ завёрнут в его публичный ключ —
+    // сервер слеп к личному.
+    if (pathname === '/api/music' && method === 'GET') {
+      return J(200, {
+        pub: Array.isArray(me.musicPub) ? me.musicPub : [],
+        priv: typeof me.musicPriv === 'string' ? me.musicPriv : null,
+        key: typeof me.musicKeyWrap === 'string' ? me.musicKeyWrap : null
+      });
+    }
+    if (pathname === '/api/music' && method === 'POST') {
+      const b = req.body || {};
+      if (b.pub !== undefined && !Array.isArray(b.pub)) return E(400, 'Плейлисты: ожидался список');
+      if (JSON.stringify(b.pub || []).length > 400 * 1024) return E(413, 'Слишком много плейлистов или треков — предел списка 400 КБ');
+      if (b.priv !== undefined && b.priv !== null && typeof b.priv !== 'string') return E(400, 'Личный список: ожидалась строка шифротекста');
+      if (typeof b.priv === 'string' && b.priv.length > 512 * 1024) return E(413, 'Личный список слишком большой — предел 512 КБ');
+      if (b.key !== undefined && b.key !== null && typeof b.key !== 'string') return E(400, 'Ключ списка: ожидалась строка');
+      if (typeof b.key === 'string' && b.key.length > 4096) return E(400, 'Ключ списка слишком длинный');
+      me.musicPub = b.pub || [];
+      if (b.priv !== undefined) me.musicPriv = b.priv;
+      if (b.key !== undefined) me.musicKeyWrap = b.key;
+      save();
+      return J(200, { ok: true });
+    }
+    if (pathname.startsWith('/api/music/') && method === 'GET') {
+      const u = db.users.find(x => x.id === pathname.split('/')[3]);
+      if (!u) return E(404, 'Нет такого участника');
+      // чужие личные списки и ключ не отдаются никогда
+      return J(200, { pub: Array.isArray(u.musicPub) ? u.musicPub : [] });
     }
 
     // --- профиль: имя, аватар, пароль
