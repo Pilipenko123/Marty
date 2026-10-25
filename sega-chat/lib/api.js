@@ -18,7 +18,7 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-86';
+const BUILD = 'pkg3-87';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -102,6 +102,33 @@ function createApi(store, opts = {}) {
   function clearUploadTyping(userId, chatId) {
     const t = typingNow.get(userId);
     if (t && t.kind === 'upload' && (!chatId || t.chat === chatId)) typingNow.delete(userId);
+  }
+  /** pkg3-87: статус «🎵 слушает». В отличие от «пишет», не привязан к чату:
+   * плеер звучит «вообще», а виден статус во всех чатах человека (шапка, список).
+   * Сервер держит только строку, которую клиент сам решил показать: название
+   * трека из ПУБЛИЧНОГО плейлиста либо пусто («слушает музыку») — личные списки
+   * сервер не читает никогда. Живёт в памяти, истекает само, как «пишет». */
+  const MUSIC_TTL = Number(process.env.TYPING_TTL_MUSIC || 45000);
+  const musicNow = new Map();   // userId -> { note, ts }
+  function setMusicStatus(userId, note) {
+    musicNow.set(userId, { note: String(note || '').slice(0, 80), ts: Date.now() });
+  }
+  function clearMusicStatus(userId) { musicNow.delete(userId); }
+  function freshMusic(userId, now) {
+    const s = musicNow.get(userId);
+    if (!s) return null;
+    if ((now || Date.now()) - s.ts > MUSIC_TTL) { musicNow.delete(userId); return null; }
+    return s;
+  }
+  /** Свежие статусы тех, кто встречается в моих чатах (кроме меня). */
+  function musicInScope(uids, now, exceptUid) {
+    const out = [];
+    for (const uid of uids) {
+      if (uid === exceptUid) continue;
+      const s = freshMusic(uid, now);
+      if (s) out.push({ uid, note: s.note });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------- ответы
@@ -1453,6 +1480,8 @@ function createApi(store, opts = {}) {
           .map(r => ({ id: r.id, from: r.from, to: r.to, chat: r.chat, createdAt: r.createdAt, state: r.state })),
         users: visibleUsers(me).map(publicUser),   // pkg3-48: видим только свой круг, остальных ищет /api/search
         typing: typingInChats(mch.map(c => c.id), rnow, me.id),   // pkg3-77: кто пишет/загружает в моих чатах
+        // pkg3-87: «🎵 слушает» — звуковой статус участников моих чатов (только память)
+        music: musicInScope([...new Set(mch.flatMap(c => c.members))], rnow, me.id),
         usage: usage(),
         me: publicUser(me),
         serverTime: rnow
@@ -1469,6 +1498,9 @@ function createApi(store, opts = {}) {
     // ЧТО человек сейчас делает в чате, — как «в сети», только точнее.
     if (pathname === '/api/typing' && method === 'POST') {
       const b = req.body || {};
+      // pkg3-87: звуковой статус не привязан к чату — чат для него не нужен
+      if (b.kind === 'music') { setMusicStatus(me.id, b.note); return J(200, { ok: true, typing: [] }); }
+      if (b.kind === 'music-off') { clearMusicStatus(me.id); return J(200, { ok: true, typing: [] }); }
       const chat = chatById(String(b.chat || ''));
       if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
       const kind = b.kind === 'type' || b.kind === 'upload' ? b.kind : '';
@@ -1481,7 +1513,10 @@ function createApi(store, opts = {}) {
       // pkg3-81 (пункт 11): этот же лёгкий опрос — сигнал «доска перед глазами»:
       // пока игровой чат открыт и виден, клиент спрашивает его каждые 4 секунды.
       if (chat.kind === 'game') setWatching(me.id, chat.id);
-      return J(200, { typing: typingInChat(chat.id, Date.now(), me.id) });
+      return J(200, {
+        typing: typingInChat(chat.id, Date.now(), me.id),
+        music: musicInScope(chat.members, Date.now(), me.id)   // pkg3-87: кто слушает
+      });
     }
 
     // --- отметка «прочитано» (bucket: <chatId> | thr:<messageId>)
