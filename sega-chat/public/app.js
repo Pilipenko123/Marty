@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-86';
+const BUILD = 'pkg3-87';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -263,6 +263,7 @@ const S = {
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
   typing: [],          // pkg3-77: кто пишет/загружает — [{uid, chat, kind, at}]
+  musicStatus: {},     // pkg3-87: кто слушает музыку — {uid: {note, at}}
   typingHeaderSig: '', // pkg3-77: подпись заголовка, чтобы не перерисовывать его впустую
   chatPos: {},      // pkg3-38: chatId -> где была прокручена лента ({bottom:true} или {id,dy}) — память места в рамках сессии
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
@@ -835,7 +836,8 @@ function doLogout(silent) {
     oldKeysRetry: new Map(),   // pkg3-71
     oldKeysRetryUp: new Map(),   // pkg3-72
     seq: 0, view: null, threadId: null, quote: null, sig: '',
-    typing: [], typingHeaderSig: ''   // pkg3-77: сигналы «пишет/загружает» чужие — выходим, они не наши
+    typing: [], typingHeaderSig: '',   // pkg3-77: сигналы «пишет/загружает» чужие — выходим, они не наши
+    musicStatus: {}   // pkg3-87: чужие звуковые статусы тоже не переживают выход
   });
   $('#messages').innerHTML = '';
   document.title = 'SEGA-CHAT';
@@ -1422,7 +1424,11 @@ setInterval(() => {
   if (!S.token || !S.view || document.hidden) return;
   const cid = S.view;
   api('/api/typing?chat=' + encodeURIComponent(cid))
-    .then(r => { mergeTypingChat(cid, (r && r.typing) || []); refreshTypingHeader(cid); })
+    .then(r => {
+      mergeTypingChat(cid, (r && r.typing) || []);
+      mergeMusicStatus(r && r.music);   // pkg3-87: «🎵 слушает» живёт и гаснет вместе с опросом
+      refreshTypingHeader(cid);
+    })
     .catch(() => {});
 }, TYPING_POLL_MS);
 document.addEventListener('visibilitychange', () => {
@@ -1533,6 +1539,7 @@ async function applySyncMeta(data) {
   // pkg3-77: сигналы «пишет / загружает» пришли вместе с синхронизацией —
   // обновляем список и сразу освежаем подпись под заголовком открытого чата
   if (Array.isArray(data.typing)) { mergeTypingAll(data.typing); refreshTypingHeader(); }
+  if (Array.isArray(data.music)) { mergeMusicStatus(data.music); refreshTypingHeader(); }   // pkg3-87
   // pkg3-49: мои сохранённые личные чаты — по отметкам savedBy у самих чатов;
   // заодно плашка «вас добавили в личные чаты», когда собеседник сохранил переписку
   const meId0 = (S.me && S.me.id) || null;
@@ -2552,6 +2559,14 @@ function gamePayloadHtml(p, chat) {
     const who = p.by === (S.me || {}).id ? 'Вы отклонили приглашение в '
       : userNameById(p.by) + ' отклонил(а) приглашение в ';
     return `<div class="mv-sys">${ico} ${escapeHtml(who + gname)}</div>`;
+  }
+  // pkg3-87: предложение слушать вместе — карточка с кнопкой «Слушать»
+  if (p.k === 'mus-together') {
+    return `<div class="mus-card">${p.cover
+      ? `<img class="mus-cc" src="${escapeHtml(p.cover)}" alt="">`
+      : '<span class="mus-cc mus-cc-e">🎵</span>'}
+      <span class="mus-ct"><b>Слушать вместе</b><span>${escapeHtml(p.title || p.url || '')}</span></span>
+      <button class="mini primary" data-mus-join="${escapeHtml(p.url || '')}" data-mus-title="${escapeHtml(p.title || p.url || '')}" data-mus-pos="${Number(p.pos) || 0}" data-mus-ts="${Number(p.ts) || 0}">Слушать</button></div>`;
   }
   if (p.k === 'game-invite') {
     const mine = p.to === (S.me || {}).id;
@@ -4625,6 +4640,62 @@ function musicTickUi() {
   time.textContent = coinsFmtSec(a.currentTime * 1000) + ' / ' + (d ? coinsFmtSec(d * 1000) : '—:—');
   if (seek && d) seek.value = String(Math.round(a.currentTime / d * 100));
 }
+/** pkg3-87: статус «🎵 слушает»: короткая строка, которую клиент сам решает
+ * показать миру. Название трека уходит только из ПУБЛИЧНОГО плейлиста; из личного
+ * («только я») — пусто, и собеседники видят просто «слушает музыку». */
+function musicStatusNote() {
+  const t = MUS.list[MUS.idx];
+  if (!t) return '';
+  const pl = musicFind(MUS.plId);
+  const pub = !!pl && ((S.music && S.music.pub) || []).some(x => x.id === pl.id);
+  return pub ? String(t.title || t.url).slice(0, 80) : '';
+}
+let musStatusOn = false;
+function musicStatusKick() {
+  if (!S.token) return;
+  const a = MUS.a;
+  const on = !!(a && a.src && !a.paused && !a.ended);
+  if (!on && !musStatusOn) return;
+  musStatusOn = on;
+  api('/api/typing', { method: 'POST', body: on ? { kind: 'music', note: musicStatusNote() } : { kind: 'music-off' } })
+    .catch(() => {});
+}
+setInterval(() => {   // раз в 20 секунд подтверждаем: сервер держит статус 45
+  const a = MUS.a;
+  if (musStatusOn || (a && a.src && !a.paused && !a.ended)) musicStatusKick();
+}, 20000);
+/** Проиграть ОДИН трек по ссылке (чужая карта «слушать вместе» / публичный список). */
+function musicPlayOnce(url, title, offset) {
+  MUS.list = [{ url: url, title: title || url }];
+  MUS.idx = 0; MUS.plId = null;
+  const a = musicAudio();
+  a.src = url;
+  if (offset > 0) {
+    const seek0 = () => {
+      a.removeEventListener('loadedmetadata', seek0);
+      if (isFinite(a.duration) && a.duration && offset < a.duration) a.currentTime = offset;
+    };
+    a.addEventListener('loadedmetadata', seek0);
+  }
+  a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
+  musicNowUi(); musicFabSync();
+}
+/** pkg3-87: «слушать вместе» — письмо в открытый чат с якорем: трек, позиция,
+ * время отправки. Письмо зашифровано ключом чата, как любое другое: сервер не
+ * видит ни трека, ни названия. Собеседник жмёт «Слушать» — плеер стартует с того
+ * же места песни, на котором она у предложившего (якорь догоняет по часам). */
+async function musicTogether() {
+  const c = curChat();
+  const t = MUS.list[MUS.idx];
+  if (!c) { toast('Сначала откройте чат с тем, с кем хотите слушать вместе', true); return; }
+  if (!t || !MUS.a || !MUS.a.src || MUS.a.paused) { toast('Сначала включите трек — потом предложите слушать вместе', true); return; }
+  const payload = {
+    k: 'mus-together', url: t.url, title: t.title || t.url, cover: t.cover || '',
+    pos: Math.round(MUS.a.currentTime || 0), ts: Date.now()
+  };
+  const r = await sendCoins(c, payload);   // тот же запечатанный конверт, что у писем партии
+  if (r) toast('Предложение слушать вместе ушло в чат «' + chatTitle(c) + '»');
+}
 function musicFabSync() {
   let fab = document.getElementById('music-fab');
   const on = !!(MUS.a && !MUS.a.paused && !MUS.a.ended);
@@ -4637,7 +4708,19 @@ function musicFabSync() {
   }
   fab.classList.toggle('on', on);
   fab.textContent = on ? '🎵 играет' : '';
+  musicStatusKick();   // pkg3-87: play/pause/конец трека сразу отражаются в статусе
 }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-mus-join]');
+  if (!b) return;
+  const url = b.getAttribute('data-mus-join');
+  if (!url) return;
+  const pos = Number(b.getAttribute('data-mus-pos')) || 0;
+  const ts = Number(b.getAttribute('data-mus-ts')) || 0;
+  const off = Math.max(0, pos + (Date.now() - ts) / 1000);   // якорь догоняет песню
+  musicPlayOnce(url, b.getAttribute('data-mus-title') || url, off);
+  toast('Слушаем вместе: трек пошёл с того же места');
+});
 /** Прямая ли ссылка? Пробуем услышать файл за 6 секунд (метаданные аудио). */
 function musicProbe(url) {
   return new Promise(res => {
@@ -4707,6 +4790,7 @@ async function openMusic(wantId) {
           <input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка">
           <span id="mus-time" class="tiny muted">0:00 / —:—</span>
           <input id="mus-vol" type="range" min="0" max="100" value="90" title="Громкость">
+          <button class="mini" id="mus-together" title="Предложить открытому чату слушать этот трек вместе">🎧 вместе</button>
         </div>
       </div>
     </div>
@@ -4790,6 +4874,35 @@ async function openMusic(wantId) {
   });
   const vol = $('#mus-vol');
   if (vol) vol.addEventListener('input', () => { musicAudio().volume = Number(vol.value) / 100; });
+  const tgb = $('#mus-together');
+  if (tgb) tgb.addEventListener('click', () => musicTogether());
+}
+
+/** pkg3-87: «🎵 музыка» у чужого аватара: публичные плейлисты участника, только
+ * чтение. Сервер отдаёт сюда ТОЛЬКО публичное (GET /api/music/ID); личные списки
+ * и ключ не покидают устройство владельца. Кнопка «▶» включает трек НА МОЁМ
+ * устройстве прямо с источника — как обычная ссылка. */
+async function openMusicOf(u) {
+  let pub = [];
+  try {
+    const r = await api('/api/music/' + encodeURIComponent(u.id));
+    pub = Array.isArray(r.pub) ? r.pub : [];
+  } catch (e) { toast('Не удалось открыть музыку участника: ' + (e.message || e), true); return; }
+  const pls = pub.filter(p => (p.tracks || []).length);
+  modal('Музыка · ' + (u.name || ''), pls.length ? `
+    <div class="mus-of">${pls.map(p => `
+      <div class="mus-of-pl"><b>${escapeHtml(p.name || 'Плейлист')}</b>
+        ${(p.tracks || []).map(t => `<button class="mus-of-tr" data-musof-url="${escapeHtml(t.url)}" data-musof-title="${escapeHtml(t.title || t.url)}" title="Включить на моём устройстве">▶ ${escapeHtml(t.title || t.url)}</button>`).join('')}
+      </div>`).join('')}
+    </div>
+    <p class="hint">Это публичные плейлисты участника: звук идёт с источника прямо на ваше устройство, треки не скачиваются на сервер. Личные списки (если они есть) видны только владельцу.</p>`
+    : '<div class="tiny muted">У участника пока нет публичных плейлистов с треками.</div>');
+  $('#modal-body').addEventListener('click', e => {
+    const b = e.target.closest('[data-musof-url]');
+    if (!b) return;
+    hide($('#modal'));
+    musicPlayOnce(b.getAttribute('data-musof-url'), b.getAttribute('data-musof-title'), 0);
+  });
 }
 
 async function openNewGame() {
@@ -4801,10 +4914,6 @@ async function openNewGame() {
         ${gameIconImg(r, 'gimg-ng')}
         <span>${escapeHtml(gameNameOf(r))}</span>
       </button>`).join('')}
-      <button class="ng-game" data-ng-music="1" title="Плеер с плейлистами ссылок на треки">
-        <span class="gimg-ng ng-music-ico">🎵</span>
-        <span>Моя музыка</span>
-      </button>
     </div>
     <p class="hint">${users.length
       ? 'Выберите игру — откроются её настройки: соперник, кто ходит первым, время и раунды.'
@@ -4812,8 +4921,6 @@ async function openNewGame() {
   for (const b of $$('#ng-games [data-ng-rules]')) {
     b.addEventListener('click', () => openNewGameSettings(b.getAttribute('data-ng-rules'), users));
   }
-  const mb = $('#ng-games [data-ng-music]');
-  if (mb) mb.addEventListener('click', () => openMusic());
 }
 /** pkg3-83: второй шаг — настройки выбранной игры и создание партии. */
 async function openNewGameSettings(rules, users) {
@@ -4978,8 +5085,11 @@ function renderRail() {
         : plural(c.members.length, 'участник', 'участника', 'участников'));
     // pkg3-38: напротив личного чата — когда человек последний раз заходил
     // (тот же формат, что вверху личной переписки: «в сети» / «был(а) …»)
+    const mst = c.kind === 'dm' && peer ? musicStatusOf(peer.id) : null;   // pkg3-87
     const seen = c.kind === 'dm' && peer
-      ? `<div class="ci-seen ${isOnline(peer) ? 'on' : ''}" title="Последний визит">${isOnline(peer) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(peer.lastSeen))}</div>`
+      ? (mst
+        ? '<div class="ci-seen on" title="Сейчас слушает музыку">🎵 слушает</div>'
+        : `<div class="ci-seen ${isOnline(peer) ? 'on' : ''}" title="Последний визит">${isOnline(peer) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(peer.lastSeen))}</div>`)
       : '';
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
       ${chatAvatarHtml(c)}
@@ -5084,6 +5194,28 @@ function renderRail() {
 
 /** pkg3-77: строка для заголовка группы/игры — кто прямо сейчас пишет или
  * загружает, с именами: «Сергей пишет…», «Сергей и Аня загружают…». */
+// pkg3-87: звуковой статус участника (свежий — не старше минуты) и строка для шапки
+function mergeMusicStatus(list) {
+  if (!Array.isArray(list)) return;
+  const now = Date.now();
+  S.musicStatus = S.musicStatus || {};
+  for (const x of list) if (x && x.uid) S.musicStatus[x.uid] = { note: String(x.note || ''), at: now };
+}
+function musicStatusOf(uid) {
+  const s = (S.musicStatus || {})[uid];
+  if (!s || Date.now() - s.at > 60000) return null;
+  return s;
+}
+function musicLine(c) {
+  const ids = (c.members || []).filter(id => id !== (S.me || {}).id && musicStatusOf(id));
+  if (!ids.length) return '';
+  return ids.map(id => {
+    const st = musicStatusOf(id);
+    const nm = escapeHtml((userById(id) || {}).name || 'Кто-то');
+    return '🎵 ' + nm + (st.note ? ' слушает: ' + escapeHtml(st.note) : ' слушает музыку');
+  }).join(' · ');
+}
+
 function typingLine(c) {
   const ts = typingIn(c.id);
   if (!ts.length) return '';
@@ -5122,7 +5254,9 @@ function renderTopbar() {
     // pkg3-77: «пишет…» / «загружает…» важнее дежурного «смотрит чат» —
     // как только сигнал погас, строка сама возвращается к прежнему виду
     const t = typingIn(c.id)[0];
-    const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…') : '';
+    const ms = musicStatusOf(u && u.id);   // pkg3-87: слышно, что собеседник слушает
+    const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…')
+      : ms ? ('🎵 слушает' + (ms.note ? ': ' + escapeHtml(ms.note) : ' музыку')) : '';
     $('#chat-sub').innerHTML = act
       ? '<span style="color:#5c9c1e">' + act + '</span> · личная переписка'
       : isOnline(u)
@@ -5131,7 +5265,8 @@ function renderTopbar() {
     $('#input').placeholder = 'Пишите';
   } else {
     const online = c.members.map(userById).filter(isOnline).length;
-    const act = typingLine(c);   // pkg3-77: имена тех, кто пишет/загружает
+    // pkg3-77: имена тех, кто пишет/загружает; pkg3-87: и кто слушает музыку
+    const act = [typingLine(c), musicLine(c)].filter(Boolean).join(' · ');
     $('#chat-sub').innerHTML = `${plural(c.members.length, 'участник', 'участника', 'участников')} · <span style="color:#5c9c1e">${act || online + ' в сети'}</span>`;
     $('#input').placeholder = 'Пишите';
   }
@@ -6696,6 +6831,7 @@ $('#plus-menu').addEventListener('click', e => {
   if (act === 'group') return openCreateChat();
   if (act === 'invite') return openInviteFriend();
   if (act === 'section') return openCreateSection();
+  if (act === 'music') return openMusic();   // pkg3-87: плашка прямо в первом меню
 });
 document.addEventListener('click', e => {
   if (!e.target.closest('#plus-menu') && !e.target.closest('#btn-plus')) plusMenu(false);
@@ -6849,12 +6985,16 @@ $('#btn-members').addEventListener('click', () => {
   if (!c) return;
   const members = c.members.map(userById).filter(Boolean);
   const canAdd = c.kind === 'group';
-  const rows = members.map(u => `<div class="mrow">${avatarHtml(u, '', true)}
+  const rows = members.map(u => {
+    const mst = u.id !== S.me.id ? musicStatusOf(u.id) : null;   // pkg3-87
+    return `<div class="mrow">${avatarHtml(u, '', true)}
       <span class="nm">${escapeHtml(u.name)}${u.id === S.me.id ? ' <span class="muted">(вы)</span>' : ''}${c.ownerId === u.id ? '<span class="tag-admin">создатель</span>' : ''}
-        <div class="tiny muted">${isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
+        <div class="tiny muted">${mst ? '🎵 слушает' + (mst.note ? ': ' + escapeHtml(mst.note) : ' музыку') : isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
+      ${u.id !== S.me.id ? `<button class="mini" data-mus-of="${u.id}" title="Публичные плейлисты участника">🎵 музыка</button>` : ''}
       ${u.id !== S.me.id && c.kind === 'group' ? `<button class="mini" data-open-dm="${u.id}">лично</button>` : ''}
       ${isOwner(c) && u.id !== S.me.id ? `<button class="mini danger" data-kick="${u.id}">убрать</button>` : ''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
   const rest = S.users.filter(u => !c.members.includes(u.id) && !u.displayAs);   // pkg3-62: слитых не зовём
   modal('Участники · ' + chatTitle(c), rows + (canAdd ? `
     <div class="divider"><span>Добавить в чат</span></div>
@@ -6865,6 +7005,12 @@ $('#btn-members').addEventListener('click', () => {
     <p class="hint">Новый участник получит ключ чата и сможет прочитать всю его историю.</p>` : ''));
 
   $('#modal-body').addEventListener('click', async e => {
+    const mo = e.target.closest('[data-mus-of]');   // pkg3-87: чужая музыка
+    if (mo) {
+      const u = userById(mo.getAttribute('data-mus-of'));
+      if (u) openMusicOf(u);
+      return;
+    }
     const dm = e.target.closest('[data-open-dm]');
     if (dm) {
       hide($('#modal'));
