@@ -14,11 +14,12 @@
 const crypto = require('crypto');
 const backup = require('./backup');
 const smtp = require('./smtp.js');   // pkg3-64: письма привязки почты и восстановления (без новых зависимостей)
+const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
 
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-89';
+const BUILD = 'pkg3-90';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -129,6 +130,59 @@ function createApi(store, opts = {}) {
       if (s) out.push({ uid, note: s.note });
     }
     return out;
+  }
+
+  // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (вариант А).
+  // Файлы остаются на Диске владельца; сервер лишь держит ЗАШИФРОВАННЫЙ токен
+  // (ключ выводится из пароля OAuth-приложения, пароль лежит в отдельном
+  // файле /opt/sega/keys/yandex-oauth.json), спрашивает у Яндекса список
+  // аудиофайлов и выдаёт браузеру короткоживущую неугадываемую href-ссылку.
+  // Сам звук идёт с серверов Яндекса прямо в браузер — через VPS музыка НЕ
+  // течёт и место на диске сервера не ест. lib/yadisk.js — вся механика.
+  const ydStates = new Map();   // одноразовый state -> { uid, exp } (защита от подделки ответа Яндекса)
+  const YD_STATE_TTL = 10 * 60 * 1000;
+  const YD_KEYS_HINT = 'На сервере ещё нет ключей приложения Яндекса: положите файл /opt/sega/keys/yandex-oauth.json (инструкция pkg3-90)';
+  function ydPrune(now) {
+    for (const [k, v] of ydStates) if (!v || v.exp < now) ydStates.delete(k);
+  }
+  /** Живой токен участника: расшифровать и, если срок подходит, обновить.
+   * Не расшифровался (сменили ключи приложения) или Яндекс не продлил —
+   * участник считается неподключённым, маршруты скажут об этом честно. */
+  async function ydFreshToken(u, keys) {
+    const rec = u && u.yadisk;
+    if (!keys || !rec || typeof rec.blob !== 'string') return null;
+    const tk = yadisk.tokenKey(keys.clientSecret);
+    let tok = yadisk.openToken(tk, rec.blob);
+    if (!tok) return null;
+    if (tok.expires_at && tok.expires_at < Date.now() + 5 * 60 * 1000) {
+      if (!tok.refresh_token) return null;
+      try {
+        const nt = await yadisk.refreshTokens(keys, tok.refresh_token);
+        tok = Object.assign({}, tok, nt, { refresh_token: nt.refresh_token || tok.refresh_token });
+        u.yadisk = { blob: yadisk.sealToken(tk, tok), at: Date.now() };
+        save();
+      } catch (e) {
+        if (e.status === 400 || e.yerror === 'invalid_grant') { delete u.yadisk; save(); }
+        return null;
+      }
+    }
+    return tok;
+  }
+  /** Человеческая страница для браузера: её открывает Яндекс на обратном
+   * адресе, поэтому текст — словами, без JSON. Всё экранируется. */
+  function ydPage(title, text, ok) {
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const html = '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<title>' + esc(title) + ' · SEGA-CHAT</title></head>'
+      + '<body style="margin:0;background:#111;color:#eee;font:16px/1.5 system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">'
+      + '<div style="max-width:480px;margin:16px;padding:20px 22px;border:1px solid #333;border-radius:14px;background:#1a1a1a;text-align:center">'
+      + '<div style="font-size:40px">' + (ok ? '✅' : '⚠️') + '</div>'
+      + '<h1 style="font-size:20px;margin:8px 0">' + esc(title) + '</h1>'
+      + '<p style="margin:8px 0;color:#bbb">' + esc(text) + '</p>'
+      + '<p style="margin:12px 0 0;color:#888;font-size:13px">Это окно можно закрыть и вернуться в чат.</p>'
+      + '</div></body></html>';
+    return { status: 200, body: Buffer.from(html, 'utf8'), headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } };
   }
 
   // ------------------------------------------------------------- ответы
@@ -1064,6 +1118,43 @@ function createApi(store, opts = {}) {
       return J(200, {
         ok: true, inviter: owner.name, invSalt: inv.invSalt, wrappedRoomKey: inv.wrappedRoomKey
       });
+    }
+
+    // --- pkg3-90: обратный адрес OAuth Яндекс.Диска. Сюда браузер приходит
+    // САМ (обычный переход со страницы Яндекса), поэтому сессии у запроса нет
+    // и маршрут публичный: «кто это» отвечает одноразовый state, который
+    // сервер выдал участнику на /api/yadisk/auth-url десятью минутами ранее.
+    // Код меняется на токен ЗДЕСЬ, на сервере, и сразу запечатывается в
+    // карточку участника — секреты приложения в браузер не попадают никогда.
+    if (pathname === '/api/yadisk/callback' && method === 'GET') {
+      const now = Date.now();
+      ydPrune(now);
+      const st = String(query.get('state') || '');
+      const rec = st ? ydStates.get(st) : null;
+      if (rec) ydStates.delete(st);   // state одноразовый при любом исходе
+      const errQ = String(query.get('error') || '');
+      if (errQ) {
+        return ydPage('Разрешение не выдано', errQ === 'access_denied'
+          ? 'На странице Яндекса доступ к Диску отклонили. Вернитесь в чат и нажмите «Подключить» ещё раз, если передумали.'
+          : 'Яндекс вернул ошибку: ' + errQ, false);
+      }
+      if (!rec || rec.exp < now) {
+        return ydPage('Ссылка устарела', 'Запрос на подключение истёк или уже использован. Вернитесь в чат и нажмите «Подключить Яндекс.Диск» заново.', false);
+      }
+      const u = db.users.find(x => x.id === rec.uid);
+      if (!u) return ydPage('Участник не найден', 'Учётная запись, начавшая подключение, больше не существует.', false);
+      const keys = yadisk.loadKeys();
+      if (!keys) return ydPage('Сервер не готов', YD_KEYS_HINT, false);
+      const code = String(query.get('code') || '');
+      if (!code) return ydPage('Яндекс не передал код', 'Вернитесь в чат и нажмите «Подключить» ещё раз.', false);
+      try {
+        const tok = await yadisk.exchangeCode(keys, code);
+        u.yadisk = { blob: yadisk.sealToken(yadisk.tokenKey(keys.clientSecret), tok), at: Date.now() };
+        save();
+        return ydPage('Диск подключён!', 'Яндекс.Диск разрешил SEGA-CHAT читать аудиофайлы. Вернитесь в чат и откройте «Моя музыка» → «☁ Яндекс.Диск» — окно само подхватит подключение и покажет список треков.', true);
+      } catch (e) {
+        return ydPage('Не получилось подключить', (e && e.message) || 'Неизвестная ошибка', false);
+      }
     }
 
     // --- первичная настройка: создаётся администратор и кодовая фраза
@@ -2601,6 +2692,60 @@ function createApi(store, opts = {}) {
       if (!u) return E(404, 'Нет такого участника');
       // чужие личные списки и ключ не отдаются никогда
       return J(200, { pub: Array.isArray(u.musicPub) ? u.musicPub : [] });
+    }
+
+    // pkg3-90: Яндекс.Диск — облачный источник «Моей музыки». Каждый участник
+    // работает только со СВОИМ Диском (токен из его карточки); чужие файлы
+    // сервер не покажет и не отдаст. Музыка через VPS не идёт: список и
+    // короткоживущие ссылки — вот и весь трафик.
+    if (pathname === '/api/yadisk/state' && method === 'GET') {
+      const keys = yadisk.loadKeys();
+      let connected = false;
+      if (keys && me.yadisk && typeof me.yadisk.blob === 'string') {
+        connected = !!yadisk.openToken(yadisk.tokenKey(keys.clientSecret), me.yadisk.blob);
+      }
+      return J(200, { keys: !!keys, connected });
+    }
+    if (pathname === '/api/yadisk/auth-url' && method === 'GET') {
+      const keys = yadisk.loadKeys();
+      if (!keys) return E(409, YD_KEYS_HINT);
+      const now = Date.now();
+      ydPrune(now);
+      if (ydStates.size > 1000) return E(429, 'Слишком много незавершённых подключений — попробуйте через минуту');
+      const st = crypto.randomBytes(16).toString('hex');
+      ydStates.set(st, { uid: me.id, exp: now + YD_STATE_TTL });
+      return J(200, { url: yadisk.buildAuthUrl(keys, st) });
+    }
+    if (pathname === '/api/yadisk/disconnect' && method === 'POST') {
+      if (me.yadisk) { delete me.yadisk; save(); }
+      return J(200, { ok: true });
+    }
+    if (pathname === '/api/yadisk/files' && method === 'GET') {
+      if (throttle('yd-files-' + me.id, 60)) return E(429, 'Слишком много запросов к Диску — подождите немного');
+      const keys = yadisk.loadKeys();
+      const tok = await ydFreshToken(me, keys);
+      if (!tok) return E(409, keys ? 'Яндекс.Диск не подключён (или связь с ним истекла) — нажмите «Подключить» в окне «Моя музыка»' : YD_KEYS_HINT);
+      try {
+        const limit = Math.min(1000, Math.max(1, Number(query.get('limit')) || 200));
+        const offset = Math.max(0, Number(query.get('offset')) || 0);
+        return J(200, await yadisk.listAudio(tok.access_token, { limit, offset }));
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    if (pathname === '/api/yadisk/href' && method === 'GET') {
+      if (throttle('yd-href-' + me.id, 120)) return E(429, 'Слишком много запусков треков — подождите немного');
+      const keys = yadisk.loadKeys();
+      const tok = await ydFreshToken(me, keys);
+      if (!tok) return E(409, keys ? 'Яндекс.Диск не подключён (или связь с ним истекла)' : YD_KEYS_HINT);
+      try {
+        return J(200, await yadisk.downloadHref(tok.access_token, String(query.get('path') || '')));
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
+        if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
     }
 
     // --- профиль: имя, аватар, пароль
