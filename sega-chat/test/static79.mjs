@@ -22,6 +22,7 @@ ok(ct('/img/coins-map1.jpg') === 'image/jpeg', 'карта «Золотой ли
 ok(ct('/img/coins-coin.png') === 'image/png', 'иконка .png отдаётся как image/png');
 ok(ct('/coins-engine.js') === 'text/javascript; charset=utf-8', 'движок «Золотой лихорадки» .js отдаётся как text/javascript');
 ok(ct('/game-sound.js') === 'text/javascript; charset=utf-8', 'звуковой движок игр .js отдаётся как text/javascript');
+ok(ct('/music-paste.js') === 'text/javascript; charset=utf-8', 'модуль разбора вставки (pkg3-88) .js отдаётся как text/javascript');
 ok(ct('/app.js') === 'text/javascript; charset=utf-8', 'app.js отдаётся как text/javascript');
 ok(ct('/sw.js') === 'text/javascript; charset=utf-8', 'sw.js отдаётся как text/javascript');
 ok(ct('/styles.css') === 'text/css; charset=utf-8', 'styles.css отдаётся как text/css');

@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v80'), 'кэш статики поднят до v79 (плеер «Моя музыка» подхватится сразу)');
+ok(sw.includes('sega-static-v81'), 'кэш статики поднят до v81 (плеер «Моя музыка» подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-87';") && apiJs.includes("const BUILD = 'pkg3-87';"), 'клиент и сервер помечены pkg3-87');
+ok(appJs.includes("const BUILD = 'pkg3-88';") && apiJs.includes("const BUILD = 'pkg3-88';"), 'клиент и сервер помечены pkg3-88');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -701,6 +701,31 @@ ok(apiJs.includes('sec = Math.min(1800, Math.max(10, sec || 60));'),
   'пункт 2: сервер держит границы 10 секунд — 30 минут с шагом 10 секунд');
 ok(apiJs.includes('invitees: invited, players: [me.id], seed, minutes, sec, rounds, result: null'),
   'пункт 2: карточка игры несёт и секунды, и дробные минуты — старым клиентам всё читается');
+
+// pkg3-88: «умная вставка» — код плеера Яндекс.Музыки становится встроенным плеером
+const pasteJs = readFileSync(join(PUB, 'music-paste.js'), 'utf8');
+ok(html.includes('<script src="music-paste.js"></script>') && html.indexOf('music-paste.js') < html.indexOf('src="app.js"'),
+  'pkg3-88: разбор вставленного текста подключён в index.html раньше клиента');
+ok(pasteJs.includes("const Y_HOST = 'music.yandex.ru';") && pasteJs.includes('function iframeSrcs(') && pasteJs.includes('function widgetFromPage('),
+  'pkg3-88: модуль понимает и «код плеера» (<iframe>), и ссылку на трек/альбом/плейлист/артиста');
+ok(pasteJs.includes("glob.MP = MP;") && pasteJs.includes('function parsePaste('),
+  'pkg3-88: разбор — отдельный «чистый» модуль, его проверяет test/music88.mjs');
+ok(appJs.includes('function musicParsePaste(') && appJs.includes('window.MP'),
+  'pkg3-88: приложение разбирает вставку через модуль, а не «на глаз»');
+ok(appJs.includes("kind: 'widget'") && appJs.includes('musicIsWidget(t)'),
+  'pkg3-88: у трека появился род — файл или виджет Яндекс.Музыки');
+ok(appJs.includes('function musicPlayWidget(') && appJs.includes('function musWidgetShow('),
+  'pkg3-88: виджет играет отдельной панелью — звук не обрывается при закрытом окне');
+ok(appJs.includes("f.setAttribute('sandbox'") && appJs.includes('allow-popups'),
+  'pkg3-88: чужой плеер закрыт в «песочнице» (sandbox) — изолирован от приложения');
+ok(appJs.includes('встроенный плеер Яндекс.Музыки: запустить его у собеседника с той же секунды нельзя'),
+  'pkg3-88: «🎧 вместе» честно отказывает виджету — синхронизировать чужой плеер мы не можем');
+ok(appJs.includes('const on = !MUS.widget &&'),
+  'pkg3-88: виджет не транслируется в статус «🎵 слушает» — не знаем, играет ли он');
+ok(appJs.includes('id="mus-add-hint"') && appJs.includes('data-mus-y='),
+  'pkg3-88: в окне музыки — подсказка про вставку и кнопка «↗ Яндекс» у виджета');
+ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
+  'pkg3-88: панель встроенного плеера, значок «Я» и виджет-режим оформлены в стилях');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
