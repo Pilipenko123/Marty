@@ -1622,3 +1622,20 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .mus-of-pl{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;padding:10px}
 .mus-of-tr{display:block;width:100%;text-align:left;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:8px;padding:7px 10px;color:var(--text);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mus-of-tr:hover{border-color:var(--acc)}
+/* pkg3-88: встроенный плеер Яндекс.Музыки. Значок «Я» у трека, панель внизу
+   окна (живёт в самой странице — звук не обрывается, когда окно закрыли) и
+   «виджет-режим» плеера: перемотка с громкостью в этом режиме принадлежат
+   Яндексу, поэтому наши ползунки прячутся, а кнопка превращается в «стоп». */
+.mus-badge-y{display:inline-block;margin-left:6px;padding:0 6px;border:1px solid #fc3f56;border-radius:999px;
+  color:#fc3f56;font-size:10px;line-height:16px;vertical-align:middle;white-space:nowrap}
+.mus-y-link{flex:none;text-decoration:none}
+.mus-widget{position:fixed;left:50%;transform:translateX(-50%);bottom:58px;z-index:130;width:min(360px,94vw);
+  border:1px solid var(--line);border-radius:14px;background:var(--panel-2);padding:8px;
+  box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.mus-widget-hd{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.mus-widget-hd b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+#mus-widget-frame iframe{display:block;width:100%;border:0;border-radius:10px;background:#000}
+.mus-widget-note{margin:6px 2px 0;font-size:11px;line-height:1.4;color:var(--muted)}
+.mus-player.widget-mode #mus-seek,.mus-player.widget-mode #mus-vol,.mus-player.widget-mode #mus-time{display:none}
+#mus-now-kind{display:block;margin:2px 0 0}
+#mus-add-hint.warn{color:#ffb454}

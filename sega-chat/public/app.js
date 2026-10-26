@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-87';
+const BUILD = 'pkg3-88';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4563,8 +4563,24 @@ async function openKnocks(c) {
 /** Плеер мессенджера: ОДИН звуковой элемент на всё приложение; плейлисты —
  * списки ПРЯМЫХ ссылок на аудиофайлы (треки на VPS не хранятся). Публичные
  * плейлисты видны участникам, «только я» зашифрованы личным ключом владельца.
- * Трансляция в статус и «слушать вместе» — следующий выпуск (этап Б). */
-const MUS = { a: null, list: [], idx: -1, plId: null };
+ * pkg3-87: статус «🎵 слушает», «🎧 вместе», чужие публичные списки.
+ * pkg3-88: второй род треков — «виджет» Яндекс.Музыки. Это НЕ файл, а чужой
+ * встроенный плеер в изолированной рамке (iframe): звук играет Яндекс, мы не
+ * можем ни перемотать его, ни услышать, когда трек кончился. Поэтому виджет
+ * живёт в отдельной панели внизу окна, не участвует в «🎧 вместе» и не
+ * транслируется в статус — там, где нужна точность, работаем только с файлами. */
+const MUS = { a: null, list: [], idx: -1, plId: null, widget: null };
+/** pkg3-88: трек-виджет (плеер Яндекс.Музыки) вместо прямой ссылки на файл. */
+const musicIsWidget = t => !!(t && t.kind === 'widget');
+/** pkg3-88: разбор вставленного текста — код плеера, ссылка Яндекса или файл.
+ * Сам разбор живёт в music-paste.js: он «чистый» (без сети и DOM) и покрыт
+ * тестом test/music88.mjs, а приложение лишь пользуется его ответом. */
+function musicParsePaste(text) {
+  const mp = (typeof window !== 'undefined' && window.MP) || null;
+  if (!mp || typeof mp.parsePaste !== 'function') return { kind: 'none', hint: 'Модуль распознавания ссылок не загрузился — обновите страницу.' };
+  try { return mp.parsePaste(text); } catch (e) { return { kind: 'none', hint: 'Не удалось разобрать вставленный текст.' }; }
+}
+const musicWhatRu = w => ((window.MP && window.MP.whatRu) ? window.MP.whatRu(w) : 'плеер');
 function musicAudio() {
   if (!MUS.a) {
     MUS.a = new Audio();
@@ -4613,10 +4629,87 @@ function musicPlay(pl, idx) {
   MUS.plId = (pl && pl.id) || null;
   const t = MUS.list[idx];
   if (!t) return;
+  // pkg3-88: виджет Яндекс.Музыки играет чужим плеером, файл — нашим
+  if (musicIsWidget(t)) { musicPlayWidget(t); return; }
+  musWidgetHide();
   const a = musicAudio();
   a.src = t.url;
   a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
   musicNowUi(); musicFabSync();
+}
+/** pkg3-88: включить трек-виджет. Наш звуковой элемент при этом гаснет — иначе
+ * две песни звучали бы одновременно. Рамка собирается САМИМ приложением из
+ * ссылки, которую пропустил белый список (только music.yandex.ru/iframe/):
+ * чужой HTML-код из буфера обмена в разметку не вставляется. */
+function musicPlayWidget(t) {
+  const a = musicAudio();
+  a.pause();
+  a.removeAttribute('src');
+  try { a.load(); } catch (e) {}
+  MUS.widget = t;
+  musWidgetShow(t);
+  musicNowUi(); musicFabSync();
+}
+/** Панель встроенного плеера: одна на приложение, живёт прямо в странице —
+ * поэтому звук не обрывается, когда окно «Моя музыка» закрыли. */
+function musWidgetShow(t) {
+  let box = document.getElementById('mus-widget');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'mus-widget';
+    box.className = 'mus-widget';
+    box.innerHTML = '<div class="mus-widget-hd"><b id="mus-widget-t"></b>'
+      + '<button class="mini" id="mus-widget-stop" type="button" title="Закрыть плеер">■ стоп</button></div>'
+      + '<div id="mus-widget-frame"></div>'
+      + '<p class="mus-widget-note" id="mus-widget-note">Плеер Яндекс.Музыки: перемотка, громкость и «следующий трек» — внутри него. Без входа в Яндекс песни звучат только по 30 секунд.</p>';
+    document.body.appendChild(box);
+    box.querySelector('#mus-widget-stop').addEventListener('click', () => musWidgetStop());
+  }
+  box.querySelector('#mus-widget-t').textContent = t.title || 'Яндекс.Музыка';
+  const holder = box.querySelector('#mus-widget-frame');
+  const f = document.createElement('iframe');
+  f.setAttribute('src', t.url);
+  f.setAttribute('title', 'Плеер Яндекс.Музыки');
+  f.setAttribute('frameborder', '0');
+  f.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+  // «песочница»: чужому плееру разрешено ровно то, что нужно для звука и входа
+  f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox');
+  f.style.height = (Number(t.h) > 60 ? Number(t.h) : 180) + 'px';
+  holder.textContent = '';
+  holder.appendChild(f);
+  show(box);
+  musUiMode();
+}
+/** Убрать панель (звук Яндекса при этом прекращается — рамка уничтожается). */
+function musWidgetHide() {
+  const box = document.getElementById('mus-widget');
+  if (box) {
+    const holder = box.querySelector('#mus-widget-frame');
+    if (holder) holder.textContent = '';
+    hide(box);
+  }
+  if (MUS.widget) { MUS.widget = null; musUiMode(); musicFabSync(); }
+}
+/** Кнопка «■ стоп»: гасим и виджет, и наш плеер. */
+function musWidgetStop() {
+  musWidgetHide();
+  const a = MUS.a;
+  if (a) { a.pause(); }
+  musicNowUi(); musicFabSync();
+  toast('Плеер Яндекс.Музыки закрыт');
+}
+/** Подпись плеера в окне «Моя музыка» в зависимости от рода трека. */
+function musUiMode() {
+  const box = document.querySelector('#modal .mus-player');
+  if (!box) return;
+  const w = !!MUS.widget;
+  box.classList.toggle('widget-mode', w);
+  const tog = box.querySelector('#mus-toggle');
+  if (tog) tog.textContent = w ? '■ стоп' : '▶ / ⏸';
+  const tg = box.querySelector('#mus-together');
+  if (tg) { tg.disabled = w; tg.title = w ? 'Встроенный плеер Яндекс.Музыки нельзя запустить у собеседника с той же секунды' : 'Предложить открытому чату слушать этот трек вместе'; }
+  const note = box.querySelector('#mus-now-kind');
+  if (note) note.textContent = w ? 'Встроенный плеер Яндекс.Музыки открыт внизу окна: перемотка и громкость — внутри него.' : '';
 }
 function musicStep(d, auto) {
   if (!MUS.list.length) return;
@@ -4627,9 +4720,9 @@ function musicStep(d, auto) {
 }
 function musicNowUi() {
   const el = document.getElementById('mus-now');
-  if (!el) return;
-  const t = MUS.list[MUS.idx];
-  el.textContent = t ? ('♪ ' + (t.title || t.url)) : '—';
+  const t = MUS.list[MUS.idx] || MUS.widget;
+  if (el) el.textContent = t ? ('♪ ' + (t.title || t.url)) : '—';
+  musUiMode();   // pkg3-88: обычный трек или встроенный плеер Яндекса
 }
 function musicTickUi() {
   const a = MUS.a;
@@ -4654,7 +4747,10 @@ let musStatusOn = false;
 function musicStatusKick() {
   if (!S.token) return;
   const a = MUS.a;
-  const on = !!(a && a.src && !a.paused && !a.ended);
+  // pkg3-88: встроенный плеер Яндекс.Музыки — чужая рамка, мы не знаем, играет
+  // ли она прямо сейчас и что именно. Врать статусом не будем: виджет в «🎵
+  // слушает» не участвует (файлы — как раньше).
+  const on = !MUS.widget && !!(a && a.src && !a.paused && !a.ended);
   if (!on && !musStatusOn) return;
   musStatusOn = on;
   api('/api/typing', { method: 'POST', body: on ? { kind: 'music', note: musicStatusNote() } : { kind: 'music-off' } })
@@ -4665,9 +4761,11 @@ setInterval(() => {   // раз в 20 секунд подтверждаем: с�
   if (musStatusOn || (a && a.src && !a.paused && !a.ended)) musicStatusKick();
 }, 20000);
 /** Проиграть ОДИН трек по ссылке (чужая карта «слушать вместе» / публичный список). */
-function musicPlayOnce(url, title, offset) {
-  MUS.list = [{ url: url, title: title || url }];
+function musicPlayOnce(url, title, offset, kind) {
+  MUS.list = [{ url: url, title: title || url, kind: kind || '' }];
   MUS.idx = 0; MUS.plId = null;
+  if (musicIsWidget(MUS.list[0])) { musicPlayWidget(MUS.list[0]); return; }
+  musWidgetHide();
   const a = musicAudio();
   a.src = url;
   if (offset > 0) {
@@ -4688,6 +4786,10 @@ async function musicTogether() {
   const c = curChat();
   const t = MUS.list[MUS.idx];
   if (!c) { toast('Сначала откройте чат с тем, с кем хотите слушать вместе', true); return; }
+  if (musicIsWidget(t) || MUS.widget) {
+    toast('Это встроенный плеер Яндекс.Музыки: запустить его у собеседника с той же секунды нельзя. Предложите вместе обычный трек-файл', true);
+    return;
+  }
   if (!t || !MUS.a || !MUS.a.src || MUS.a.paused) { toast('Сначала включите трек — потом предложите слушать вместе', true); return; }
   const payload = {
     k: 'mus-together', url: t.url, title: t.title || t.url, cover: t.cover || '',
@@ -4698,7 +4800,7 @@ async function musicTogether() {
 }
 function musicFabSync() {
   let fab = document.getElementById('music-fab');
-  const on = !!(MUS.a && !MUS.a.paused && !MUS.a.ended);
+  const on = MUS.widget ? true : !!(MUS.a && !MUS.a.paused && !MUS.a.ended);
   if (!fab) {
     fab = document.createElement('button');
     fab.id = 'music-fab';
@@ -4707,7 +4809,7 @@ function musicFabSync() {
     document.body.appendChild(fab);
   }
   fab.classList.toggle('on', on);
-  fab.textContent = on ? '🎵 играет' : '';
+  fab.textContent = on ? (MUS.widget ? '🎵 Яндекс' : '🎵 играет') : '';
   musicStatusKick();   // pkg3-87: play/pause/конец трека сразу отражаются в статусе
 }
 document.addEventListener('click', e => {
@@ -4770,19 +4872,21 @@ async function openMusic(wantId) {
     <div class="mus-right">
       ${pl ? `<div class="mus-trs">${(pl.tracks || []).map((t, i) => `<div class="mus-tr${MUS.plId === pl.id && MUS.idx === i ? ' cur' : ''}">
           <button class="mini" data-mus-play="${i}" title="Играть">▶</button>
-          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n">${escapeHtml(t.title || t.url)}</span></span>
+          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n">${escapeHtml(t.title || t.url)}${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}</span></span>
+          ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗ Яндекс</a>` : ''}
           <button class="mini" data-mus-edit="${i}">правка</button>
           <button class="mini danger" data-mus-del="${i}" title="Убрать трек">×</button>
         </div>`).join('') || '<div class="tiny muted">В плейлисте пока нет треков — добавьте первый ниже.</div>'}</div>
       <div class="mus-add">
-        <input id="mus-url" type="text" placeholder="Прямая ссылка на файл (…/track.mp3, .ogg, .m4a)">
-        <input id="mus-title" type="text" placeholder="Название трека (необязательно)">
-        <input id="mus-cover" type="file" accept="image/*">
-        <button class="mini primary" id="mus-add-tr">Добавить трек</button>
-        <span class="tiny muted">ссылки на страницы (Яндекс.Музыка, VK, YouTube) не играются — только прямые на файл</span>
+        <input id="mus-url" type="text" placeholder="Вставьте: код плеера Яндекс.Музыки, ссылку на трек/альбом/плейлист или прямую ссылку на файл">
+        <input id="mus-title" type="text" placeholder="Название (необязательно)">
+        <input id="mus-cover" type="file" accept="image/*" title="Обложка (необязательно)">
+        <button class="mini primary" id="mus-add-tr">Добавить</button>
+        <span class="tiny muted" id="mus-add-hint">Умная вставка: «Поделиться → Код плеера» Яндекс.Музыки, ссылка на трек/альбом/плейлист/артиста Яндекса или прямая ссылка на файл (…/track.mp3, .ogg, .m4a). Адреса страниц других сайтов (VK, YouTube, Spotify) не играются.</span>
       </div>` : '<div class="tiny muted">Создайте первый плейлист слева — в нём будут треки-ссылки на файлы.</div>'}
       <div class="mus-player">
         <b id="mus-now">—</b>
+        <span class="tiny muted" id="mus-now-kind"></span>
         <div class="mus-ctl">
           <button class="mini" id="mus-prev" title="Предыдущий">⏮</button>
           <button class="mini primary" id="mus-toggle">▶ / ⏸</button>
@@ -4798,19 +4902,35 @@ async function openMusic(wantId) {
   musicNowUi(); musicTickUi();
   for (const b of $$('#modal [data-mus-pl]')) b.addEventListener('click', () => openMusic(b.getAttribute('data-mus-pl')));
   for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => musicPlay(pl, Number(b.getAttribute('data-mus-play'))));
-  for (const b of $$('#modal [data-mus-edit]')) b.addEventListener('click', async () => {
+  for (const b of $('#modal [data-mus-edit]')) b.addEventListener('click', async () => {
     const i = Number(b.getAttribute('data-mus-edit'));
     const t = pl.tracks[i];
-    const url = prompt('Прямая ссылка на файл:', t.url);
+    const url = prompt('Ссылка (прямая на файл, «код плеера» или ссылка Яндекс.Музыки):', t.page || t.url);
     if (url === null) return;
     const title = prompt('Название трека:', t.title || '');
     if (title === null) return;
-    t.url = url.trim() || t.url; t.title = title.trim();
+    // pkg3-88: правка тем же «умным» разбором — трек можно превратить из файла
+    // в виджет Яндекс.Музыки и обратно, не удаляя его из списка.
+    const r = musicParsePaste(url);
+    if (r.kind === 'widget') {
+      t.kind = 'widget'; t.what = r.what || 'track'; t.url = r.url;
+      t.page = r.orig || r.url; t.h = r.h || 180;
+    } else if (r.kind === 'file') {
+      t.kind = ''; t.what = ''; t.url = r.url; t.page = ''; t.h = 0;
+    } else {
+      toast(r.hint || 'Не удалось понять вставленный текст — трек не изменён', true);
+      return;
+    }
+    t.title = title.trim() || t.title || t.url;
     await musicSave(); openMusic(pl.id);
   });
-  for (const b of $$('#modal [data-mus-del]')) b.addEventListener('click', async () => {
+  for (const b of $('#modal [data-mus-del]')) b.addEventListener('click', async () => {
     const i = Number(b.getAttribute('data-mus-del'));
     if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
+    // pkg3-88: если убирают виджет, который звучит прямо сейчас, — гасим панель,
+    // иначе чужой плеер продолжал бы играть «без хозяина»
+    const gone = pl.tracks[i];
+    if (musicIsWidget(gone) && MUS.widget && MUS.widget.id === gone.id) musWidgetStop();
     pl.tracks.splice(i, 1);
     await musicSave(); openMusic(pl.id);
   });
@@ -4842,24 +4962,52 @@ async function openMusic(wantId) {
   if (delPl) delPl.addEventListener('click', async () => {
     if (!confirm('Удалить плейлист «' + pl.name + '» со всеми треками?')) return;
     m[pl.vis] = m[pl.vis].filter(x => x.id !== pl.id);
-    if (MUS.plId === pl.id) { const a = musicAudio(); a.pause(); a.src = ''; MUS.list = []; MUS.idx = -1; MUS.plId = null; musicFabSync(); }
+    if (MUS.plId === pl.id) { const a = musicAudio(); a.pause(); a.src = ''; MUS.list = []; MUS.idx = -1; MUS.plId = null; musWidgetHide(); musicFabSync(); }
     await musicSave(); openMusic(null);
   });
   const addTr = $('#mus-add-tr');
   if (addTr) addTr.addEventListener('click', async () => {
-    const url = ($('#mus-url').value || '').trim();
-    if (!/^https:\/\/.+/i.test(url)) { toast('Ссылка должна начинаться с https://', true); return; }
+    const raw = $('#mus-url').value || '';
     const title = ($('#mus-title').value || '').trim();
+    const hintEl = $('#mus-add-hint');
+    // pkg3-88: «умная вставка». Один и тот же кусок буфера может оказаться кодом
+    // плеера Яндекс.Музыки (<iframe src=…>), ссылкой на трек/альбом/плейлист
+    // Яндекса, прямой ссылкой на аудиофайл или адресом чужой страницы. Разбираем
+    // ДО отправки и честно говорим, что из этого выйдет: виджет (играет чужим
+    // плеером), файл (играет наш плеер) или «это страница, играть нечего».
+    const r = musicParsePaste(raw);
     let cover = '';
     const cf = $('#mus-cover').files && $('#mus-cover').files[0];
-    if (cf) { try { cover = await musicCoverOf(cf); } catch (e) { toast('Обложка не получилась: ' + e.message, true); } }
+    if (cf && (r.kind === 'widget' || r.kind === 'file')) {
+      try { cover = await musicCoverOf(cf); } catch (e) { toast('Обложка не получилась: ' + e.message, true); }
+    }
+    if (r.kind === 'widget') {
+      if ((pl.tracks || []).some(t => t.url === r.url)) { toast('Такой ' + musicWhatRu(r.what) + ' Яндекс.Музыки уже есть в этом плейлисте', true); return; }
+      pl.tracks.push({
+        id: musicUid(), kind: 'widget', what: r.what || 'track', url: r.url,
+        page: r.orig || r.url, h: r.h || 180,
+        title: title || r.title || 'Яндекс.Музыка', cover: cover
+      });
+      await musicSave(); openMusic(pl.id);
+      toast('Добавлено: ' + musicWhatRu(r.what) + ' Яндекс.Музыки — играет встроенным плеером');
+      return;
+    }
+    if (r.kind === 'page' || r.kind === 'none') {
+      const msg = r.hint || 'Не удалось понять вставленный текст';
+      if (hintEl) { hintEl.textContent = msg; hintEl.classList.add('warn'); }
+      toast(msg, true);
+      return;
+    }
+    const url = r.url;   // r.kind === 'file'
     const okProbe = await musicProbe(url);
-    if (!okProbe && !confirm('За 6 секунд файл по ссылке не откликнулся: похоже, это адрес СТРАНИЦЫ, а не файла (ссылки Яндекс.Музыки, VK, YouTube, my.mail.ru не играются). Добавить всё равно?')) return;
-    pl.tracks.push({ id: musicUid(), url, title: title || url, cover });
+    if (!okProbe && !confirm('За 6 секунд файл по ссылке не откликнулся: похоже, это адрес СТРАНИЦЫ, а не файла. Добавить всё равно?')) return;
+    if ((pl.tracks || []).some(t => t.url === url)) { toast('Такая ссылка уже есть в этом плейлисте', true); return; }
+    pl.tracks.push({ id: musicUid(), url: url, title: title || url, cover: cover });
     await musicSave(); openMusic(pl.id);
   });
   const tog = $('#mus-toggle');
   if (tog) tog.addEventListener('click', () => {
+    if (MUS.widget) { musWidgetStop(); return; }   // pkg3-88: «■ стоп» закрывает плеер Яндекса
     const a = musicAudio();
     if (!a.src) { if (pl && (pl.tracks || []).length) musicPlay(pl, 0); return; }
     if (a.paused) a.play().catch(() => toast('Не удалось проиграть трек', true)); else a.pause();
@@ -4892,7 +5040,7 @@ async function openMusicOf(u) {
   modal('Музыка · ' + (u.name || ''), pls.length ? `
     <div class="mus-of">${pls.map(p => `
       <div class="mus-of-pl"><b>${escapeHtml(p.name || 'Плейлист')}</b>
-        ${(p.tracks || []).map(t => `<button class="mus-of-tr" data-musof-url="${escapeHtml(t.url)}" data-musof-title="${escapeHtml(t.title || t.url)}" title="Включить на моём устройстве">▶ ${escapeHtml(t.title || t.url)}</button>`).join('')}
+        ${(p.tracks || []).map(t => `<button class="mus-of-tr${musicIsWidget(t) ? ' y' : ''}" data-musof-url="${escapeHtml(t.url)}" data-musof-kind="${escapeHtml(t.kind || '')}" data-musof-title="${escapeHtml(t.title || t.url)}" title="Включить на моём устройстве">▶ ${escapeHtml(t.title || t.url)}${musicIsWidget(t) ? ' <span class="mus-badge-y">Я</span>' : ''}</button>`).join('')}
       </div>`).join('')}
     </div>
     <p class="hint">Это публичные плейлисты участника: звук идёт с источника прямо на ваше устройство, треки не скачиваются на сервер. Личные списки (если они есть) видны только владельцу.</p>`
@@ -4901,7 +5049,9 @@ async function openMusicOf(u) {
     const b = e.target.closest('[data-musof-url]');
     if (!b) return;
     hide($('#modal'));
-    musicPlayOnce(b.getAttribute('data-musof-url'), b.getAttribute('data-musof-title'), 0);
+    // pkg3-88: чужой трек может быть виджетом Яндекс.Музыки — тогда он откроется
+    // встроенным плеером, а не нашим звуковым элементом
+    musicPlayOnce(b.getAttribute('data-musof-url'), b.getAttribute('data-musof-title'), 0, b.getAttribute('data-musof-kind'));
   });
 }
 
