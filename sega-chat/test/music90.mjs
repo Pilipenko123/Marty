@@ -37,7 +37,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-90: Яндекс.Диск — облако для «Моей музыки»');
+console.log('  pkg3-90/91: Яндекс.Диск — облако для «Моей музыки» (91: список без fields)');
 console.log('══════════════════════════════════════════════════\n');
 
 // ─────────────────────────── 1. чистый модуль ───────────────────────────
@@ -106,8 +106,13 @@ const mock = http.createServer((rq, rs) => {
   }
   if (rq.method === 'GET' && u.pathname === '/v1/disk/resources/files') {
     const auth = String(rq.headers.authorization || '');
-    calls.push({ t: 'files', auth, media: u.searchParams.get('media_type'), limit: u.searchParams.get('limit') });
+    calls.push({ t: 'files', auth, media: u.searchParams.get('media_type'), limit: u.searchParams.get('limit'), fields: u.searchParams.get('fields') });
     if (!/^OAuth AT-/.test(auth)) return jsend(401, { message: 'Unauthorized', description: 'token' });
+    // pkg3-91: игрушечный Яндекс повторяет живой: запрос с fields получает
+    // код 200 с телом БЕЗ массива items — возврат дефекта покрасит тесты.
+    if (u.searchParams.get('fields')) {
+      return jsend(200, { limit: Number(u.searchParams.get('limit')) || 200, offset: Number(u.searchParams.get('offset')) || 0 });
+    }
     return jsend(200, {
       items: [
         { path: 'disk:/Музыка/трек1.mp3', name: 'трек1.mp3', size: 5000000, mime_type: 'audio/mpeg', modified: '2026-10-01T10:00:00+03:00' },
@@ -169,7 +174,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-90', 'сервер помечен pkg3-90');
+ok(r.status === 200 && r.d.build === 'pkg3-91', 'сервер помечен pkg3-91');
 const secret = hex(24);
 const sha = crypto.createHash('sha256').update(secret).digest('hex');
 const ir = await call('/api/invites', { method: 'POST', body: { invSalt: hex(), wrappedRoomKey: 'k:' + hex(), secretHash: sha } }, admin);
@@ -289,9 +294,14 @@ const dom42 = read('test/dom42.mjs');
 const sound80 = read('test/sound80.mjs');
 const games81 = read('test/games81.mjs');
 
-ok(appJs.includes("const BUILD = 'pkg3-90';") && apiJs.includes("const BUILD = 'pkg3-90';"), 'BUILD pkg3-90 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v83';"), 'кэш статики поднят до v83');
-ok(dom42.includes('sega-static-v83') && sound80.includes('sega-static-v83') && games81.includes('sega-static-v83'), 'три набора тестов ждут именно v83');
+ok(appJs.includes("const BUILD = 'pkg3-91';") && apiJs.includes("const BUILD = 'pkg3-91';"), 'BUILD pkg3-91 совпадает в клиенте и на сервере');
+const yadiskJs = read('lib/yadisk.js');
+ok(!/fields:/.test(yadiskJs) && yadiskJs.includes('pkg3-91'), 'pkg3-91: запрос списка Диска идёт без параметра fields');
+ok(yadiskJs.includes('Яндекс.Диск ответил 200, но без списка'), 'pkg3-91: человеческий текст для «200 без списка»');
+const filesCalls = calls.filter(c => c.t === 'files');
+ok(filesCalls.length > 0 && filesCalls.every(c => c.fields === null), 'pkg3-91: ни один список не запрошен с fields (игрушечный Яндекс это наказывает)');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v84';"), 'кэш статики поднят до v84');
+ok(dom42.includes('sega-static-v84') && sound80.includes('sega-static-v84') && games81.includes('sega-static-v84'), 'три набора тестов ждут именно v84');
 for (const s of ['MUS_DISK', 'musicIsDisk', 'musicStartDiskTrack', '/api/yadisk/files', '/api/yadisk/href', '/api/yadisk/state', 'data-mus-disk-play', 'data-mus-disk-add', 'mus-pl-disk', '☁ Яндекс.Диск']) {
   ok(appJs.includes(s), 'клиент содержит «' + s + '»');
 }
@@ -303,7 +313,8 @@ ok(pkg.includes('node test/music90.mjs'), 'тест pkg3-90 включён в ц
 const deps = JSON.parse(pkg).dependencies;
 ok(Object.keys(deps).length === 1 && deps['web-push'], 'зависимость по-прежнему одна: web-push (Диск работает без новых библиотек)');
 ok(readme.includes('| pkg3-90 |'), 'в журнале README есть строка выпуска pkg3-90');
+ok(readme.includes('| pkg3-91 |'), 'в журнале README есть строка выпуска pkg3-91');
 ok(/for\s*\(\s*(?:const|let|var)\s+[\w$]+\s+of\s+\$\(/.test(appJs) === false, 'сторож pkg3-89: сломанных циклов «of $(» по-прежнему нет');
 
-console.log('\n  pkg3-90: ' + good + ' ✓' + (bad ? ', ' + bad + ' ПРОВАЛОВ' : ', провалов нет'));
+console.log('\n  pkg3-90/91: ' + good + ' ✓' + (bad ? ', ' + bad + ' ПРОВАЛОВ' : ', провалов нет'));
 process.exit(bad ? 1 : 0);
