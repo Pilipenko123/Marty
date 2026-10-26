@@ -26,6 +26,10 @@
   'use strict';
 
   const Y_HOST = 'music.yandex.ru';
+  /** pkg3-89: зеркала домена Яндекс.Музыки. Ссылка из приложения или из другого
+   * региона может прийти с них — понимаем её так же, как с основного домена,
+   * но встроенный плеер собираем ВСЕГДА только на music.yandex.ru. */
+  const Y_MIRRORS = ['m.music.yandex.ru', 'music.yandex.com', 'music.yandex.by', 'music.yandex.kz', 'music.yandex.uz'];
   /** Что Яндекс умеет показывать встроенным плеером. */
   const WHAT = { track: 'трек', album: 'альбом', playlist: 'плейлист', artist: 'артист' };
   /** Расширения, по которым ссылка похожа на сам файл, а не на страницу. */
@@ -97,7 +101,7 @@
     }
   }
 
-  const isYandex = p => !!p && p.host === Y_HOST;
+  const isYandex = p => !!p && (p.host === Y_HOST || Y_MIRRORS.indexOf(p.host) >= 0);
 
   /** Собрать канонический адрес встроенного плеера: только https, только
    * music.yandex.ru, только /iframe/ и только понятный тип. Всё остальное
@@ -146,6 +150,12 @@
     if (a === 'playlist' && segs[1] && segs[2]) {
       const url = widgetUrl('playlist', [segs[1], segs[2]], light);
       return url ? { what: 'playlist', ids: [segs[1], segs[2]], light, url, from: 'page' } : null;
+    }
+    // pkg3-89: «Поделиться» из приложения Яндекс.Музыки даёт адрес плейлиста
+    // через /users/<логин>/playlists/<номер> — раньше он считался «страницей».
+    if (a === 'users' && segs[1] && segs[2] === 'playlists' && segs[3]) {
+      const url = widgetUrl('playlist', [segs[1], segs[3]], light);
+      return url ? { what: 'playlist', ids: [segs[1], segs[3]], light, url, from: 'page' } : null;
     }
     if (a === 'artist' && segs[1]) {
       const url = widgetUrl('artist', [segs[1]], light);
@@ -230,7 +240,7 @@
   /** Подпись для списка треков: «трек», «альбом», «плейлист», «артист». */
   function whatRu(what) { return WHAT[what] || 'плеер'; }
 
-  const MP = { clean, iframeSrcs, links, parsePaste, widgetTitle, whatRu, widgetUrl, Y_HOST, WHAT, FRAME_H, AUDIO_EXT, PAGE_HOSTS };
+  const MP = { clean, iframeSrcs, links, parsePaste, widgetTitle, whatRu, widgetUrl, Y_HOST, Y_MIRRORS, WHAT, FRAME_H, AUDIO_EXT, PAGE_HOSTS };
   glob.MP = MP;
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = MP;

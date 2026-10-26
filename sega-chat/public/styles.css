@@ -1610,6 +1610,10 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .mus-player{border-top:1px solid var(--line);padding-top:8px}
 .mus-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mus-ctl input[type=range]{flex:1;min-width:80px}
+/* pkg3-89: общая кнопка .primary растягивается на всю ширину — в плеере это
+   ломало строку кнопок (⏮ оказывалась одна). Здесь она обычная, в ряд. */
+.mus-ctl .mini.primary{width:auto;margin-top:0}
+.mus-add .mini.primary{width:100%;margin-top:0}
 .ng-music-ico{display:inline-flex;align-items:center;justify-content:center;font-size:34px}
 /* pkg3-87: карточка «Слушать вместе» в письме и окно чужой музыки */
 .mus-card{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:4px;background:rgba(255,255,255,.03)}

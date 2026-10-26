@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-88';
+const BUILD = 'pkg3-89';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4132,7 +4132,7 @@ function coinsOpenResults() {
   modal('Сталкер — результаты', html);
   const again2 = $('#modal #coins-again2');
   if (again2) again2.addEventListener('click', () => { hide($('#modal')); coinsNewRun(); });
-  for (const chip of $('#modal [data-coins-run]')) {
+  for (const chip of $$('#modal [data-coins-run]')) {   // pkg3-89: список, а не один элемент — иначе цикл падает и кнопки не слушают
     chip.addEventListener('click', () => {
       S.coinsRun[c.id] = Number(chip.dataset.coinsRun) || 1;
       hide($('#modal')); S.boardSig = ''; renderBoard();
@@ -4902,7 +4902,10 @@ async function openMusic(wantId) {
   musicNowUi(); musicTickUi();
   for (const b of $$('#modal [data-mus-pl]')) b.addEventListener('click', () => openMusic(b.getAttribute('data-mus-pl')));
   for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => musicPlay(pl, Number(b.getAttribute('data-mus-play'))));
-  for (const b of $('#modal [data-mus-edit]')) b.addEventListener('click', async () => {
+  // pkg3-89: здесь был один доллар вместо двух — цикл падал на первой же кнопке, и всё
+  // ниже (добавить трек, «▶ / ⏸», перемотка, громкость, «вместе») оставалось
+  // БЕЗ слушателей: окно выглядело живым, но кнопки не отвечали.
+  for (const b of $$('#modal [data-mus-edit]')) b.addEventListener('click', async () => {
     const i = Number(b.getAttribute('data-mus-edit'));
     const t = pl.tracks[i];
     const url = prompt('Ссылка (прямая на файл, «код плеера» или ссылка Яндекс.Музыки):', t.page || t.url);
@@ -4924,7 +4927,7 @@ async function openMusic(wantId) {
     t.title = title.trim() || t.title || t.url;
     await musicSave(); openMusic(pl.id);
   });
-  for (const b of $('#modal [data-mus-del]')) b.addEventListener('click', async () => {
+  for (const b of $$('#modal [data-mus-del]')) b.addEventListener('click', async () => {   // pkg3-89: список, а не один элемент (см. выше)
     const i = Number(b.getAttribute('data-mus-del'));
     if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
     // pkg3-88: если убирают виджет, который звучит прямо сейчас, — гасим панель,
