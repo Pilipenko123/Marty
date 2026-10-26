@@ -1643,3 +1643,16 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .mus-player.widget-mode #mus-seek,.mus-player.widget-mode #mus-vol,.mus-player.widget-mode #mus-time{display:none}
 #mus-now-kind{display:block;margin:2px 0 0}
 #mus-add-hint.warn{color:#ffb454}
+/* pkg3-90: Яндекс.Диск в «Моей музыке». Пунктирная кнопка «☁ Яндекс.Диск»
+   в левом столбце, строка состояния с кнопками, выбор плейлиста для «＋»,
+   значок «☁ диск» у трека (похож на «Я» Яндекс.Музыки, но облачного цвета)
+   и честное затемнение чужих дисковых треков (они играют только у владельца). */
+.mus-pl-disk{border-style:dashed}
+.mus-disk{display:flex;flex-direction:column;gap:8px;min-height:0}
+.mus-disk-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+.mus-disk-addline{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mus-disk-addline select{max-width:240px}
+.mus-badge-d{display:inline-block;margin-left:6px;padding:0 6px;border:1px solid #3fa9fc;border-radius:999px;
+  color:#3fa9fc;font-size:10px;line-height:16px;vertical-align:middle;white-space:nowrap}
+.mus-of-tr[disabled]{opacity:.55;cursor:not-allowed}
+.mus-of-tr[disabled]:hover{border-color:var(--line)}
