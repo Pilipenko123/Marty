@@ -208,11 +208,13 @@ async function listAudio(token, o = {}, c) {
   const conf = c || cfg();
   const limit = Math.min(1000, Math.max(1, Number(o.limit) || 200));
   const offset = Math.max(0, Number(o.offset) || 0);
+  // pkg3-91: параметра fields НЕТ. Живой Яндекс на fields=items(…) отвечает
+  // кодом 200 с телом без массива items (урок первой установки pkg3-90,
+  // замер с VPS владельца): запрос без fields возвращает нормальный список.
   const q = new URLSearchParams({
     media_type: 'audio',
     limit: String(limit),
-    offset: String(offset),
-    fields: 'items(path,name,size,mime_type,modified),limit,offset'
+    offset: String(offset)
   });
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources/files?' + q.toString(), {
     headers: { Authorization: 'OAuth ' + token, Accept: 'application/json' }
@@ -255,6 +257,13 @@ function diskErrorText(r) {
 }
 
 function diskResult(r, limit, offset) {
+  // pkg3-91: код 200 без списка в теле — отдельная человеческая формулировка
+  // (прежде было «ответил ошибкой 200», что сбивало с толку).
+  if (r.status === 200 && r.json && !Array.isArray(r.json.items)) {
+    const e = new Error('Яндекс.Диск ответил 200, но без списка в ответе — повторите попытку');
+    e.status = 200;
+    throw e;
+  }
   if (r.status !== 200 || !r.json || !Array.isArray(r.json.items)) {
     const e = new Error(diskErrorText(r));
     e.status = r.status;
