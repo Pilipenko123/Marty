@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v85'), 'кэш статики поднят до v85 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v86'), 'кэш статики поднят до v86 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-92';") && apiJs.includes("const BUILD = 'pkg3-92';"), 'клиент и сервер помечены pkg3-92');
+ok(appJs.includes("const BUILD = 'pkg3-93';") && apiJs.includes("const BUILD = 'pkg3-93';"), 'клиент и сервер помечены pkg3-93');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -730,8 +730,8 @@ ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes
 // ─────────────────────────── pkg3-92 ───────────────────────────
 ok(appJs.includes("fab.textContent = '🎵 Моя музыка';") && appJs.includes('function musicFabBind(') && appJs.includes('sega.musFabPos.v1'),
   'pkg3-92: пузырёк переименован в «Моя музыку», перетаскивается и запоминает место');
-ok(appJs.includes('function closeModalMaybeAnim(') && appJs.includes('function musAnimIn('),
-  'pkg3-92: окно сворачивается в пузырёк и разворачивается из него с анимацией');
+ok(appJs.includes('function musMinimize(') && appJs.includes('function musFly(') && appJs.includes('function musCloseFull('),
+  'pkg3-92/93: окно и пузырёк — одно и то же: перелёт плашкой поверх экрана, крестик закрывает совсем');
 ok(appJs.includes('id="mus-vis"') && css.includes('.mus-sw-pill{') && css.includes('.mus-sw-knob{'),
   'pkg3-92: «видно, что слушаю» — тумблер-переключатель, как на снимке владельца');
 ok(!appJs.includes('id="mus-together"') && !appJs.includes('async function musicTogether('),
@@ -746,6 +746,24 @@ ok(appJs.includes('data-readmenu=') && appJs.includes('function askYesNo(') && a
   'pkg3-92: счётчик непрочитанных открывает меню «Сделать прочитанными? Да/Нет»');
 ok(appJs.includes("kind: 'music', note: musicStatusNote(), sync: musicStatusSync()"),
   'pkg3-92: статус уходит с якорем (трек, позиция, время), когда видимость включена');
+
+// ─────────────────────────── pkg3-93 ───────────────────────────
+ok(appJs.includes('document.addEventListener(\'pointermove\', move') && appJs.includes("fab.style.bottom = 'auto'"),
+  'pkg3-93: пузырёк перетаскивается по-настоящему (document-слушатели, оба якоря сняты — не растягивается)');
+ok(css.includes('.music-fab{position:fixed;right:14px;bottom:76px'),
+  'pkg3-93: пузырёк по умолчанию стоит НАД кнопкой отправки, не поверх неё');
+ok(appJs.includes('function musAddMinBtn(') && appJs.includes("mb.textContent = 'Свернуть';"),
+  'pkg3-93: кнопка «Свернуть» левее крестика — только у окна музыки');
+ok(appJs.includes('S.musFabHidden = true') && appJs.includes('!S.musFabHidden && !S.musOpen'),
+  'pkg3-93: крестик прячет пузырёк совсем; при открытом окне пузырька нет (иллюзия одного предмета)');
+ok(css.includes('.mus-fly{') && appJs.includes('function musFly('),
+  'pkg3-93: перелёт окно↔пузырёк рисуется плашкой поверх всего экрана — видно, КУДА улетело');
+ok(appJs.includes('❚❚') && css.includes('@keyframes mus-mq') && appJs.includes('class="mq"'),
+  'pkg3-93: у текущего трека ▶ становится ❚❚, длинное название едет бегущей строкой');
+ok(appJs.includes("crow.classList.toggle('paused'"),
+  'pkg3-93: бегущая строка замирает на паузе');
+ok(appJs.includes("title=\"Играть / пауза\""),
+  'pkg3-93: нажатие на текущий трек — пауза/продолжить');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
