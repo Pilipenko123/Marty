@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-92';
+const BUILD = 'pkg3-93';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -265,6 +265,8 @@ const S = {
   typing: [],          // pkg3-77: кто пишет/загружает — [{uid, chat, kind, at}]
   musicStatus: {},     // pkg3-87: кто слушает музыку — {uid: {note, at, sync}}
   musFollow: null,     // pkg3-92: {uid, name} — чью музыку догоняю в режиме «Слушаю с …»
+  musOpen: false,      // pkg3-93: окно «Моя музыка» открыто — пузырёк прячется
+  musFabHidden: false, // pkg3-93: окно закрыли крестиком — пузырёк тоже спрятан
   typingHeaderSig: '', // pkg3-77: подпись заголовка, чтобы не перерисовывать его впустую
   chatPos: {},      // pkg3-38: chatId -> где была прокручена лента ({bottom:true} или {id,dy}) — память места в рамках сессии
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
@@ -4993,6 +4995,14 @@ function musicTickUi() {
   const d = isFinite(a.duration) ? a.duration : 0;
   time.textContent = coinsFmtSec(a.currentTime * 1000) + ' / ' + (d ? coinsFmtSec(d * 1000) : '—:—');
   if (seek && d) seek.value = String(Math.round(a.currentTime / d * 100));
+  // pkg3-93: у текущего трека в списке значок ▶ живьём становится ❚❚ (и обратно),
+  // а бегущая строка названия замирает на паузе
+  const crow = document.querySelector('#modal .mus-tr.cur');
+  if (crow) {
+    crow.classList.toggle('paused', !!(a.paused || a.ended));
+    const pb = crow.querySelector('[data-mus-play]');
+    if (pb) pb.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';
+  }
 }
 /** pkg3-87: статус «🎵 слушает»: короткая строка, которую клиент сам решает
  * показать миру. Название трека уходит только из ПУБЛИЧНОГО плейлиста; из личного
@@ -5180,7 +5190,9 @@ function musicFabSync() {
   // только когда что-то звучит; прежняя подпись «играет» стала названием окна.
   fab.classList.toggle('on', true);
   fab.classList.toggle('play', on);
-  fab.classList.toggle('auth', !!S.token);   // до входа пузырька не видно
+  // pkg3-93: пузырёк — это свёрнутое окно: при открытом окне его нет,
+  // после «Закрыть» (крестик) его тоже нет, после «Свернуть» — есть.
+  fab.classList.toggle('auth', !!S.token && !S.musFabHidden && !S.musOpen);
   fab.textContent = '🎵 Моя музыка';
   musicStatusKick();   // pkg3-87: play/pause/конец трека сразу отражаются в статусе
 }
@@ -5190,40 +5202,53 @@ function musicFabPlace(fab) {
   try { p = JSON.parse(localStorage.getItem('sega.musFabPos.v1') || 'null'); } catch (e) {}
   if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
   const w = fab.offsetWidth || 110, h = fab.offsetHeight || 38;
-  fab.style.right = 'auto';
+  fab.style.right = 'auto'; fab.style.bottom = 'auto';   // pkg3-93: оба якоря сняты
   fab.style.left = Math.min(Math.max(4, p.x), Math.max(4, window.innerWidth - w - 4)) + 'px';
   fab.style.top = Math.min(Math.max(4, p.y), Math.max(4, window.innerHeight - h - 4)) + 'px';
 }
-/** pkg3-92: перетаскивание пузырька: сдвиг дальше 7 px — это «переставить»,
- * короткий тап/клик — «открыть окно» (с анимацией разворота из пузырька). */
+/** pkg3-93: перетаскивание пузырька ПО-НАСТОЯЩЕМУ: слушатели на документе
+ * (capture на кнопке отдавал движению не все события), якоря right И bottom
+ * снимаются оба (прежде нижний оставался — и пузырёк РАСТЯГИВАЛСЯ между
+ * верхом и низом вместо переезда), preventDefault на нажатии — без фокуса и
+ * попыток прокрутки. Сдвиг дальше 6 px — «переставить», короткий тап — «открыть». */
 function musicFabBind(fab) {
-  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, active = false;
-  fab.addEventListener('pointerdown', e => {
-    active = true; moved = false;
-    sx = e.clientX; sy = e.clientY;
-    const r = fab.getBoundingClientRect();
-    ox = r.left; oy = r.top;
-    if (fab.setPointerCapture) { try { fab.setPointerCapture(e.pointerId); } catch (err) {} }
-  });
-  fab.addEventListener('pointermove', e => {
-    if (!active) return;
+  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, pid = null;
+  const move = e => {
+    if (pid === null || e.pointerId !== pid) return;
     const dx = e.clientX - sx, dy = e.clientY - sy;
-    if (!moved && Math.hypot(dx, dy) < 7) return;
-    moved = true;
-    fab.style.right = 'auto';
-    fab.style.left = Math.min(Math.max(4, ox + dx), Math.max(4, window.innerWidth - fab.offsetWidth - 4)) + 'px';
-    fab.style.top = Math.min(Math.max(4, oy + dy), Math.max(4, window.innerHeight - fab.offsetHeight - 4)) + 'px';
-  });
-  fab.addEventListener('pointerup', () => {
-    if (!active) return;
-    active = false;
+    if (!moved && Math.hypot(dx, dy) < 6) return;
+    if (!moved) { moved = true; fab.classList.add('drag'); }
+    const w = fab.offsetWidth || 110, h = fab.offsetHeight || 38;
+    fab.style.right = 'auto'; fab.style.bottom = 'auto';
+    fab.style.left = Math.min(Math.max(4, ox + dx), Math.max(4, window.innerWidth - w - 4)) + 'px';
+    fab.style.top = Math.min(Math.max(4, oy + dy), Math.max(4, window.innerHeight - h - 4)) + 'px';
+    if (e.cancelable) e.preventDefault();
+  };
+  const up = e => {
+    if (pid === null || e.pointerId !== pid) return;
+    pid = null;
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', up);
+    fab.classList.remove('drag');
     if (moved) {
+      moved = false;
       try { localStorage.setItem('sega.musFabPos.v1', JSON.stringify({ x: parseFloat(fab.style.left) || 0, y: parseFloat(fab.style.top) || 0 })); } catch (err) {}
       return;
     }
     openMusic();
+  };
+  fab.addEventListener('pointerdown', e => {
+    if (pid !== null) return;
+    pid = e.pointerId; moved = false;
+    sx = e.clientX; sy = e.clientY;
+    const r = fab.getBoundingClientRect();
+    ox = r.left; oy = r.top;
+    document.addEventListener('pointermove', move, { passive: false });
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+    if (e.cancelable) e.preventDefault();
   });
-  fab.addEventListener('pointercancel', () => { active = false; });
 }
 musicFabSync();   // pkg3-92: пузырёк появляется сразу, не дожидаясь первой песни
 document.addEventListener('click', e => {
@@ -5290,8 +5315,8 @@ async function openMusic(wantId) {
         <div class="mus-disk-addline hidden" id="mus-disk-addline"></div>
         <div class="mus-trs" id="mus-disk-files"></div>
       </div>` : pl ? `<div class="mus-trs">${(pl.tracks || []).map((t, i) => `<div class="mus-tr${MUS.plId === pl.id && MUS.idx === i ? ' cur' : ''}">
-          <button class="mini" data-mus-play="${i}" title="Играть">▶</button>
-          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n">${escapeHtml(t.title || t.url || t.path || '')}${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span></span>
+          <button class="mini" data-mus-play="${i}" title="Играть / пауза">${MUS.plId === pl.id && MUS.idx === i && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
+          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n">${(MUS.plId === pl.id && MUS.idx === i && String(t.title || t.url || t.path || '').length > 24) ? '<span class="mq">' + escapeHtml(t.title || t.url || t.path || '') + '</span>' : escapeHtml(t.title || t.url || t.path || '')}${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span></span>
           ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗ Яндекс</a>` : ''}
           <button class="mini" data-mus-edit="${i}">правка</button>
           <button class="mini danger" data-mus-del="${i}" title="Убрать трек">×</button>
@@ -5323,9 +5348,27 @@ async function openMusic(wantId) {
       </div>
     </div>
   </div>`);
+  // pkg3-93: окно открыто — пузырёк прячется (иллюзия «это одно и то же»);
+  // кнопка «Свернуть» левее крестика; первый вход за сеанс — разворот из пузырька.
+  const musWasOpen = S.musOpen;
+  S.musOpen = true; S.musFabHidden = false;
+  musAddMinBtn();
+  musicFabSync();
+  if (!musWasOpen) musExpandAnim();
   musicNowUi(); musicTickUi();
   for (const b of $$('#modal [data-mus-pl]')) b.addEventListener('click', () => openMusic(b.getAttribute('data-mus-pl')));
-  for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => musicPlay(pl, Number(b.getAttribute('data-mus-play'))));
+  for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => {
+    const i = Number(b.getAttribute('data-mus-play'));
+    // pkg3-93: нажатие на ТЕКУЩИЙ трек — пауза/продолжить (значок ❚❚/▶ в списке)
+    if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl.tracks || [])[i])) {
+      musBreakFollow();
+      const a = musicAudio();
+      if (a.paused) a.play().catch(() => {}); else a.pause();
+      musicTickUi();
+      return;
+    }
+    musicPlay(pl, i);
+  });
   // pkg3-89: здесь был один доллар вместо двух — цикл падал на первой же кнопке, и всё
   // ниже (добавить трек, «▶ / ⏸», перемотка, громкость, «вместе») оставалось
   // БЕЗ слушателей: окно выглядело живым, но кнопки не отвечали.
@@ -5471,7 +5514,6 @@ async function openMusic(wantId) {
     });
   }
   musFollowUi();
-  musAnimIn();   // pkg3-92: окно разворачивается из пузырька
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
   if (isDisk) ydPaneStart().catch(() => {});
 }
@@ -8854,33 +8896,78 @@ $('#search-results').addEventListener('click', e => {
 
 // ─────────────────────────────────────────── модальные окна
 function modal(title, html) {
+  const mb = document.getElementById('modal-min');   // pkg3-93: «Свернуть» живёт только у окна музыки
+  if (mb) mb.remove();
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = html;
   paintIcons($('#modal'));
   show($('#modal'));
 }
-/** pkg3-92: окно «Моя музыка» сворачивается в пузырёк анимацией (и разворачивается
- * из него): цель — текущее место пузырька на экране. Прочие модалки закрываются
- * как прежде, без задержки. */
-function musWrapAnim(card, fab, from, to) {
-  const r = card.getBoundingClientRect(), f = fab.getBoundingClientRect();
-  card.style.transformOrigin = (f.left + f.width / 2 - r.left) + 'px ' + (f.top + f.height / 2 - r.top) + 'px';
-  return card.animate([{ transform: from, opacity: from === 'scale(1)' ? 1 : 0.25 }, { transform: to, opacity: to === 'scale(1)' ? 1 : 0 }], { duration: 220, easing: from === 'scale(1)' ? 'ease-in' : 'ease-out' });
+/** pkg3-93: полная иллюзия «окно = развёрнутый пузырёк». Летит НЕ внутренность
+ * окна, а отдельная плашка-двойник поверх всего экрана: от габаритов окна к
+ * габаритам пузырька (свернуть) или наоборот (развернуть). Окно в это время
+ * скрыто, пузырёк скрыт тоже — видно только перелёт целиком. */
+function musFly(from, to, done) {
+  const d = document.createElement('div');
+  d.className = 'mus-fly';
+  d.textContent = '🎵 Моя музыка';
+  Object.assign(d.style, { left: from.x + 'px', top: from.y + 'px', width: from.w + 'px', height: from.h + 'px' });
+  document.body.appendChild(d);
+  const a = d.animate([
+    { left: from.x + 'px', top: from.y + 'px', width: from.w + 'px', height: from.h + 'px', opacity: 1 },
+    { left: to.x + 'px', top: to.y + 'px', width: to.w + 'px', height: to.h + 'px', opacity: 0.92 }
+  ], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  a.onfinish = () => { d.remove(); if (done) done(); };
 }
-function closeModalMaybeAnim() {
-  const card = document.querySelector('#modal-body .mus-wrap');
+/** «Свернуть»: окно улетает в пузырёк; пузырёк появляется в конце перелёта. */
+function musMinimize() {
+  const box = document.querySelector('#modal .modal-box');
   const fab = document.getElementById('music-fab');
-  if (!card || !fab || !card.animate) { hide($('#modal')); return; }
-  musWrapAnim(card, fab, 'scale(1)', 'scale(.12)').onfinish = () => hide($('#modal'));
+  if (!box || !fab) { hide($('#modal')); return; }
+  const cr = box.getBoundingClientRect();
+  hide($('#modal'));
+  S.musOpen = false; S.musFabHidden = false;
+  musicFabSync();
+  const fr = fab.getBoundingClientRect();
+  if (!box.animate || !fr.width) return;
+  musFly({ x: cr.left, y: cr.top, w: cr.width, h: cr.height }, { x: fr.left, y: fr.top, w: fr.width, h: fr.height }, () => musicFabSync());
 }
-function musAnimIn() {
-  const card = document.querySelector('#modal-body .mus-wrap');
+/** «Закрыть» (крестик): окно закрывается совсем, пузырёк исчезает. */
+function musCloseFull() {
+  hide($('#modal'));
+  S.musOpen = false; S.musFabHidden = true;
+  musicFabSync();
+}
+/** Разворот: пузырёк улетает в окно; сам пузырёк гаснет ДО перелёта. */
+function musExpandAnim() {
   const fab = document.getElementById('music-fab');
-  if (!card || !fab || !card.animate || !fab.classList.contains('auth')) return;
-  musWrapAnim(card, fab, 'scale(.12)', 'scale(1)');
+  const box = document.querySelector('#modal .modal-box');
+  if (!fab || !box || !box.animate) return;
+  const fr = fab.getBoundingClientRect();
+  if (!fr.width) return;   // пузырька не было (открыли через меню «+») — без анимации
+  const cr = box.getBoundingClientRect();
+  box.style.opacity = '0';
+  musFly({ x: fr.left, y: fr.top, w: fr.width, h: fr.height }, { x: cr.left, y: cr.top, w: cr.width, h: cr.height }, () => { box.style.opacity = ''; });
 }
-$('#modal-close').addEventListener('click', () => closeModalMaybeAnim());
-$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModalMaybeAnim(); });
+/** Кнопка «Свернуть» левее крестика — только у окна музыки. */
+function musAddMinBtn() {
+  const close = document.getElementById('modal-close');
+  if (!close || document.getElementById('modal-min')) return;
+  const mb = document.createElement('button');
+  mb.id = 'modal-min';
+  mb.className = 'mini';
+  mb.textContent = 'Свернуть';
+  mb.title = 'Свернуть окно в пузырёк «Моя музыка»';
+  close.parentNode.insertBefore(mb, close);
+  mb.addEventListener('click', () => musMinimize());
+}
+$('#modal-close').addEventListener('click', () => {
+  if (document.querySelector('#modal-body .mus-wrap')) musCloseFull(); else hide($('#modal'));
+});
+$('#modal').addEventListener('click', e => {
+  if (e.target.id !== 'modal') return;
+  if (document.querySelector('#modal-body .mus-wrap')) musMinimize(); else hide($('#modal'));   // клик мимо окна = свернуть
+});
 
 // ─────────────────────────────────────────── push-уведомления: тумблер в настройках
 async function pushState() {
