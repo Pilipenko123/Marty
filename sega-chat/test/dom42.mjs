@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v84'), 'кэш статики поднят до v84 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v85'), 'кэш статики поднят до v85 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-91';") && apiJs.includes("const BUILD = 'pkg3-91';"), 'клиент и сервер помечены pkg3-91');
+ok(appJs.includes("const BUILD = 'pkg3-92';") && apiJs.includes("const BUILD = 'pkg3-92';"), 'клиент и сервер помечены pkg3-92');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -588,8 +588,8 @@ ok(apiJs.includes('const musicNow = new Map()') && apiJs.includes("if (b.kind ==
   'сервер: звуковой статус живёт только в памяти и не привязан к чату');
 ok(apiJs.includes('music: musicInScope(') && appJs.includes('function mergeMusicStatus('),
   'синхронизация и опрос несут статус «🎵 слушает» только моему кругу');
-ok(appJs.includes('async function musicTogether(') && appJs.includes("if (p.k === 'mus-together')"),
-  '«слушать вместе»: запечатанное письмо-карточка с якорем (трек, позиция, время)');
+ok(appJs.includes("if (p.k === 'mus-together')") && appJs.includes('data-mus-join') && appJs.includes('function musicPlayOnce('),
+  'pkg3-92: старые письма «слушать вместе» по-прежнему читаются карточкой с кнопкой «Слушать» (история священна), новые не шлются');
 ok(appJs.includes('async function openMusicOf(') && css.includes('.mus-of-tr'),
   'у чужого аватара — окно публичных плейлистов: только чтение, трек идёт с источника');
 ok(apiJs.includes("if (chat.game.rules === 'coins') {"), 'сервер знает «Монеты» в accept/decline/leave');
@@ -718,14 +718,34 @@ ok(appJs.includes('function musicPlayWidget(') && appJs.includes('function musWi
   'pkg3-88: виджет играет отдельной панелью — звук не обрывается при закрытом окне');
 ok(appJs.includes("f.setAttribute('sandbox'") && appJs.includes('allow-popups'),
   'pkg3-88: чужой плеер закрыт в «песочнице» (sandbox) — изолирован от приложения');
-ok(appJs.includes('встроенный плеер Яндекс.Музыки: запустить его у собеседника с той же секунды нельзя'),
-  'pkg3-88: «🎧 вместе» честно отказывает виджету — синхронизировать чужой плеер мы не можем');
-ok(appJs.includes('const on = !MUS.widget &&'),
-  'pkg3-88: виджет не транслируется в статус «🎵 слушает» — не знаем, играет ли он');
+ok(appJs.includes('трек из личного списка или встроенный плеер — синхронно вести нельзя'),
+  'pkg3-88/92: виджет и личные списки честно не участвуют в синхронном прослушивании');
+ok(appJs.includes('const on = musVisGet() && !MUS.widget &&'),
+  'pkg3-88/92: виджет не транслируется в статус «🎵 слушает» — не знаем, играет ли он');
 ok(appJs.includes('id="mus-add-hint"') && appJs.includes('data-mus-y='),
   'pkg3-88: в окне музыки — подсказка про вставку и кнопка «↗ Яндекс» у виджета');
 ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
   'pkg3-88: панель встроенного плеера, значок «Я» и виджет-режим оформлены в стилях');
+
+// ─────────────────────────── pkg3-92 ───────────────────────────
+ok(appJs.includes("fab.textContent = '🎵 Моя музыка';") && appJs.includes('function musicFabBind(') && appJs.includes('sega.musFabPos.v1'),
+  'pkg3-92: пузырёк переименован в «Моя музыку», перетаскивается и запоминает место');
+ok(appJs.includes('function closeModalMaybeAnim(') && appJs.includes('function musAnimIn('),
+  'pkg3-92: окно сворачивается в пузырёк и разворачивается из него с анимацией');
+ok(appJs.includes('id="mus-vis"') && css.includes('.mus-sw-pill{') && css.includes('.mus-sw-knob{'),
+  'pkg3-92: «видно, что слушаю» — тумблер-переключатель, как на снимке владельца');
+ok(!appJs.includes('id="mus-together"') && !appJs.includes('async function musicTogether('),
+  'pkg3-92: кнопка «🎧 вместе» убрана — письма-приглашения больше не шлются');
+ok(appJs.includes('data-mus-follow') && appJs.includes('function musStartFollow(') && appJs.includes('function musApplySync('),
+  'pkg3-92: плашка «слушает музыку» кликабельна — режим «Слушаю с …»');
+ok(appJs.includes('Слушаю с «') && appJs.includes('function musBreakFollow('),
+  'pkg3-92: надпись «Слушаю с …» и обрыв синхронизации своими стоп/перемоткой/треком');
+ok(apiJs.includes("'/api/music/status'") && apiJs.includes("'/api/music/follow-href'") && apiJs.includes('function cleanSync('),
+  'pkg3-92: сервер держит якорь прослушивания и выдаёт временную ссылку на дисковый трек слушающего');
+ok(appJs.includes('data-readmenu=') && appJs.includes('function askYesNo(') && appJs.includes('function markChatRead(') && css.includes('.ask-card{'),
+  'pkg3-92: счётчик непрочитанных открывает меню «Сделать прочитанными? Да/Нет»');
+ok(appJs.includes("kind: 'music', note: musicStatusNote(), sync: musicStatusSync()"),
+  'pkg3-92: статус уходит с якорем (трек, позиция, время), когда видимость включена');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

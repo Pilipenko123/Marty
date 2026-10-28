@@ -68,7 +68,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-91', 'сервер помечен pkg3-91');
+ok(r.status === 200 && r.d.build === 'pkg3-92', 'сервер помечен pkg3-92');
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
@@ -147,8 +147,8 @@ ok(appJs.includes("if (p.k === 'mus-together')") && appJs.includes('data-mus-joi
   'письмо «слушать вместе» рисуется карточкой с кнопкой «Слушать»');
 ok(appJs.includes('function musicPlayOnce(') && appJs.includes('data-mus-ts'),
   'якорь «вместе»: трек стартует с позиции предложившего (позиция + время отправки)');
-ok(appJs.includes('async function musicTogether(') && appJs.includes("k: 'mus-together'"),
-  'кнопка «🎧 вместе» шлёт запечатанное письмо в открытый чат');
+ok(!appJs.includes('async function musicTogether(') && appJs.includes('id="mus-vis"') && appJs.includes('musVisSet'),
+  'pkg3-92: кнопки «🎧 вместе» нет — видимость «слушаю» включает тумблер, писем он не шлёт');
 ok(appJs.includes('async function openMusicOf(') && appJs.includes('data-mus-of'),
   'у чужого аватара — кнопка «🎵 музыка»: окно публичных списков, только чтение');
 ok(appJs.includes('function musicStatusKick(') && appJs.includes("kind: 'music'") && appJs.includes("kind: 'music-off'"),

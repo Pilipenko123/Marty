@@ -158,7 +158,7 @@ r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({}, cre
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-91', 'сервер помечен pkg3-91');
+ok(r.status === 200 && r.d.build === 'pkg3-92', 'сервер помечен pkg3-92');
 
 const widgetTrack = {
   id: 't-w1', kind: 'widget', what: 'track',
@@ -204,9 +204,9 @@ ok(appJs.includes('function musicPlayWidget(') && appJs.includes('function musWi
   'виджет играет отдельной панелью с кнопкой «■ стоп»');
 ok(appJs.includes("f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox')"),
   'чужой плеер закрыт в «песочнице»: свой код приложения он тронуть не может');
-ok(appJs.includes('const on = !MUS.widget && !!'), 'статус «🎵 слушает» виджет не транслирует');
-ok(appJs.includes('Это встроенный плеер Яндекс.Музыки: запустить его у собеседника с той же секунды нельзя'),
-  '«🎧 вместе» для виджета объясняет отказ простыми словами');
+ok(appJs.includes('const on = musVisGet() && !MUS.widget &&'), 'pkg3-92: статус «🎵 слушает» виджет не транслирует (и тумблер выключен — тоже)');
+ok(appJs.includes('трек из личного списка или встроенный плеер — синхронно вести нельзя'),
+  'pkg3-92: виджету и личным спискам синхронное прослушивание честно объясняет отказ простыми словами');
 ok(appJs.includes('data-musof-kind') && appJs.includes('musicPlayOnce(b.getAttribute(\'data-musof-url\'), b.getAttribute(\'data-musof-title\'), 0, b.getAttribute(\'data-musof-kind\'))'),
   'чужой публичный трек-виджет включается тем же встроенным плеером');
 ok(appJs.includes('mus-badge-y') && appJs.includes('↗ Яндекс'),
@@ -218,7 +218,7 @@ ok(appJs.includes('id="mus-add-hint"') && appJs.includes('Вставьте: ко
   'поле добавления подсказывает, что можно вставить');
 ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
   'панель, значок и виджет-режим плеера оформлены в стилях');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v84';"), 'кэш статики поднят до v84 — друзья получат новый клиент');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v85';"), 'кэш статики поднят до v85 — друзья получат новый клиент');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 ok(pkg.scripts.test.includes('test/music88.mjs'), 'тест pkg3-88 включён в общую цепочку проверки');
 

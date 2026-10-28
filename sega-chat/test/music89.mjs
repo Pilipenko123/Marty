@@ -109,17 +109,17 @@ ok(!BAD_LOOP.test(pasteJs), 'в public/music-paste.js циклов по один
 ok(appJs.includes("const addTr = $('#mus-add-tr');"), 'обработчик «Добавить» на месте');
 ok(appJs.includes("if (tog) tog.addEventListener('click', () => {"), 'обработчик «▶ / ⏸» на месте');
 ok(appJs.includes('if (MUS.widget) { musWidgetStop(); return; }'), '«■ стоп» для виджета Яндекса не потерялся');
-ok(appJs.includes("const tgb = $('#mus-together');"), 'обработчик «🎧 вместе» на месте');
+ok(appJs.includes("const visb = $('#mus-vis');"), 'pkg3-92: тумблер видимости обработан в окне вместо «🎧 вместе»');
 ok(appJs.indexOf("for (const b of $$('#modal [data-mus-edit]'))") < appJs.indexOf("const addTr = $('#mus-add-tr');"),
   'цикл правки треков стоит РАНЬШЕ обработчика «Добавить» — падение цикла больше не обесточит добавление');
 
 console.log('\n  Метки выпуска и кэш');
 
 // ── 6. BUILD, кэш, стили, цепочка тестов ──
-ok(appJs.includes("const BUILD = 'pkg3-91';") && apiJs.includes("const BUILD = 'pkg3-91';"), 'BUILD pkg3-91 в обоих файлах');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v84';"), 'кэш статики поднят до v84');
-ok(dom42.includes('sega-static-v84') && sound80.includes('sega-static-v84') && games81.includes('sega-static-v84'),
-  'три набора тестов ждут именно v84');
+ok(appJs.includes("const BUILD = 'pkg3-92';") && apiJs.includes("const BUILD = 'pkg3-92';"), 'BUILD pkg3-92 в обоих файлах');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v85';"), 'кэш статики поднят до v85');
+ok(dom42.includes('sega-static-v85') && sound80.includes('sega-static-v85') && games81.includes('sega-static-v85'),
+  'три набора тестов ждут именно v85');
 ok(css.includes('.mus-ctl .mini.primary{width:auto;margin-top:0}'), 'кнопка «▶ / ⏸» больше не растягивается на всю строку (⏮ не остаётся одна)');
 ok(css.includes('.mus-add .mini.primary{width:100%;margin-top:0}'), '«Добавить» осталась широкой, но без лишнего отступа');
 ok(css.includes('button.primary{width:100%;'), 'общее правило широкой кнопки не тронуто — прочие окна выглядят как прежде');
