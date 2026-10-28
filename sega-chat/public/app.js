@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-94';
+const BUILD = 'pkg3-95';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -267,6 +267,7 @@ const S = {
   musFollow: null,     // pkg3-92: {uid, name} — чью музыку догоняю в режиме «Слушаю с …»
   musOpen: false,      // pkg3-93: окно «Моя музыка» открыто — пузырёк прячется
   musFabHidden: false, // pkg3-93: окно закрыли крестиком — пузырёк тоже спрятан
+  musFabEarned: false, // pkg3-95: пузырёк заработан первым сворачиванием окна в сеансе
   typingHeaderSig: '', // pkg3-77: подпись заголовка, чтобы не перерисовывать его впустую
   chatPos: {},      // pkg3-38: chatId -> где была прокручена лента ({bottom:true} или {id,dy}) — память места в рамках сессии
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
@@ -4690,7 +4691,15 @@ function musicPlay(pl, idx) {
   const a = musicAudio();
   a.src = t.url;
   a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
-  musicNowUi(); musicFabSync();
+  musicNowUi(); musicFabSync(); musRowsRerender();
+}
+/** pkg3-95: строки плейлиста перерисовываются при каждом старте трека: текущая
+ * строка сразу получает ❚❚ и бегущую строку названия, а не ждёт переоткрытия
+ * окна (дефект 93/94: список рисовался только при открытии окна). */
+function musRowsRerender() {
+  if (!document.querySelector('#modal-body .mus-wrap')) return;
+  const pl = musicFind(MUS.plId);
+  if (pl) openMusic(pl.id);
 }
 /** pkg3-88: включить трек-виджет. Наш звуковой элемент при этом гаснет — иначе
  * две песни звучали бы одновременно. Рамка собирается САМИМ приложением из
@@ -5193,7 +5202,10 @@ function musicFabSync() {
   fab.classList.toggle('play', on);
   // pkg3-93: пузырёк — это свёрнутое окно: при открытом окне его нет,
   // после «Закрыть» (крестик) его тоже нет, после «Свернуть» — есть.
-  fab.classList.toggle('auth', !!S.token && !S.musFabHidden && !S.musOpen);
+  // pkg3-95: при первом открытии чата пузырька НЕТ: он появляется только после
+  // того, как окно музыки один раз свернули шторкой (или через «слушать вместе»
+  // окно открыли и свернули). Не сворачивали — никакого пузырька в сеансе.
+  fab.classList.toggle('auth', !!S.token && S.musFabEarned && !S.musFabHidden && !S.musOpen);
   fab.textContent = '🎵 Моя музыка';
   musicStatusKick();   // pkg3-87: play/pause/конец трека сразу отражаются в статусе
 }
@@ -8926,7 +8938,7 @@ function musMinimize() {
   if (!box || !fab) { hide($('#modal')); return; }
   const cr = box.getBoundingClientRect();
   hide($('#modal'));
-  S.musOpen = false; S.musFabHidden = false;
+  S.musOpen = false; S.musFabHidden = false; S.musFabEarned = true;   // pkg3-95: пузырёк заработан
   musicFabSync();
   const fr = fab.getBoundingClientRect();
   if (!box.animate || !fr.width) return;
