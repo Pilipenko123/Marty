@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-95';
+const BUILD = 'pkg3-96';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4691,7 +4691,7 @@ function musicPlay(pl, idx) {
   const a = musicAudio();
   a.src = t.url;
   a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
-  musicNowUi(); musicFabSync(); musRowsRerender();
+  musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();
 }
 /** pkg3-95: строки плейлиста перерисовываются при каждом старте трека: текущая
  * строка сразу получает ❚❚ и бегущую строку названия, а не ждёт переоткрытия
@@ -5004,13 +5004,23 @@ function musicTickUi() {
   const d = isFinite(a.duration) ? a.duration : 0;
   time.textContent = coinsFmtSec(a.currentTime * 1000) + ' / ' + (d ? coinsFmtSec(d * 1000) : '—:—');
   if (seek && d) seek.value = String(Math.round(a.currentTime / d * 100));
-  // pkg3-93: у текущего трека в списке значок ▶ живьём становится ❚❚ (и обратно),
-  // а бегущая строка названия замирает на паузе
-  const crow = document.querySelector('#modal .mus-tr.cur');
-  if (crow) {
-    crow.classList.toggle('paused', !!(a.paused || a.ended));
-    const pb = crow.querySelector('[data-mus-play]');
-    if (pb) pb.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';
+  // pkg3-96: список треков живьём следует за плеером: текущая строка ездит
+  // вместе с музыкой (переключение, «следующий», «Слушаю с …») — без ждать
+  // перерисовки окна. У текущей строки значок ❚❚ и бегущая строка названия,
+  // на паузе строка замирает и значок возвращается к ▶.
+  const rowsBox = document.querySelector('#modal .mus-trs[data-pl]');
+  if (rowsBox) {
+    const rpl = rowsBox.getAttribute('data-pl');
+    const rows = rowsBox.children;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row.classList || !row.classList.contains('mus-tr')) continue;
+      const isCur = rpl === MUS.plId && i === MUS.idx;
+      row.classList.toggle('cur', isCur);
+      row.classList.toggle('paused', !!(a.paused || a.ended));
+      const pb = row.querySelector('[data-mus-play]');
+      if (pb) pb.textContent = isCur && !a.paused && !a.ended ? '❚❚' : '▶';
+    }
   }
 }
 /** pkg3-87: статус «🎵 слушает»: короткая строка, которую клиент сам решает
@@ -5327,9 +5337,9 @@ async function openMusic(wantId) {
         <div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
         <div class="mus-disk-addline hidden" id="mus-disk-addline"></div>
         <div class="mus-trs" id="mus-disk-files"></div>
-      </div>` : pl ? `<div class="mus-trs">${(pl.tracks || []).map((t, i) => `<div class="mus-tr${MUS.plId === pl.id && MUS.idx === i ? ' cur' : ''}">
+      </div>` : pl ? `<div class="mus-trs" data-pl="${pl.id}">${(pl.tracks || []).map((t, i) => `<div class="mus-tr${MUS.plId === pl.id && MUS.idx === i ? ' cur' : ''}">
           <button class="mini" data-mus-play="${i}" title="Играть / пауза">${MUS.plId === pl.id && MUS.idx === i && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
-          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n">${(MUS.plId === pl.id && MUS.idx === i && String(t.title || t.url || t.path || '').length > 24) ? '<span class="mq">' + escapeHtml(t.title || t.url || t.path || '') + '</span>' : escapeHtml(t.title || t.url || t.path || '')}${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span></span>
+          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span></span>
           ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗ Яндекс</a>` : ''}
           <button class="mini" data-mus-edit="${i}">правка</button>
           <button class="mini danger" data-mus-del="${i}" title="Убрать трек">×</button>

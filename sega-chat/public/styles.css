@@ -1683,7 +1683,9 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
   box-shadow:0 6px 24px #0007;pointer-events:none;overflow:hidden;white-space:nowrap}
 .music-fab.drag{transition:none;box-shadow:0 8px 26px #0009}
 .mus-tr-n{overflow:hidden;flex:1 1 auto;min-width:0}
-.mus-tr.cur .mq{display:inline-block;white-space:nowrap;padding-left:100%;animation:mus-mq 9s linear infinite}
+.mus-tr .mq{display:inline-block;white-space:nowrap;max-width:100%}   /* pkg3-96: строка заготовлена у каждого трека */
+.mus-tr.cur .mq{padding-left:100%;animation:mus-mq 9s linear infinite}
+.mus-tr.cur .mq.mq-s{animation:none;padding-left:0}   /* pkg3-96: короткое название видно целиком без бега */
 .mus-tr.cur.paused .mq{animation-play-state:paused}
 @keyframes mus-mq{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
 
