@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-93';
+const BUILD = 'pkg3-94';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5188,7 +5188,8 @@ function musicFabSync() {
   }
   // pkg3-92: пузырёк живёт всегда (это дверь в «Мою музыку»), а класс play —
   // только когда что-то звучит; прежняя подпись «играет» стала названием окна.
-  fab.classList.toggle('on', true);
+  // pkg3-94: класса .on больше нет (старое правило стилей «.on = показывать»
+  // держало пузырёк поверх открытого окна — отсюда «пузырь не исчезает»)
   fab.classList.toggle('play', on);
   // pkg3-93: пузырёк — это свёрнутое окно: при открытом окне его нет,
   // после «Закрыть» (крестик) его тоже нет, после «Свернуть» — есть.
@@ -5353,8 +5354,7 @@ async function openMusic(wantId) {
   const musWasOpen = S.musOpen;
   S.musOpen = true; S.musFabHidden = false;
   musAddMinBtn();
-  musicFabSync();
-  if (!musWasOpen) musExpandAnim();
+  if (!musWasOpen) musExpandAnim(); else musicFabSync();   // pkg3-94: сначала гасим пузырёк, потом перелёт
   musicNowUi(); musicTickUi();
   for (const b of $$('#modal [data-mus-pl]')) b.addEventListener('click', () => openMusic(b.getAttribute('data-mus-pl')));
   for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => {
@@ -8932,33 +8932,42 @@ function musMinimize() {
   if (!box.animate || !fr.width) return;
   musFly({ x: cr.left, y: cr.top, w: cr.width, h: cr.height }, { x: fr.left, y: fr.top, w: fr.width, h: fr.height }, () => musicFabSync());
 }
-/** «Закрыть» (крестик): окно закрывается совсем, пузырёк исчезает. */
+/** pkg3-94: «Закрыть» (крестик) закрывает ВСЁ: окно, пузырёк и музыку, если
+ * она играла (файл или виджет); трансляция статуса «слушает» гаснет сразу
+ * (kick внутри fabSync шлёт music-off, раз плеер остановлен). */
 function musCloseFull() {
+  if (MUS.widget) musWidgetStop();
+  const a = MUS.a;
+  if (a && !a.paused) a.pause();
+  musStopFollow(true);   // «Слушаю с …» тоже заканчивается тихо
   hide($('#modal'));
   S.musOpen = false; S.musFabHidden = true;
   musicFabSync();
 }
-/** Разворот: пузырёк улетает в окно; сам пузырёк гаснет ДО перелёта. */
+/** pkg3-94: разворот: габарит пузырька берём ПОКА он виден, затем гасим его
+ * СРАЗУ (иллюзия: пузырёк и есть окно) и летим плашкой-двойником в окно. */
 function musExpandAnim() {
   const fab = document.getElementById('music-fab');
   const box = document.querySelector('#modal .modal-box');
-  if (!fab || !box || !box.animate) return;
+  if (!fab || !box) { musicFabSync(); return; }
   const fr = fab.getBoundingClientRect();
-  if (!fr.width) return;   // пузырька не было (открыли через меню «+») — без анимации
+  musicFabSync();   // окно открыто — пузырька нет немедленно
+  if (!fr.width || !box.animate) return;   // открыли через меню «+» — без перелёта
   const cr = box.getBoundingClientRect();
   box.style.opacity = '0';
   musFly({ x: fr.left, y: fr.top, w: fr.width, h: fr.height }, { x: cr.left, y: cr.top, w: cr.width, h: cr.height }, () => { box.style.opacity = ''; });
 }
-/** Кнопка «Свернуть» левее крестика — только у окна музыки. */
+/** pkg3-94: «Свернуть» — шторка-язычок по центру ВЕРХНЕЙ кромки окна (как на
+ * снимке владельца): выступает над окном и читается как ручка шторки. */
 function musAddMinBtn() {
-  const close = document.getElementById('modal-close');
-  if (!close || document.getElementById('modal-min')) return;
+  const box = document.querySelector('#modal .modal-box');
+  if (!box || document.getElementById('modal-min')) return;
   const mb = document.createElement('button');
   mb.id = 'modal-min';
-  mb.className = 'mini';
+  mb.className = 'mus-shutter';
   mb.textContent = 'Свернуть';
   mb.title = 'Свернуть окно в пузырёк «Моя музыка»';
-  close.parentNode.insertBefore(mb, close);
+  box.insertBefore(mb, box.firstChild);
   mb.addEventListener('click', () => musMinimize());
 }
 $('#modal-close').addEventListener('click', () => {
