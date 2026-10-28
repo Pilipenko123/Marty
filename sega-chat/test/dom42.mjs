@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v86'), 'кэш статики поднят до v86 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v87'), 'кэш статики поднят до v87 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-93';") && apiJs.includes("const BUILD = 'pkg3-93';"), 'клиент и сервер помечены pkg3-93');
+ok(appJs.includes("const BUILD = 'pkg3-94';") && apiJs.includes("const BUILD = 'pkg3-94';"), 'клиент и сервер помечены pkg3-94');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -752,8 +752,8 @@ ok(appJs.includes('document.addEventListener(\'pointermove\', move') && appJs.in
   'pkg3-93: пузырёк перетаскивается по-настоящему (document-слушатели, оба якоря сняты — не растягивается)');
 ok(css.includes('.music-fab{position:fixed;right:14px;bottom:76px'),
   'pkg3-93: пузырёк по умолчанию стоит НАД кнопкой отправки, не поверх неё');
-ok(appJs.includes('function musAddMinBtn(') && appJs.includes("mb.textContent = 'Свернуть';"),
-  'pkg3-93: кнопка «Свернуть» левее крестика — только у окна музыки');
+ok(appJs.includes('function musAddMinBtn(') && appJs.includes("mb.textContent = 'Свернуть';") && css.includes('.mus-shutter{'),
+  'pkg3-93/94: «Свернуть» — шторка-язычок по центру верхней кромки окна музыки');
 ok(appJs.includes('S.musFabHidden = true') && appJs.includes('!S.musFabHidden && !S.musOpen'),
   'pkg3-93: крестик прячет пузырёк совсем; при открытом окне пузырька нет (иллюзия одного предмета)');
 ok(css.includes('.mus-fly{') && appJs.includes('function musFly('),
@@ -764,6 +764,18 @@ ok(appJs.includes("crow.classList.toggle('paused'"),
   'pkg3-93: бегущая строка замирает на паузе');
 ok(appJs.includes("title=\"Играть / пауза\""),
   'pkg3-93: нажатие на текущий трек — пауза/продолжить');
+
+// ─────────────────────────── pkg3-94 ───────────────────────────
+ok(!css.includes('.music-fab.on{') && !appJs.includes("fab.classList.toggle('on', true);"),
+  'pkg3-94: старое правило «.on = показывать» убрано — пузырёк гаснет при открытом окне и при развороте');
+ok(appJs.includes('if (MUS.widget) musWidgetStop();') && appJs.includes('if (a && !a.paused) a.pause();') && appJs.includes('function musCloseFull('),
+  'pkg3-94: крестик останавливает музыку (файл и виджет) и гасит статус «слушает»');
+ok(appJs.includes('const fr = fab.getBoundingClientRect();\n  musicFabSync();'),
+  'pkg3-94: при развороте габарит пузырька берётся до скрытия, сам пузырёк гаснет сразу');
+ok(css.includes('.mus-shutter{position:absolute;top:-15px;left:50%'),
+  'pkg3-94: шторка выступает над верхней кромкой окна по центру');
+ok(appJs.includes('musStopFollow(true);'),
+  'pkg3-94: закрытие крестиком тихо завершает «Слушаю с …»');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

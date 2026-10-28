@@ -34,8 +34,8 @@ ok(css.includes('.music-fab{position:fixed;right:14px;bottom:76px'),
 ok(appJs.includes("localStorage.setItem('sega.musFabPos.v1'"), 'выбранное место запоминается между сеансами');
 
 console.log('\n  2. «Свернуть» и «Закрыть» — разные кнопки');
-ok(appJs.includes('function musAddMinBtn(') && appJs.includes("mb.textContent = 'Свернуть';") && appJs.includes('close.parentNode.insertBefore(mb, close)'),
-  'кнопка «Свернуть» встаёт ЛЕВЕЕ крестика и только у окна музыки');
+ok(appJs.includes('function musAddMinBtn(') && appJs.includes("mb.textContent = 'Свернуть';") && appJs.includes('box.insertBefore(mb, box.firstChild)'),
+  'pkg3-94: «Свернуть» — шторка-язычок по центру верхней кромки окна музыки');
 ok(appJs.includes("if (mb) mb.remove();"), 'у прочих модалок «Свернуть» не остаётся');
 ok(appJs.includes('function musCloseFull(') && appJs.includes('S.musFabHidden = true'),
   'крестик закрывает окно СОВСЕМ: пузырёк исчезает');
@@ -50,8 +50,8 @@ ok(appJs.includes('function musFly(') && css.includes('.mus-fly{'),
 ok(appJs.includes("d.textContent = '🎵 Моя музыка';"), 'плашка-двойник подписана как пузырёк');
 ok(appJs.includes('box.style.opacity = \'0\';') && appJs.includes("box.style.opacity = '';"),
   'окно проявляется только когда плашка долетела (иллюзия разворота из пузырька)');
-ok(appJs.includes('const fr = fab.getBoundingClientRect();') && appJs.includes('if (!fr.width) return;'),
-  'открыли через меню «+» без пузырька — без анимации, без артефактов');
+ok(appJs.includes('const fr = fab.getBoundingClientRect();') && appJs.includes('if (!fr.width || !box.animate) return;'),
+  'pkg3-94: открыли через меню «+» без пузырька — габарит нулевой, перелёт не рисуется');
 
 console.log('\n  4. Текущий трек в списке');
 ok(appJs.includes("'❚❚'") && appJs.includes("pb.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';"),
@@ -64,8 +64,8 @@ ok(appJs.includes('if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl
   'нажатие на текущий трек — пауза/продолжить, а не перезапуск');
 
 console.log('\n  5. Инварианты выпуска');
-ok(appJs.includes("const BUILD = 'pkg3-93';") && apiJs.includes("const BUILD = 'pkg3-93';"), 'BUILD pkg3-93 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v86';"), 'кэш статики поднят до v86');
+ok(appJs.includes("const BUILD = 'pkg3-94';") && apiJs.includes("const BUILD = 'pkg3-94';"), 'BUILD pkg3-94 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v87';"), 'кэш статики поднят до v87');
 ok(pkg.includes('node test/music93.mjs'), 'тест music93 включён в цепочку npm test');
 ok(readme.includes('| pkg3-93 |'), 'в журнале README есть строка выпуска pkg3-93');
 const deps = JSON.parse(pkg).dependencies;

@@ -116,10 +116,10 @@ ok(appJs.indexOf("for (const b of $$('#modal [data-mus-edit]'))") < appJs.indexO
 console.log('\n  Метки выпуска и кэш');
 
 // ── 6. BUILD, кэш, стили, цепочка тестов ──
-ok(appJs.includes("const BUILD = 'pkg3-93';") && apiJs.includes("const BUILD = 'pkg3-93';"), 'BUILD pkg3-93 в обоих файлах');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v86';"), 'кэш статики поднят до v86');
-ok(dom42.includes('sega-static-v86') && sound80.includes('sega-static-v86') && games81.includes('sega-static-v86'),
-  'три набора тестов ждут именно v86');
+ok(appJs.includes("const BUILD = 'pkg3-94';") && apiJs.includes("const BUILD = 'pkg3-94';"), 'BUILD pkg3-94 в обоих файлах');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v87';"), 'кэш статики поднят до v87');
+ok(dom42.includes('sega-static-v87') && sound80.includes('sega-static-v87') && games81.includes('sega-static-v87'),
+  'три набора тестов ждут именно v87');
 ok(css.includes('.mus-ctl .mini.primary{width:auto;margin-top:0}'), 'кнопка «▶ / ⏸» больше не растягивается на всю строку (⏮ не остаётся одна)');
 ok(css.includes('.mus-add .mini.primary{width:100%;margin-top:0}'), '«Добавить» осталась широкой, но без лишнего отступа');
 ok(css.includes('button.primary{width:100%;'), 'общее правило широкой кнопки не тронуто — прочие окна выглядят как прежде');
