@@ -19,7 +19,7 @@ const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — �
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-91';
+const BUILD = 'pkg3-92';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -110,9 +110,29 @@ function createApi(store, opts = {}) {
    * трека из ПУБЛИЧНОГО плейлиста либо пусто («слушает музыку») — личные списки
    * сервер не читает никогда. Живёт в памяти, истекает само, как «пишет». */
   const MUSIC_TTL = Number(process.env.TYPING_TTL_MUSIC || 45000);
-  const musicNow = new Map();   // userId -> { note, ts }
-  function setMusicStatus(userId, note) {
-    musicNow.set(userId, { note: String(note || '').slice(0, 80), ts: Date.now() });
+  const musicNow = new Map();   // userId -> { note, ts, sync }
+  /** pkg3-92: якорь живого прослушивания для режима «Слушаю с …». Клиент шлёт
+   * его только когда владелец включил «видно, что слушаю» и трек делимый:
+   * прямая https-ссылка из ПУБЛИЧНОГО плейлиста либо файл с Диска владельца.
+   * Личные списки sync не получают никогда — сервер слеп к ним, как прежде. */
+  function cleanSync(x) {
+    if (!x || typeof x !== 'object') return null;
+    const kind = x.kind === 'disk' ? 'disk' : x.kind === 'url' ? 'url' : '';
+    if (!kind) return null;
+    const url = kind === 'url' ? String(x.url || '').slice(0, 500) : '';
+    const path = kind === 'disk' ? String(x.path || '').slice(0, 500) : '';
+    if (kind === 'url' && !/^https:\/\//i.test(url)) return null;
+    if (kind === 'disk' && (!/^disk:\//.test(path) || path.includes('..'))) return null;   // «..» в якорь не проходит
+    return {
+      kind, url, path,
+      title: String(x.title || '').slice(0, 80),
+      pos: Math.max(0, Number(x.pos) || 0),
+      at: Number(x.at) || Date.now(),
+      playing: x.playing !== false
+    };
+  }
+  function setMusicStatus(userId, note, sync) {
+    musicNow.set(userId, { note: String(note || '').slice(0, 80), ts: Date.now(), sync: cleanSync(sync) });
   }
   function clearMusicStatus(userId) { musicNow.delete(userId); }
   function freshMusic(userId, now) {
@@ -127,7 +147,7 @@ function createApi(store, opts = {}) {
     for (const uid of uids) {
       if (uid === exceptUid) continue;
       const s = freshMusic(uid, now);
-      if (s) out.push({ uid, note: s.note });
+      if (s) out.push({ uid, note: s.note, sync: s.sync || null });   // pkg3-92: якорь для «Слушаю с …»
     }
     return out;
   }
@@ -1590,7 +1610,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/typing' && method === 'POST') {
       const b = req.body || {};
       // pkg3-87: звуковой статус не привязан к чату — чат для него не нужен
-      if (b.kind === 'music') { setMusicStatus(me.id, b.note); return J(200, { ok: true, typing: [] }); }
+      if (b.kind === 'music') { setMusicStatus(me.id, b.note, b.sync); return J(200, { ok: true, typing: [] }); }
       if (b.kind === 'music-off') { clearMusicStatus(me.id); return J(200, { ok: true, typing: [] }); }
       const chat = chatById(String(b.chat || ''));
       if (!chat || !isMember(chat, me.id)) return E(403, 'Это не ваш чат');
@@ -1608,6 +1628,47 @@ function createApi(store, opts = {}) {
         typing: typingInChat(chat.id, Date.now(), me.id),
         music: musicInScope(chat.members, Date.now(), me.id)   // pkg3-87: кто слушает
       });
+    }
+    // pkg3-92: живой статус ОДНОГО человека для режима «Слушаю с …»: плашка
+    // «слушает музыку» кликабельна, нажавший догоняет трек и позицию по якорю.
+    if (pathname === '/api/music/status' && method === 'GET') {
+      const of = String(query.get('of') || '');
+      if (!of || of === me.id) return J(200, { note: '', sync: null });
+      let inScope = false;
+      for (const c of db.chats) {
+        const ms = c && c.members;
+        if (Array.isArray(ms) && ms.includes(me.id) && ms.includes(of)) { inScope = true; break; }
+      }
+      if (!inScope) return E(404, 'Этот человек не из ваших чатов');
+      const s = freshMusic(of, Date.now());
+      return J(200, { note: s ? s.note : '', sync: s ? (s.sync || null) : null });
+    }
+    // pkg3-92: свежая временная ссылка на ТЕКУЩИЙ дисковый трек того, за кем
+    // слушаем. Согласие — включённое «видно, что слушаю» у слушающего плюс
+    // совпадение пути с тем, что он играет прямо сейчас (иначе 404).
+    if (pathname === '/api/music/follow-href' && method === 'GET') {
+      if (throttle('yd-follow-' + me.id, 60)) return E(429, 'Слишком много запросов — подождите немного');
+      const owner = String(query.get('owner') || '');
+      const path = String(query.get('path') || '');
+      const ou = db.users.find(x => x.id === owner);
+      const s = ou ? freshMusic(owner, Date.now()) : null;
+      if (!ou || !s || !s.sync || s.sync.kind !== 'disk' || s.sync.path !== path) return E(404, 'Сейчас не играет с Диска');
+      let inScope = false;   // pkg3-92: ссылка — только своему кругу (плашку видят только они)
+      for (const c of db.chats) {
+        const ms = c && c.members;
+        if (Array.isArray(ms) && ms.includes(me.id) && ms.includes(owner)) { inScope = true; break; }
+      }
+      if (!inScope) return E(404, 'Этот человек не из ваших чатов');
+      const keys = yadisk.loadKeys();
+      if (!keys) return E(409, YD_KEYS_HINT);
+      try {
+        const tok = await ydFreshToken(ou, keys);
+        if (!tok) return E(404, 'Сейчас не играет с Диска');
+        return J(200, await yadisk.downloadHref(tok.access_token, path));
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) return E(409, 'Диск отозвал доступ у слушающего');
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
     }
 
     // --- отметка «прочитано» (bucket: <chatId> | thr:<messageId>)
