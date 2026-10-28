@@ -54,18 +54,18 @@ ok(appJs.includes('const fr = fab.getBoundingClientRect();') && appJs.includes('
   'pkg3-94: открыли через меню «+» без пузырька — габарит нулевой, перелёт не рисуется');
 
 console.log('\n  4. Текущий трек в списке');
-ok(appJs.includes("'❚❚'") && appJs.includes("pb.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';"),
-  'у играющего трека значок ▶ живьём становится ❚❚, на паузе возвращается');
-ok(css.includes('@keyframes mus-mq') && appJs.includes('class="mq"'),
-  'длинное название текущего трека едет бегущей строкой — читается целиком');
+ok(appJs.includes("'❚❚'") && appJs.includes("pb.textContent = isCur && !a.paused && !a.ended ? '❚❚' : '▶';"),
+  'pkg3-96: у играющего трека значок ▶ живьём становится ❚❚ ровно на текущей строке');
+ok(css.includes('@keyframes mus-mq') && appJs.includes('class="mq${'),
+  'pkg3-96: бегущая строка заготовлена у каждого трека, едет у текущего — читается целиком');
 ok(css.includes('.mus-tr.cur.paused .mq{animation-play-state:paused}'),
   'на паузе бегущая строка замирает');
 ok(appJs.includes('if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl.tracks || [])[i]))'),
   'нажатие на текущий трек — пауза/продолжить, а не перезапуск');
 
 console.log('\n  5. Инварианты выпуска');
-ok(appJs.includes("const BUILD = 'pkg3-95';") && apiJs.includes("const BUILD = 'pkg3-95';"), 'BUILD pkg3-95 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v88';"), 'кэш статики поднят до v88');
+ok(appJs.includes("const BUILD = 'pkg3-96';") && apiJs.includes("const BUILD = 'pkg3-96';"), 'BUILD pkg3-96 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v89';"), 'кэш статики поднят до v89');
 ok(pkg.includes('node test/music93.mjs'), 'тест music93 включён в цепочку npm test');
 ok(readme.includes('| pkg3-93 |'), 'в журнале README есть строка выпуска pkg3-93');
 const deps = JSON.parse(pkg).dependencies;

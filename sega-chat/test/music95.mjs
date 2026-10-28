@@ -34,8 +34,8 @@ ok(appJs.includes('function musStartFollow(') && appJs.includes('openMusic();'),
 console.log('\n  2. ❚❚ и бегущая строка — сразу при старте трека');
 ok(appJs.includes('function musRowsRerender(') && appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender();'),
   'запуск трека перерисовывает список открытого окна: текущая строка получает ❚❚ и mq');
-ok(appJs.includes("pb.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';"),
-  'живой значок паузы на текущей строке обновляется тикером');
+ok(appJs.includes("pb.textContent = isCur && !a.paused && !a.ended ? '❚❚' : '▶';"),
+  'pkg3-96: живой значок паузы стоит ровно на текущей строке и обновляется тикером');
 ok(css.includes('@keyframes mus-mq') && css.includes('.mus-tr.cur.paused .mq{animation-play-state:paused}'),
   'бегущая строка едет у текущего трека и замирает на паузе');
 ok(appJs.includes('if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl.tracks || [])[i]))'),
@@ -51,8 +51,8 @@ ok(css.includes('.mus-shutter{position:absolute;top:6px;left:50%'),
 ok(appJs.includes('box.insertBefore(mb, box.firstChild)'), 'шторка — первый элемент окна музыки');
 
 console.log('\n  4. Инварианты выпуска');
-ok(appJs.includes("const BUILD = 'pkg3-95';") && apiJs.includes("const BUILD = 'pkg3-95';"), 'BUILD pkg3-95 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v88';"), 'кэш статики поднят до v88');
+ok(appJs.includes("const BUILD = 'pkg3-96';") && apiJs.includes("const BUILD = 'pkg3-96';"), 'BUILD pkg3-96 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v89';"), 'кэш статики поднят до v89');
 ok(pkg.includes('node test/music95.mjs'), 'тест music95 включён в цепочку npm test');
 ok(readme.includes('| pkg3-95 |'), 'в журнале README есть строка выпуска pkg3-95');
 const deps = JSON.parse(pkg).dependencies;

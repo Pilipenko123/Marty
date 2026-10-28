@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v88'), 'кэш статики поднят до v88 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v89'), 'кэш статики поднят до v89 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-95';") && apiJs.includes("const BUILD = 'pkg3-95';"), 'клиент и сервер помечены pkg3-95');
+ok(appJs.includes("const BUILD = 'pkg3-96';") && apiJs.includes("const BUILD = 'pkg3-96';"), 'клиент и сервер помечены pkg3-96');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -758,10 +758,10 @@ ok(appJs.includes('S.musFabHidden = true') && appJs.includes('!S.musFabHidden &&
   'pkg3-93: крестик прячет пузырёк совсем; при открытом окне пузырька нет (иллюзия одного предмета)');
 ok(css.includes('.mus-fly{') && appJs.includes('function musFly('),
   'pkg3-93: перелёт окно↔пузырёк рисуется плашкой поверх всего экрана — видно, КУДА улетело');
-ok(appJs.includes('❚❚') && css.includes('@keyframes mus-mq') && appJs.includes('class="mq"'),
-  'pkg3-93: у текущего трека ▶ становится ❚❚, длинное название едет бегущей строкой');
-ok(appJs.includes("crow.classList.toggle('paused'"),
-  'pkg3-93: бегущая строка замирает на паузе');
+ok(appJs.includes('❚❚') && css.includes('@keyframes mus-mq') && appJs.includes('class="mq${'),
+  'pkg3-93/96: у текущего трека ▶ становится ❚❚, длинное название едет бегущей строкой');
+ok(appJs.includes("row.classList.toggle('paused'"),
+  'pkg3-93/96: бегущая строка замирает на паузе');
 ok(appJs.includes("title=\"Играть / пауза\""),
   'pkg3-93: нажатие на текущий трек — пауза/продолжить');
 
@@ -788,6 +788,19 @@ ok(css.includes('#modal .modal-box{max-height:calc(100vh - 28px)') && css.includ
   'pkg3-95: окно музыки вмещается в окно мессенджера без внешней полосы; списки скроллятся сами');
 ok(appJs.includes("musRowsRerender();") && appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender();'),
   'pkg3-95: ❚❚ и бегущая строка появляются сразу при запуске трека, а не после переоткрытия окна');
+
+// ─────────────────────────── pkg3-96 ───────────────────────────
+ok(appJs.includes('<div class="mus-trs" data-pl="${pl.id}">'),
+  'pkg3-96: список треков помнит, какой плейлист нарисован');
+ok(appJs.includes("const rowsBox = document.querySelector('#modal .mus-trs[data-pl]');"),
+  'pkg3-96: строки списка живьём следуют за плеером (переключение без перерисовки окна)');
+ok(css.includes('.mus-tr .mq{display:inline-block') && css.includes('.mus-tr.cur .mq{padding-left:100%'),
+  'pkg3-96: бегущая строка заготовлена у каждого трека, едет только у текущего');
+ok(appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();'),
+  'pkg3-96: сразу после старта трека список помечен текущим без ожидания');
+ok(appJs.includes("const BUILD = 'pkg3-96';") && apiJs.includes("const BUILD = 'pkg3-96';"),
+  'BUILD pkg3-96 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v89';"), 'кэш статики поднят до v89');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
