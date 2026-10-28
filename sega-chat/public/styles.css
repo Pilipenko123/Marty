@@ -1656,3 +1656,24 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
   color:#3fa9fc;font-size:10px;line-height:16px;vertical-align:middle;white-space:nowrap}
 .mus-of-tr[disabled]{opacity:.55;cursor:not-allowed}
 .mus-of-tr[disabled]:hover{border-color:var(--line)}
+
+/* ── pkg3-92: пузырёк «Моя музыка», тумблер видимости, плашки, вопрос «Да/Нет» ── */
+.music-fab{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab}
+.music-fab:active{cursor:grabbing}
+.music-fab.auth{display:block}
+.music-fab.play{border-color:var(--accent);color:var(--accent)}
+.mus-plate{background:none;border:0;padding:0;margin:0;font:inherit;color:#5c9c1e;cursor:pointer;text-align:left}
+.mus-plate:hover{text-decoration:underline}
+.mus-sw{display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-left:6px}
+.mus-sw input{position:absolute;opacity:0;width:0;height:0}
+.mus-sw-pill{position:relative;width:40px;height:22px;border-radius:11px;background:#232c3d;border:1px solid var(--line);flex:none;transition:background .18s}
+.mus-sw-knob{position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#cfd8ea;transition:transform .18s}
+.mus-sw input:checked + .mus-sw-pill{background:#4b3d7a}
+.mus-sw input:checked + .mus-sw-pill .mus-sw-knob{transform:translateX(18px);background:#fff}
+.mus-sw-t{font-size:12px;opacity:.8;white-space:nowrap}
+.mus-follow-t{display:block;margin-top:4px;color:var(--accent)}
+.ask-ovl{position:fixed;inset:0;background:#000a;z-index:130;display:flex;align-items:center;justify-content:center}
+.ask-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;max-width:320px;box-shadow:0 6px 24px #0006}
+.ask-t{margin-bottom:12px}
+.ask-b{display:flex;gap:8px;justify-content:flex-end}
+[data-readmenu]{cursor:pointer}

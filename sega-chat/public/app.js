@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-91';
+const BUILD = 'pkg3-92';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -263,7 +263,8 @@ const S = {
   chatTitles: new Map(), // chatId -> строка
   view: null, threadId: null, quote: null, highlight: null, drafts: {}, openMark: null,
   typing: [],          // pkg3-77: кто пишет/загружает — [{uid, chat, kind, at}]
-  musicStatus: {},     // pkg3-87: кто слушает музыку — {uid: {note, at}}
+  musicStatus: {},     // pkg3-87: кто слушает музыку — {uid: {note, at, sync}}
+  musFollow: null,     // pkg3-92: {uid, name} — чью музыку догоняю в режиме «Слушаю с …»
   typingHeaderSig: '', // pkg3-77: подпись заголовка, чтобы не перерисовывать его впустую
   chatPos: {},      // pkg3-38: chatId -> где была прокручена лента ({bottom:true} или {id,dy}) — память места в рамках сессии
   seq: 0, rsince: 0, chg: 0,   // курсоры: сообщения / журнал мелких изменений
@@ -2232,6 +2233,48 @@ async function markRead() {
   // вкладки и красная точка должны гаснуть в момент прочтения
   if (buckets.size) { S.sig = ''; renderAll(); }
 }
+/** pkg3-92: «Сделать прочитанными?» прямо со счётчика непрочитанных в списке:
+ * Да — чат помечается прочитанным БЕЗ открытия (ветки тоже), Нет — ничего. */
+async function markChatRead(id) {
+  if (!S.me || !id) return;
+  const reads = myReads();
+  const buckets = new Map();
+  for (const m of S.messages) {
+    if (m.chat !== id) continue;
+    const b = bucketOf(m);
+    if (m.seq > (reads[b] || 0) && m.seq > (buckets.get(b) || 0)) buckets.set(b, m.seq);
+  }
+  for (const [bucket, seq] of buckets) {
+    reads[bucket] = seq;
+    try { await api('/api/read', { method: 'POST', body: { bucket, seq } }); } catch (e) {}
+  }
+  if (buckets.size) { S.sig = ''; renderAll(); }
+}
+/** pkg3-92: маленький вопрос «Да / Нет» своей плашкой (родной confirm на телефоне
+ * выглядит чужеродно и не даёт заголовка меню). */
+function askYesNo(title) {
+  return new Promise(res => {
+    const ovl = document.createElement('div');
+    ovl.className = 'ask-ovl';
+    ovl.innerHTML = '<div class="ask-card"><div class="ask-t">' + escapeHtml(title) + '</div>'
+      + '<div class="ask-b"><button class="mini primary" data-ask="1">Да</button> <button class="mini" data-ask="0">Нет</button></div></div>';
+    const done = v => { ovl.remove(); res(v); };
+    ovl.addEventListener('click', e => {
+      const b = e.target.closest('[data-ask]');
+      if (b) { done(b.getAttribute('data-ask') === '1'); return; }
+      if (e.target === ovl) done(false);
+    });
+    document.body.appendChild(ovl);
+  });
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-readmenu]');
+  if (!b) return;
+  e.stopPropagation();   // счётчик живёт внутри строки чата — сам чат не открываем
+  const id = b.getAttribute('data-readmenu');
+  if (!id) return;
+  askYesNo('Сделать прочитанными?').then(yes => { if (yes) markChatRead(id); });
+});
 
 // ─────────────────────────────────────────── аватары
 const avatarCache = new Map(), avatarPending = new Set();
@@ -4595,6 +4638,7 @@ function musicAudio() {
     MUS.a.addEventListener('play', musicFabSync);
     MUS.a.addEventListener('pause', musicFabSync);
     MUS.a.addEventListener('timeupdate', musicTickUi);
+    MUS.a.addEventListener('seeked', () => musicStatusKick());   // pkg3-92: перемотка сразу обновляет якорь для слушающих вместе
   }
   return MUS.a;
 }
@@ -4630,6 +4674,7 @@ const musicAll = () => ((S.music && S.music.pub) || []).concat((S.music && S.mus
 const musicFind = id => musicAll().find(p => p.id === id) || null;
 const musicUid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 function musicPlay(pl, idx) {
+  musBreakFollow();   // pkg3-92: свой трек — синхронизация обрывается
   MUS.list = (pl && pl.tracks) || [];
   MUS.idx = idx;
   MUS.plId = (pl && pl.id) || null;
@@ -4650,6 +4695,7 @@ function musicPlay(pl, idx) {
  * ссылки, которую пропустил белый список (только music.yandex.ru/iframe/):
  * чужой HTML-код из буфера обмена в разметку не вставляется. */
 function musicPlayWidget(t) {
+  musBreakFollow();   // pkg3-92: виджет синхронно вести не умеет — FOLLOW обрывается
   const a = musicAudio();
   a.pause();
   a.removeAttribute('src');
@@ -4918,8 +4964,11 @@ function musUiMode() {
   box.classList.toggle('widget-mode', w);
   const tog = box.querySelector('#mus-toggle');
   if (tog) tog.textContent = w ? '■ стоп' : '▶ / ⏸';
-  const tg = box.querySelector('#mus-together');
-  if (tg) { tg.disabled = w; tg.title = w ? 'Встроенный плеер Яндекс.Музыки нельзя запустить у собеседника с той же секунды' : 'Предложить открытому чату слушать этот трек вместе'; }
+  // pkg3-92: кнопка «🎧 вместе» уступила место тумблеру видимости; письма-приглашения
+  // больше не шлются. Виджет в статус не попадает вовсе (как и прежде).
+  const sw = box.querySelector('#mus-vis');
+  if (sw) { sw.checked = musVisGet(); sw.disabled = false; }
+  musFollowUi();
   const note = box.querySelector('#mus-now-kind');
   if (note) note.textContent = w ? 'Встроенный плеер Яндекс.Музыки открыт внизу окна: перемотка и громкость — внутри него.' : '';
 }
@@ -4956,22 +5005,45 @@ function musicStatusNote() {
   return pub ? String(t.title || t.url).slice(0, 80) : '';
 }
 let musStatusOn = false;
+/** pkg3-92: тумблер «видно, что слушаю». Выключен — статус не уходит вовсе
+ * (и плашка у собеседников гаснет), включён — как прежде плюс якорь для
+ * синхронного прослушивания. Храним на устройстве, по умолчанию включён. */
+function musVisGet() {
+  try { return localStorage.getItem('sega.musVis.v1') !== '0'; } catch (e) { return true; }
+}
+function musVisSet(v) {
+  try { localStorage.setItem('sega.musVis.v1', v ? '1' : '0'); } catch (e) {}
+}
+/** pkg3-92: якорь «что играет прямо сейчас» для режима «Слушаю с …».
+ * Даём его только делимым трекам: прямая https-ссылка из ПУБЛИЧНОГО плейлиста
+ * или файл с Диска владельца. Личный список — статус без названия и без якоря
+ * (сервер слеп к личному, как прежде). */
+function musicStatusSync() {
+  const t = MUS.list[MUS.idx];
+  const a = MUS.a;
+  if (!t || MUS.widget || !a) return null;
+  const base = { title: musicStatusNote(), pos: a.currentTime || 0, at: Date.now(), playing: !a.paused && !a.ended };
+  if (musicIsDisk(t)) return Object.assign({ kind: 'disk', path: String(t.path || '') }, base);
+  const pl = musicFind(MUS.plId);
+  const pub = !!pl && ((S.music && S.music.pub) || []).some(x => x.id === pl.id);
+  if (pub && t.url) return Object.assign({ kind: 'url', url: String(t.url) }, base);
+  return null;
+}
 function musicStatusKick() {
   if (!S.token) return;
   const a = MUS.a;
   // pkg3-88: встроенный плеер Яндекс.Музыки — чужая рамка, мы не знаем, играет
   // ли она прямо сейчас и что именно. Врать статусом не будем: виджет в «🎵
-  // слушает» не участвует (файлы — как раньше).
-  const on = !MUS.widget && !!(a && a.src && !a.paused && !a.ended);
+  // слушает» не участвует (файлы — как раньше). pkg3-92: плюс тумблер видимости.
+  const on = musVisGet() && !MUS.widget && !!(a && a.src && !a.paused && !a.ended);
   if (!on && !musStatusOn) return;
   musStatusOn = on;
-  api('/api/typing', { method: 'POST', body: on ? { kind: 'music', note: musicStatusNote() } : { kind: 'music-off' } })
+  api('/api/typing', { method: 'POST', body: on ? { kind: 'music', note: musicStatusNote(), sync: musicStatusSync() } : { kind: 'music-off' } })
     .catch(() => {});
 }
-setInterval(() => {   // раз в 20 секунд подтверждаем: сервер держит статус 45
-  const a = MUS.a;
-  if (musStatusOn || (a && a.src && !a.paused && !a.ended)) musicStatusKick();
-}, 20000);
+setInterval(() => {   // pkg3-92: раз в 5 с, пока играем: якорь свежий, позиция у слушающих вместе не уезжает
+  if (S.token) musicFabSync();   // заодно освежает класс auth и подпись пузырька
+}, 5000);
 /** Проиграть ОДИН трек по ссылке (чужая карта «слушать вместе» / публичный список). */
 function musicPlayOnce(url, title, offset, kind) {
   MUS.list = [{ url: url, title: title || url, kind: kind || '' }];
@@ -4994,33 +5066,105 @@ function musicPlayOnce(url, title, offset, kind) {
  * время отправки. Письмо зашифровано ключом чата, как любое другое: сервер не
  * видит ни трека, ни названия. Собеседник жмёт «Слушать» — плеер стартует с того
  * же места песни, на котором она у предложившего (якорь догоняет по часам). */
-async function musicTogether() {
-  const c = curChat();
-  const t = MUS.list[MUS.idx];
-  if (!c) { toast('Сначала откройте чат с тем, с кем хотите слушать вместе', true); return; }
-  if (musicIsWidget(t) || MUS.widget) {
-    toast('Это встроенный плеер Яндекс.Музыки: запустить его у собеседника с той же секунды нельзя. Предложите вместе обычный трек-файл', true);
+/** pkg3-92: «Слушаю с …» — живой режим вместо письма-приглашения. Нажавший на
+ * плашку «слушает музыку» открывает окно и догоняет трек слушающего: перемотка
+ * и смена трека у слушающего переносятся сюда же по якорю (позиция + время).
+ * Свои стоп/перемотка/смена трека обрывают синхронизацию — дальше сам себе плеер. */
+let musFollowSilence = false;   // свои события ПОДЧИНЕНИЯ якорю — не обрыв
+function musStartFollow(uid, name) {
+  S.musFollow = { uid: uid, name: name, miss: 0, explained: false };
+  MUS.followHref = null; MUS.followPath = null;
+  musFollowUi();
+  musFollowPoll();
+  toast('Слушаю с «' + name + '»: трек пошёл с того же места. Свои стоп, перемотка или другой трек — и синхронизация кончится');
+}
+function musStopFollow(quiet) {
+  if (!S.musFollow) return;
+  const n = S.musFollow.name;
+  S.musFollow = null; MUS.followHref = null; MUS.followPath = null;
+  musFollowUi();
+  if (!quiet) toast('Синхронная остановка: дальше плеер ваш, «Слушаю с «' + n + '»» ушло');
+}
+function musBreakFollow() {
+  if (musFollowSilence) return;
+  musStopFollow(false);
+}
+function musFollowUi() {
+  const el = document.getElementById('mus-follow-t');
+  if (el) el.textContent = S.musFollow ? 'Слушаю с «' + S.musFollow.name + '»' : '';
+}
+async function musFollowPoll() {
+  const f = S.musFollow;
+  if (!f || !S.token) return;
+  let r = null;
+  try { r = await api('/api/music/status?of=' + encodeURIComponent(f.uid)); } catch (e) { return; }
+  if (!S.musFollow || S.musFollow.uid !== f.uid) return;   // пока летел запрос — уже отписались
+  if (!r || !r.sync) {
+    if (!r || !r.note) {
+      f.miss = (f.miss || 0) + 1;
+      if (f.miss >= 2) musStopFollow(true);   // слушающий просто кончил музыку — без тревоги
+    } else if (!f.explained) {
+      f.explained = true;
+      toast('У «' + f.name + '» трек из личного списка или встроенный плеер — синхронно вести нельзя, дальше сами');
+      musStopFollow(true);
+    }
     return;
   }
-  if (!t || !MUS.a || !MUS.a.src || MUS.a.paused) { toast('Сначала включите трек — потом предложите слушать вместе', true); return; }
-  // pkg3-90: у трека с Диска нет постоянной ссылки — в запечатанное письмо
-  // кладём свежую временную (живёт десятки минут, неугадываемая): собеседник
-  // играет её своим плеером как обычный файл. Письмо шифруется ключом чата,
-  // сервер ссылку не видит.
-  let togetherUrl = t.url;
-  if (musicIsDisk(t)) {
-    try {
-      const r = await api('/api/yadisk/href?path=' + encodeURIComponent(t.path || ''));
-      togetherUrl = r.href;
-    } catch (e) { toast('Не удалось получить временную ссылку для трека с Диска: ' + (e.message || e), true); return; }
-  }
-  const payload = {
-    k: 'mus-together', url: togetherUrl, title: t.title || togetherUrl, cover: t.cover || '',
-    pos: Math.round(MUS.a.currentTime || 0), ts: Date.now()
-  };
-  const r = await sendCoins(c, payload);   // тот же запечатанный конверт, что у писем партии
-  if (r) toast('Предложение слушать вместе ушло в чат «' + chatTitle(c) + '»');
+  f.miss = 0;
+  await musApplySync(r.sync);
 }
+setInterval(() => { if (S.musFollow) musFollowPoll(); }, 3000);   // pkg3-92: опрос якоря, пока слушаем вместе
+async function musApplySync(sy) {
+  const f = S.musFollow;
+  if (!f) return;
+  musFollowSilence = true;   // свои play/seek под якорем — не «обрыв»
+  try {
+    let url = sy.kind === 'url' ? sy.url : null;
+    if (sy.kind === 'disk') {
+      const cur = MUS.list[MUS.idx];
+      if (musicIsDisk(cur) && cur.path === sy.path && MUS.followHref && MUS.followPath === sy.path) {
+        url = MUS.followHref;
+      } else {
+        let r = null;
+        try { r = await api('/api/music/follow-href?owner=' + encodeURIComponent(f.uid) + '&path=' + encodeURIComponent(sy.path)); } catch (e) { return; }
+        if (!r || !r.href) return;
+        MUS.followHref = r.href; MUS.followPath = sy.path;
+        url = r.href;
+      }
+    }
+    if (!url) return;
+    const cur = MUS.list[MUS.idx];
+    if (!cur || cur.url !== url) {
+      const tr = { id: musicUid(), url: url, title: sy.title || (sy.path || url).split('/').pop(), kind: sy.kind === 'disk' ? 'disk' : '' };
+      if (sy.kind === 'disk') tr.path = sy.path;
+      MUS.list = [tr]; MUS.idx = 0; MUS.plId = null;
+      musWidgetHide();
+      const a = musicAudio();
+      a.src = url;
+      a.play().catch(() => {});
+      musicNowUi(); musicFabSync();
+    }
+    const a = MUS.a;
+    if (a) {
+      const target = sy.pos + (sy.playing ? Math.max(0, Date.now() - sy.at) / 1000 : 0);
+      if (sy.playing && a.paused) a.play().catch(() => {});
+      if (!sy.playing && !a.paused) a.pause();
+      if (isFinite(a.duration) && a.duration && target < a.duration && Math.abs(a.currentTime - target) > 1.2) a.currentTime = target;
+    }
+  } finally {
+    setTimeout(() => { musFollowSilence = false; }, 80);
+  }
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-mus-follow]');
+  if (!b) return;
+  e.stopPropagation();
+  const uid = b.getAttribute('data-mus-follow');
+  if (!uid || uid === ((S.me || {}).id)) return;
+  const u = userById(uid);
+  openMusic();
+  musStartFollow(uid, (u && u.name) || 'собеседник');
+});
 function musicFabSync() {
   let fab = document.getElementById('music-fab');
   const on = MUS.widget ? true : !!(MUS.a && !MUS.a.paused && !MUS.a.ended);
@@ -5028,13 +5172,60 @@ function musicFabSync() {
     fab = document.createElement('button');
     fab.id = 'music-fab';
     fab.className = 'music-fab';
-    fab.addEventListener('click', () => openMusic());
+    musicFabBind(fab);   // pkg3-92: палец/мышь ведут пузырёк, лёгкий тап — открывает окно
     document.body.appendChild(fab);
+    musicFabPlace(fab);
   }
-  fab.classList.toggle('on', on);
-  fab.textContent = on ? (MUS.widget ? '🎵 Яндекс' : '🎵 играет') : '';
+  // pkg3-92: пузырёк живёт всегда (это дверь в «Мою музыку»), а класс play —
+  // только когда что-то звучит; прежняя подпись «играет» стала названием окна.
+  fab.classList.toggle('on', true);
+  fab.classList.toggle('play', on);
+  fab.classList.toggle('auth', !!S.token);   // до входа пузырька не видно
+  fab.textContent = '🎵 Моя музыка';
   musicStatusKick();   // pkg3-87: play/pause/конец трека сразу отражаются в статусе
 }
+/** pkg3-92: запомненное место пузырька (между сеансами), прижатое к краям экрана. */
+function musicFabPlace(fab) {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem('sega.musFabPos.v1') || 'null'); } catch (e) {}
+  if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+  const w = fab.offsetWidth || 110, h = fab.offsetHeight || 38;
+  fab.style.right = 'auto';
+  fab.style.left = Math.min(Math.max(4, p.x), Math.max(4, window.innerWidth - w - 4)) + 'px';
+  fab.style.top = Math.min(Math.max(4, p.y), Math.max(4, window.innerHeight - h - 4)) + 'px';
+}
+/** pkg3-92: перетаскивание пузырька: сдвиг дальше 7 px — это «переставить»,
+ * короткий тап/клик — «открыть окно» (с анимацией разворота из пузырька). */
+function musicFabBind(fab) {
+  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, active = false;
+  fab.addEventListener('pointerdown', e => {
+    active = true; moved = false;
+    sx = e.clientX; sy = e.clientY;
+    const r = fab.getBoundingClientRect();
+    ox = r.left; oy = r.top;
+    if (fab.setPointerCapture) { try { fab.setPointerCapture(e.pointerId); } catch (err) {} }
+  });
+  fab.addEventListener('pointermove', e => {
+    if (!active) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!moved && Math.hypot(dx, dy) < 7) return;
+    moved = true;
+    fab.style.right = 'auto';
+    fab.style.left = Math.min(Math.max(4, ox + dx), Math.max(4, window.innerWidth - fab.offsetWidth - 4)) + 'px';
+    fab.style.top = Math.min(Math.max(4, oy + dy), Math.max(4, window.innerHeight - fab.offsetHeight - 4)) + 'px';
+  });
+  fab.addEventListener('pointerup', () => {
+    if (!active) return;
+    active = false;
+    if (moved) {
+      try { localStorage.setItem('sega.musFabPos.v1', JSON.stringify({ x: parseFloat(fab.style.left) || 0, y: parseFloat(fab.style.top) || 0 })); } catch (err) {}
+      return;
+    }
+    openMusic();
+  });
+  fab.addEventListener('pointercancel', () => { active = false; });
+}
+musicFabSync();   // pkg3-92: пузырёк появляется сразу, не дожидаясь первой песни
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-mus-join]');
   if (!b) return;
@@ -5122,8 +5313,13 @@ async function openMusic(wantId) {
           <input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка">
           <span id="mus-time" class="tiny muted">0:00 / —:—</span>
           <input id="mus-vol" type="range" min="0" max="100" value="90" title="Громкость">
-          <button class="mini" id="mus-together" title="Предложить открытому чату слушать этот трек вместе">🎧 вместе</button>
+          <label class="mus-sw" title="Когда включено, свой круг видит плашку «слушает музыку»; нажавший на плашку слушает вместе с вами синхронно">
+            <input type="checkbox" id="mus-vis">
+            <span class="mus-sw-pill"><span class="mus-sw-knob"></span></span>
+            <span class="mus-sw-t">видно, что слушаю</span>
+          </label>
         </div>
+        <span class="tiny mus-follow-t" id="mus-follow-t"></span>
       </div>
     </div>
   </div>`);
@@ -5247,6 +5443,7 @@ async function openMusic(wantId) {
   });
   const tog = $('#mus-toggle');
   if (tog) tog.addEventListener('click', () => {
+    musBreakFollow();   // pkg3-92: свой стоп/пауза — конец синхронизации
     if (MUS.widget) { musWidgetStop(); return; }   // pkg3-88: «■ стоп» закрывает плеер Яндекса
     const a = musicAudio();
     if (!a.src) { if (pl && (pl.tracks || []).length) musicPlay(pl, 0); return; }
@@ -5257,13 +5454,24 @@ async function openMusic(wantId) {
   if (next) next.addEventListener('click', () => musicStep(1, false));
   const seek = $('#mus-seek');
   if (seek) seek.addEventListener('input', () => {
+    musBreakFollow();   // pkg3-92: своя перемотка — конец синхронизации
     const a = musicAudio();
     if (a && isFinite(a.duration) && a.duration) a.currentTime = Number(seek.value) / 100 * a.duration;
   });
   const vol = $('#mus-vol');
   if (vol) vol.addEventListener('input', () => { musicAudio().volume = Number(vol.value) / 100; });
-  const tgb = $('#mus-together');
-  if (tgb) tgb.addEventListener('click', () => musicTogether());
+  // pkg3-92: тумблер «видно, что слушаю» вместо кнопки «🎧 вместе»
+  const visb = $('#mus-vis');
+  if (visb) {
+    visb.checked = musVisGet();
+    visb.addEventListener('change', () => {
+      musVisSet(visb.checked);
+      if (!visb.checked) { musStatusOn = true; }   // чтобы kick гарантированно послал music-off
+      musicStatusKick();
+    });
+  }
+  musFollowUi();
+  musAnimIn();   // pkg3-92: окно разворачивается из пузырька
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
   if (isDisk) ydPaneStart().catch(() => {});
 }
@@ -5482,7 +5690,7 @@ function renderRail() {
     const mst = c.kind === 'dm' && peer ? musicStatusOf(peer.id) : null;   // pkg3-87
     const seen = c.kind === 'dm' && peer
       ? (mst
-        ? '<div class="ci-seen on" title="Сейчас слушает музыку">🎵 слушает</div>'
+        ? `<button class="ci-seen on mus-plate" data-mus-follow="${peer.id}" title="Слушать вместе: открыть «Мою музыку» и догнать трек с того же места">🎵 слушает</button>`
         : `<div class="ci-seen ${isOnline(peer) ? 'on' : ''}" title="Последний визит">${isOnline(peer) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(peer.lastSeen))}</div>`)
       : '';
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
@@ -5492,8 +5700,8 @@ function renderRail() {
         <div class="ci-last">${escapeHtml(cut(sub, 42))}</div>
       </div>
       ${seen}
-      ${un.mentions ? `<span class="badge at" title="обращения к вам">@${un.mentions}</span>` : ''}
-      ${un.total ? `<span class="badge">${un.total}</span>` : ''}
+      ${un.mentions ? `<span class="badge at" data-readmenu="${c.id}" title="Непрочитанные: нажать — предложить сделать прочитанными">@${un.mentions}</span>` : ''}
+      ${un.total ? `<span class="badge" data-readmenu="${c.id}" title="Непрочитанные: нажать — предложить сделать прочитанными">${un.total}</span>` : ''}
     </div>`;
   };
   // pkg3-53: все разделы чатов сворачиваются; на свёрнутом разделе — красная
@@ -5593,7 +5801,7 @@ function mergeMusicStatus(list) {
   if (!Array.isArray(list)) return;
   const now = Date.now();
   S.musicStatus = S.musicStatus || {};
-  for (const x of list) if (x && x.uid) S.musicStatus[x.uid] = { note: String(x.note || ''), at: now };
+  for (const x of list) if (x && x.uid) S.musicStatus[x.uid] = { note: String(x.note || ''), at: now, sync: x.sync || null };   // pkg3-92: sync — якорь для «Слушаю с …»
 }
 function musicStatusOf(uid) {
   const s = (S.musicStatus || {})[uid];
@@ -5606,7 +5814,8 @@ function musicLine(c) {
   return ids.map(id => {
     const st = musicStatusOf(id);
     const nm = escapeHtml((userById(id) || {}).name || 'Кто-то');
-    return '🎵 ' + nm + (st.note ? ' слушает: ' + escapeHtml(st.note) : ' слушает музыку');
+    // pkg3-92: плашка кликабельна — нажавший слушает синхронно (кроме самого слушателя)
+    return '<button class="mus-plate" data-mus-follow="' + id + '" title="Слушать вместе: догнать трек с того же места">🎵 ' + nm + (st.note ? ' слушает: ' + escapeHtml(st.note) : ' слушает музыку') + '</button>';
   }).join(' · ');
 }
 
@@ -5649,10 +5858,12 @@ function renderTopbar() {
     // как только сигнал погас, строка сама возвращается к прежнему виду
     const t = typingIn(c.id)[0];
     const ms = musicStatusOf(u && u.id);   // pkg3-87: слышно, что собеседник слушает
-    const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…')
-      : ms ? ('🎵 слушает' + (ms.note ? ': ' + escapeHtml(ms.note) : ' музыку')) : '';
-    $('#chat-sub').innerHTML = act
-      ? '<span style="color:#5c9c1e">' + act + '</span> · личная переписка'
+    const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…') : '';
+    // pkg3-92: плашка «слушает» в шапке кликабельна — режим «Слушаю с …»
+    const mus = ms ? '<button class="mus-plate" data-mus-follow="' + ((u && u.id) || '') + '" title="Слушать вместе: догнать трек с того же места">🎵 слушает' + (ms.note ? ': ' + escapeHtml(ms.note) : ' музыку') + '</button>' : '';
+    const actLine = [act ? '<span style="color:#5c9c1e">' + act + '</span>' : '', mus].filter(Boolean).join(' · ');
+    $('#chat-sub').innerHTML = actLine
+      ? actLine + ' · личная переписка'
       : isOnline(u)
         ? '<span style="color:#5c9c1e">в сети, смотрит чат</span> · личная переписка'
         : 'был(а) ' + escapeHtml(fmtAgo(u && u.lastSeen)) + ' · личная переписка';
@@ -7383,7 +7594,7 @@ $('#btn-members').addEventListener('click', () => {
     const mst = u.id !== S.me.id ? musicStatusOf(u.id) : null;   // pkg3-87
     return `<div class="mrow">${avatarHtml(u, '', true)}
       <span class="nm">${escapeHtml(u.name)}${u.id === S.me.id ? ' <span class="muted">(вы)</span>' : ''}${c.ownerId === u.id ? '<span class="tag-admin">создатель</span>' : ''}
-        <div class="tiny muted">${mst ? '🎵 слушает' + (mst.note ? ': ' + escapeHtml(mst.note) : ' музыку') : isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
+        <div class="tiny muted">${mst ? '<button class="mus-plate" data-mus-follow="' + u.id + '" title="Слушать вместе: догнать трек с того же места">🎵 слушает' + (mst.note ? ': ' + escapeHtml(mst.note) : ' музыку') + '</button>' : isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
       ${u.id !== S.me.id ? `<button class="mini" data-mus-of="${u.id}" title="Публичные плейлисты участника">🎵 музыка</button>` : ''}
       ${u.id !== S.me.id && c.kind === 'group' ? `<button class="mini" data-open-dm="${u.id}">лично</button>` : ''}
       ${isOwner(c) && u.id !== S.me.id ? `<button class="mini danger" data-kick="${u.id}">убрать</button>` : ''}
@@ -8648,8 +8859,28 @@ function modal(title, html) {
   paintIcons($('#modal'));
   show($('#modal'));
 }
-$('#modal-close').addEventListener('click', () => hide($('#modal')));
-$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') hide($('#modal')); });
+/** pkg3-92: окно «Моя музыка» сворачивается в пузырёк анимацией (и разворачивается
+ * из него): цель — текущее место пузырька на экране. Прочие модалки закрываются
+ * как прежде, без задержки. */
+function musWrapAnim(card, fab, from, to) {
+  const r = card.getBoundingClientRect(), f = fab.getBoundingClientRect();
+  card.style.transformOrigin = (f.left + f.width / 2 - r.left) + 'px ' + (f.top + f.height / 2 - r.top) + 'px';
+  return card.animate([{ transform: from, opacity: from === 'scale(1)' ? 1 : 0.25 }, { transform: to, opacity: to === 'scale(1)' ? 1 : 0 }], { duration: 220, easing: from === 'scale(1)' ? 'ease-in' : 'ease-out' });
+}
+function closeModalMaybeAnim() {
+  const card = document.querySelector('#modal-body .mus-wrap');
+  const fab = document.getElementById('music-fab');
+  if (!card || !fab || !card.animate) { hide($('#modal')); return; }
+  musWrapAnim(card, fab, 'scale(1)', 'scale(.12)').onfinish = () => hide($('#modal'));
+}
+function musAnimIn() {
+  const card = document.querySelector('#modal-body .mus-wrap');
+  const fab = document.getElementById('music-fab');
+  if (!card || !fab || !card.animate || !fab.classList.contains('auth')) return;
+  musWrapAnim(card, fab, 'scale(.12)', 'scale(1)');
+}
+$('#modal-close').addEventListener('click', () => closeModalMaybeAnim());
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModalMaybeAnim(); });
 
 // ─────────────────────────────────────────── push-уведомления: тумблер в настройках
 async function pushState() {
