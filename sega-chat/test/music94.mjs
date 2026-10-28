@@ -43,14 +43,14 @@ ok(appJs.includes("kind: 'music', note: musicStatusNote(), sync: musicStatusSync
 console.log('\n  3. «Свернуть» — шторка-язычок');
 ok(appJs.includes("mb.className = 'mus-shutter';") && appJs.includes('box.insertBefore(mb, box.firstChild)'),
   'кнопка вставляется первым элементом окна музыки (поверх кромки)');
-ok(css.includes('.mus-shutter{position:absolute;top:-15px;left:50%') && css.includes('.modal-box{position:relative}'),
-  'шторка выступает над верхней кромкой окна по центру — как на снимке владельца');
+ok(css.includes('.mus-shutter{position:absolute;top:6px;left:50%') && css.includes('.modal-box{position:relative}'),
+  'pkg3-95: шторка видна ПОЛНОСТЬЮ, ровно по центру верхней кромки окна');
 ok(appJs.includes('if (mb) mb.remove();'), 'у прочих модалок шторка не остаётся');
 ok(appJs.includes('mb.addEventListener(\'click\', () => musMinimize());'), 'шторка сворачивает окно в пузырёк перелётом');
 
 console.log('\n  4. Инварианты выпуска');
-ok(appJs.includes("const BUILD = 'pkg3-94';") && apiJs.includes("const BUILD = 'pkg3-94';"), 'BUILD pkg3-94 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v87';"), 'кэш статики поднят до v87');
+ok(appJs.includes("const BUILD = 'pkg3-95';") && apiJs.includes("const BUILD = 'pkg3-95';"), 'BUILD pkg3-95 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v88';"), 'кэш статики поднят до v88');
 ok(pkg.includes('node test/music94.mjs'), 'тест music94 включён в цепочку npm test');
 ok(readme.includes('| pkg3-94 |'), 'в журнале README есть строка выпуска pkg3-94');
 const deps = JSON.parse(pkg).dependencies;

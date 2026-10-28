@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v87'), 'кэш статики поднят до v87 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v88'), 'кэш статики поднят до v88 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-94';") && apiJs.includes("const BUILD = 'pkg3-94';"), 'клиент и сервер помечены pkg3-94');
+ok(appJs.includes("const BUILD = 'pkg3-95';") && apiJs.includes("const BUILD = 'pkg3-95';"), 'клиент и сервер помечены pkg3-95');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -772,10 +772,22 @@ ok(appJs.includes('if (MUS.widget) musWidgetStop();') && appJs.includes('if (a &
   'pkg3-94: крестик останавливает музыку (файл и виджет) и гасит статус «слушает»');
 ok(appJs.includes('const fr = fab.getBoundingClientRect();\n  musicFabSync();'),
   'pkg3-94: при развороте габарит пузырька берётся до скрытия, сам пузырёк гаснет сразу');
-ok(css.includes('.mus-shutter{position:absolute;top:-15px;left:50%'),
+ok(css.includes('.mus-shutter{position:absolute;top:6px;left:50%'),
   'pkg3-94: шторка выступает над верхней кромкой окна по центру');
 ok(appJs.includes('musStopFollow(true);'),
   'pkg3-94: закрытие крестиком тихо завершает «Слушаю с …»');
+
+// ─────────────────────────── pkg3-95 ───────────────────────────
+ok(appJs.includes('S.musFabEarned') && appJs.includes('!!S.token && S.musFabEarned && !S.musFabHidden && !S.musOpen'),
+  'pkg3-95: при первом открытии чата пузырька нет — он зарабатывается первым сворачиванием окна');
+ok(appJs.includes('S.musFabEarned = true;') && appJs.includes('function musRowsRerender('),
+  'pkg3-95: шторка зарабатывает пузырёк; список треков перерисовывается при старте трека');
+ok(css.includes('.mus-shutter{position:absolute;top:6px;left:50%'),
+  'pkg3-95: шторка «Свернуть» видна полностью, ровно по центру верха окна');
+ok(css.includes('#modal .modal-box{max-height:calc(100vh - 28px)') && css.includes('.mus-trs{flex:0 1 auto;min-height:60px;overflow:auto}'),
+  'pkg3-95: окно музыки вмещается в окно мессенджера без внешней полосы; списки скроллятся сами');
+ok(appJs.includes("musRowsRerender();") && appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender();'),
+  'pkg3-95: ❚❚ и бегущая строка появляются сразу при запуске трека, а не после переоткрытия окна');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);

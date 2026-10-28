@@ -207,9 +207,9 @@ ok(appJs.includes('data-ng-rules="${r}"') && appJs.includes("gameIconImg(r, 'gim
 ok(apiJs.includes('«Сталкер»: есть новости забега'), 'pkg3-83: пуш сервера говорит «Сталкер»');
 
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-94';") && apiJs.includes("const BUILD = 'pkg3-94';"),
-  'BUILD pkg3-94 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v87';"), 'кэш статики поднят до v87');
+ok(appJs.includes("const BUILD = 'pkg3-95';") && apiJs.includes("const BUILD = 'pkg3-95';"),
+  'BUILD pkg3-95 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v88';"), 'кэш статики поднят до v88');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');
