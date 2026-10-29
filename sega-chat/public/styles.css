@@ -1705,3 +1705,13 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .mus-pls{flex:0 1 auto;min-height:60px;overflow:auto}
 .mus-trs{flex:0 1 auto;min-height:60px;overflow:auto}
 .mus-acts,.mus-add,.mus-player,.mus-disk-bar,.mus-disk-addline{flex:none}
+
+/* ── pkg3-97: панель поиска музыки в окне «Моя музыка» ── */
+.mus-site-chip{border:1px solid var(--line);border-radius:14px;background:var(--panel-2);color:var(--text);
+  padding:3px 10px;font-size:12px;cursor:pointer;margin:0 4px 4px 0}
+.mus-site-chip.on{border-color:var(--accent);color:var(--accent)}
+.mus-sites{margin-bottom:6px}
+.mus-search .mus-add{display:flex;gap:6px}
+.mus-search .mus-add input{flex:1 1 auto}
+.ask-list{flex-direction:column;align-items:stretch}
+.ask-list .mini{margin-bottom:6px;text-align:left}

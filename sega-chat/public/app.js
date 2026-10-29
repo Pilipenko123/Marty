@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-96';
+const BUILD = 'pkg3-97';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4674,6 +4674,79 @@ async function musicSave() {
   await api('/api/music', { method: 'POST', body: { pub: m.pub, priv: privBlob, key } });
 }
 const musicAll = () => ((S.music && S.music.pub) || []).concat((S.music && S.music.priv) || []);
+// ─────────────────────────── pkg3-97: поиск музыки ───────────────────────────
+const MUS_SEARCH = 'search';
+const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC' };
+function musSearchState() {
+  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, archive: true, commons: true, openverse: true }, results: [], status: [] };
+  return MUS.search;
+}
+function musSearchSitesHtml() {
+  const st = musSearchState();
+  return Object.keys(MUS_SITE_TITLES).map(id => '<button class="mus-site-chip' + (st.sites[id] ? ' on' : '') + '" data-mus-site="' + id + '" title="Искать по сайту ' + MUS_SITE_TITLES[id] + '">' + (st.sites[id] ? '✓ ' : '') + MUS_SITE_TITLES[id] + '</button>').join('');
+}
+function musSearchRowsHtml() {
+  const st = musSearchState();
+  if (!st.results.length) return '<div class="tiny muted">Пока ничего не найдено.</div>';
+  return st.results.map((r, i) => `<div class="mus-tr">
+    <button class="mini" data-mus-s-play="${i}" title="Прослушать (в плейлист не добавляется)">▶</button>
+    <span class="mus-tr-t"><span class="mus-cov mus-cov-e">♪</span><span class="mus-tr-n"><span class="mq mq-s">${escapeHtml(r.title || r.url)}</span> <span class="mus-badge-d" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[r.site] || r.site)}</span></span></span>
+    <button class="mini primary" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
+  </div>`).join('');
+}
+async function musSearchRun() {
+  const st = musSearchState();
+  const inp = $('#mus-sq');
+  st.q = String((inp && inp.value) || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (st.q.length < 2) { toast('Введите запрос: минимум две буквы', true); return; }
+  const sites = Object.keys(st.sites).filter(k => st.sites[k]);
+  if (!sites.length) { toast('Отметьте хотя бы один сайт для поиска', true); return; }
+  const bar = $('#mus-sq-bar');
+  if (bar) bar.textContent = 'Ищу на сайтах…';
+  try {
+    const r = await api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + sites.join(','));
+    st.results = Array.isArray(r.results) ? r.results : [];
+    st.status = Array.isArray(r.sites) ? r.sites : [];
+  } catch (e) {
+    st.results = []; st.status = [];
+    if (bar) bar.textContent = 'Поиск не удался: ' + (e.message || e);
+    musSearchRenderRows();
+    return;
+  }
+  const bad = st.status.filter(s => !s.ok);
+  if (bar) bar.textContent = 'Найдено: ' + st.results.length + (bad.length ? ' · не ответили: ' + bad.map(s => MUS_SITE_TITLES[s.id] || s.id).join(', ') + ' (сайты меняют дизайн — это чинится маленьким выпуском)' : '');
+  musSearchRenderRows();
+}
+function musSearchRenderRows() {
+  const box = $('#mus-sres');
+  if (box) box.innerHTML = musSearchRowsHtml();
+  for (const b of $$('#modal [data-mus-s-play]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-play'))]; if (r) musicPlayOnce(r.url, r.title, 0); });
+  for (const b of $$('#modal [data-mus-s-add]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-add'))]; if (r) musSearchPickAdd(r); });
+}
+/** pkg3-97: «＋» даёт список плейлистов; после выбора трек ложится в выбранный. */
+function musSearchPickAdd(res) {
+  const all = musicAll();
+  if (!all.length) { toast('Сначала создайте плейлист — слева кнопка «+ плейлист»', true); return; }
+  const ovl = document.createElement('div');
+  ovl.className = 'ask-ovl';
+  ovl.innerHTML = '<div class="ask-card"><div class="ask-t">Добавить трек в плейлист:</div><div class="ask-b ask-list">'
+    + all.map(p => '<button class="mini" data-mus-pick="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + ' <span class="tiny muted">' + (p.vis === 'priv' ? '· только я' : '· публичный') + '</span></button>').join('')
+    + '<button class="mini" data-mus-pick="">Отмена</button></div></div>';
+  ovl.addEventListener('click', async e => {
+    const b = e.target.closest('[data-mus-pick]');
+    if (!b) return;
+    const id = b.getAttribute('data-mus-pick');
+    ovl.remove();
+    if (!id) return;
+    const pl = musicFind(id);
+    if (!pl) return;
+    if ((pl.tracks || []).some(t => t.url === res.url)) { toast('Такой трек уже есть в плейлисте «' + pl.name + '»', true); return; }
+    pl.tracks.push({ id: musicUid(), url: res.url, title: res.title || res.url, cover: '' });
+    await musicSave();
+    toast('Трек добавлен в плейлист «' + pl.name + '»');
+  });
+  document.body.appendChild(ovl);
+}
 const musicFind = id => musicAll().find(p => p.id === id) || null;
 const musicUid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 function musicPlay(pl, idx) {
@@ -5327,13 +5400,19 @@ async function openMusic(wantId) {
   const plId = wantId || MUS.plId || (all[0] && all[0].id) || null;
   const pl = musicFind(plId);
   const isDisk = plId === MUS_DISK;   // pkg3-90: «псевдоплейлист» Яндекс.Диска
+  const isSearch = plId === MUS_SEARCH;   // pkg3-97: «псевдоплейлист» поиска музыки
   modal('Моя музыка', `<div class="mus-wrap">
     <div class="mus-left">
-      <div class="mus-pls"><button class="mus-pl mus-pl-disk${isDisk ? ' cur' : ''}" data-mus-pl="yadisk" title="Аудиофайлы на вашем Яндекс.Диске: играем прямо оттуда, место на сервере не тратится">☁ Яндекс.Диск</button>${all.map(p => `<button class="mus-pl${p.id === plId ? ' cur' : ''}" data-mus-pl="${escapeHtml(p.id)}">${escapeHtml(p.name)} <span class="tiny muted">${p.vis === 'priv' ? '· только я' : '· публичный'} · ${(p.tracks || []).length}</span></button>`).join('') || '<div class="tiny muted">Плейлистов пока нет.</div>'}</div>
+      <div class="mus-pls"><button class="mus-pl mus-pl-search${isSearch ? ' cur' : ''}" data-mus-pl="search" title="Поиск треков с прямыми ссылками по выбранным сайтам: сервер спрашивает сайты как посетитель и отдаёт названия со ссылками">🔎 Поиск музыки</button><button class="mus-pl mus-pl-disk${isDisk ? ' cur' : ''}" data-mus-pl="yadisk" title="Аудиофайлы на вашем Яндекс.Диске: играем прямо оттуда, место на сервере не тратится">☁ Яндекс.Диск</button>${all.map(p => `<button class="mus-pl${p.id === plId ? ' cur' : ''}" data-mus-pl="${escapeHtml(p.id)}">${escapeHtml(p.name)} <span class="tiny muted">${p.vis === 'priv' ? '· только я' : '· публичный'} · ${(p.tracks || []).length}</span></button>`).join('') || '<div class="tiny muted">Плейлистов пока нет.</div>'}</div>
       <div class="mus-acts"><button class="mini" id="mus-add-pl">+ плейлист</button>${pl ? ' <button class="mini" id="mus-ren-pl">переименовать</button> <button class="mini" id="mus-vis-pl">видимость</button> <button class="mini danger" id="mus-del-pl">удалить</button>' : ''}</div>
     </div>
     <div class="mus-right">
-      ${isDisk ? `<div class="mus-disk">
+      ${isSearch ? `<div class="mus-search">
+        <div class="mus-sites" id="mus-sites">${musSearchSitesHtml()}</div>
+        <div class="mus-add"><input id="mus-sq" type="text" placeholder="Что искать: исполнитель, название трека…" value="${escapeHtml(musSearchState().q || '')}"><button class="mini primary" id="mus-sq-go">Искать</button></div>
+        <div class="mus-disk-bar tiny" id="mus-sq-bar">${musSearchState().results.length ? 'Найдено: ' + musSearchState().results.length : 'Отметьте сайты и нажмите «Искать». Сервер спросит сайты как обычный посетитель и вернёт названия с прямыми ссылками.'}</div>
+        <div class="mus-trs" id="mus-sres">${musSearchRowsHtml()}</div>
+      </div>` : isDisk ? `<div class="mus-disk">
         <div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
         <div class="mus-disk-addline hidden" id="mus-disk-addline"></div>
         <div class="mus-trs" id="mus-disk-files"></div>
@@ -5536,6 +5615,19 @@ async function openMusic(wantId) {
     });
   }
   musFollowUi();
+  // pkg3-97: проводка панели поиска музыки
+  const sqGo = $('#mus-sq-go');
+  if (sqGo) sqGo.addEventListener('click', () => musSearchRun());
+  const sqIn = $('#mus-sq');
+  if (sqIn) sqIn.addEventListener('keydown', e => { if (e.key === 'Enter') musSearchRun(); });
+  for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
+    const id = ch.getAttribute('data-mus-site');
+    const st = musSearchState();
+    st.sites[id] = !st.sites[id];
+    ch.classList.toggle('on', st.sites[id]);
+    ch.textContent = (st.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
+  });
+  if (isSearch) musSearchRenderRows();   // слушатели строк результатов
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
   if (isDisk) ydPaneStart().catch(() => {});
 }
