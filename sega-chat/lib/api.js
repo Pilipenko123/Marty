@@ -15,11 +15,12 @@ const crypto = require('crypto');
 const backup = require('./backup');
 const smtp = require('./smtp.js');   // pkg3-64: письма привязки почты и восстановления (без новых зависимостей)
 const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
+const mussearch = require('./mussearch.js');   // pkg3-97: поиск треков с прямыми ссылками по выбранным сайтам
 
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-96';
+const BUILD = 'pkg3-97';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1628,6 +1629,20 @@ function createApi(store, opts = {}) {
         typing: typingInChat(chat.id, Date.now(), me.id),
         music: musicInScope(chat.members, Date.now(), me.id)   // pkg3-87: кто слушает
       });
+    }
+    // pkg3-97: поиск музыки по выбранным владельцем сайтам: сервер открывает
+    // страницу/API сайта как посетитель и отдаёт названия с прямыми ссылками.
+    // Сам сервер ничего не хранит и не качает — в плейлист лягут только ссылки.
+    if (pathname === '/api/mussearch' && method === 'GET') {
+      if (throttle('mussearch-' + me.id, 20)) return E(429, 'Слишком много поисков — подождите немного');
+      const q = String(query.get('q') || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (q.length < 2) return E(400, 'Введите запрос: минимум две буквы');
+      const sites = String(query.get('sites') || '').split(',').map(x => x.trim()).filter(Boolean);
+      try {
+        return J(200, await mussearch.search(q, sites, Number(query.get('limit')) || 8));
+      } catch (e) {
+        return E(502, e.message || 'Сайты не отвечают');
+      }
     }
     // pkg3-92: живой статус ОДНОГО человека для режима «Слушаю с …»: плашка
     // «слушает музыку» кликабельна, нажавший догоняет трек и позицию по якорю.
