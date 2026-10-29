@@ -158,7 +158,7 @@ r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({}, cre
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-98', 'сервер помечен pkg3-98');
+ok(r.status === 200 && r.d.build === 'pkg3-99', 'сервер помечен pkg3-99');
 
 const widgetTrack = {
   id: 't-w1', kind: 'widget', what: 'track',
@@ -218,7 +218,7 @@ ok(appJs.includes('id="mus-add-hint"') && appJs.includes('Вставьте: ко
   'поле добавления подсказывает, что можно вставить');
 ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
   'панель, значок и виджет-режим плеера оформлены в стилях');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v91';"), 'кэш статики поднят до v91 — друзья получат новый клиент');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v92';"), 'кэш статики поднят до v92 — друзья получат новый клиент');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 ok(pkg.scripts.test.includes('test/music88.mjs'), 'тест pkg3-88 включён в общую цепочку проверки');
 

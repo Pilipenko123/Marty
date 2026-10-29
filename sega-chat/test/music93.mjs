@@ -64,8 +64,8 @@ ok(appJs.includes('if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl
   'нажатие на текущий трек — пауза/продолжить, а не перезапуск');
 
 console.log('\n  5. Инварианты выпуска');
-ok(appJs.includes("const BUILD = 'pkg3-98';") && apiJs.includes("const BUILD = 'pkg3-98';"), 'BUILD pkg3-98 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v91';"), 'кэш статики поднят до v91');
+ok(appJs.includes("const BUILD = 'pkg3-99';") && apiJs.includes("const BUILD = 'pkg3-99';"), 'BUILD pkg3-99 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v92';"), 'кэш статики поднят до v92');
 ok(pkg.includes('node test/music93.mjs'), 'тест music93 включён в цепочку npm test');
 ok(readme.includes('| pkg3-93 |'), 'в журнале README есть строка выпуска pkg3-93');
 const deps = JSON.parse(pkg).dependencies;

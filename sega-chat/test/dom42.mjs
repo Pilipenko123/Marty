@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v91'), 'кэш статики поднят до v91 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v92'), 'кэш статики поднят до v92 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-98';") && apiJs.includes("const BUILD = 'pkg3-98';"), 'клиент и сервер помечены pkg3-98');
+ok(appJs.includes("const BUILD = 'pkg3-99';") && apiJs.includes("const BUILD = 'pkg3-99';"), 'клиент и сервер помечены pkg3-99');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -798,9 +798,9 @@ ok(css.includes('.mus-tr .mq{display:inline-block') && css.includes('.mus-tr.cur
   'pkg3-96: бегущая строка заготовлена у каждого трека, едет только у текущего');
 ok(appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();'),
   'pkg3-96: сразу после старта трека список помечен текущим без ожидания');
-ok(appJs.includes("const BUILD = 'pkg3-98';") && apiJs.includes("const BUILD = 'pkg3-98';"),
-  'BUILD pkg3-98 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v91';"), 'кэш статики поднят до v91');
+ok(appJs.includes("const BUILD = 'pkg3-99';") && apiJs.includes("const BUILD = 'pkg3-99';"),
+  'BUILD pkg3-99 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v92';"), 'кэш статики поднят до v92');
 
 // ─────────────────────────── pkg3-97 ───────────────────────────
 const mussearchJs = readFileSync(join(HERE, '..', 'lib', 'mussearch.js'), 'utf8');
@@ -832,6 +832,19 @@ ok(css.includes('.mus-prog{') && css.includes('.mus-sr-t{') && css.includes('.mu
   'pkg3-98: стили линии загрузки и строк находок на месте');
 ok(appJs.includes("api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + id)"),
   'pkg3-98: сайты опрашиваются параллельно по одному — прогресс честный');
+
+// ─────────────────────────── pkg3-99 ───────────────────────────
+ok(apiJs.includes("throttle('mussearch-' + me.id, 120)"),
+  'pkg3-99: потолок поисков поднят до 120 за 10 минут — прежний захлопывался после пяти поисков');
+ok(mussearchJs.includes('searchCcmixter') && mussearchJs.includes("id: 'ccmixter'"),
+  'pkg3-99: пятый сайт — ccMixter (CC-музыканты, прямые download_url)');
+ok(mussearchJs.includes('const siteRest = new Map()') && mussearchJs.includes('Сайт попросил подождать'),
+  'pkg3-99: сайт с 429/403 уходит на отдых на пять минут и больше не дёргается');
+ok(appJs.includes('for (const id of sites) {') && appJs.includes('pkg3-99: сайты спрашиваются ПО ОЧЕРЕДИ'),
+  'pkg3-99: сайты опрашиваются по очереди — вежливо к их ограничителям');
+ok(appJs.includes('ccmixter: \'ccMixter CC\'') || appJs.includes("ccmixter: 'ccMixter CC'"),
+  'pkg3-99: фишка ccMixter в панели поиска');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v92';"), 'кэш статики поднят до v92');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
