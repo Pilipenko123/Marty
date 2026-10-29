@@ -101,7 +101,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-99', 'сервер помечен pkg3-99');
+ok(r.status === 200 && r.d.build === 'pkg3-100', 'сервер помечен pkg3-100');
 
 console.log('\n  1. Релевантность: лишнее не показываем, точное — первым');
 r = await call('/api/mussearch?q=neon&sites=yapfiles,archive,commons,openverse', {}, admin);
@@ -142,8 +142,8 @@ ok(appJs.includes('mus-sr-cov') && appJs.includes('onerror="this.style.display=\
   'обложка в строке находки; если файла обложки нет — картинка прячется');
 ok(appJs.includes('mus-sr-t') && appJs.includes('mus-add-sm') && css.includes('.mus-add-sm{'),
   'название читается одной строкой с многоточием, «＋» уменьшен');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v92';"), 'кэш статики поднят до v92');
-ok(appJs.includes("const BUILD = 'pkg3-99';") && apiJs.includes("const BUILD = 'pkg3-99';"), 'BUILD pkg3-99 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v93';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = 'pkg3-100';") && apiJs.includes("const BUILD = 'pkg3-100';"), 'BUILD pkg3-100 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music98.mjs'), 'тест music98 включён в цепочку npm test');
 ok(readme.includes('| pkg3-98 |'), 'в журнале README есть строка выпуска pkg3-98');
 const deps = JSON.parse(pkg).dependencies;
