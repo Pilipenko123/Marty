@@ -1715,3 +1715,11 @@ table.coins-table{width:100%;border-collapse:collapse;font-size:13px;}
 .mus-search .mus-add input{flex:1 1 auto}
 .ask-list{flex-direction:column;align-items:stretch}
 .ask-list .mini{margin-bottom:6px;text-align:left}
+
+/* ── pkg3-98: линия загрузки поиска, строки находок с обложкой и малым «＋» ── */
+.mus-prog{height:4px;background:var(--panel-2);border-radius:2px;overflow:hidden;margin:4px 0}
+.mus-prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.mus-sr{display:flex;align-items:center;gap:6px}
+.mus-sr-cov{width:32px;height:32px;border-radius:6px;object-fit:cover;flex:none;background:var(--panel-2)}
+.mus-sr-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mus-add-sm{padding:2px 8px;font-size:12px;line-height:1.3}

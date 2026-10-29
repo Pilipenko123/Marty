@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-97';
+const BUILD = 'pkg3-98';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4688,10 +4688,15 @@ function musSearchSitesHtml() {
 function musSearchRowsHtml() {
   const st = musSearchState();
   if (!st.results.length) return '<div class="tiny muted">Пока ничего не найдено.</div>';
-  return st.results.map((r, i) => `<div class="mus-tr">
+  // pkg3-98: строка находки — обложка (если сайт дал), НАЗВАНИЕ целиком
+  // (одной строкой с многоточием, полное — в подсказке), значок сайта и
+  // уменьшенный «＋».
+  return st.results.map((r, i) => `<div class="mus-tr mus-sr">
     <button class="mini" data-mus-s-play="${i}" title="Прослушать (в плейлист не добавляется)">▶</button>
-    <span class="mus-tr-t"><span class="mus-cov mus-cov-e">♪</span><span class="mus-tr-n"><span class="mq mq-s">${escapeHtml(r.title || r.url)}</span> <span class="mus-badge-d" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[r.site] || r.site)}</span></span></span>
-    <button class="mini primary" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
+    ${r.cover ? `<img class="mus-sr-cov" src="${escapeHtml(r.cover)}" alt="" onerror="this.style.display='none'">` : '<span class="mus-cov mus-cov-e">♪</span>'}
+    <span class="mus-sr-t" title="${escapeHtml(r.title || r.url)}">${escapeHtml(r.title || r.url)}</span>
+    <span class="mus-badge-d" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[r.site] || r.site)}</span>
+    <button class="mini primary mus-add-sm" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
   </div>`).join('');
 }
 async function musSearchRun() {
@@ -4702,19 +4707,48 @@ async function musSearchRun() {
   const sites = Object.keys(st.sites).filter(k => st.sites[k]);
   if (!sites.length) { toast('Отметьте хотя бы один сайт для поиска', true); return; }
   const bar = $('#mus-sq-bar');
-  if (bar) bar.textContent = 'Ищу на сайтах…';
-  try {
-    const r = await api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + sites.join(','));
-    st.results = Array.isArray(r.results) ? r.results : [];
-    st.status = Array.isArray(r.sites) ? r.sites : [];
-  } catch (e) {
-    st.results = []; st.status = [];
-    if (bar) bar.textContent = 'Поиск не удался: ' + (e.message || e);
-    musSearchRenderRows();
-    return;
+  // pkg3-98: линия загрузки: каждый сайт спрашиваем отдельно и параллельно,
+  // полоса растёт по мере ответов — видно, что поиск идёт и сколько осталось.
+  let prog = $('#mus-prog');
+  if (!prog && bar) {
+    bar.insertAdjacentHTML('afterend', '<div class="mus-prog" id="mus-prog"><i></i></div>');
+    prog = $('#mus-prog');
   }
-  const bad = st.status.filter(s => !s.ok);
+  const fill = prog && prog.querySelector('i');
+  if (fill) fill.style.width = '0%';
+  if (bar) bar.textContent = 'Спрашиваю сайты: 0 из ' + sites.length + '…';
+  const all = [];
+  const status = [];
+  let done = 0;
+  await Promise.all(sites.map(async id => {
+    try {
+      const r = await api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + id);
+      (Array.isArray(r.results) ? r.results : []).forEach(x => all.push(x));
+      (Array.isArray(r.sites) ? r.sites : []).forEach(s => status.push(s));
+    } catch (e) {
+      status.push({ id: id, ok: false, error: String(e.message || e).slice(0, 60) });
+    }
+    done++;
+    if (fill) fill.style.width = Math.round(done / sites.length * 100) + '%';
+    if (bar) bar.textContent = 'Спрашиваю сайты: ' + done + ' из ' + sites.length + '…';
+  }));
+  // слияние: дедуп по url + сортировка по совпадению названия со словами запроса
+  const toks = st.q.toLowerCase().split(/[^a-zа-яё0-9]+/i).filter(t => t.length >= 2);
+  const low = x => String((x && x.title) || '').toLowerCase();
+  const score = x => !toks.length ? 1 : toks.every(t => low(x).includes(t)) ? 2 : toks.some(t => low(x).includes(t)) ? 1 : 0;
+  const seen = new Set();
+  const merged = [];
+  for (const x of all) {
+    if (!x || !x.url || seen.has(x.url) || score(x) < 1) continue;
+    seen.add(x.url);
+    merged.push(x);
+  }
+  merged.sort((a, b) => score(b) - score(a));
+  st.results = merged.slice(0, 40);
+  st.status = status;
+  const bad = status.filter(s => !s.ok);
   if (bar) bar.textContent = 'Найдено: ' + st.results.length + (bad.length ? ' · не ответили: ' + bad.map(s => MUS_SITE_TITLES[s.id] || s.id).join(', ') + ' (сайты меняют дизайн — это чинится маленьким выпуском)' : '');
+  if (prog) prog.remove();
   musSearchRenderRows();
 }
 function musSearchRenderRows() {
