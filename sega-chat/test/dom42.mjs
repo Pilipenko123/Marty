@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v89'), 'кэш статики поднят до v89 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v90'), 'кэш статики поднят до v90 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-96';") && apiJs.includes("const BUILD = 'pkg3-96';"), 'клиент и сервер помечены pkg3-96');
+ok(appJs.includes("const BUILD = 'pkg3-97';") && apiJs.includes("const BUILD = 'pkg3-97';"), 'клиент и сервер помечены pkg3-97');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -798,9 +798,25 @@ ok(css.includes('.mus-tr .mq{display:inline-block') && css.includes('.mus-tr.cur
   'pkg3-96: бегущая строка заготовлена у каждого трека, едет только у текущего');
 ok(appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();'),
   'pkg3-96: сразу после старта трека список помечен текущим без ожидания');
-ok(appJs.includes("const BUILD = 'pkg3-96';") && apiJs.includes("const BUILD = 'pkg3-96';"),
-  'BUILD pkg3-96 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v89';"), 'кэш статики поднят до v89');
+ok(appJs.includes("const BUILD = 'pkg3-97';") && apiJs.includes("const BUILD = 'pkg3-97';"),
+  'BUILD pkg3-97 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v90';"), 'кэш статики поднят до v90');
+
+// ─────────────────────────── pkg3-97 ───────────────────────────
+const mussearchJs = readFileSync(join(HERE, '..', 'lib', 'mussearch.js'), 'utf8');
+const pkgJson97 = readFileSync(join(HERE, '..', 'package.json'), 'utf8');
+ok(apiJs.includes("'/api/mussearch'") && apiJs.includes("require('./mussearch.js')"),
+  'pkg3-97: серверный маршрут поиска подключён');
+ok(mussearchJs.includes("id: 'yapfiles'") && mussearchJs.includes("id: 'openverse'"),
+  'pkg3-97: четыре сайта-источника (yapfiles, archive, commons, openverse)');
+ok(appJs.includes('data-mus-pl="search"') && appJs.includes('🔎 Поиск музыки'),
+  'pkg3-97: в окне музыки появилась панель «Поиск музыки»');
+ok(appJs.includes('data-mus-site=') && css.includes('.mus-site-chip{'),
+  'pkg3-97: фишки сайтов — владелец выбирает, по каким искать');
+ok(appJs.includes('data-mus-s-play=') && appJs.includes('data-mus-s-add=') && appJs.includes('data-mus-pick='),
+  'pkg3-97: у находки ▶ прослушать и ＋ добавить; ＋ даёт список плейлистов');
+ok(mussearchJs.includes('module.exports') && !JSON.parse(pkgJson97).dependencies['mussearch'],
+  'pkg3-97: поиск — свой модуль без новых зависимостей');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
