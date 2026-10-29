@@ -20,7 +20,7 @@ const mussearch = require('./mussearch.js');   // pkg3-97: поиск треко
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-99';
+const BUILD = 'pkg3-100';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1037,7 +1037,10 @@ function createApi(store, opts = {}) {
         // pkg3-51: подпись сервера («VPS (основной)» / «Яндекс (запасной)») —
         // владелец ставит её переменной окружения SEGA_LABEL, чтобы в подвале
         // было видно, КТО именно сейчас отвечает
-        serverLabel: process.env.SEGA_LABEL ? String(process.env.SEGA_LABEL) : null
+        serverLabel: process.env.SEGA_LABEL ? String(process.env.SEGA_LABEL) : null,
+        // pkg3-100: просто «положен ли ключ Jamendo» — участники без настроек
+        // видят фишку только когда источник реально включён владельцем
+        jamendo: mussearch.hasKeys()
       });
     }
 

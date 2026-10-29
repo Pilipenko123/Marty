@@ -16,6 +16,7 @@
  * Внешних зависимостей нет: только встроенные модули Node (https, http).
  */
 
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { URL, URLSearchParams } = require('url');
@@ -30,7 +31,8 @@ function cfg() {
     archive: trim(process.env.MUSSEARCH_ARCHIVE_BASE || 'https://archive.org'),
     commons: trim(process.env.MUSSEARCH_COMMONS_BASE || 'https://commons.wikimedia.org'),
     openverse: trim(process.env.MUSSEARCH_OPENVERSE_BASE || 'https://api.openverse.org'),
-    ccmixter: trim(process.env.MUSSEARCH_CCMIXTER_BASE || 'https://ccmixter.org')
+    ccmixter: trim(process.env.MUSSEARCH_CCMIXTER_BASE || 'https://ccmixter.org'),
+    jamendo: trim(process.env.MUSSEARCH_JAMENDO_BASE || 'https://api.jamendo.com')
   };
 }
 
@@ -39,7 +41,8 @@ const SITES = [
   { id: 'archive', title: 'archive.org' },
   { id: 'commons', title: 'commons.wikimedia.org' },
   { id: 'openverse', title: 'openverse (CC-аудио)' },
-  { id: 'ccmixter', title: 'ccMixter (CC)' }
+  { id: 'ccmixter', title: 'ccMixter (CC)' },
+  { id: 'jamendo', title: 'Jamendo (CC)' }
 ];
 
 function get(url, timeout) {
@@ -140,6 +143,45 @@ async function searchCommons(q, conf, limit) {
   return out;
 }
 
+/** pkg3-100: файл ключа Jamendo {"client_id":"…"}; читаем на каждый поиск,
+ * как и ключи Яндекса: положили файл — заработало без перезапуска. */
+function loadJamKeys(conf) {
+  const p = String(process.env.JAMENDO_KEYS || '/opt/sega/keys/jamendo.json');
+  try {
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const id = String(j.client_id || j.clientId || j.id || '').trim();
+    return id || null;
+  } catch (e) { return null; }
+}
+
+/** Jamendo: официальный API, полноразмерное прослушивание и обложки альбомов. */
+async function searchJamendo(q, conf, lim) {
+  const key = loadJamKeys(conf);
+  if (!key) throw new Error('ключи Jamendo не положены (файл /opt/sega/keys/jamendo.json)');
+  const qs = new URLSearchParams({
+    client_id: key, format: 'json', limit: String(lim), search: q,
+    imagesize: '100', fields: 'audio,image,name,album_name,artist_name'
+  });
+  const j = await getJSON(conf.jamendo + '/v3.0/tracks/?' + qs.toString());
+  const res = Array.isArray((j || {}).results) ? j.results : [];
+  const out = [];
+  for (const t of res) {
+    const url = String(t.audio || '');
+    if (!/^https?:\/\//i.test(url)) continue;
+    const who = clean(t.artist_name || '');
+    const nm = clean(t.name || '');
+    out.push({
+      site: 'jamendo',
+      title: ((who ? who + ' — ' : '') + (nm || 'трек')).slice(0, 120),
+      url: url,
+      cover: String(t.image || ''),
+      size: 0
+    });
+    if (out.length >= lim) break;
+  }
+  return out;
+}
+
 /** ccMixter: официальный API сообщества CC-музыкантов, прямые download_url. */
 async function searchCcmixter(q, conf, limit) {
   const qs = new URLSearchParams({ f: 'json', p: 'tags', tags: q, limit: String(limit) });
@@ -226,7 +268,7 @@ async function searchYapfiles(q, conf, limit) {
   return out;
 }
 
-const ADAPTERS = { yapfiles: searchYapfiles, archive: searchArchive, commons: searchCommons, openverse: searchOpenverse, ccmixter: searchCcmixter };
+const ADAPTERS = { yapfiles: searchYapfiles, archive: searchArchive, commons: searchCommons, openverse: searchOpenverse, ccmixter: searchCcmixter, jamendo: searchJamendo };
 
 const cache = new Map();   // q+'|'+sites -> { ts, payload }
 const CACHE_TTL = Number(process.env.MUSSEARCH_CACHE_MS || 600000);
@@ -277,4 +319,7 @@ async function search(q, siteIds, limit) {
   return payload;
 }
 
-module.exports = { SITES, search, cfg, AUDIO_RE };
+/** pkg3-100: положен ли ключ Jamendo (только да/нет, без секрета) — для /api/state. */
+function hasKeys() { return !!loadJamKeys(cfg()); }
+
+module.exports = { SITES, search, cfg, AUDIO_RE, hasKeys };
