@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v90'), 'кэш статики поднят до v90 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v91'), 'кэш статики поднят до v91 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-97';") && apiJs.includes("const BUILD = 'pkg3-97';"), 'клиент и сервер помечены pkg3-97');
+ok(appJs.includes("const BUILD = 'pkg3-98';") && apiJs.includes("const BUILD = 'pkg3-98';"), 'клиент и сервер помечены pkg3-98');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -798,9 +798,9 @@ ok(css.includes('.mus-tr .mq{display:inline-block') && css.includes('.mus-tr.cur
   'pkg3-96: бегущая строка заготовлена у каждого трека, едет только у текущего');
 ok(appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();'),
   'pkg3-96: сразу после старта трека список помечен текущим без ожидания');
-ok(appJs.includes("const BUILD = 'pkg3-97';") && apiJs.includes("const BUILD = 'pkg3-97';"),
-  'BUILD pkg3-97 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v90';"), 'кэш статики поднят до v90');
+ok(appJs.includes("const BUILD = 'pkg3-98';") && apiJs.includes("const BUILD = 'pkg3-98';"),
+  'BUILD pkg3-98 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v91';"), 'кэш статики поднят до v91');
 
 // ─────────────────────────── pkg3-97 ───────────────────────────
 const mussearchJs = readFileSync(join(HERE, '..', 'lib', 'mussearch.js'), 'utf8');
@@ -817,6 +817,21 @@ ok(appJs.includes('data-mus-s-play=') && appJs.includes('data-mus-s-add=') && ap
   'pkg3-97: у находки ▶ прослушать и ＋ добавить; ＋ даёт список плейлистов');
 ok(mussearchJs.includes('module.exports') && !JSON.parse(pkgJson97).dependencies['mussearch'],
   'pkg3-97: поиск — свой модуль без новых зависимостей');
+
+// ─────────────────────────── pkg3-98 ───────────────────────────
+ok(mussearchJs.includes('const toks = String(q).toLowerCase()') && mussearchJs.includes('relevant.sort('),
+  'pkg3-98: сервер фильтрует и сортирует находки по совпадению названия со словами запроса');
+ok(mussearchJs.includes('__ia_thumb.jpg') && mussearchJs.includes('thumburl') && mussearchJs.includes('r.thumbnail') && mussearchJs.includes('og:image'),
+  'pkg3-98: обложки подтягиваются со всех четырёх сайтов, где они есть');
+ok(appJs.includes('id="mus-prog"') || appJs.includes("'<div class=\"mus-prog\" id=\"mus-prog\"'") || appJs.includes('mus-prog'),
+  'pkg3-98: линия загрузки поиска растёт по мере ответов сайтов');
+ok(appJs.includes('Спрашиваю сайты: '), 'pkg3-98: строка состояния считает опрошенные сайты');
+ok(appJs.includes('mus-sr-cov') && appJs.includes('mus-sr-t') && appJs.includes('mus-add-sm'),
+  'pkg3-98: строка находки — обложка, читаемое название с многоточием, уменьшенный «＋»');
+ok(css.includes('.mus-prog{') && css.includes('.mus-sr-t{') && css.includes('.mus-add-sm{'),
+  'pkg3-98: стили линии загрузки и строк находок на месте');
+ok(appJs.includes("api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + id)"),
+  'pkg3-98: сайты опрашиваются параллельно по одному — прогресс честный');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Разметка pkg3-44: ${good} ✓, провалов ${bad}`);
