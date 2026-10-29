@@ -29,7 +29,8 @@ function cfg() {
     yapfiles: trim(process.env.MUSSEARCH_YAPFILES_BASE || 'https://www.yapfiles.ru'),
     archive: trim(process.env.MUSSEARCH_ARCHIVE_BASE || 'https://archive.org'),
     commons: trim(process.env.MUSSEARCH_COMMONS_BASE || 'https://commons.wikimedia.org'),
-    openverse: trim(process.env.MUSSEARCH_OPENVERSE_BASE || 'https://api.openverse.org')
+    openverse: trim(process.env.MUSSEARCH_OPENVERSE_BASE || 'https://api.openverse.org'),
+    ccmixter: trim(process.env.MUSSEARCH_CCMIXTER_BASE || 'https://ccmixter.org')
   };
 }
 
@@ -37,7 +38,8 @@ const SITES = [
   { id: 'yapfiles', title: 'yapfiles.ru' },
   { id: 'archive', title: 'archive.org' },
   { id: 'commons', title: 'commons.wikimedia.org' },
-  { id: 'openverse', title: 'openverse (CC-аудио)' }
+  { id: 'openverse', title: 'openverse (CC-аудио)' },
+  { id: 'ccmixter', title: 'ccMixter (CC)' }
 ];
 
 function get(url, timeout) {
@@ -63,9 +65,15 @@ function get(url, timeout) {
 }
 async function getJSON(url, timeout) {
   const r = await get(url, timeout);
+  // pkg3-99: 429/403 — сайт просит притормозить; помечаем это особым текстом,
+  // чтобы поиск поставил сайт «на отдых» и не долбил его дальше
+  if (r.status === 429 || r.status === 403) throw new Error('Сайт попросил подождать (' + r.status + ')');
   if (r.status !== 200) throw new Error('Сайт ответил ' + r.status);
   try { return JSON.parse(r.text); } catch (e) { throw new Error('Сайт ответил не JSON'); }
 }
+/** pkg3-99: «отдых» сайта после его «подождите»: 5 минут не спрашиваем вовсе. */
+const siteRest = new Map();   // siteId -> timestamp до которого молчим
+const REST_MS = Number(process.env.MUSSEARCH_REST_MS || 5 * 60 * 1000);
 const clean = s => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
 /** Интернет-архив: официальный API поиска + метаданные набора файлов. */
@@ -132,6 +140,31 @@ async function searchCommons(q, conf, limit) {
   return out;
 }
 
+/** ccMixter: официальный API сообщества CC-музыкантов, прямые download_url. */
+async function searchCcmixter(q, conf, limit) {
+  const qs = new URLSearchParams({ f: 'json', p: 'tags', tags: q, limit: String(limit) });
+  const j = await getJSON(conf.ccmixter + '/api/query?' + qs.toString());
+  const items = Array.isArray(j) ? j : [];
+  const out = [];
+  for (const it of items) {
+    const f = ((it || {}).files || [])[0] || {};
+    const url = String(f.download_url || '');
+    if (!/^https:\/\//i.test(url) || !AUDIO_RE.test(url)) continue;
+    const who = clean(it.user_name || '');
+    out.push({
+      site: 'ccmixter',
+      title: (clean(it.upload_name || f.file_name || url) + (who ? ' — ' + who : '')).slice(0, 120),
+      url: url,
+      cover: '',
+      size: Number(f.file_rawsize) || 0,
+      why: 'tag'   // pkg3-99: ccMixter ищет по тегам: в названии слова запроса
+                   // может не быть, но трек релевантен — фильтр это уважает
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Openverse: официальный API CC-аудио, прямые ссылки на файлы. */
 async function searchOpenverse(q, conf, limit) {
   const qs = new URLSearchParams({ q: q, page_size: String(limit) });
@@ -193,7 +226,7 @@ async function searchYapfiles(q, conf, limit) {
   return out;
 }
 
-const ADAPTERS = { yapfiles: searchYapfiles, archive: searchArchive, commons: searchCommons, openverse: searchOpenverse };
+const ADAPTERS = { yapfiles: searchYapfiles, archive: searchArchive, commons: searchCommons, openverse: searchOpenverse, ccmixter: searchCcmixter };
 
 const cache = new Map();   // q+'|'+sites -> { ts, payload }
 const CACHE_TTL = Number(process.env.MUSSEARCH_CACHE_MS || 600000);
@@ -206,12 +239,16 @@ async function search(q, siteIds, limit) {
   const key = String(q).toLowerCase() + '|' + ids.join(',') + '|' + lim;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.ts < CACHE_TTL) return hit.payload;
-  const settled = await Promise.allSettled(ids.map(id => ADAPTERS[id](String(q), conf, lim)));
+  const now0 = Date.now();
+  const active = ids.filter(id => !(siteRest.get(id) > now0));
+  const resting = ids.filter(id => siteRest.get(id) > now0);
+  const settled = await Promise.allSettled(active.map(id => ADAPTERS[id](String(q), conf, lim)));
   const results = [];
   const seen = new Set();
   const siteStatus = [];
+  for (const id of resting) siteStatus.push({ id: id, ok: false, error: 'отдыхает: сайт просил подождать, повторим через несколько минут' });
   settled.forEach((r, i) => {
-    const id = ids[i];
+    const id = active[i];
     if (r.status === 'fulfilled') {
       siteStatus.push({ id: id, ok: true });
       for (const x of r.value || []) {
@@ -220,7 +257,9 @@ async function search(q, siteIds, limit) {
         results.push(x);
       }
     } else {
-      siteStatus.push({ id: id, ok: false, error: String((r.reason && r.reason.message) || r.reason || 'сайт не ответил').slice(0, 80) });
+      const msg = String((r.reason && r.reason.message) || r.reason || 'сайт не ответил').slice(0, 80);
+      if (/попросил подождать/.test(msg)) siteRest.set(id, Date.now() + REST_MS);   // pkg3-99: отдых
+      siteStatus.push({ id: id, ok: false, error: msg });
     }
   });
   // pkg3-98: сайты ищут не только по названию (теги, описания, «похожее»),
@@ -229,7 +268,7 @@ async function search(q, siteIds, limit) {
   // совсем не совпавшие — не показываем вовсе.
   const toks = String(q).toLowerCase().split(/[^a-zа-яё0-9]+/i).filter(t => t.length >= 2);
   const low = x => String((x && x.title) || '').toLowerCase();
-  const score = x => !toks.length ? 1 : toks.every(t => low(x).includes(t)) ? 2 : toks.some(t => low(x).includes(t)) ? 1 : 0;
+  const score = x => !toks.length ? 1 : toks.every(t => low(x).includes(t)) ? 2 : toks.some(t => low(x).includes(t)) ? 1 : (x.why === 'tag' ? 1 : 0);
   const relevant = results.filter(x => score(x) > 0);
   relevant.sort((a, b) => score(b) - score(a));
   const payload = { results: relevant.slice(0, 30), sites: siteStatus };
