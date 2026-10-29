@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-98';
+const BUILD = 'pkg3-99';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4676,9 +4676,9 @@ async function musicSave() {
 const musicAll = () => ((S.music && S.music.pub) || []).concat((S.music && S.music.priv) || []);
 // ─────────────────────────── pkg3-97: поиск музыки ───────────────────────────
 const MUS_SEARCH = 'search';
-const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC' };
+const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC', ccmixter: 'ccMixter CC' };
 function musSearchState() {
-  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, archive: true, commons: true, openverse: true }, results: [], status: [] };
+  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, archive: true, commons: true, openverse: true, ccmixter: true }, results: [], status: [] };
   return MUS.search;
 }
 function musSearchSitesHtml() {
@@ -4720,7 +4720,10 @@ async function musSearchRun() {
   const all = [];
   const status = [];
   let done = 0;
-  await Promise.all(sites.map(async id => {
+  // pkg3-99: сайты спрашиваются ПО ОЧЕРЕДИ (не залпом): это вежливо к их
+  // ограничителям частоты и не даёт сайтам принять нас за робота-спамера;
+  // полоса растёт с каждым ответом, кэш сервера делает повторы мгновенными.
+  for (const id of sites) {
     try {
       const r = await api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + id);
       (Array.isArray(r.results) ? r.results : []).forEach(x => all.push(x));
@@ -4731,11 +4734,11 @@ async function musSearchRun() {
     done++;
     if (fill) fill.style.width = Math.round(done / sites.length * 100) + '%';
     if (bar) bar.textContent = 'Спрашиваю сайты: ' + done + ' из ' + sites.length + '…';
-  }));
+  }
   // слияние: дедуп по url + сортировка по совпадению названия со словами запроса
   const toks = st.q.toLowerCase().split(/[^a-zа-яё0-9]+/i).filter(t => t.length >= 2);
   const low = x => String((x && x.title) || '').toLowerCase();
-  const score = x => !toks.length ? 1 : toks.every(t => low(x).includes(t)) ? 2 : toks.some(t => low(x).includes(t)) ? 1 : 0;
+  const score = x => !toks.length ? 1 : toks.every(t => low(x).includes(t)) ? 2 : toks.some(t => low(x).includes(t)) ? 1 : (x.why === 'tag' ? 1 : 0);
   const seen = new Set();
   const merged = [];
   for (const x of all) {
