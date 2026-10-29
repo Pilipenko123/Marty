@@ -90,6 +90,7 @@ async function searchArchive(q, conf, limit) {
         site: 'archive',
         title: clean(d.title || f.name || ident).slice(0, 120) || ident,
         url: conf.archive + '/download/' + ident + '/' + encodeURI(String(f.name)),
+        cover: conf.archive + '/download/' + ident + '/__ia_thumb.jpg',   // pkg3-98: миниатюра набора (может не быть — клиент скроет)
         size: Number(f.size) || 0
       });
     } catch (e) { /* один набор не открылся — не беда, идём дальше */ }
@@ -109,7 +110,7 @@ async function searchCommons(q, conf, limit) {
   if (!hits.length) return [];
   const titles = hits.map(h => String(h.title || '')).filter(Boolean).slice(0, limit);
   const q2 = new URLSearchParams({
-    action: 'query', prop: 'imageinfo', iiprop: 'url|size',
+    action: 'query', prop: 'imageinfo', iiprop: 'url|size|thumburl', iiurlwidth: '96',
     titles: titles.join('|'), format: 'json'
   });
   const j2 = await getJSON(conf.commons + '/w/api.php?' + q2.toString());
@@ -124,6 +125,7 @@ async function searchCommons(q, conf, limit) {
       site: 'commons',
       title: clean(String(p.title || '').replace(/^File:/, '')).slice(0, 120) || 'файл Викимедиа',
       url: url,
+      cover: String(ii.thumburl || ''),   // pkg3-98: миниатюра 96 px, если у файла есть обложка
       size: Number(ii.size) || 0
     });
   }
@@ -143,6 +145,7 @@ async function searchOpenverse(q, conf, limit) {
       site: 'openverse',
       title: clean(r.title || url).slice(0, 120),
       url: url,
+      cover: String(r.thumbnail || ''),   // pkg3-98: обложка из API
       size: 0
     });
   }
@@ -180,9 +183,10 @@ async function searchYapfiles(q, conf, limit) {
       }
       if (!direct) continue;
       const mt = fhtml.match(/<title>([^<]*)<\/title>/i);
+      const og = fhtml.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i) || fhtml.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
       const anchor = fhtml.match(new RegExp('title="([^"]{3,120})"[^>]*href="' + pu.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(conf.yapfiles.length) + '"'));
       const title = clean((anchor && anchor[1]) || (mt && mt[1]) || '').replace(/\s*[-|·]\s*yapfiles.*$/i, '').slice(0, 120);
-      out.push({ site: 'yapfiles', title: title || 'yapfiles: ' + direct.split('/').pop().slice(0, 80), url: direct, size: 0 });
+      out.push({ site: 'yapfiles', title: title || 'yapfiles: ' + direct.split('/').pop().slice(0, 80), url: direct, cover: og ? String(og[1]) : '', size: 0 });
     } catch (e) { /* страница файла не открылась — пропускаем */ }
     if (out.length >= limit) break;
   }
@@ -219,7 +223,16 @@ async function search(q, siteIds, limit) {
       siteStatus.push({ id: id, ok: false, error: String((r.reason && r.reason.message) || r.reason || 'сайт не ответил').slice(0, 80) });
     }
   });
-  const payload = { results: results.slice(0, 30), sites: siteStatus };
+  // pkg3-98: сайты ищут не только по названию (теги, описания, «похожее»),
+  // поэтому находки фильтруем и сортируем по совпадению НАЗВАНИЯ со словами
+  // запроса: все слова в названии — первыми, хотя бы одно — следом,
+  // совсем не совпавшие — не показываем вовсе.
+  const toks = String(q).toLowerCase().split(/[^a-zа-яё0-9]+/i).filter(t => t.length >= 2);
+  const low = x => String((x && x.title) || '').toLowerCase();
+  const score = x => !toks.length ? 1 : toks.every(t => low(x).includes(t)) ? 2 : toks.some(t => low(x).includes(t)) ? 1 : 0;
+  const relevant = results.filter(x => score(x) > 0);
+  relevant.sort((a, b) => score(b) - score(a));
+  const payload = { results: relevant.slice(0, 30), sites: siteStatus };
   cache.set(key, { ts: Date.now(), payload: payload });
   if (cache.size > 200) cache.delete(cache.keys().next().value);
   return payload;

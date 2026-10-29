@@ -20,7 +20,7 @@ const mussearch = require('./mussearch.js');   // pkg3-97: поиск треко
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-97';
+const BUILD = 'pkg3-98';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
