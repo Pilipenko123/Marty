@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-99';
+const BUILD = 'pkg3-100';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -619,6 +619,7 @@ async function boot() {
   S.codeProofSalt = st.codeProofSalt || null;   // для проверки кодового слова архивов
   S.serverBuild = st.build || 'без метки (старше pkg2-3)';
   S.serverLabel = st.serverLabel || '';   // pkg3-51: «VPS (основной)» / «Яндекс (запасной)»
+  S.jamendoOn = st.jamendo !== false;   // pkg3-100: включён ли источник Jamendo на сервере
   if (st.setupRequired) { loadUi.hide(); return screen('setup'); }
   // pkg3-64: ссылка из письма («…/?recover=…») ведёт прямо на экран восстановления
   const recToken = new URLSearchParams(location.search).get('recover');
@@ -4676,14 +4677,23 @@ async function musicSave() {
 const musicAll = () => ((S.music && S.music.pub) || []).concat((S.music && S.music.priv) || []);
 // ─────────────────────────── pkg3-97: поиск музыки ───────────────────────────
 const MUS_SEARCH = 'search';
-const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC', ccmixter: 'ccMixter CC' };
+const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', jamendo: 'Jamendo CC', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC', ccmixter: 'ccMixter CC' };
 function musSearchState() {
-  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, archive: true, commons: true, openverse: true, ccmixter: true }, results: [], status: [] };
+  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, jamendo: S.jamendoOn !== false, archive: true, commons: true, openverse: true, ccmixter: true }, results: [], status: [] };
   return MUS.search;
 }
 function musSearchSitesHtml() {
   const st = musSearchState();
-  return Object.keys(MUS_SITE_TITLES).map(id => '<button class="mus-site-chip' + (st.sites[id] ? ' on' : '') + '" data-mus-site="' + id + '" title="Искать по сайту ' + MUS_SITE_TITLES[id] + '">' + (st.sites[id] ? '✓ ' : '') + MUS_SITE_TITLES[id] + '</button>').join('');
+  return Object.keys(MUS_SITE_TITLES).map(id => {
+    // pkg3-100: пока владелец сервера не положил ключ Jamendo, фишка у всех
+    // участников тихая и неактивная — никаких служебных надписей людям
+    const off = id === 'jamendo' && S.jamendoOn === false;
+    const on = st.sites[id] && !off;
+    const title = off
+      ? (S.me && S.me.isAdmin ? 'Jamendo: владелец сервера включает источник файлом /opt/sega/keys/jamendo.json' : 'Этот источник включает владелец сервера')
+      : 'Искать по сайту ' + MUS_SITE_TITLES[id];
+    return '<button class="mus-site-chip' + (on ? ' on' : '') + (off ? ' off' : '') + '" data-mus-site="' + id + '" title="' + escapeHtml(title) + '">' + (on ? '✓ ' : '') + MUS_SITE_TITLES[id] + '</button>';
+  }).join('');
 }
 function musSearchRowsHtml() {
   const st = musSearchState();
@@ -5660,11 +5670,43 @@ async function openMusic(wantId) {
   for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
     const id = ch.getAttribute('data-mus-site');
     const st = musSearchState();
+    // pkg3-100: выключенный Jamendo не включается кликом — подсказываем кому что
+    if (id === 'jamendo' && S.jamendoOn === false) {
+      toast(S.me && S.me.isAdmin ? 'Jamendo включится, когда владелец сервера положит файл /opt/sega/keys/jamendo.json (инструкция pkg3-100)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
+      return;
+    }
+    if (id === 'jamendo') st.jamendoManual = true;   // сам снял галочку — не навязывать
     st.sites[id] = !st.sites[id];
     ch.classList.toggle('on', st.sites[id]);
     ch.textContent = (st.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
   });
-  if (isSearch) musSearchRenderRows();   // слушатели строк результатов
+  if (isSearch) {
+    musSearchRenderRows();   // слушатели строк результатов
+    // pkg3-100: открыв панель, тихо спрашиваем сервер про Jamendo: ключ мог
+    // лечь в любую минуту — фишка включится у всех сама, без настроек
+    api('/api/state').then(st2 => {
+      const on = st2 && st2.jamendo !== false;
+      if (on === S.jamendoOn) return;
+      S.jamendoOn = on;
+      const stt = musSearchState();
+      if (on && !stt.jamendoManual) stt.sites.jamendo = true;
+      if (!on) stt.sites.jamendo = false;
+      const box = $('#mus-sites');
+      if (box) box.innerHTML = musSearchSitesHtml();
+      for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
+        const id = ch.getAttribute('data-mus-site');
+        const st3 = musSearchState();
+        if (id === 'jamendo' && S.jamendoOn === false) {
+          toast(S.me && S.me.isAdmin ? 'Jamendo включится, когда владелец сервера положит файл /opt/sega/keys/jamendo.json (инструкция pkg3-100)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
+          return;
+        }
+        if (id === 'jamendo') st3.jamendoManual = true;
+        st3.sites[id] = !st3.sites[id];
+        ch.classList.toggle('on', st3.sites[id]);
+        ch.textContent = (st3.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
+      });
+    }).catch(() => {});
+  }
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
   if (isDisk) ydPaneStart().catch(() => {});
 }
