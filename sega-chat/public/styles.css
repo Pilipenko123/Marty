@@ -1769,3 +1769,8 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-plsrow.cur{background:var(--accent-soft)}
 .mus-v105 .mus-plsrow .mus-plsopen{flex:1 1 auto;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mus-v105 .mus-listhead{font-size:12px;color:var(--accent-2);margin:2px 4px 6px}
+
+/* ── pkg3-106: светомузыка в квадрате обложки ── */
+.mus-v105 .mus-vizc{position:absolute;inset:0;width:100%;height:100%;display:block;background:radial-gradient(120% 90% at 50% 10%,#2a1747 0%,#0b0713 70%)}
+.mus-v105 .mus-vizc.hidden{display:none}
+.mus-v105 .mus-vizbtn{position:absolute;top:8px;right:8px;z-index:2;width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:rgba(0,0,0,.45);color:var(--accent-2);font-size:13px;cursor:pointer}

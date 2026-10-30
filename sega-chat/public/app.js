@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-105';
+const BUILD = 'pkg3-106';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4685,6 +4685,104 @@ function musMarkBad(url) {
     if (!a.includes(h)) localStorage.setItem('sega.musProxyHosts.v1', JSON.stringify(a.concat([h]).slice(-50)));
   } catch (e) {}
 }
+/** pkg3-106: светомузыка вместо обложки — состояние на устройстве. */
+function musVizGet() {
+  try { return localStorage.getItem('sega.musViz.v1') === '1'; } catch (e) { return false; }
+}
+function musVizSet(v) {
+  try { localStorage.setItem('sega.musViz.v1', v ? '1' : '0'); } catch (e) {}
+}
+/** pkg3-106: аудиграф строится ОДИН раз на звуковой элемент: браузер читает
+ * спектр звука через AnalyserNode. Важно: звук при этом идёт через контекст,
+ * поэтому контекст будим на каждом запуске (иначе тишина). */
+const MUSVIZ = { ctx: null, src: null, an: null, data: null, raf: 0, calm: 0 };
+function musVizGraph() {
+  const a = musicAudio();
+  if (!MUSVIZ.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    try {
+      MUSVIZ.ctx = new AC();
+      MUSVIZ.src = MUSVIZ.ctx.createMediaElementSource(a);
+      MUSVIZ.an = MUSVIZ.ctx.createAnalyser();
+      MUSVIZ.an.fftSize = 64;
+      MUSVIZ.an.smoothingTimeConstant = 0.82;
+      MUSVIZ.src.connect(MUSVIZ.an);
+      MUSVIZ.an.connect(MUSVIZ.ctx.destination);
+      MUSVIZ.data = new Uint8Array(MUSVIZ.an.frequencyBinCount);
+    } catch (e) { MUSVIZ.ctx = null; return false; }
+  }
+  if (MUSVIZ.ctx.state === 'suspended') MUSVIZ.ctx.resume().catch(() => {});
+  return true;
+}
+/** pkg3-106: шкалы в такт. Если источник не дал читать байты (спектр нулевой),
+ * честно рисуем мягкое «дыхание» и пишем об этом в подписи — не врём ритмом. */
+function musVizDraw() {
+  const c = document.getElementById('mus-viz-c');
+  if (!c) { MUSVIZ.raf = 0; return; }
+  MUSVIZ.raf = requestAnimationFrame(musVizDraw);
+  const x = c.getContext('2d');
+  const W = c.width = c.clientWidth || 300;
+  const H = c.height = c.clientHeight || 300;
+  x.clearRect(0, 0, W, H);
+  const g = x.createLinearGradient(0, H, 0, 0);
+  g.addColorStop(0, '#e33ff0'); g.addColorStop(1, '#35e0f0');
+  x.fillStyle = g;
+  const a = MUS.a;
+  const playing = !!a && !a.paused && !a.ended;
+  let live = false;
+  const N = 28;
+  if (MUSVIZ.an && MUSVIZ.data) {
+    MUSVIZ.an.getByteFrequencyData(MUSVIZ.data);
+    for (let i = 0; i < MUSVIZ.data.length; i++) if (MUSVIZ.data[i] > 4) { live = true; break; }
+  }
+  if (live) {
+    MUSVIZ.calm = 0;
+    const bins = MUSVIZ.data.length;
+    for (let i = 0; i < N; i++) {
+      const v = MUSVIZ.data[Math.floor(i / N * bins)] / 255;
+      const h = Math.max(3, v * (H - 24));
+      const w = W / N;
+      x.fillRect(i * w + w * 0.18, H - h - 12, w * 0.64, h);
+    }
+  } else {
+    // спектр нулевой: либо тишина, либо источник не открыл байты — дышим мягко
+    const t = Date.now() / 1000;
+    const amp = playing ? 0.5 : 0.12;
+    for (let i = 0; i < N; i++) {
+      const v = amp * (0.35 + 0.65 * Math.abs(Math.sin(t * 1.7 + i * 0.55)));
+      const h = Math.max(3, v * (H - 24) * 0.6);
+      const w = W / N;
+      x.globalAlpha = playing ? 0.75 : 0.35;
+      x.fillRect(i * w + w * 0.18, H - h - 12, w * 0.64, h);
+    }
+    x.globalAlpha = 1;
+    if (playing) MUSVIZ.calm++;
+  }
+  x.fillStyle = 'rgba(255,233,201,.85)';
+  x.font = '12px system-ui';
+  x.textAlign = 'center';
+  x.fillText(live ? 'светомузыка в такт звуку' : (playing ? 'источник не открыл байты — дышим в такт невозможности: звук идёт как шёл' : 'светомузыка ждёт трек'), W / 2, H - 2);
+}
+function musVizUi() {
+  const on = musVizGet();
+  const c = document.getElementById('mus-viz-c');
+  const img = document.getElementById('mus-cover-img');
+  const btn = document.getElementById('mus-viz-btn');
+  if (c) c.classList.toggle('hidden', !on);
+  if (img) img.classList.toggle('hidden', on);
+  if (btn) {
+    btn.textContent = on ? '▦' : '▮▮';
+    btn.title = on ? 'Вернуть обложку' : 'Светомузыка вместо обложки';
+  }
+  if (on) {
+    musVizGraph();
+    if (!MUSVIZ.raf) musVizDraw();
+  } else if (MUSVIZ.raf) {
+    cancelAnimationFrame(MUSVIZ.raf);
+    MUSVIZ.raf = 0;
+  }
+}
 const musDeadMsg = viaProxy => viaProxy
   ? 'Не удалось проиграть трек даже через сервер: источник не отдал звук'
   : 'Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл';
@@ -4696,7 +4794,11 @@ function musStartStream(a, url, onDead, opts) {
   // pkg3-105: подкаст-трекам запасной путь разрешён всегда: сеть владельца может
   // держать подкаст-хостинг закрытым, а решать всё равно сервер (труба пустит лишь
   // хозяев из прочитанных лент); отказ трубы — та же честная подсказка.
-  const proxyOn = musProxyOk(url) || !!(opts && opts.pod);
+  // pkg3-106: со светомузыкой звук пускаем через трубу даже когда прямая
+  // ссылка жива: только труба шлёт браузеру разрешение читать байты (CORS),
+  // а без него шкалы стояли бы нулями. Хозяев по-прежнему проверяет сервер.
+  const vizWant = musVizGet() && (musProxyOk(url) || !!(opts && opts.pod));
+  const proxyOn = musProxyOk(url) || !!(opts && opts.pod) || vizWant;
   let via = 'direct', switched = false, done = false, paused = false, timer = 0;
   const off = () => {
     a.removeEventListener('error', onErr);
@@ -4722,6 +4824,7 @@ function musStartStream(a, url, onDead, opts) {
         if (!r || !r.t) { dead(true); return; }
         switched = true; via = 'proxy'; paused = false;
         musMarkBad(url);
+        try { a.crossOrigin = 'anonymous'; } catch (e) {}   // pkg3-106: труба шлёт CORS — спектр читается
         a.src = musProxyHref(url, r.t);
         a.play().catch(() => dead(true));
         arm();
@@ -4740,6 +4843,7 @@ function musStartStream(a, url, onDead, opts) {
   a.addEventListener('pause', onPause);
   a.addEventListener('playing', () => { paused = false; if (timer) { clearTimeout(timer); timer = 0; } }, { once: true });
   if (proxyOn && musHostBad(url)) { startProxy(); return; }   // хост уже отказывал — сразу через сервер
+  if (vizWant) { try { a.crossOrigin = 'anonymous'; } catch (e) {} }   // pkg3-106: труба разрешает чтение байтов
   a.src = url;
   a.play().catch(() => fail());
   arm();
@@ -5252,6 +5356,7 @@ function musicNowUi() {
   if (img) img.innerHTML = musCoverBigHtml(t);
   const cap = document.getElementById('mus-cover-cap');
   if (cap) cap.textContent = t ? ('Сейчас играет: ' + (t.title || t.url)) : 'Сейчас ничего не играет';
+  musVizUi();   // pkg3-106: обложка или светомузыка — по кнопке на квадрате
   musUiMode();   // pkg3-88: обычный трек или встроенный плеер Яндекса
 }
 function musicTickUi() {
@@ -5625,7 +5730,7 @@ async function openMusic(wantId) {
       <button class="mini mus-dotsbtn" id="mus-dots-btn" title="Параметры: сайты поиска, умная вставка">⋯</button>
     </div>
     <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : 'Отметьте сайты в «⋯» и нажмите «Найти». Сервер спросит сайты как обычный посетитель и вернёт названия с прямыми ссылками.'}</div>
-    <div class="mus-coverbox"><div id="mus-cover-img"></div><div class="mus-cover-cap" id="mus-cover-cap"></div></div>
+    <div class="mus-coverbox"><div id="mus-cover-img"></div><canvas id="mus-viz-c" class="mus-vizc hidden"></canvas><button class="mus-vizbtn" id="mus-viz-btn" title="Светомузыка вместо обложки">▮▮</button><div class="mus-cover-cap" id="mus-cover-cap"></div></div>
     <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
     <div class="mus-list" id="mus-list">${listHtml}</div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
@@ -5693,6 +5798,16 @@ async function openMusic(wantId) {
   const dotsOvl = $('#mus-dots-ovl'), plsOvl = $('#mus-pls-ovl'), trOvl = $('#mus-trovl');
   const dotsBtn = $('#mus-dots-btn');
   if (dotsBtn) dotsBtn.addEventListener('click', () => { if (dotsOvl) dotsOvl.classList.toggle('show'); });
+  // pkg3-106: одно нажатие — обложка меняется на светомузыку и обратно
+  const vizBtn = $('#mus-viz-btn');
+  if (vizBtn) vizBtn.addEventListener('click', () => {
+    const on = !musVizGet();
+    musVizSet(on);
+    if (on && !musVizGraph()) { toast('Браузер не дал построить аудиграф — светомузыка недоступна', true); musVizSet(false); }
+    else if (on) toast('Светомузыка включена: пока она работает, звук идёт через сервер — так браузер получает право читать ритм');
+    musVizUi();
+  });
+  musVizUi();
   const plsBtn = $('#mus-pls-btn');
   if (plsBtn) plsBtn.addEventListener('click', () => { if (plsOvl) plsOvl.classList.toggle('show'); });
   for (const cid of ['#mus-dots-close', '#mus-pls-close']) {
