@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-100';
+const BUILD = 'pkg3-101';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4646,6 +4646,87 @@ function musicAudio() {
   }
   return MUS.a;
 }
+/** pkg3-101: ЗАПАСНОЙ ПУТЬ ЗВУКА — прослушивание через сервер.
+ * Прямые ссылки источников устройство тянет само, но стрим-хост Jamendo
+ * (mp3d.jamendo.com) в сети владельца закрыт: скачивание виснет до VPN, хотя
+ * с VPS тот же адрес отвечает 200 audio/mpeg (замер 28.10). Поэтому плеер
+ * при отказе или «зависании» прямой ссылки ОДИН РАЗ тихо переключается на
+ * поток через наш сервер (/api/musstream), и только если и он не смог —
+ * показывает подсказку. Хост, однажды отказавший, помнится в устройстве
+ * (sega.musProxyHosts.v1) — следующие треки с него идут через сервер сразу,
+ * без девятисекундного ожидания. Зеркало белого списка живёт на сервере
+ * (lib/musstream.js): сервер всё равно не пропустит чужой домен. */
+const MUS_PROXY_HOSTS = ['jamendo.com', 'archive.org', 'wikimedia.org', 'ccmixter.org', 'yapfiles.ru'];
+function musProxyHref(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return null;
+    const h = u.hostname.toLowerCase();
+    if (!MUS_PROXY_HOSTS.some(d => h === d || h.endsWith('.' + d))) return null;
+    return BASE + '/api/musstream?url=' + encodeURIComponent(url);
+  } catch (e) { return null; }
+}
+function musBadHosts() {
+  try { const a = JSON.parse(localStorage.getItem('sega.musProxyHosts.v1') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function musHostBad(url) {
+  try { return musBadHosts().includes(new URL(url).hostname.toLowerCase()); } catch (e) { return false; }
+}
+function musMarkBad(url) {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    const a = musBadHosts();
+    if (!a.includes(h)) localStorage.setItem('sega.musProxyHosts.v1', JSON.stringify(a.concat([h]).slice(-50)));
+  } catch (e) {}
+}
+const musDeadMsg = viaProxy => viaProxy
+  ? 'Не удалось проиграть трек даже через сервер: источник не отдал звук'
+  : 'Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл';
+/** Запустить трек с запасным путём: прямая ссылка → (тихо) поток через сервер.
+ * «Зависание» ловим сторожем: за 9 с ни байта звука и элемент не на паузе
+ * руками — считаем отказом (в закрытой сети ошибка приходит не сразу). */
+function musStartStream(a, url, onDead) {
+  if (typeof a.__musOff === 'function') a.__musOff();   // прежний старт на этом элементе — долой
+  const proxy = musProxyHref(url);
+  let via = (proxy && musHostBad(url)) ? proxy : url;
+  let switched = false, done = false, paused = false, timer = 0;
+  const off = () => {
+    a.removeEventListener('error', onErr);
+    a.removeEventListener('pause', onPause);
+    if (timer) { clearTimeout(timer); timer = 0; }
+    a.__musOff = null;
+  };
+  const dead = p => { if (done) return; done = true; off(); if (onDead) onDead(p); };
+  const arm = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (done) return;
+      if (paused || a.currentTime > 0 || a.readyState >= 2) { off(); return; }   // звук пошёл или пауза руками — не зависание
+      fail();
+    }, 9000);
+  };
+  const fail = () => {
+    if (done) return;
+    if (!switched && proxy && via !== proxy) {          // тихий переход на запасной путь
+      switched = true; via = proxy; paused = false;
+      musMarkBad(url);
+      a.src = via;
+      a.play().catch(() => dead(true));
+      arm();
+      return;
+    }
+    dead(via === proxy);
+  };
+  const onErr = () => fail();
+  const onPause = () => { paused = true; };
+  a.__musOff = off;
+  a.addEventListener('error', onErr);
+  a.addEventListener('pause', onPause);
+  a.addEventListener('playing', () => { paused = false; if (timer) { clearTimeout(timer); timer = 0; } }, { once: true });
+  a.src = via;
+  a.play().catch(() => fail());
+  arm();
+}
 /** Загрузка моих списков: публичные открыто, личные — расшифровка личным ключом. */
 async function musicLoad() {
   const r = await api('/api/music');
@@ -4808,9 +4889,7 @@ function musicPlay(pl, idx) {
   // pkg3-90: трек с Диска — сначала свежая временная ссылка, потом наш плеер
   if (musicIsDisk(t)) { musicStartDiskTrack(t); return; }
   musWidgetHide();
-  const a = musicAudio();
-  a.src = t.url;
-  a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
+  musStartStream(musicAudio(), t.url, p => toast(musDeadMsg(p), true));   // pkg3-101: с запасным путём через сервер
   musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();
 }
 /** pkg3-95: строки плейлиста перерисовываются при каждом старте трека: текущая
@@ -5200,7 +5279,6 @@ function musicPlayOnce(url, title, offset, kind) {
   if (musicIsWidget(MUS.list[0])) { musicPlayWidget(MUS.list[0]); return; }
   musWidgetHide();
   const a = musicAudio();
-  a.src = url;
   if (offset > 0) {
     const seek0 = () => {
       a.removeEventListener('loadedmetadata', seek0);
@@ -5208,7 +5286,7 @@ function musicPlayOnce(url, title, offset, kind) {
     };
     a.addEventListener('loadedmetadata', seek0);
   }
-  a.play().catch(() => toast('Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл', true));
+  musStartStream(a, url, p => toast(musDeadMsg(p), true));   // pkg3-101: с запасным путём через сервер
   musicNowUi(); musicFabSync();
 }
 /** pkg3-87: «слушать вместе» — письмо в открытый чат с якорем: трек, позиция,
@@ -5288,9 +5366,7 @@ async function musApplySync(sy) {
       if (sy.kind === 'disk') tr.path = sy.path;
       MUS.list = [tr]; MUS.idx = 0; MUS.plId = null;
       musWidgetHide();
-      const a = musicAudio();
-      a.src = url;
-      a.play().catch(() => {});
+      musStartStream(musicAudio(), url, () => {});   // pkg3-101: догоняющий трек тоже с запасным путём, тихо
       musicNowUi(); musicFabSync();
     }
     const a = MUS.a;
