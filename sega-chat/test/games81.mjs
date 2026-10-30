@@ -74,7 +74,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-106', 'сервер помечен pkg3-106');
+ok(r.status === 200 && r.d.build === 'pkg3-107', 'сервер помечен pkg3-107');
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
@@ -262,9 +262,9 @@ ok(apiJs.includes('const watchNow = new Map();') && apiJs.includes('function isW
 ok(apiJs.includes('if (skipWatchers && isWatchingGame(u.id, chat.id)) continue;'),
   'пункт 11: notifyPush пропускает смотрящих');
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-106';") && apiJs.includes("const BUILD = 'pkg3-106';"),
-  'BUILD pkg3-106 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v99';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = 'pkg3-107';") && apiJs.includes("const BUILD = 'pkg3-107';"),
+  'BUILD pkg3-107 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v100';"), 'кэш статики поднят до v93');
 ok(gs.includes("version: 'pkg3-85'"), 'звуковой движок помечен pkg3-85');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');

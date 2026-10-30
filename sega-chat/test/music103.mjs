@@ -92,7 +92,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-106', 'сервер помечен pkg3-106');
+ok(r.status === 200 && r.d.build === 'pkg3-107', 'сервер помечен pkg3-107');
 
 console.log('\n  1. Аудиокниги (ru): главы книг с прицелом по языку и коллекциям');
 r = await call('/api/mussearch?q=' + encodeURIComponent('чехов рассказы') + '&sites=audiobooks', {}, admin);
@@ -149,8 +149,8 @@ ok(appJs.includes("audiobooks: 'аудиокниги (ru)'") && appJs.includes("
 ok(appJs.includes('function musSourceOff(') && appJs.includes('MUS_SOURCE_KEYFILE'), 'тихие фишки источников с файлом-ключом обобщены (Jamendo и подкасты)');
 ok(appJs.includes('let modalDownInside = false;') && appJs.includes('if (modalDownInside) return;'),
   'pkg3-103: выделение текста не сворачивает окно — сворачиваем только если нажатие началось мимо');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v99';"), 'кэш статики поднят до v96');
-ok(appJs.includes("const BUILD = 'pkg3-106';") && apiJs.includes("const BUILD = 'pkg3-106';"), 'BUILD pkg3-106 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v100';"), 'кэш статики поднят до v96');
+ok(appJs.includes("const BUILD = 'pkg3-107';") && apiJs.includes("const BUILD = 'pkg3-107';"), 'BUILD pkg3-107 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music103.mjs'), 'тест music103 включён в цепочку npm test');
 ok(readme.includes('| pkg3-103 |'), 'в журнале README есть строка выпуска pkg3-103');
 const deps = JSON.parse(pkg).dependencies;

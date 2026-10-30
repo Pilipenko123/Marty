@@ -77,7 +77,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-106', 'сервер помечен pkg3-106');
+ok(r.status === 200 && r.d.build === 'pkg3-107', 'сервер помечен pkg3-107');
 
 console.log('\n  1. Без ключа — честный отказ, с ключом — находки');
 r = await call('/api/mussearch?q=neon+cats&sites=jamendo', {}, admin);
@@ -112,8 +112,8 @@ ok(appJs.includes('S.jamendoOn = st.jamendo !== false;') && css2().includes('.mu
   'pkg3-100: пока ключа нет, фишка у всех участников тихая и неактивная — без служебных надписей');
 ok(appJs.includes('Этот источник музыки включает владелец сервера'),
   'pkg3-100: не-админу клик по тихой фишке объясняет по-человечески, админу — подсказывает файл ключа');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v99';"), 'кэш статики поднят до v93');
-ok(appJs.includes("const BUILD = 'pkg3-106';") && apiJs.includes("const BUILD = 'pkg3-106';"), 'BUILD pkg3-106 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v100';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = 'pkg3-107';") && apiJs.includes("const BUILD = 'pkg3-107';"), 'BUILD pkg3-107 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music100.mjs'), 'тест music100 включён в цепочку npm test');
 ok(readme.includes('| pkg3-100 |'), 'в журнале README есть строка выпуска pkg3-100');
 const deps = JSON.parse(pkg).dependencies;
