@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-101';
+const BUILD = 'pkg3-102';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4657,15 +4657,20 @@ function musicAudio() {
  * без девятисекундного ожидания. Зеркало белого списка живёт на сервере
  * (lib/musstream.js): сервер всё равно не пропустит чужой домен. */
 const MUS_PROXY_HOSTS = ['jamendo.com', 'archive.org', 'wikimedia.org', 'ccmixter.org', 'yapfiles.ru'];
-function musProxyHref(url) {
+/** pkg3-102: прокси закрыт пропуском: плеер (<audio>) не умеет прикладывать
+ * заголовок входа (урок 101-го: сервер отвечал 401 и звучало как «источник не
+ * отдал звук»). Поэтому приложение берёт РАЗОВЫЙ ПРОПУСК обычным входным
+ * запросом POST /api/musstream-ticket, а плеер предъявляет только пропуск в
+ * строке адреса. Пропуск привязан к одной ссылке и живёт 20 минут скользящих. */
+function musProxyOk(url) {
   try {
     const u = new URL(url);
-    if (u.protocol !== 'https:') return null;
+    if (u.protocol !== 'https:') return false;
     const h = u.hostname.toLowerCase();
-    if (!MUS_PROXY_HOSTS.some(d => h === d || h.endsWith('.' + d))) return null;
-    return BASE + '/api/musstream?url=' + encodeURIComponent(url);
-  } catch (e) { return null; }
+    return MUS_PROXY_HOSTS.some(d => h === d || h.endsWith('.' + d));
+  } catch (e) { return false; }
 }
+const musProxyHref = (url, t) => BASE + '/api/musstream?t=' + encodeURIComponent(t);
 function musBadHosts() {
   try { const a = JSON.parse(localStorage.getItem('sega.musProxyHosts.v1') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
 }
@@ -4687,9 +4692,8 @@ const musDeadMsg = viaProxy => viaProxy
  * руками — считаем отказом (в закрытой сети ошибка приходит не сразу). */
 function musStartStream(a, url, onDead) {
   if (typeof a.__musOff === 'function') a.__musOff();   // прежний старт на этом элементе — долой
-  const proxy = musProxyHref(url);
-  let via = (proxy && musHostBad(url)) ? proxy : url;
-  let switched = false, done = false, paused = false, timer = 0;
+  const proxyOn = musProxyOk(url);
+  let via = 'direct', switched = false, done = false, paused = false, timer = 0;
   const off = () => {
     a.removeEventListener('error', onErr);
     a.removeEventListener('pause', onPause);
@@ -4705,17 +4709,25 @@ function musStartStream(a, url, onDead) {
       fail();
     }, 9000);
   };
+  /** pkg3-102: тихий переход на запасной путь: сначала разовый пропуск входным
+   * запросом, потом плееру адрес с пропуском (заголовков он слать не умеет). */
+  const startProxy = () => {
+    api('/api/musstream-ticket', { method: 'POST', body: { url: url } })
+      .then(r => {
+        if (done) return;
+        if (!r || !r.t) { dead(true); return; }
+        switched = true; via = 'proxy'; paused = false;
+        musMarkBad(url);
+        a.src = musProxyHref(url, r.t);
+        a.play().catch(() => dead(true));
+        arm();
+      })
+      .catch(() => dead(true));
+  };
   const fail = () => {
     if (done) return;
-    if (!switched && proxy && via !== proxy) {          // тихий переход на запасной путь
-      switched = true; via = proxy; paused = false;
-      musMarkBad(url);
-      a.src = via;
-      a.play().catch(() => dead(true));
-      arm();
-      return;
-    }
-    dead(via === proxy);
+    if (!switched && proxyOn) { startProxy(); return; }   // тихий переход на запасной путь
+    dead(via === 'proxy');
   };
   const onErr = () => fail();
   const onPause = () => { paused = true; };
@@ -4723,7 +4735,8 @@ function musStartStream(a, url, onDead) {
   a.addEventListener('error', onErr);
   a.addEventListener('pause', onPause);
   a.addEventListener('playing', () => { paused = false; if (timer) { clearTimeout(timer); timer = 0; } }, { once: true });
-  a.src = via;
+  if (proxyOn && musHostBad(url)) { startProxy(); return; }   // хост уже отказывал — сразу через сервер
+  a.src = url;
   a.play().catch(() => fail());
   arm();
 }
