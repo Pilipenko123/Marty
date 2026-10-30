@@ -184,15 +184,35 @@ async function searchJamendo(q, conf, lim) {
   return out;
 }
 
-/** pkg3-103: РУССКИЕ АУДИОКНИГИ — тот же официальный API Интернет-архива, но
- * с прицелом: коллекции начиток (LibriVox и книжный раздел) и язык rus.
- * Находки — дорожки-главы: у книги их много, берём первые, название даём
- * «Книга — глава». Файлы лежат на archive.org, как обычные находки архива. */
+/** pkg3-104: РУССКИЕ АУДИОКНИГИ — официальный API Интернет-архива с прицелом
+ * на начитки: коллекции LibriVox (librivoxaudio + книжный audio_bookspoetry) плюс всё
+ * звуковое с языком rus и меткой «аудиокнига» (по живому API: 79 против 1436 наборов).
+ * Живьём проверено две беды pkg3-103: (1) коллекции librivoxaudiobooks не существует —
+ * настоящая librivoxaudio; (2) Solr матчит ЦЕЛЫЕ токены, поэтому «че» не находило
+ * «Человек в футляре». Теперь ищем префиксом со звёздочкой (title:(че*)) и сразу в двух
+ * азбуках: автор в каталоге LibriVox часто латиницей («Anton Chekhov»), а книга
+ * кириллицей. why:'tag' — как у ccMixter: совпадение уже найдено поиском архива,
+ * а в названии дорожки слова запроса может не быть (ищем по автору). */
+const TRANSLIT = { 'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya' };
+const TRANSLIT_ALT = { 'е':'ye','ё':'yo','и':'y','ю':'u','я':'a','й':'i' };   // спорные буквы на начале слова: «Егор» = Egor или Yegor
+function translitVariants(w) {
+  const one = ch => (TRANSLIT[ch] !== undefined ? TRANSLIT[ch] : ch);
+  const out = [Array.from(w).map(one).join('')];
+  if (TRANSLIT_ALT[w[0]]) out.push(TRANSLIT_ALT[w[0]] + Array.from(w.slice(1)).map(one).join(''));
+  return out.filter(Boolean);
+}
 async function searchAudiobooks(q, conf, limit) {
-  const words = String(q).replace(/["()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const toks = String(q).toLowerCase().split(/[^a-zа-яё0-9]+/i).filter(t => t.length >= 2).slice(0, 4);
+  if (!toks.length) return [];
+  const clauses = [];
+  for (const t of toks) {
+    const vars = new Set([t]);
+    if (/[а-яё]/.test(t)) for (const v of translitVariants(t)) vars.add(v);
+    for (const v of vars) { clauses.push('title:(' + v + '*)'); clauses.push('creator:(' + v + '*)'); }
+  }
   const qs = new URLSearchParams({
-    q: 'mediatype:(audio) AND language:(rus) AND collection:(librivoxaudiobooks OR audio_bookspoetry) AND (title:(' + words + ') OR creator:(' + words + '))',
-    rows: '4', page: '1', output: 'json'
+    q: '((collection:(librivoxaudio OR audio_bookspoetry) AND language:(rus)) OR (mediatype:(audio) AND language:(rus) AND subject:(аудиокниг*))) AND (' + clauses.join(' OR ') + ')',
+    rows: '6', page: '1', output: 'json'
   });
   qs.append('fl[]', 'identifier'); qs.append('fl[]', 'title');
   const j = await getJSON(conf.archive + '/advancedsearch.php?' + qs.toString());
@@ -200,15 +220,23 @@ async function searchAudiobooks(q, conf, limit) {
   const out = [];
   for (const d of docs) {
     const ident = String(d.identifier || '');
-    if (!ident || /[/""'?#]/.test(ident)) continue;
+    if (!ident || /[/"'?#]/.test(ident)) continue;
     try {
       const m = await getJSON(conf.archive + '/metadata/' + ident);
       const files = (Array.isArray(m.files) ? m.files : []).filter(x => AUDIO_RE.test(String(x.name || '')));
-      const book = clean(d.title || ident);
-      for (const f of files.slice(0, 2)) {
+      if (!files.length) continue;
+      const meta = m.metadata || {};
+      const book = clean(meta.title || d.title || ident).slice(0, 80);
+      const author = clean(typeof meta.creator === 'string' ? meta.creator : (Array.isArray(meta.creator) ? meta.creator[0] : '')).slice(0, 60);
+      const base = (author ? author + ' — ' : '') + book;
+      // главы берём полегче: _64kb/_128kb — производные копии архива, труба их тянет быстрее
+      const light = f => /_(64kb|128kb|vbr)\./i.test(String(f.name || ''));
+      const ordered = files.filter(light).concat(files.filter(f => !light(f)));
+      for (const f of ordered.slice(0, 2)) {
         out.push({
           site: 'audiobooks',
-          title: (book + ' — ' + clean(String(f.name || '').replace(AUDIO_RE, ''))).slice(0, 120),
+          why: 'tag',
+          title: (files.length > 1 ? base + ' — ' + clean(String(f.name || '').replace(AUDIO_RE, '')) : base).slice(0, 160),
           url: conf.archive + '/download/' + ident + '/' + encodeURI(String(f.name)),
           cover: conf.archive + '/download/' + ident + '/__ia_thumb.jpg',
           size: Number(f.size) || 0
