@@ -21,7 +21,7 @@ const musstream = require('./musstream.js');   // pkg3-101: запасной п�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-101';
+const BUILD = 'pkg3-102';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1019,6 +1019,22 @@ function createApi(store, opts = {}) {
     return out;
   }
 
+  // pkg3-102: разовые пропуски запасного пути звука (см. маршрут /api/musstream
+  // в открытой зоне). Живут ТОЛЬКО в памяти: случайные 24 байта, привязаны к
+  // одной ссылке и участнику, 20 минут скользящих; потолок 1000 штук — память
+  // VPS бережём. В базу не пишутся: перенос данных выпуску не нужен.
+  const musTickets = new Map();
+  const MUS_TICKET_TTL = Number(process.env.MUS_TICKET_TTL || 20 * 60 * 1000);
+  function musTicketIssue(uid, url, now) {
+    if (musTickets.size > 1000) {
+      for (const [t, r] of musTickets) if (r.exp < now) musTickets.delete(t);
+      if (musTickets.size > 1000) musTickets.clear();
+    }
+    const t = crypto.randomBytes(24).toString('hex');
+    musTickets.set(t, { url: url, uid: uid, exp: now + MUS_TICKET_TTL });
+    return t;
+  }
+
   // ------------------------------------------------------------- маршруты
   async function api(req) {
     const { method, path: pathname, query, ip } = req;
@@ -1376,6 +1392,34 @@ function createApi(store, opts = {}) {
       return J(200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
     }
 
+    // pkg3-102: ЗАПАСНОЙ ПУТЬ ЗВУКА ДЛЯ ПЛЕЕРА: встроенный плеер (<audio>) не
+    // умеет прикладывать заголовок входа, а звук через сервер отдаёт именно
+    // маршрут /api/musstream. Поэтому входной ключ здесь — РАЗОВЫЙ ПРОПУСК в
+    // строке адреса: приложение получает его обычным входным запросом
+    // (POST /api/musstream-ticket), а плеер предъявляет только пропуск.
+    // Пропусков в базе НЕТ (память, перенос данных не нужен): случайные
+    // 24 байта, привязан к ОДНОЙ ссылке, живёт 20 минут скользящих — перемотка
+    // длинного трека не гасит пропуск, чужой домен подменить ссылку не может.
+    if (pathname === '/api/musstream' && method === 'GET') {
+      const t = String(query.get('t') || '');
+      const now = Date.now();
+      const rec = t ? musTickets.get(t) : null;
+      if (!rec || rec.exp < now) {
+        if (t) musTickets.delete(t);
+        return E(403, 'Пропуск на звук через сервер просрочен или отсутствует — нажмите прослушать ещё раз');
+      }
+      rec.exp = now + MUS_TICKET_TTL;
+      const range = req.headers && req.headers.range ? String(req.headers.range) : undefined;
+      try {
+        const up = await musstream.openStream(rec.url, { range });
+        return { status: up.status, headers: up.headers, pipe: { stream: up.stream, abort: up.abort } };
+      } catch (e) {
+        if (e.code === 'busy') return E(503, e.message);
+        if (e.code === 'denied') return E(403, e.message);
+        return E(502, e.message || 'Источник не отдал звук');
+      }
+    }
+
     // ------------------------------------------------ дальше только с токеном
     const session = await auth(req);
     if (session && session.banned) return banError(session.banned);
@@ -1651,25 +1695,19 @@ function createApi(store, opts = {}) {
         return E(502, e.message || 'Сайты не отвечают');
       }
     }
-    // pkg3-101: запасной путь звука — ПРОСЛУШИВАНИЕ ЧЕРЕЗ СЕРВЕР. Устройство
-    // слушает наш адрес, сервер трубой передаёт байты источника (mp3d.jamendo.com
-    // в сети владельца закрыт, а с VPS открыт — замер 28.10). Не открытый прокси:
-    // только вошедшие, только дроссель, только белые домены источников поиска
-    // (lib/musstream.js), байты в памяти не копятся. Ответ особый: out.pipe —
-    // server.js передаёт поток в сокет как есть (cloud такой маршрут не поднимает).
-    if (pathname === '/api/musstream' && method === 'GET') {
-      if (throttle('musstream-' + me.id, 90)) return E(429, 'Слишком много запусков через сервер — подождите немного');
-      const url = String(query.get('url') || '').slice(0, 2048);
+    // pkg3-102: выдача ПРОПУСКА на звук через сервер — входному участнику, под
+    // дросселем; ссылка сразу проверяется по белому списку доменов источников
+    // (lib/mussearch.js), чтобы пропуском нельзя было открыть чужой домен.
+    // Сам звук плеер заберёт уже без заголовка входа — по пропуску (открытая
+    // зона выше): встроенный <audio> заголовки слать не умеет (урок 101-го).
+    if (pathname === '/api/musstream-ticket' && method === 'POST') {
+      if (throttle('musstream-t-' + me.id, 90)) return E(429, 'Слишком много запусков через сервер — подождите немного');
+      const url = String((req.body && req.body.url) || '').slice(0, 2048);
       if (!url) return E(400, 'Нет ссылки на трек');
-      const range = req.headers && req.headers.range ? String(req.headers.range) : undefined;
-      try {
-        const up = await musstream.openStream(url, { range });
-        return { status: up.status, headers: up.headers, pipe: { stream: up.stream, abort: up.abort } };
-      } catch (e) {
-        if (e.code === 'busy') return E(503, e.message);
-        if (e.code === 'denied') return E(403, e.message);
-        return E(502, e.message || 'Источник не отдал звук');
-      }
+      let u = null;
+      try { u = new URL(url); } catch (e) { u = null; }
+      if (!u || !musstream.hostOk(u)) return E(403, 'Этот сайт не пропускается через сервер');
+      return J(200, { t: musTicketIssue(me.id, url, Date.now()) });
     }
     // pkg3-92: живой статус ОДНОГО человека для режима «Слушаю с …»: плашка
     // «слушает музыку» кликабельна, нажавший догоняет трек и позицию по якорю.
