@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-106';
+const BUILD = 'pkg3-107';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4695,7 +4695,7 @@ function musVizSet(v) {
 /** pkg3-106: аудиграф строится ОДИН раз на звуковой элемент: браузер читает
  * спектр звука через AnalyserNode. Важно: звук при этом идёт через контекст,
  * поэтому контекст будим на каждом запуске (иначе тишина). */
-const MUSVIZ = { ctx: null, src: null, an: null, data: null, raf: 0, calm: 0 };
+const MUSVIZ = { ctx: null, src: null, an: null, data: null, raf: 0, calm: 0, zzz: 0, dead: 0 };
 function musVizGraph() {
   const a = musicAudio();
   if (!MUSVIZ.ctx) {
@@ -4715,6 +4715,14 @@ function musVizGraph() {
   if (MUSVIZ.ctx.state === 'suspended') MUSVIZ.ctx.resume().catch(() => {});
   return true;
 }
+/** pkg3-107: будить контекст на КАЖДОМ жесте запуска/продолжения трека.
+ * Привязка элемента к графу постоянна: спящий контекст = тишина при
+ * «играющем» треке (урок владельца: «шкалы прыгают, а музыка пропала»). */
+function musVizWake() {
+  try {
+    if (MUSVIZ.ctx && MUSVIZ.ctx.state !== 'running') MUSVIZ.ctx.resume().catch(() => {});
+  } catch (e) {}
+}
 /** pkg3-106: шкалы в такт. Если источник не дал читать байты (спектр нулевой),
  * честно рисуем мягкое «дыхание» и пишем об этом в подписи — не врём ритмом. */
 function musVizDraw() {
@@ -4730,6 +4738,15 @@ function musVizDraw() {
   x.fillStyle = g;
   const a = MUS.a;
   const playing = !!a && !a.paused && !a.ended;
+  // pkg3-107: сторож сна — спящий контекст держит звук взаперти: трек «играет»,
+  // а в колонках тишина. Будим каждую секунду; 3 с без пробуждения — спасение.
+  if (playing && MUSVIZ.ctx && MUSVIZ.ctx.state !== 'running') {
+    MUSVIZ.zzz = (MUSVIZ.zzz || 0) + 1;
+    if (MUSVIZ.zzz % 60 === 1) musVizWake();
+    if (MUSVIZ.zzz >= 180) { musVizRescue('suspended'); return; }
+  } else {
+    MUSVIZ.zzz = 0;
+  }
   let live = false;
   const N = 28;
   if (MUSVIZ.an && MUSVIZ.data) {
@@ -4738,6 +4755,7 @@ function musVizDraw() {
   }
   if (live) {
     MUSVIZ.calm = 0;
+    MUSVIZ.dead = 0;
     const bins = MUSVIZ.data.length;
     for (let i = 0; i < N; i++) {
       const v = MUSVIZ.data[Math.floor(i / N * bins)] / 255;
@@ -4758,11 +4776,22 @@ function musVizDraw() {
     }
     x.globalAlpha = 1;
     if (playing) MUSVIZ.calm++;
+    // pkg3-107: сторож глухоты — через трубу спектр ОБЯЗАН читаться (наш CORS);
+    // 10 с сплошных нулей при играющем треке = звук заперт в графе → спасение.
+    if (playing && a && String(a.currentSrc || '').indexOf('/api/musstream') !== -1) {
+      MUSVIZ.dead = (MUSVIZ.dead || 0) + 1;
+      if (MUSVIZ.dead >= 600) { musVizRescue('deaf'); return; }
+    } else {
+      MUSVIZ.dead = 0;
+    }
   }
   x.fillStyle = 'rgba(255,233,201,.85)';
   x.font = '12px system-ui';
   x.textAlign = 'center';
-  x.fillText(live ? 'светомузыка в такт звуку' : (playing ? 'источник не открыл байты — дышим в такт невозможности: звук идёт как шёл' : 'светомузыка ждёт трек'), W / 2, H - 2);
+  const capZzz = (MUSVIZ.ctx && MUSVIZ.ctx.state !== 'running')
+    ? 'браузер усыпил звук — бужу; если не проснётся, светомузыка выключится сама'
+    : (playing ? 'источник не открыл байты — дышим мягко: звук идёт как шёл' : 'светомузыка ждёт трек');
+  x.fillText(live ? 'светомузыка в такт звуку' : capZzz, W / 2, H - 2);
 }
 function musVizUi() {
   const on = musVizGet();
@@ -4783,6 +4812,39 @@ function musVizUi() {
     MUSVIZ.raf = 0;
   }
 }
+/** pkg3-107: спасение звука. Привязка элемента к графу необратима: если
+ * контекст не проснулся или граф оглох, звук вернуть можно только НОВЫМ
+ * элементом. Гасим светомузыку, пересоздаём плеер, продолжаем трек с того же
+ * места; граф обнуляем — следующее включение построит его на новом элементе. */
+function musVizRescue(why) {
+  const old = MUS.a;
+  let src = '', t = 0, v = 1, wasPlaying = false;
+  if (old) {
+    src = old.currentSrc || old.src || '';
+    t = old.currentTime || 0;
+    v = old.volume;
+    wasPlaying = !old.paused && !old.ended;
+    try { old.pause(); } catch (e) {}
+  }
+  try { if (MUSVIZ.raf) cancelAnimationFrame(MUSVIZ.raf); } catch (e) {}
+  MUSVIZ.ctx = null; MUSVIZ.src = null; MUSVIZ.an = null; MUSVIZ.data = null;
+  MUSVIZ.raf = 0; MUSVIZ.calm = 0; MUSVIZ.zzz = 0; MUSVIZ.dead = 0;
+  MUS.a = null;
+  const a = musicAudio();
+  a.volume = v;
+  if (src) {
+    if (src.indexOf('/api/musstream') !== -1) { try { a.crossOrigin = 'anonymous'; } catch (e) {} }
+    a.src = src;
+    if (t > 0) a.addEventListener('loadedmetadata', () => { try { if (isFinite(a.duration) && t < a.duration) a.currentTime = t; } catch (e) {} }, { once: true });
+    if (wasPlaying) a.play().catch(() => {});
+  }
+  musVizSet(false);
+  musVizUi();
+  try { musicFabSync(); } catch (e) {}
+  toast(why === 'deaf'
+    ? 'Светомузыка не услышала источник — выключил её и вернул звук; трек продолжился с того же места'
+    : 'Браузер не разбудил звук светомузыки — выключил её и вернул звук напрямую', true);
+}
 const musDeadMsg = viaProxy => viaProxy
   ? 'Не удалось проиграть трек даже через сервер: источник не отдал звук'
   : 'Не удалось проиграть трек: похоже, ссылка ведёт на страницу, а не на файл';
@@ -4791,6 +4853,7 @@ const musDeadMsg = viaProxy => viaProxy
  * руками — считаем отказом (в закрытой сети ошибка приходит не сразу). */
 function musStartStream(a, url, onDead, opts) {
   if (typeof a.__musOff === 'function') a.__musOff();   // прежний старт на этом элементе — долой
+  musVizWake();   // pkg3-107: запуск трека — жест: будим контекст светомузыки
   // pkg3-105: подкаст-трекам запасной путь разрешён всегда: сеть владельца может
   // держать подкаст-хостинг закрытым, а решать всё равно сервер (труба пустит лишь
   // хозяев из прочитанных лент); отказ трубы — та же честная подсказка.
@@ -5985,7 +6048,7 @@ async function openMusic(wantId) {
     if (MUS.widget) { musWidgetStop(); return; }   // pkg3-88: «■ стоп» закрывает плеер Яндекса
     const a = musicAudio();
     if (!a.src) { if (pl && (pl.tracks || []).length) musicPlay(pl, 0); return; }
-    if (a.paused) a.play().catch(() => toast('Не удалось проиграть трек', true)); else a.pause();
+    if (a.paused) { musVizWake(); a.play().catch(() => toast('Не удалось проиграть трек', true)); } else a.pause();   // pkg3-107: ▶ будит контекст
   });
   const prev = $('#mus-prev'), next = $('#mus-next');
   if (prev) prev.addEventListener('click', () => musicStep(-1, false));
