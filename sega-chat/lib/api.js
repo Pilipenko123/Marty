@@ -21,7 +21,7 @@ const musstream = require('./musstream.js');   // pkg3-101: запасной п�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-104';
+const BUILD = 'pkg3-105';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1702,6 +1702,20 @@ function createApi(store, opts = {}) {
     // (lib/mussearch.js), чтобы пропуском нельзя было открыть чужой домен.
     // Сам звук плеер заберёт уже без заголовка входа — по пропуску (открытая
     // зона выше): встроенный <audio> заголовки слать не умеет (урок 101-го).
+    // pkg3-105: ленты подкастов под управлением владельца (вариант В): список
+    // читается и пишется в тот же файл /opt/sega/keys/podcasts.json (600).
+    // Без входа и не владельцу — отказ: чужим не показываем даже список лент.
+    if (pathname === '/api/podfeeds' && method === 'GET') {
+      const info = mussearch.podFeedsInfo();
+      return J(200, { feeds: info.feeds, source: info.source });
+    }
+    if (pathname === '/api/podfeeds' && method === 'POST') {
+      if (!me.isAdmin) return E(403, 'Лентами подкастов управляет владелец сервера');
+      const list = (req.body && Array.isArray(req.body.feeds)) ? req.body.feeds : null;
+      if (!list) return E(400, 'Нужен список лент: {"feeds":[{"title":"…","url":"https://…"}]}');
+      const feeds = mussearch.savePodFeeds(list);
+      return J(200, { feeds: feeds, source: 'file' });
+    }
     if (pathname === '/api/musstream-ticket' && method === 'POST') {
       if (throttle('musstream-t-' + me.id, 90)) return E(429, 'Слишком много запусков через сервер — подождите немного');
       const url = String((req.body && req.body.url) || '').slice(0, 2048);

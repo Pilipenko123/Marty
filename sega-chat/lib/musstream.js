@@ -30,6 +30,7 @@
 
 const https = require('https');
 const http = require('http');
+const mussearch = require('./mussearch.js');   // pkg3-105: хозяева подкаст-звука из лент
 
 /** Белые домены источников поиска: их звук разрешено тянуть через сервер.
  * Зеркало этого списка живёт в клиенте (public/app.js, MUS_PROXY_HOSTS) —
@@ -58,7 +59,10 @@ function hostOk(u) {
   const hp = u.port ? h + ':' + u.port : h;
   if (EXTRA.includes(h) || EXTRA.includes(hp)) return true;   // только тесты
   if (u.protocol !== 'https:') return false;
-  return ALLOW.some(d => h === d || h.endsWith('.' + d));
+  // pkg3-105: помимо белого списка источников — хозяева звука, которых сервер
+  // сам увидел в <enclosure> прочитанных RSS-лент подкастов (не открытый прокси:
+  // хозяина нельзя «заказать» ссылкой, он приходит только из ленты).
+  return ALLOW.some(d => h === d || h.endsWith('.' + d)) || mussearch.podHostOk(h);
 }
 
 function denied(msg) { const e = new Error(msg); e.code = 'denied'; return e; }

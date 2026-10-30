@@ -252,18 +252,77 @@ async function searchAudiobooks(q, conf, limit) {
 /** pkg3-103: файл лент подкастов {"feeds":[{"title":"…","url":"https://…/feed"}]}:
  * владелец кидает туда RSS любимых передач (инструкция pkg3-103), сервер читает
  * файл на каждый поиск, как ключи Jamendo. Лент нет — источник честно «отдыхает». */
+/** pkg3-105 (вариант В, согласован): пока владелец не положил свой файл лент,
+ * работает проверенная лента по умолчанию (radio-t.com/podcast.rss: отвечает
+ * 200, application/rss+xml). Файл /opt/sega/keys/podcasts.json УВАЖАЕТСЯ всегда:
+ * есть и читается — работает он (даже пустой список = владелец выключил всё),
+ * нет файла или не читается — лента по умолчанию. */
+const DEFAULT_POD_FEEDS = [{ title: 'Радио-Т', url: 'https://radio-t.com/podcast.rss' }];
+function podFeedsPath() { return String(process.env.PODCAST_FEEDS || '/opt/sega/keys/podcasts.json'); }
+function parsePodFeeds(text) {
+  let j = null;
+  try { j = JSON.parse(text); } catch (e) { return null; }
+  const list = Array.isArray(j) ? j : (Array.isArray(j.feeds) ? j.feeds : null);
+  if (!list) return null;
+  return list
+    .map(x => ({ title: clean(x && x.title ? x.title : ''), url: String((x && x.url) || '').trim() }))
+    .filter(x => /^https?:\/\//i.test(x.url))
+    .slice(0, 12);
+}
 function loadPodFeeds(conf) {
-  const p = String(process.env.PODCAST_FEEDS || '/opt/sega/keys/podcasts.json');
-  try {
-    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-    const list = Array.isArray(j) ? j : (Array.isArray(j.feeds) ? j.feeds : []);
-    return list
-      .map(x => ({ title: clean(x && x.title ? x.title : ''), url: String((x && x.url) || '').trim() }))
-      .filter(x => /^https?:\/\//i.test(x.url))
-      .slice(0, 12);
-  } catch (e) { return []; }
+  let text = null;
+  try { text = fs.readFileSync(podFeedsPath(), 'utf8'); } catch (e) { text = null; }
+  if (text !== null) {
+    const list = parsePodFeeds(text);
+    if (list) return list;   // файл есть и читается: он главный (даже пустой)
+  }
+  return DEFAULT_POD_FEEDS.map(x => Object.assign({}, x));
 }
 function hasFeeds() { return loadPodFeeds(cfg()).length > 0; }
+/** pkg3-105: что сейчас работает и откуда (для «⋯» владельца): ленты + источник. */
+function podFeedsInfo() {
+  let text = null;
+  try { text = fs.readFileSync(podFeedsPath(), 'utf8'); } catch (e) { text = null; }
+  const fromFile = text !== null && parsePodFeeds(text) !== null;
+  return { feeds: loadPodFeeds(cfg()), source: fromFile ? 'file' : 'default', path: podFeedsPath() };
+}
+/** pkg3-105: владелец правит ленты из «⋯» — сервер пишет тот же файл (права 600).
+ * Пустой список = владелец выключил подкасты вовсе (файл с пустыми лентами). */
+function savePodFeeds(list) {
+  const feeds = (Array.isArray(list) ? list : [])
+    .map(x => ({ title: clean(x && x.title ? x.title : ''), url: String((x && x.url) || '').trim() }))
+    .filter(x => /^https?:\/\//i.test(x.url))
+    .slice(0, 12);
+  const p = podFeedsPath();
+  try { fs.mkdirSync(require('path').dirname(p), { recursive: true }); } catch (e) {}
+  fs.writeFileSync(p, JSON.stringify({ feeds: feeds }) + '\n', { mode: 0o600 });
+  try { fs.chmodSync(p, 0o600); } catch (e) {}
+  return feeds;
+}
+/** pkg3-105: хозяева звука подкастов, которых сервер САМ увидел в лентах.
+ * Сеть владельца может держать подкаст-хостинг закрытым (как однажды Jamendo),
+ * поэтому у звука есть запасной путь через сервер. Но сервер НЕ открытый прокси:
+ * труба пускает лишь хозяев, которые реально пришли в <enclosure> прочитанных
+ * лент (файл /opt/sega/keys/podcasts.json кладёт владелец, лента по умолчанию —
+ * в коде). Запись живёт 72 часа, потолок 500 хозяев — старая вытесняется. */
+const POD_HOST_TTL = 72 * 3600 * 1000;
+const podHosts = new Map();
+function rememberPodHost(url) {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    if (!h) return;
+    podHosts.set(h, Date.now() + POD_HOST_TTL);
+    if (podHosts.size > 500) podHosts.delete(podHosts.keys().next().value);
+  } catch (e) { /* кривая ссылка — не запоминаем */ }
+}
+/** Пускает ли труба этого хозяина как подкаст-хост (см. lib/musstream.js). */
+function podHostOk(host) {
+  const h = String(host || '').toLowerCase();
+  const exp = podHosts.get(h);
+  if (!exp) return false;
+  if (exp < Date.now()) { podHosts.delete(h); return false; }
+  return true;
+}
 const XML_ENT = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'" };
 const unxml = s => String(s).replace(/&[a-z#0-9]+;/gi, m => XML_ENT[m] !== undefined ? XML_ENT[m] : m);
 /** Подкасты и интервью: RSS — стандартный формат, не соскабливание сайта:
@@ -285,6 +344,7 @@ async function searchPodcasts(q, conf, limit) {
       if (!um) continue;
       const url = unxml(um[1]);
       if (!/^https:\/\//i.test(url)) continue;
+      rememberPodHost(url);   // pkg3-105: труба узнаёт хозяина звука из ленты
       const tm = it.match(/<title[^>]*>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/i);
       const ep = clean(unxml(tm ? tm[1] : ''));
       out.push({
@@ -441,4 +501,4 @@ async function search(q, siteIds, limit) {
 /** pkg3-100: положен ли ключ Jamendo (только да/нет, без секрета) — для /api/state. */
 function hasKeys() { return !!loadJamKeys(cfg()); }
 
-module.exports = { SITES, search, cfg, AUDIO_RE, hasKeys, hasFeeds };
+module.exports = { SITES, search, cfg, AUDIO_RE, hasKeys, hasFeeds, podHostOk, podFeedsInfo, savePodFeeds };
