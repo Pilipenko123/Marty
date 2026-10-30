@@ -21,7 +21,7 @@ const musstream = require('./musstream.js');   // pkg3-101: запасной п�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-106';
+const BUILD = 'pkg3-107';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
