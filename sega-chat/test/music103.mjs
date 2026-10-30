@@ -30,8 +30,8 @@ const mock = http.createServer((rq, rs) => {
   const u = new URL(rq.url, 'http://mock');
   if (u.pathname === '/advancedsearch.php') {
     const q = u.searchParams.get('q') || '';
-    if (!/language:\(rus\)/.test(q) || !/librivoxaudiobooks/.test(q)) {
-      return rs.end(JSON.stringify({ response: { docs: [] } }));   // прицел по языку и коллекциям обязателен
+    if (!/language:\(rus\)/.test(q) || !/librivoxaudio/.test(q) || !/subject:\(аудиокниг\*\)/.test(q) || !/\*\)/.test(q)) {
+      return rs.end(JSON.stringify({ response: { docs: [] } }));   // прицел по языку, коллекциям и метке «аудиокнига» + поиск префиксом обязателен
     }
     return rs.end(JSON.stringify({ response: { docs: [ { identifier: 'ru-book1', title: 'Чехов рассказы начитка' } ] } }));
   }
@@ -92,7 +92,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-103', 'сервер помечен pkg3-103');
+ok(r.status === 200 && r.d.build === 'pkg3-104', 'сервер помечен pkg3-104');
 
 console.log('\n  1. Аудиокниги (ru): главы книг с прицелом по языку и коллекциям');
 r = await call('/api/mussearch?q=' + encodeURIComponent('чехов рассказы') + '&sites=audiobooks', {}, admin);
@@ -135,7 +135,10 @@ const sw = read('public/sw.js');
 const pkg = read('package.json');
 const readme = read('README.md');
 ok(ms.includes("id: 'audiobooks'") && ms.includes('function searchAudiobooks('), 'адаптер аудиокниг на официальном API архива');
-ok(ms.includes('librivoxaudiobooks') && ms.includes('language:(rus)'), 'прицел по коллекциям начиток и русскому языку');
+ok(ms.includes('collection:(librivoxaudio OR audio_bookspoetry) AND language:(rus)') && ms.includes('subject:(аудиокниг*)') && !/q: '[^']*librivoxaudiobooks/.test(ms), 'прицел: настоящие коллекции начиток + метка «аудиокнига», русский язык');
+ok(/title:\(' \+ v \+ '\*\)/.test(ms) && /creator:\(' \+ v \+ '\*\)/.test(ms), 'поиск префиксом со звёздочкой по названию и автору');
+ok(ms.includes('TRANSLIT') && ms.includes('translitVariants('), 'транслит: запрос кириллицей находит латинского автора');
+ok(ms.includes("why: 'tag'"), 'находки по автору не отсекает релевант-фильтр (why:tag, как у ccMixter)');
 ok(ms.includes("id: 'podcasts'") && ms.includes('function searchPodcasts('), 'адаптер подкастов из RSS');
 ok(ms.includes('/opt/sega/keys/podcasts.json') && ms.includes('function loadPodFeeds('), 'список лент — файл владельца, читается на каждый поиск');
 ok(ms.includes('<enclosure') && ms.includes('AUDIO_RE.test(tag)'), 'из RSS берём только звуковые enclosure');
@@ -144,8 +147,8 @@ ok(appJs.includes("audiobooks: 'аудиокниги (ru)'") && appJs.includes("
 ok(appJs.includes('function musSourceOff(') && appJs.includes('MUS_SOURCE_KEYFILE'), 'тихие фишки источников с файлом-ключом обобщены (Jamendo и подкасты)');
 ok(appJs.includes('let modalDownInside = false;') && appJs.includes('if (modalDownInside) return;'),
   'pkg3-103: выделение текста не сворачивает окно — сворачиваем только если нажатие началось мимо');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v96';"), 'кэш статики поднят до v96');
-ok(appJs.includes("const BUILD = 'pkg3-103';") && apiJs.includes("const BUILD = 'pkg3-103';"), 'BUILD pkg3-103 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v97';"), 'кэш статики поднят до v96');
+ok(appJs.includes("const BUILD = 'pkg3-104';") && apiJs.includes("const BUILD = 'pkg3-104';"), 'BUILD pkg3-104 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music103.mjs'), 'тест music103 включён в цепочку npm test');
 ok(readme.includes('| pkg3-103 |'), 'в журнале README есть строка выпуска pkg3-103');
 const deps = JSON.parse(pkg).dependencies;
