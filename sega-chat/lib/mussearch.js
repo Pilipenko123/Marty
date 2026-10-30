@@ -42,7 +42,9 @@ const SITES = [
   { id: 'commons', title: 'commons.wikimedia.org' },
   { id: 'openverse', title: 'openverse (CC-аудио)' },
   { id: 'ccmixter', title: 'ccMixter (CC)' },
-  { id: 'jamendo', title: 'Jamendo (CC)' }
+  { id: 'jamendo', title: 'Jamendo (CC)' },
+  { id: 'audiobooks', title: 'Аудиокниги (ru)' },
+  { id: 'podcasts', title: 'Подкасты (RSS)' }
 ];
 
 function get(url, timeout) {
@@ -182,6 +184,95 @@ async function searchJamendo(q, conf, lim) {
   return out;
 }
 
+/** pkg3-103: РУССКИЕ АУДИОКНИГИ — тот же официальный API Интернет-архива, но
+ * с прицелом: коллекции начиток (LibriVox и книжный раздел) и язык rus.
+ * Находки — дорожки-главы: у книги их много, берём первые, название даём
+ * «Книга — глава». Файлы лежат на archive.org, как обычные находки архива. */
+async function searchAudiobooks(q, conf, limit) {
+  const words = String(q).replace(/["()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const qs = new URLSearchParams({
+    q: 'mediatype:(audio) AND language:(rus) AND collection:(librivoxaudiobooks OR audio_bookspoetry) AND (title:(' + words + ') OR creator:(' + words + '))',
+    rows: '4', page: '1', output: 'json'
+  });
+  qs.append('fl[]', 'identifier'); qs.append('fl[]', 'title');
+  const j = await getJSON(conf.archive + '/advancedsearch.php?' + qs.toString());
+  const docs = ((j || {}).response || {}).docs || [];
+  const out = [];
+  for (const d of docs) {
+    const ident = String(d.identifier || '');
+    if (!ident || /[/""'?#]/.test(ident)) continue;
+    try {
+      const m = await getJSON(conf.archive + '/metadata/' + ident);
+      const files = (Array.isArray(m.files) ? m.files : []).filter(x => AUDIO_RE.test(String(x.name || '')));
+      const book = clean(d.title || ident);
+      for (const f of files.slice(0, 2)) {
+        out.push({
+          site: 'audiobooks',
+          title: (book + ' — ' + clean(String(f.name || '').replace(AUDIO_RE, ''))).slice(0, 120),
+          url: conf.archive + '/download/' + ident + '/' + encodeURI(String(f.name)),
+          cover: conf.archive + '/download/' + ident + '/__ia_thumb.jpg',
+          size: Number(f.size) || 0
+        });
+        if (out.length >= limit) break;
+      }
+    } catch (e) { /* одна книга не открылась — идём дальше */ }
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** pkg3-103: файл лент подкастов {"feeds":[{"title":"…","url":"https://…/feed"}]}:
+ * владелец кидает туда RSS любимых передач (инструкция pkg3-103), сервер читает
+ * файл на каждый поиск, как ключи Jamendo. Лент нет — источник честно «отдыхает». */
+function loadPodFeeds(conf) {
+  const p = String(process.env.PODCAST_FEEDS || '/opt/sega/keys/podcasts.json');
+  try {
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const list = Array.isArray(j) ? j : (Array.isArray(j.feeds) ? j.feeds : []);
+    return list
+      .map(x => ({ title: clean(x && x.title ? x.title : ''), url: String((x && x.url) || '').trim() }))
+      .filter(x => /^https?:\/\//i.test(x.url))
+      .slice(0, 12);
+  } catch (e) { return []; }
+}
+function hasFeeds() { return loadPodFeeds(cfg()).length > 0; }
+const XML_ENT = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'" };
+const unxml = s => String(s).replace(/&[a-z#0-9]+;/gi, m => XML_ENT[m] !== undefined ? XML_ENT[m] : m);
+/** Подкасты и интервью: RSS — стандартный формат, не соскабливание сайта:
+ * из каждого <item> берём <title> и <enclosure url=…> с типом audio. */
+async function searchPodcasts(q, conf, limit) {
+  const feeds = loadPodFeeds(conf);
+  if (!feeds.length) throw new Error('ленты подкастов не положены (файл /opt/sega/keys/podcasts.json)');
+  const out = [];
+  for (const f of feeds) {
+    let text = '';
+    try { text = (await get(f.url)).text; } catch (e) { continue; }   // лента молчит — не беда, другие работают
+    const items = text.split(/<item[\s>]/i).slice(1);
+    for (const it of items) {
+      const em = it.match(/<enclosure\b[^>]*>/i);
+      if (!em) continue;
+      const tag = em[0];
+      if (!/type=["']audio\//i.test(tag) && !AUDIO_RE.test(tag)) continue;
+      const um = tag.match(/url=["']([^"']+)["']/i);
+      if (!um) continue;
+      const url = unxml(um[1]);
+      if (!/^https:\/\//i.test(url)) continue;
+      const tm = it.match(/<title[^>]*>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/i);
+      const ep = clean(unxml(tm ? tm[1] : ''));
+      out.push({
+        site: 'podcasts',
+        title: ((f.title ? f.title + ' — ' : '') + (ep || 'выпуск')).slice(0, 120),
+        url: url,
+        cover: '',
+        size: 0
+      });
+      if (out.length >= limit) break;
+    }
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** ccMixter: официальный API сообщества CC-музыкантов, прямые download_url. */
 async function searchCcmixter(q, conf, limit) {
   const qs = new URLSearchParams({ f: 'json', p: 'tags', tags: q, limit: String(limit) });
@@ -268,7 +359,7 @@ async function searchYapfiles(q, conf, limit) {
   return out;
 }
 
-const ADAPTERS = { yapfiles: searchYapfiles, archive: searchArchive, commons: searchCommons, openverse: searchOpenverse, ccmixter: searchCcmixter, jamendo: searchJamendo };
+const ADAPTERS = { yapfiles: searchYapfiles, archive: searchArchive, commons: searchCommons, openverse: searchOpenverse, ccmixter: searchCcmixter, jamendo: searchJamendo, audiobooks: searchAudiobooks, podcasts: searchPodcasts };
 
 const cache = new Map();   // q+'|'+sites -> { ts, payload }
 const CACHE_TTL = Number(process.env.MUSSEARCH_CACHE_MS || 600000);
@@ -322,4 +413,4 @@ async function search(q, siteIds, limit) {
 /** pkg3-100: положен ли ключ Jamendo (только да/нет, без секрета) — для /api/state. */
 function hasKeys() { return !!loadJamKeys(cfg()); }
 
-module.exports = { SITES, search, cfg, AUDIO_RE, hasKeys };
+module.exports = { SITES, search, cfg, AUDIO_RE, hasKeys, hasFeeds };
