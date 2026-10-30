@@ -116,6 +116,12 @@ function openStream(url, opts = {}) {
           return fail(e);
         }
         const hOut = {};
+        // pkg3-106: светомузыка. Браузер даёт читать ритм звука (Web Audio),
+        // только если источник разрешил чтение (CORS). Большинство каталогов
+        // такого разрешения не шлёт, зато НАШ сервер может: звук и так идёт
+        // через трубу по пропуску, поэтому труба честно открывает байты
+        // браузеру владельца. Без этого шкалы стояли бы нулями.
+        hOut['Access-Control-Allow-Origin'] = '*';
         if (rs.headers['content-type']) hOut['Content-Type'] = rs.headers['content-type'];
         if (rs.headers['content-length']) hOut['Content-Length'] = rs.headers['content-length'];
         if (rs.headers['content-range']) hOut['Content-Range'] = rs.headers['content-range'];
