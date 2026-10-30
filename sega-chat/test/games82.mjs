@@ -71,7 +71,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
+ok(r.status === 200 && r.d.build === 'pkg3-106', 'сервер помечен pkg3-106');
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
