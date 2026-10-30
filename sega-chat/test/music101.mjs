@@ -1,7 +1,8 @@
-// test/music101.mjs — pkg3-101: запасной путь звука — прослушивание через сервер.
-// Живой сервер против игрушечного стрим-хоста: труба байтов, перемотка (Range),
-// переходы с перепроверкой домена, «страница вместо звука», потолок потоков,
-// белый список доменов и вход только для своих. Плюс метки выпуска и стили «＋».
+// test/music101.mjs — pkg3-101/102: запасной путь звука — прослушивание через
+// сервер. Живой сервер против игрушечного стрим-хоста: труба байтов, перемотка
+// (Range), переходы с перепроверкой домена, «страница вместо звука», потолок
+// потоков. С 102-го звук закрыт РАЗОВЫМ ПРОПУСКОМ (плеер не умеет заголовки):
+// пропуск берётся входным запросом, плеер предъявляет только его.
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -88,7 +89,7 @@ async function call(p, opts = {}, token) {
   const r = await fetch(base + p, { ...opts, headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined });
   let d = null;
   try { d = await r.json(); } catch (e) {}
-  return { status: r.status, d, r };
+  return { status: r.status, d };
 }
 const creds = name => ({ name, saltAuth: hex(), authKey: hex(32), saltWrap: hex(), wrappedKeyByPass: 'w:' + hex(), pub: 'pub:' + hex(), wrappedPriv: 'priv:' + hex() });
 
@@ -96,53 +97,65 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-101', 'сервер помечен pkg3-101');
+ok(r.status === 200 && r.d.build === 'pkg3-102', 'сервер помечен pkg3-102');
 
 const song = 'http://' + mockHost + '/audio/ok.mp3';
+/** Путь плеера: пропуск входным запросом → звук БЕЗ заголовков (как <audio>). */
+async function grab(url, headers) {
+  const tr = await call('/api/musstream-ticket', { method: 'POST', body: { url: url } }, admin);
+  if (tr.status !== 200) return { status: tr.status, d: tr.d, headers: { get: () => null }, buf: Buffer.alloc(0) };
+  const rr = await fetch(base + '/api/musstream?t=' + tr.d.t, { headers: headers || {} });
+  if (rr.status >= 400) {
+    let d = null; try { d = await rr.json(); } catch (e) {}
+    return { status: rr.status, d, headers: rr.headers, buf: Buffer.alloc(0) };
+  }
+  return { status: rr.status, d: null, headers: rr.headers, buf: Buffer.from(await rr.arrayBuffer()) };
+}
 
 console.log('\n  1. Труба байтов: звук идёт через сервер как есть');
-r = await call('/api/musstream?url=' + encodeURIComponent(song), {}, null);
-ok(r.status === 401, 'без входа запасной путь закрыт (401)');
-const raw = await fetch(base + '/api/musstream?url=' + encodeURIComponent(song), { headers: { Authorization: 'Bearer ' + admin } });
-const body = Buffer.from(await raw.arrayBuffer());
-ok(raw.status === 200 && raw.headers.get('content-type') === 'audio/mpeg', 'вошедшему сервер отдаёт звук и тип источника');
-ok(body.equals(SONG), 'байты дошли БЕЗ изменений (все 2000 байт «мп3»)');
+r = await call('/api/musstream-ticket', { method: 'POST', body: { url: song } }, null);
+ok(r.status === 401, 'без входа пропуск не выдать (401)');
+r = await call('/api/musstream?t=deadbeef', {}, null);
+ok(r.status === 403, 'без пропуска звук закрыт (403)');
+const g = await grab(song);
+ok(g.status === 200 && g.headers.get('content-type') === 'audio/mpeg', 'по пропуску сервер отдаёт звук и тип источника БЕЗ заголовка входа');
+ok(g.buf.equals(SONG), 'байты дошли БЕЗ изменений (все 2000 байт «мп3»)');
 
 console.log('\n  2. Перемотка: Range уходит источнику, 206 возвращается как есть');
-const rg = await fetch(base + '/api/musstream?url=' + encodeURIComponent(song), { headers: { Authorization: 'Bearer ' + admin, Range: 'bytes=100-199' } });
-const rb = Buffer.from(await rg.arrayBuffer());
-ok(rg.status === 206 && rb.length === 100 && rb.equals(SONG.subarray(100, 200)), 'кусок 100–199 пришёл байт в байт');
+const rg = await grab(song, { Range: 'bytes=100-199' });
+ok(rg.status === 206 && rg.buf.length === 100 && rg.buf.equals(SONG.subarray(100, 200)), 'кусок 100–199 пришёл байт в байт');
 ok((rg.headers.get('content-range') || '') === 'bytes 100-199/2000', 'Content-Range источника передан слушателю');
 
 console.log('\n  3. Белый список: чужие домены и переходы на чужой сайт не пускаем');
-r = await call('/api/musstream?url=' + encodeURIComponent('https://evil.example/x.mp3'), {}, admin);
-ok(r.status === 403, 'чужой домен — честный отказ 403, сервер не открытый прокси');
-r = await call('/api/musstream?url=' + encodeURIComponent('http://127.0.0.2:' + mockPort + '/audio/ok.mp3'), {}, admin);
-ok(r.status === 403, 'хост вне белого списка (даже соседний адрес) — отказ');
-r = await call('/api/musstream?url=' + encodeURIComponent('http://' + mockHost + '/audio/redirect-bad'), {}, admin);
-ok(r.status === 403, 'переход 302 на чужой домен пойман и отклонён');
-r = await call('/api/musstream?url=not-a-url', {}, admin);
+r = await call('/api/musstream-ticket', { method: 'POST', body: { url: 'https://evil.example/x.mp3' } }, admin);
+ok(r.status === 403, 'пропуск на чужой домен не выдать — сервер не открытый прокси');
+r = await call('/api/musstream-ticket', { method: 'POST', body: { url: 'http://127.0.0.2:' + mockPort + '/audio/ok.mp3' } }, admin);
+ok(r.status === 403, 'хост вне белого списка (даже соседний адрес) — пропуск не выдать');
+const rb2 = await grab('http://' + mockHost + '/audio/redirect-bad');
+ok(rb2.status === 403, 'переход 302 на чужой домен пойман и отклонён');
+r = await call('/api/musstream-ticket', { method: 'POST', body: { url: 'not-a-url' } }, admin);
 ok(r.status === 400 || r.status === 403, 'кривая ссылка отклонена без падения маршрута');
 
 console.log('\n  4. Переходы внутри белого списка и честные отказы');
-const rd = await fetch(base + '/api/musstream?url=' + encodeURIComponent('http://' + mockHost + '/audio/redirect'), { headers: { Authorization: 'Bearer ' + admin } });
-ok(rd.status === 200 && (Buffer.from(await rd.arrayBuffer())).equals(SONG), 'переход 302 на тот же хост дошёл до звука');
-r = await call('/api/musstream?url=' + encodeURIComponent('http://' + mockHost + '/audio/page.html'), {}, admin);
+const rd = await grab('http://' + mockHost + '/audio/redirect');
+ok(rd.status === 200 && rd.buf.equals(SONG), 'переход 302 на тот же хост дошёл до звука');
+r = await grab('http://' + mockHost + '/audio/page.html');
 ok(r.status === 502 && /страницу вместо звука/.test((r.d && r.d.error) || ''), 'страница вместо звука — по-человечески: «отдал страницу вместо звука»');
-r = await call('/api/musstream?url=' + encodeURIComponent('http://' + mockHost + '/audio/nope.mp3'), {}, admin);
+r = await grab('http://' + mockHost + '/audio/nope.mp3');
 ok(r.status === 502 && /ошибкой 404/.test((r.d && r.d.error) || ''), 'ошибка источника 404 видна в подсказке');
 
 console.log('\n  5. Потолок одновременных потоков бережёт VPS');
 const hold = [];
 for (let i = 0; i < 6; i++) {
-  hold.push(fetch(base + '/api/musstream?url=' + encodeURIComponent('http://' + mockHost + '/audio/slow.mp3'), { headers: { Authorization: 'Bearer ' + admin } }));
+  const tr = await call('/api/musstream-ticket', { method: 'POST', body: { url: 'http://' + mockHost + '/audio/slow.mp3' } }, admin);
+  hold.push(fetch(base + '/api/musstream?t=' + tr.d.t));
 }
 await wait(400);
-r = await call('/api/musstream?url=' + encodeURIComponent(song), {}, admin);
+r = await grab(song);
 ok(r.status === 503 && /слишком много людей/.test((r.d && r.d.error) || ''), 'седьмому потоку честно сказано подождать (503)');
 for (const h of hold) { try { const x = await h; await x.arrayBuffer().catch(() => {}); } catch (e) {} }
 await wait(200);
-r = await call('/api/musstream?url=' + encodeURIComponent(song), {}, admin);
+r = await grab(song);
 ok(r.status === 200, 'потоки освободились — следующий слушатель снова в строю');
 
 console.log('\n  6. Метки выпуска, стили «＋» и запасной путь в клиенте');
@@ -154,17 +167,18 @@ const srv = read('server.js');
 const mst = read('lib/musstream.js');
 const pkg = read('package.json');
 const readme = read('README.md');
-ok(appJs.includes("const BUILD = 'pkg3-101';") && apiJs.includes("const BUILD = 'pkg3-101';"), 'BUILD pkg3-101 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v94';"), 'кэш статики поднят до v94');
+ok(appJs.includes("const BUILD = 'pkg3-102';") && apiJs.includes("const BUILD = 'pkg3-102';"), 'BUILD pkg3-102 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v95';"), 'кэш статики поднят до v95');
 ok(css.includes('button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0'), 'у «＋» в находках явная маленькая ширина — глобальное правило его больше не растягивает');
 ok(!/button\.mini\.mus-add-sm\{[^}]*width:100%/.test(css), 'и ширина 100% у него не осталась');
-ok(appJs.includes('MUS_PROXY_HOSTS') && appJs.includes("'/api/musstream?url='"), 'клиент знает запасной путь и белый список хостов');
+ok(appJs.includes('MUS_PROXY_HOSTS') && appJs.includes("'/api/musstream?t='"), 'клиент знает запасной путь и адрес с пропуском');
 ok(appJs.includes('function musStartStream(') && appJs.includes('sega.musProxyHosts.v1'), 'тихий переход на поток через сервер и память отказавших хостов');
-ok(!appJs.includes("a.src = t.url;\n  a.play()"), 'прежний прямой запуск без запасного пути ушёл из musicPlay');
+ok(appJs.includes('musstream-ticket') && apiJs.includes('musTickets'), 'пропуск: клиент просит входным запросом, сервер держит в памяти');
+ok(!appJs.includes('/api/musstream?url='), 'старый адрес прокси без пропуска ушёл из клиента (урок 101-го: 401 без заголовка)');
 ok(appJs.includes('musStartStream(musicAudio(), url, () => {})'), 'догоняющий трек «Слушаю с …» тоже с запасным путём');
 ok(mst.includes("'jamendo.com'") && mst.includes('MAX_STREAMS'), 'белый список источников и потолок потоков на сервере');
 ok(srv.includes('out.pipe') && srv.includes('stream.pipe(res)'), 'server.js передаёт поток трубой, без накопления в памяти');
-ok(apiJs.includes("throttle('musstream-' + me.id, 90)"), 'маршрут под дросселем, как и поиск');
+ok(apiJs.includes("throttle('musstream-t-' + me.id, 90)"), 'выдача пропусков под дросселем, как и поиск');
 ok(pkg.includes('node test/music101.mjs'), 'тест music101 включён в цепочку npm test');
 ok(readme.includes('| pkg3-101 |'), 'в журнале README есть строка выпуска pkg3-101');
 const deps = JSON.parse(pkg).dependencies;
