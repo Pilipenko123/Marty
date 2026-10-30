@@ -198,7 +198,7 @@ const apiJs = readFileSync(join(HERE, '..', 'lib', 'api.js'), 'utf8');
 const modelJs = readFileSync(join(HERE, '..', 'lib', 'model.js'), 'utf8');
 const storeFile = readFileSync(join(HERE, '..', 'lib', 'store-file.js'), 'utf8');
 const staticJs = readFileSync(join(HERE, '..', 'lib', 'static.js'), 'utf8');
-ok(sw.includes('sega-static-v95'), 'кэш статики поднят до v93 (срочная правка pkg3-91 подхватится сразу)');
+ok(sw.includes('sega-static-v96'), 'кэш статики поднят до v93 (срочная правка pkg3-91 подхватится сразу)');
 
 // pkg3-55: терпеливый старт и честная плашка, когда сервер не отвечает
 ok(appJs.includes('function fetchStateWithRetry'), 'старт терпит несколько неудач подряд, а не сдаётся после первой');
@@ -486,7 +486,7 @@ ok(appJs.includes("S.users.filter(u => u.id !== S.me.id && !u.displayAs)") && ap
 ok(appJs.includes('(слита: прежняя учётка «'), 'дерево приглашений честно подписывает слитую учётку');
 
 // pkg3-76: иконка крупной, тихое сжатие, видео с первым кадром, буфер обмена, кадрирование
-ok(appJs.includes("const BUILD = 'pkg3-102';") && apiJs.includes("const BUILD = 'pkg3-102';"), 'клиент и сервер помечены pkg3-102');
+ok(appJs.includes("const BUILD = 'pkg3-103';") && apiJs.includes("const BUILD = 'pkg3-103';"), 'клиент и сервер помечены pkg3-103');
 ok(staticJs.includes("'.jpg': 'image/jpeg'"), 'статика подписывает .jpg как image/jpeg — карты «Монет» не пустуют');
 ok(appJs.includes('async function openChatIconView') && appJs.includes("host.id === 'topbar'"), 'клик по иконке группы в шапке чата открывает её крупной');
 ok(appJs.includes('У этого чата пока нет своей иконки'), 'у чата без иконки — спокойная подсказка, где её поставить');
@@ -798,9 +798,9 @@ ok(css.includes('.mus-tr .mq{display:inline-block') && css.includes('.mus-tr.cur
   'pkg3-96: бегущая строка заготовлена у каждого трека, едет только у текущего');
 ok(appJs.includes('musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();'),
   'pkg3-96: сразу после старта трека список помечен текущим без ожидания');
-ok(appJs.includes("const BUILD = 'pkg3-102';") && apiJs.includes("const BUILD = 'pkg3-102';"),
-  'BUILD pkg3-102 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v95';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = 'pkg3-103';") && apiJs.includes("const BUILD = 'pkg3-103';"),
+  'BUILD pkg3-103 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v96';"), 'кэш статики поднят до v93');
 
 // ─────────────────────────── pkg3-97 ───────────────────────────
 const mussearchJs = readFileSync(join(HERE, '..', 'lib', 'mussearch.js'), 'utf8');
@@ -844,7 +844,7 @@ ok(appJs.includes('for (const id of sites) {') && appJs.includes('pkg3-99: са�
   'pkg3-99: сайты опрашиваются по очереди — вежливо к их ограничителям');
 ok(appJs.includes('ccmixter: \'ccMixter CC\'') || appJs.includes("ccmixter: 'ccMixter CC'"),
   'pkg3-99: фишка ccMixter в панели поиска');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v95';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v96';"), 'кэш статики поднят до v93');
 
 // ─────────────────────────── pkg3-100 ───────────────────────────
 ok(mussearchJs.includes("id: 'jamendo'") && mussearchJs.includes('function searchJamendo('),
@@ -856,7 +856,7 @@ ok(mussearchJs.includes('ключи Jamendo не положены'),
 ok(appJs.includes("jamendo: 'Jamendo CC'"), 'pkg3-100: фишка Jamendo в панели поиска');
 ok(mussearchJs.includes('imagesize') && mussearchJs.includes('fields: \'audio,image,name,album_name,artist_name\''),
   'pkg3-100: из API тянутся прямая ссылка на поток, обложка и имя исполнителя');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v95';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v96';"), 'кэш статики поднят до v93');
 ok(apiJs.includes('jamendo: mussearch.hasKeys()') && appJs.includes('S.jamendoOn = st.jamendo !== false;'),
   'pkg3-100: сервер сообщает «ключ положен» одной булевой меткой, участники не настраивают ничего');
 
