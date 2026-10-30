@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-104';
+const BUILD = 'pkg3-105';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4691,9 +4691,12 @@ const musDeadMsg = viaProxy => viaProxy
 /** Запустить трек с запасным путём: прямая ссылка → (тихо) поток через сервер.
  * «Зависание» ловим сторожем: за 9 с ни байта звука и элемент не на паузе
  * руками — считаем отказом (в закрытой сети ошибка приходит не сразу). */
-function musStartStream(a, url, onDead) {
+function musStartStream(a, url, onDead, opts) {
   if (typeof a.__musOff === 'function') a.__musOff();   // прежний старт на этом элементе — долой
-  const proxyOn = musProxyOk(url);
+  // pkg3-105: подкаст-трекам запасной путь разрешён всегда: сеть владельца может
+  // держать подкаст-хостинг закрытым, а решать всё равно сервер (труба пустит лишь
+  // хозяев из прочитанных лент); отказ трубы — та же честная подсказка.
+  const proxyOn = musProxyOk(url) || !!(opts && opts.pod);
   let via = 'direct', switched = false, done = false, paused = false, timer = 0;
   const off = () => {
     a.removeEventListener('error', onErr);
@@ -4802,15 +4805,14 @@ function musSearchSitesHtml() {
 function musSearchRowsHtml() {
   const st = musSearchState();
   if (!st.results.length) return '<div class="tiny muted">Пока ничего не найдено.</div>';
-  // pkg3-98: строка находки — обложка (если сайт дал), НАЗВАНИЕ целиком
-  // (одной строкой с многоточием, полное — в подсказке), значок сайта и
-  // уменьшенный «＋».
+  // pkg3-105: строка находки по согласованной болванке: кнопка «▶», название
+  // целиком (полное — в подсказке), бейдж источника и уменьшенный «＋».
+  // Обложка находки живёт в большом квадрате над списком, когда трек играет.
   return st.results.map((r, i) => `<div class="mus-tr mus-sr">
-    <button class="mini" data-mus-s-play="${i}" title="Прослушать (в плейлист не добавляется)">▶</button>
-    ${r.cover ? `<img class="mus-sr-cov" src="${escapeHtml(r.cover)}" alt="" onerror="this.style.display='none'">` : '<span class="mus-cov mus-cov-e">♪</span>'}
-    <span class="mus-sr-t" title="${escapeHtml(r.title || r.url)}">${escapeHtml(r.title || r.url)}</span>
-    <span class="mus-badge-d" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[r.site] || r.site)}</span>
-    <button class="mini primary mus-add-sm" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
+    <button class="mus-pbtn" data-mus-s-play="${i}" title="Прослушать (в плейлист не добавляется)">▶</button>
+    <span class="mus-ti" title="${escapeHtml(r.title || r.url)}"><span class="mq">${escapeHtml(r.title || r.url)}</span></span>
+    <span class="mus-badge" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[r.site] || r.site)}</span>
+    <button class="mus-addbtn" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
   </div>`).join('');
 }
 async function musSearchRun() {
@@ -4866,12 +4868,44 @@ async function musSearchRun() {
   const bad = status.filter(s => !s.ok);
   if (bar) bar.textContent = 'Найдено: ' + st.results.length + (bad.length ? ' · не ответили: ' + bad.map(s => MUS_SITE_TITLES[s.id] || s.id).join(', ') + ' (сайты меняют дизайн — это чинится маленьким выпуском)' : '');
   if (prog) prog.remove();
+  musShowSearchView();   // pkg3-105: находки падают в общий список с шапкой
+}
+/** pkg3-105: результаты поиска — тот же список, что и плейлист: шапка
+ * «Результаты поиска: N» и строки с бейджами источников. Окно закрыто —
+ * ничего не рисуем, состояние поиска и так запомнилось. */
+function musShowSearchView() {
+  const st = musSearchState();
+  const head = document.getElementById('mus-pl-name');
+  if (head) head.textContent = 'Результаты поиска: ' + st.results.length;
+  const bar = document.getElementById('mus-sq-bar');
+  if (bar) bar.textContent = 'Найдено: ' + st.results.length;
+  const list = document.getElementById('mus-list');
+  if (!list) return;
+  list.innerHTML = '<div class="mus-trs" id="mus-sres">' + musSearchRowsHtml() + '</div>';
   musSearchRenderRows();
 }
+/** pkg3-105: большая обложка текущего трека: вручную прикреплённая важнее
+ * обложки сайта, а когда нет ни той ни другой — винил со значком ♪. */
+function musCoverBigHtml(t) {
+  const src = t ? (t.cover || t.coverSite || '') : '';
+  if (src) return `<img src="${escapeHtml(src)}" alt="" onerror="this.style.display='none'">`;
+  return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs><radialGradient id="musg1" cx="35%" cy="30%"><stop offset="0%" stop-color="#3a2350"/><stop offset="100%" stop-color="#120b1e"/></radialGradient>
+    <radialGradient id="musg2" cx="50%" cy="50%"><stop offset="0%" stop-color="#ffb454"/><stop offset="55%" stop-color="#b4571f"/><stop offset="100%" stop-color="#3a1c07"/></radialGradient></defs>
+    <rect width="400" height="400" fill="url(#musg1)"/>
+    <circle cx="200" cy="205" r="128" fill="#0b0713" stroke="#e33ff0" stroke-opacity=".35"/>
+    <circle cx="200" cy="205" r="100" fill="none" stroke="#ffffff" stroke-opacity=".06"/>
+    <circle cx="200" cy="205" r="76" fill="none" stroke="#ffffff" stroke-opacity=".06"/>
+    <circle cx="200" cy="205" r="46" fill="url(#musg2)"/>
+    <circle cx="200" cy="205" r="5" fill="#0b0713"/>
+    <text x="200" y="222" text-anchor="middle" fill="#ffe9c9" font-size="46" font-family="system-ui">♪</text>
+  </svg>`;
+}
+
 function musSearchRenderRows() {
   const box = $('#mus-sres');
   if (box) box.innerHTML = musSearchRowsHtml();
-  for (const b of $$('#modal [data-mus-s-play]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-play'))]; if (r) musicPlayOnce(r.url, r.title, 0); });
+  for (const b of $$('#modal [data-mus-s-play]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-play'))]; if (r) musicPlayOnce(r.url, r.title, 0, '', r.site); });
   for (const b of $$('#modal [data-mus-s-add]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-add'))]; if (r) musSearchPickAdd(r); });
 }
 /** pkg3-97: «＋» даёт список плейлистов; после выбора трек ложится в выбранный. */
@@ -4892,7 +4926,7 @@ function musSearchPickAdd(res) {
     const pl = musicFind(id);
     if (!pl) return;
     if ((pl.tracks || []).some(t => t.url === res.url)) { toast('Такой трек уже есть в плейлисте «' + pl.name + '»', true); return; }
-    pl.tracks.push({ id: musicUid(), url: res.url, title: res.title || res.url, cover: '' });
+    pl.tracks.push({ id: musicUid(), url: res.url, title: res.title || res.url, cover: '', coverSite: res.cover || '', site: res.site || '' });   // pkg3-105: помним источник трека (подкасты играет и через сервер) и обложку сайта
     await musicSave();
     toast('Трек добавлен в плейлист «' + pl.name + '»');
   });
@@ -4912,7 +4946,7 @@ function musicPlay(pl, idx) {
   // pkg3-90: трек с Диска — сначала свежая временная ссылка, потом наш плеер
   if (musicIsDisk(t)) { musicStartDiskTrack(t); return; }
   musWidgetHide();
-  musStartStream(musicAudio(), t.url, p => toast(musDeadMsg(p), true));   // pkg3-101: с запасным путём через сервер
+  musStartStream(musicAudio(), t.url, p => toast(musDeadMsg(p), true), { pod: t.site === 'podcasts' });   // pkg3-101: с запасным путём через сервер; pkg3-105: подкасты — всегда
   musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();
 }
 /** pkg3-95: строки плейлиста перерисовываются при каждом старте трека: текущая
@@ -5191,18 +5225,15 @@ async function ydConnect() {
 }
 /** Подпись плеера в окне «Моя музыка» в зависимости от рода трека. */
 function musUiMode() {
-  const box = document.querySelector('#modal .mus-player');
-  if (!box) return;
+  // pkg3-105: окно одноколоночное: большая кнопка показывает ■ для виджета
+  // Яндекса, ❚/▶ для нашего звука; тумблер видимости живёт в нижнем ряду.
   const w = !!MUS.widget;
-  box.classList.toggle('widget-mode', w);
-  const tog = box.querySelector('#mus-toggle');
-  if (tog) tog.textContent = w ? '■ стоп' : '▶ / ⏸';
-  // pkg3-92: кнопка «🎧 вместе» уступила место тумблеру видимости; письма-приглашения
-  // больше не шлются. Виджет в статус не попадает вовсе (как и прежде).
-  const sw = box.querySelector('#mus-vis');
+  const tog = document.getElementById('mus-toggle');
+  if (tog) tog.textContent = w ? '■' : ((MUS.a && !MUS.a.paused && !MUS.a.ended) ? '❚❚' : '▶');
+  const sw = document.getElementById('mus-vis');
   if (sw) { sw.checked = musVisGet(); sw.disabled = false; }
   musFollowUi();
-  const note = box.querySelector('#mus-now-kind');
+  const note = document.getElementById('mus-now-kind');
   if (note) note.textContent = w ? 'Встроенный плеер Яндекс.Музыки открыт внизу окна: перемотка и громкость — внутри него.' : '';
 }
 function musicStep(d, auto) {
@@ -5216,6 +5247,11 @@ function musicNowUi() {
   const el = document.getElementById('mus-now');
   const t = MUS.list[MUS.idx] || MUS.widget;
   if (el) el.textContent = t ? ('♪ ' + (t.title || t.url)) : '—';
+  // pkg3-105: обложка во всю ширину и подпись «Сейчас играет»
+  const img = document.getElementById('mus-cover-img');
+  if (img) img.innerHTML = musCoverBigHtml(t);
+  const cap = document.getElementById('mus-cover-cap');
+  if (cap) cap.textContent = t ? ('Сейчас играет: ' + (t.title || t.url)) : 'Сейчас ничего не играет';
   musUiMode();   // pkg3-88: обычный трек или встроенный плеер Яндекса
 }
 function musicTickUi() {
@@ -5230,6 +5266,8 @@ function musicTickUi() {
   // вместе с музыкой (переключение, «следующий», «Слушаю с …») — без ждать
   // перерисовки окна. У текущей строки значок ❚❚ и бегущая строка названия,
   // на паузе строка замирает и значок возвращается к ▶.
+  const tog2 = document.getElementById('mus-toggle');
+  if (tog2 && !MUS.widget) tog2.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';
   const rowsBox = document.querySelector('#modal .mus-trs[data-pl]');
   if (rowsBox) {
     const rpl = rowsBox.getAttribute('data-pl');
@@ -5296,8 +5334,8 @@ setInterval(() => {   // pkg3-92: раз в 5 с, пока играем: яко�
   if (S.token) musicFabSync();   // заодно освежает класс auth и подпись пузырька
 }, 5000);
 /** Проиграть ОДИН трек по ссылке (чужая карта «слушать вместе» / публичный список). */
-function musicPlayOnce(url, title, offset, kind) {
-  MUS.list = [{ url: url, title: title || url, kind: kind || '' }];
+function musicPlayOnce(url, title, offset, kind, site) {
+  MUS.list = [{ url: url, title: title || url, kind: kind || '', site: site || '' }];
   MUS.idx = 0; MUS.plId = null;
   if (musicIsWidget(MUS.list[0])) { musicPlayWidget(MUS.list[0]); return; }
   musWidgetHide();
@@ -5309,7 +5347,7 @@ function musicPlayOnce(url, title, offset, kind) {
     };
     a.addEventListener('loadedmetadata', seek0);
   }
-  musStartStream(a, url, p => toast(musDeadMsg(p), true));   // pkg3-101: с запасным путём через сервер
+  musStartStream(a, url, p => toast(musDeadMsg(p), true), { pod: site === 'podcasts' });   // pkg3-101: с запасным путём через сервер; pkg3-105: подкасты — всегда
   musicNowUi(); musicFabSync();
 }
 /** pkg3-87: «слушать вместе» — письмо в открытый чат с якорем: трек, позиция,
@@ -5516,18 +5554,23 @@ function musicProbe(url) {
   });
 }
 /** Обложка трека: картинка → квадрат 96 px, data-URL (лёгкий, лежит в списке). */
-function musicCoverOf(file) {
+function musicCoverOf(file, px) {
+  const size = Math.min(1200, Math.max(64, Number(px) || 96));
   return new Promise((res, rej) => {
     const fr = new FileReader();
     fr.onload = () => {
       const img = new Image();
       img.onload = () => {
         const c = document.createElement('canvas');
-        c.width = 96; c.height = 96;
+        c.width = size; c.height = size;
         const x = c.getContext('2d');
-        const s = Math.min(img.width, img.height);
-        x.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 96, 96);
-        res(c.toDataURL('image/jpeg', 0.72));
+        const s2 = Math.min(img.width, img.height);
+        x.drawImage(img, (img.width - s2) / 2, (img.height - s2) / 2, s2, s2, 0, 0, size, size);
+        // pkg3-105: обложка встраивается в трек плейлиста — держим её легкой:
+        // качество спускаем, пока jpeg не уложится примерно в 300 КБ.
+        let q = 0.82, out = c.toDataURL('image/jpeg', q);
+        while (out.length > 400000 && q > 0.4) { q -= 0.12; out = c.toDataURL('image/jpeg', q); }
+        res(out);
       };
       img.onerror = () => rej(new Error('Картинка не читается'));
       img.src = fr.result;
@@ -5536,7 +5579,14 @@ function musicCoverOf(file) {
     fr.readAsDataURL(file);
   });
 }
-/** Окно «Моя музыка»: плейлисты слева, треки и плеер справа. */
+/** pkg3-105: окно «Моя музыка» по согласованной болванке: ОДНА колонка.
+ * Сверху строка поиска с «Найти» и «⋯»; обложка во всю ширину (ручная важнее
+ *.site-обложки, нет ни одной — винил с ♪); шапка списка и «Плейлисты ▾»;
+ * список с фокусом на текущем треке; перемотка полосой; три большие кнопки
+ * (ПРЕДЫДУЩИЙ трек, играть/пауза, СЛЕДУЮЩИЙ трек); внизу громкость и тумблер
+ * «транслировать в статус». Параметры поиска и умная вставка — за «⋯»,
+ * управление плейлистами — за «Плейлисты ▾». Результаты поиска падают в тот
+ * же список с шапкой. ±10 секунд не делаем (согласовано). */
 async function openMusic(wantId) {
   try {
     if (!S.music) await musicLoad();
@@ -5547,54 +5597,88 @@ async function openMusic(wantId) {
   const pl = musicFind(plId);
   const isDisk = plId === MUS_DISK;   // pkg3-90: «псевдоплейлист» Яндекс.Диска
   const isSearch = plId === MUS_SEARCH;   // pkg3-97: «псевдоплейлист» поиска музыки
-  modal('Моя музыка', `<div class="mus-wrap">
-    <div class="mus-left">
-      <div class="mus-pls"><button class="mus-pl mus-pl-search${isSearch ? ' cur' : ''}" data-mus-pl="search" title="Поиск треков с прямыми ссылками по выбранным сайтам: сервер спрашивает сайты как посетитель и отдаёт названия со ссылками">🔎 Поиск музыки</button><button class="mus-pl mus-pl-disk${isDisk ? ' cur' : ''}" data-mus-pl="yadisk" title="Аудиофайлы на вашем Яндекс.Диске: играем прямо оттуда, место на сервере не тратится">☁ Яндекс.Диск</button>${all.map(p => `<button class="mus-pl${p.id === plId ? ' cur' : ''}" data-mus-pl="${escapeHtml(p.id)}">${escapeHtml(p.name)} <span class="tiny muted">${p.vis === 'priv' ? '· только я' : '· публичный'} · ${(p.tracks || []).length}</span></button>`).join('') || '<div class="tiny muted">Плейлистов пока нет.</div>'}</div>
-      <div class="mus-acts"><button class="mini" id="mus-add-pl">+ плейлист</button>${pl ? ' <button class="mini" id="mus-ren-pl">переименовать</button> <button class="mini" id="mus-vis-pl">видимость</button> <button class="mini danger" id="mus-del-pl">удалить</button>' : ''}</div>
-    </div>
-    <div class="mus-right">
-      ${isSearch ? `<div class="mus-search">
-        <div class="mus-sites" id="mus-sites">${musSearchSitesHtml()}</div>
-        <div class="mus-add"><input id="mus-sq" type="text" placeholder="Что искать: исполнитель, название трека…" value="${escapeHtml(musSearchState().q || '')}"><button class="mini primary" id="mus-sq-go">Искать</button></div>
-        <div class="mus-disk-bar tiny" id="mus-sq-bar">${musSearchState().results.length ? 'Найдено: ' + musSearchState().results.length : 'Отметьте сайты и нажмите «Искать». Сервер спросит сайты как обычный посетитель и вернёт названия с прямыми ссылками.'}</div>
-        <div class="mus-trs" id="mus-sres">${musSearchRowsHtml()}</div>
-      </div>` : isDisk ? `<div class="mus-disk">
-        <div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
+  const st0 = musSearchState();
+  const plName = isSearch ? ('Результаты поиска: ' + st0.results.length)
+    : isDisk ? '☁ Яндекс.Диск'
+      : pl ? (pl.name + ' · ' + (pl.vis === 'priv' ? 'только я' : 'публичный') + ' · ' + ((pl.tracks || []).length))
+        : 'Плейлистов пока нет';
+  const listHtml = isSearch
+    ? '<div class="mus-trs" id="mus-sres">' + musSearchRowsHtml() + '</div>'
+    : isDisk ? `<div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
         <div class="mus-disk-addline hidden" id="mus-disk-addline"></div>
-        <div class="mus-trs" id="mus-disk-files"></div>
-      </div>` : pl ? `<div class="mus-trs" data-pl="${pl.id}">${(pl.tracks || []).map((t, i) => `<div class="mus-tr${MUS.plId === pl.id && MUS.idx === i ? ' cur' : ''}">
-          <button class="mini" data-mus-play="${i}" title="Играть / пауза">${MUS.plId === pl.id && MUS.idx === i && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
-          <span class="mus-tr-t">${t.cover ? `<img class="mus-cov" src="${t.cover}" alt="">` : '<span class="mus-cov mus-cov-e">♪</span>'}<span class="mus-tr-n"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span></span>
-          ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗ Яндекс</a>` : ''}
-          <button class="mini" data-mus-edit="${i}">правка</button>
-          <button class="mini danger" data-mus-del="${i}" title="Убрать трек">×</button>
-        </div>`).join('') || '<div class="tiny muted">В плейлисте пока нет треков — добавьте первый ниже.</div>'}</div>
-      <div class="mus-add">
-        <input id="mus-url" type="text" placeholder="Вставьте: код плеера Яндекс.Музыки, ссылку на трек/альбом/плейлист или прямую ссылку на файл">
+        <div class="mus-trs" id="mus-disk-files"></div>`
+      : pl ? `<div class="mus-trs" data-pl="${pl.id}">${(pl.tracks || []).map((t, i) => {
+          const cur = MUS.plId === pl.id && MUS.idx === i;
+          return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
+            <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
+            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span>
+            ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
+            <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка">✎</button>
+            <button class="mus-rowb danger" data-mus-del="${i}" title="Убрать трек">✕</button>
+          </div>`;
+        }).join('') || '<div class="tiny muted">В плейлисте пока нет треков — добавьте первый через «⋯» → «Умная вставка».</div>'}</div>`
+        : '<div class="tiny muted">Создайте первый плейлист кнопкой «Плейлисты ▾» — в нём будут треки-ссылки на файлы.</div>';
+  modal('Моя музыка', `<div class="mus-wrap mus-v105">
+    <div class="mus-srow">
+      <input id="mus-sq" type="text" placeholder="Поиск музыки: введите и нажмите «Найти»" value="${escapeHtml(st0.q || '')}">
+      <button class="mini primary" id="mus-sq-go">Найти</button>
+      <button class="mini mus-dotsbtn" id="mus-dots-btn" title="Параметры: сайты поиска, умная вставка">⋯</button>
+    </div>
+    <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : 'Отметьте сайты в «⋯» и нажмите «Найти». Сервер спросит сайты как обычный посетитель и вернёт названия с прямыми ссылками.'}</div>
+    <div class="mus-coverbox"><div id="mus-cover-img"></div><div class="mus-cover-cap" id="mus-cover-cap"></div></div>
+    <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
+    <div class="mus-list" id="mus-list">${listHtml}</div>
+    <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
+    <div class="mus-three">
+      <button class="mus-skip" id="mus-prev" title="Предыдущий трек">⏮</button>
+      <button class="mus-playbig" id="mus-toggle" title="Играть / пауза">▶</button>
+      <button class="mus-skip" id="mus-next" title="Следующий трек">⏭</button>
+    </div>
+    <div class="mus-foot">
+      <label class="tiny muted" for="mus-vol">громкость</label>
+      <input id="mus-vol" type="range" min="0" max="100" value="90" title="Громкость">
+      <label class="mus-sw" title="Когда включено, свой круг видит плашку «слушает музыку»; нажавший на плашку слушает вместе с вами синхронно">
+        <input type="checkbox" id="mus-vis">
+        <span class="mus-sw-pill"><span class="mus-sw-knob"></span></span>
+        <span class="mus-sw-t">транслировать в статус</span>
+      </label>
+    </div>
+    <span class="hidden" id="mus-now">—</span><span class="hidden" id="mus-now-kind"></span><span class="tiny mus-follow-t hidden" id="mus-follow-t"></span>
+    <input type="file" id="mus-cov-file" accept="image/*" class="hidden">
+    <div class="mus-ovl" id="mus-dots-ovl"><div class="mus-mwin">
+      <h3>Параметры поиска</h3>
+      <div class="mus-sites" id="mus-sites">${musSearchSitesHtml()}</div>
+      ${S.me && S.me.isAdmin ? `<div class="mus-sec" id="mus-pod-sec"><b>Ленты подкастов</b>
+        <div id="mus-pod-list" class="tiny muted">Читаю список…</div>
+        <input id="mus-pod-url" type="text" placeholder="Адрес ленты RSS (https://…/feed.xml)">
+        <input id="mus-pod-title" type="text" placeholder="Название передачи (необязательно)">
+        <button class="mini" id="mus-pod-add">Добавить ленту</button>
+        <div class="tiny muted">Список живёт в файле podcasts.json на сервере; пока файла нет, работает проверенная лента по умолчанию.</div>
+      </div>` : ''}
+      <div class="mus-sec"><b>Умная вставка</b>
+        <input id="mus-url" type="text" placeholder="Код плеера Яндекс.Музыки, ссылка на трек/альбом или прямая ссылка на файл">
         <input id="mus-title" type="text" placeholder="Название (необязательно)">
-        <input id="mus-cover" type="file" accept="image/*" title="Обложка (необязательно)">
+        <input id="mus-cover" type="file" accept="image/*" title="Файл обложки (привяжется к треку)">
         <button class="mini primary" id="mus-add-tr">Добавить</button>
         <span class="tiny muted" id="mus-add-hint">Умная вставка: «Поделиться → Код плеера» Яндекс.Музыки, ссылка на трек/альбом/плейлист/артиста Яндекса или прямая ссылка на файл (…/track.mp3, .ogg, .m4a). Адреса страниц других сайтов (VK, YouTube, Spotify) не играются.</span>
-      </div>` : '<div class="tiny muted">Создайте первый плейлист слева — в нём будут треки-ссылки на файлы.</div>'}
-      <div class="mus-player">
-        <b id="mus-now">—</b>
-        <span class="tiny muted" id="mus-now-kind"></span>
-        <div class="mus-ctl">
-          <button class="mini" id="mus-prev" title="Предыдущий">⏮</button>
-          <button class="mini primary" id="mus-toggle">▶ / ⏸</button>
-          <button class="mini" id="mus-next" title="Следующий">⏭</button>
-          <input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка">
-          <span id="mus-time" class="tiny muted">0:00 / —:—</span>
-          <input id="mus-vol" type="range" min="0" max="100" value="90" title="Громкость">
-          <label class="mus-sw" title="Когда включено, свой круг видит плашку «слушает музыку»; нажавший на плашку слушает вместе с вами синхронно">
-            <input type="checkbox" id="mus-vis">
-            <span class="mus-sw-pill"><span class="mus-sw-knob"></span></span>
-            <span class="mus-sw-t">видно, что слушаю</span>
-          </label>
-        </div>
-        <span class="tiny mus-follow-t" id="mus-follow-t"></span>
       </div>
-    </div>
+      <div class="mus-sec"><button class="mini" id="mus-dots-close">Закрыть</button></div>
+    </div></div>
+    <div class="mus-ovl" id="mus-pls-ovl"><div class="mus-mwin">
+      <h3>Плейлисты и источники</h3>
+      <div class="mus-plsrows">
+        <div class="mus-plsrow${isSearch ? ' cur' : ''}"><button class="mini mus-plsopen" data-mus-pl="search" title="Последние результаты поиска">🔎 Поиск музыки</button></div>
+        <div class="mus-plsrow${isDisk ? ' cur' : ''}"><button class="mini mus-plsopen" data-mus-pl="yadisk" title="Аудиофайлы на вашем Яндекс.Диске: играем прямо оттуда, место на сервере не тратится">☁ Яндекс.Диск</button></div>
+        ${all.map(p2 => `<div class="mus-plsrow${p2.id === plId ? ' cur' : ''}">
+          <button class="mini mus-plsopen" data-mus-pl="${escapeHtml(p2.id)}">${escapeHtml(p2.name)} <span class="tiny muted">${p2.vis === 'priv' ? '· только я' : '· публичный'} · ${(p2.tracks || []).length}</span></button>
+          <button class="mus-rowb" data-mus-plren="${escapeHtml(p2.id)}" title="Переименовать">✎</button>
+          <button class="mus-rowb" data-mus-plvis="${escapeHtml(p2.id)}" title="Видимость: публичный / только я">${p2.vis === 'pub' ? '◉' : '◌'}</button>
+          <button class="mus-rowb danger" data-mus-pldel="${escapeHtml(p2.id)}" title="Удалить плейлист">✕</button>
+        </div>`).join('')}
+      </div>
+      <div class="mus-sec"><button class="mini primary" id="mus-add-pl">+ новый плейлист</button> <button class="mini" id="mus-pls-close">Закрыть</button></div>
+    </div></div>
+    <div class="mus-ovl" id="mus-trovl"><div class="mus-mwin" id="mus-trmenu"></div></div>
   </div>`);
   // pkg3-93: окно открыто — пузырёк прячется (иллюзия «это одно и то же»);
   // кнопка «Свернуть» левее крестика; первый вход за сеанс — разворот из пузырька.
@@ -5603,62 +5687,47 @@ async function openMusic(wantId) {
   musAddMinBtn();
   if (!musWasOpen) musExpandAnim(); else musicFabSync();   // pkg3-94: сначала гасим пузырёк, потом перелёт
   musicNowUi(); musicTickUi();
+  const vol0 = $('#mus-vol');
+  if (vol0) vol0.value = String(Math.round(musicAudio().volume * 100));
+  // pkg3-105: три оверлея («⋯», «Плейлисты ▾», меню трека) — открыть/закрыть
+  const dotsOvl = $('#mus-dots-ovl'), plsOvl = $('#mus-pls-ovl'), trOvl = $('#mus-trovl');
+  const dotsBtn = $('#mus-dots-btn');
+  if (dotsBtn) dotsBtn.addEventListener('click', () => { if (dotsOvl) dotsOvl.classList.toggle('show'); });
+  const plsBtn = $('#mus-pls-btn');
+  if (plsBtn) plsBtn.addEventListener('click', () => { if (plsOvl) plsOvl.classList.toggle('show'); });
+  for (const cid of ['#mus-dots-close', '#mus-pls-close']) {
+    const cb = $(cid);
+    if (cb) cb.addEventListener('click', () => { if (dotsOvl) dotsOvl.classList.remove('show'); if (plsOvl) plsOvl.classList.remove('show'); });
+  }
+  for (const o of [dotsOvl, plsOvl, trOvl]) {
+    if (o) o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); });
+  }
   for (const b of $$('#modal [data-mus-pl]')) b.addEventListener('click', () => openMusic(b.getAttribute('data-mus-pl')));
-  for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => {
-    const i = Number(b.getAttribute('data-mus-play'));
-    // pkg3-93: нажатие на ТЕКУЩИЙ трек — пауза/продолжить (значок ❚❚/▶ в списке)
-    if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl.tracks || [])[i])) {
-      musBreakFollow();
-      const a = musicAudio();
-      if (a.paused) a.play().catch(() => {}); else a.pause();
-      musicTickUi();
-      return;
-    }
-    musicPlay(pl, i);
+  // pkg3-105: управление плейлистами живёт в оверлее «Плейлисты ▾»
+  for (const b of $$('#modal [data-mus-plren]')) b.addEventListener('click', async () => {
+    const p2 = musicFind(b.getAttribute('data-mus-plren'));
+    if (!p2) return;
+    const name = prompt('Новое название плейлиста:', p2.name);
+    if (!name || !name.trim()) return;
+    p2.name = name.trim();
+    await musicSave(); openMusic(p2.id);
   });
-  // pkg3-89: здесь был один доллар вместо двух — цикл падал на первой же кнопке, и всё
-  // ниже (добавить трек, «▶ / ⏸», перемотка, громкость, «вместе») оставалось
-  // БЕЗ слушателей: окно выглядело живым, но кнопки не отвечали.
-  for (const b of $$('#modal [data-mus-edit]')) b.addEventListener('click', async () => {
-    const i = Number(b.getAttribute('data-mus-edit'));
-    const t = pl.tracks[i];
-    // pkg3-90: у трека с Диска нет «ссылки», которую можно заменить (файл
-    // живёт на Диске) — правится только название
-    if (musicIsDisk(t)) {
-      const dt = prompt('Название трека (файл на Диске: ' + (t.path || '') + '):', t.title || '');
-      if (dt === null) return;
-      t.title = dt.trim() || t.title;
-      await musicSave(); openMusic(pl.id);
-      return;
-    }
-    const url = prompt('Ссылка (прямая на файл, «код плеера» или ссылка Яндекс.Музыки):', t.page || t.url);
-    if (url === null) return;
-    const title = prompt('Название трека:', t.title || '');
-    if (title === null) return;
-    // pkg3-88: правка тем же «умным» разбором — трек можно превратить из файла
-    // в виджет Яндекс.Музыки и обратно, не удаляя его из списка.
-    const r = musicParsePaste(url);
-    if (r.kind === 'widget') {
-      t.kind = 'widget'; t.what = r.what || 'track'; t.url = r.url;
-      t.page = r.orig || r.url; t.h = r.h || 180;
-    } else if (r.kind === 'file') {
-      t.kind = ''; t.what = ''; t.url = r.url; t.page = ''; t.h = 0;
-    } else {
-      toast(r.hint || 'Не удалось понять вставленный текст — трек не изменён', true);
-      return;
-    }
-    t.title = title.trim() || t.title || t.url;
-    await musicSave(); openMusic(pl.id);
+  for (const b of $$('#modal [data-mus-plvis]')) b.addEventListener('click', async () => {
+    const p2 = musicFind(b.getAttribute('data-mus-plvis'));
+    if (!p2) return;
+    const to = p2.vis === 'pub' ? 'priv' : 'pub';
+    if (!confirm(to === 'pub' ? 'Сделать плейлист публичным (виден другим участникам)?' : 'Скрыть плейлист «только я» (будет зашифрован)?')) return;
+    m[p2.vis] = m[p2.vis].filter(x => x.id !== p2.id);
+    p2.vis = to; m[to].push(p2);
+    await musicSave(); openMusic(p2.id);
   });
-  for (const b of $$('#modal [data-mus-del]')) b.addEventListener('click', async () => {   // pkg3-89: список, а не один элемент (см. выше)
-    const i = Number(b.getAttribute('data-mus-del'));
-    if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
-    // pkg3-88: если убирают виджет, который звучит прямо сейчас, — гасим панель,
-    // иначе чужой плеер продолжал бы играть «без хозяина»
-    const gone = pl.tracks[i];
-    if (musicIsWidget(gone) && MUS.widget && MUS.widget.id === gone.id) musWidgetStop();
-    pl.tracks.splice(i, 1);
-    await musicSave(); openMusic(pl.id);
+  for (const b of $$('#modal [data-mus-pldel]')) b.addEventListener('click', async () => {
+    const p2 = musicFind(b.getAttribute('data-mus-pldel'));
+    if (!p2) return;
+    if (!confirm('Удалить плейлист «' + p2.name + '» со всеми треками?')) return;
+    m[p2.vis] = m[p2.vis].filter(x => x.id !== p2.id);
+    if (MUS.plId === p2.id) { const a = musicAudio(); a.pause(); a.src = ''; MUS.list = []; MUS.idx = -1; MUS.plId = null; musWidgetHide(); musicFabSync(); }
+    await musicSave(); openMusic(null);
   });
   const addPl = $('#mus-add-pl');
   if (addPl) addPl.addEventListener('click', async () => {
@@ -5669,30 +5738,94 @@ async function openMusic(wantId) {
     m[vis].push(np);
     await musicSave(); openMusic(np.id);
   });
-  const renPl = $('#mus-ren-pl');
-  if (renPl) renPl.addEventListener('click', async () => {
-    const name = prompt('Новое название плейлиста:', pl.name);
-    if (!name || !name.trim()) return;
-    pl.name = name.trim();
-    await musicSave(); openMusic(pl.id);
+  for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => {
+    const i = Number(b.getAttribute('data-mus-play'));
+    if (!pl) return;
+    // pkg3-93: нажатие на ТЕКУЩИЙ трек — пауза/продолжить (значок ❚❚/▶ в списке)
+    if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl.tracks || [])[i])) {
+      musBreakFollow();
+      const a = musicAudio();
+      if (a.paused) a.play().catch(() => {}); else a.pause();
+      musicTickUi();
+      return;
+    }
+    musicPlay(pl, i);
   });
-  const visPl = $('#mus-vis-pl');
-  if (visPl) visPl.addEventListener('click', async () => {
-    const to = pl.vis === 'pub' ? 'priv' : 'pub';
-    if (!confirm(to === 'pub' ? 'Сделать плейлист публичным (виден другим участникам)?' : 'Скрыть плейлист «только я» (будет зашифрован)?')) return;
-    m[pl.vis] = m[pl.vis].filter(x => x.id !== pl.id);
-    pl.vis = to; m[to].push(pl);
-    await musicSave(); openMusic(pl.id);
+  // pkg3-105: «✎» у трека — мини-меню: название/ссылка, прикрепить обложку,
+  // убрать ручную обложку. Обложка уменьшается до ~600px и ≤300 КБ и живёт
+  // ВНУТРИ трека плейлиста (переживёт закрытие окна и смену устройства).
+  for (const b of $$('#modal [data-mus-edit]')) b.addEventListener('click', () => {
+    if (!pl || !trOvl) return;
+    const i = Number(b.getAttribute('data-mus-edit'));
+    const t = (pl.tracks || [])[i];
+    const menu = $('#mus-trmenu');
+    if (!t || !menu) return;
+    menu.innerHTML = '<h3>Трек: ' + escapeHtml(String(t.title || t.url || '').slice(0, 60)) + '</h3>'
+      + '<div class="mus-sec"><button class="mini" data-tm="ren">✎ название и ссылка</button> '
+      + '<button class="mini" data-tm="cov">🖼 прикрепить обложку</button> '
+      + (t.cover ? '<button class="mini" data-tm="uncov">убрать ручную обложку</button> ' : '')
+      + '<button class="mini" data-tm="close">Закрыть</button></div>';
+    trOvl.classList.add('show');
+    menu.onclick = async e => {
+      const bb = e.target.closest('[data-tm]');
+      if (!bb) return;
+      const act = bb.getAttribute('data-tm');
+      if (act === 'close') { trOvl.classList.remove('show'); return; }
+      if (act === 'cov') {
+        const fi = $('#mus-cov-file');
+        if (!fi) return;
+        fi.onchange = async () => {
+          const f = fi.files && fi.files[0];
+          if (!f) return;
+          try { t.cover = await musicCoverOf(f, 600); await musicSave(); openMusic(pl.id); } catch (er) { toast('Обложка не получилась: ' + er.message, true); }
+        };
+        fi.click();
+        return;
+      }
+      if (act === 'uncov') { t.cover = ''; await musicSave(); openMusic(pl.id); return; }
+      // pkg3-90: у трека с Диска нет «ссылки», которую можно заменить (файл
+      // живёт на Диске) — правится только название
+      if (musicIsDisk(t)) {
+        const dt = prompt('Название трека (файл на Диске: ' + (t.path || '') + '):', t.title || '');
+        if (dt === null) return;
+        t.title = dt.trim() || t.title;
+        await musicSave(); openMusic(pl.id);
+        return;
+      }
+      const url = prompt('Ссылка (прямая на файл, «код плеера» или ссылка Яндекс.Музыки):', t.page || t.url);
+      if (url === null) return;
+      const title = prompt('Название трека:', t.title || '');
+      if (title === null) return;
+      // pkg3-88: правка тем же «умным» разбором — трек можно превратить из файла
+      // в виджет Яндекс.Музыки и обратно, не удаляя его из списка.
+      const rr = musicParsePaste(url);
+      if (rr.kind === 'widget') {
+        t.kind = 'widget'; t.what = rr.what || 'track'; t.url = rr.url;
+        t.page = rr.orig || rr.url; t.h = rr.h || 180;
+      } else if (rr.kind === 'file') {
+        t.kind = ''; t.what = ''; t.url = rr.url; t.page = ''; t.h = 0;
+      } else {
+        toast(rr.hint || 'Не удалось понять вставленный текст — трек не изменён', true);
+        return;
+      }
+      t.title = title.trim() || t.title || t.url;
+      await musicSave(); openMusic(pl.id);
+    };
   });
-  const delPl = $('#mus-del-pl');
-  if (delPl) delPl.addEventListener('click', async () => {
-    if (!confirm('Удалить плейлист «' + pl.name + '» со всеми треками?')) return;
-    m[pl.vis] = m[pl.vis].filter(x => x.id !== pl.id);
-    if (MUS.plId === pl.id) { const a = musicAudio(); a.pause(); a.src = ''; MUS.list = []; MUS.idx = -1; MUS.plId = null; musWidgetHide(); musicFabSync(); }
-    await musicSave(); openMusic(null);
+  for (const b of $$('#modal [data-mus-del]')) b.addEventListener('click', async () => {
+    if (!pl) return;
+    const i = Number(b.getAttribute('data-mus-del'));
+    if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
+    // pkg3-88: если убирают виджет, который звучит прямо сейчас, — гасим панель,
+    // иначе чужой плеер продолжал бы играть «без хозяина»
+    const gone = pl.tracks[i];
+    if (musicIsWidget(gone) && MUS.widget && MUS.widget.id === gone.id) musWidgetStop();
+    pl.tracks.splice(i, 1);
+    await musicSave(); openMusic(pl.id);
   });
   const addTr = $('#mus-add-tr');
   if (addTr) addTr.addEventListener('click', async () => {
+    if (!pl) { toast('Сначала создайте плейлист: «Плейлисты ▾» → «+ новый плейлист»', true); return; }
     const raw = $('#mus-url').value || '';
     const title = ($('#mus-title').value || '').trim();
     const hintEl = $('#mus-add-hint');
@@ -5705,7 +5838,7 @@ async function openMusic(wantId) {
     let cover = '';
     const cf = $('#mus-cover').files && $('#mus-cover').files[0];
     if (cf && (r.kind === 'widget' || r.kind === 'file')) {
-      try { cover = await musicCoverOf(cf); } catch (e) { toast('Обложка не получилась: ' + e.message, true); }
+      try { cover = await musicCoverOf(cf, 600); } catch (e) { toast('Обложка не получилась: ' + e.message, true); }
     }
     if (r.kind === 'widget') {
       if ((pl.tracks || []).some(t => t.url === r.url)) { toast('Такой ' + musicWhatRu(r.what) + ' Яндекс.Музыки уже есть в этом плейлисте', true); return; }
@@ -5766,19 +5899,21 @@ async function openMusic(wantId) {
   if (sqGo) sqGo.addEventListener('click', () => musSearchRun());
   const sqIn = $('#mus-sq');
   if (sqIn) sqIn.addEventListener('keydown', e => { if (e.key === 'Enter') musSearchRun(); });
-  for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
-    const id = ch.getAttribute('data-mus-site');
-    const st = musSearchState();
-    // pkg3-100/103: выключенный владельцем источник не включается кликом — подсказываем кому что
-    if (musSourceOff(id)) {
-      toast(S.me && S.me.isAdmin ? MUS_SITE_TITLES[id] + ' включится, когда владелец сервера положит файл ' + MUS_SOURCE_KEYFILE[id] + ' (инструкция выпуска)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
-      return;
-    }
-    if (id === 'jamendo') st.jamendoManual = true;   // сам снял галочку — не навязывать
-    if (id === 'podcasts') st.podcastsManual = true;
-    st.sites[id] = !st.sites[id];
-    ch.classList.toggle('on', st.sites[id]);
-    ch.textContent = (st.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
+  musWireChips();
+  // pkg3-105: ленты подкастов правит владелец прямо из «⋯» (вариант В)
+  if (S.me && S.me.isAdmin) musPodFeedsLoad();
+  const podAdd = $('#mus-pod-add');
+  if (podAdd) podAdd.addEventListener('click', async () => {
+    const url = String(($('#mus-pod-url') || {}).value || '').trim();
+    const title = String(($('#mus-pod-title') || {}).value || '').trim();
+    if (!/^https:\/\//i.test(url)) { toast('Нужен адрес ленты, начинающийся с https://', true); return; }
+    try {
+      const cur = await api('/api/podfeeds');
+      const feeds = (Array.isArray(cur.feeds) ? cur.feeds : []).concat([{ title: title, url: url }]);
+      await api('/api/podfeeds', { method: 'POST', body: { feeds: feeds } });
+      toast('Лента добавлена: поиск подкастов читает её сразу');
+      musPodFeedsLoad();
+    } catch (e) { toast('Не удалось сохранить ленты: ' + (e.message || e), true); }
   });
   if (isSearch) {
     musSearchRenderRows();   // слушатели строк результатов
@@ -5796,23 +5931,50 @@ async function openMusic(wantId) {
       if (!onP) stt.sites.podcasts = false;
       const box = $('#mus-sites');
       if (box) box.innerHTML = musSearchSitesHtml();
-      for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
-        const id = ch.getAttribute('data-mus-site');
-        const st3 = musSearchState();
-        if (musSourceOff(id)) {
-          toast(S.me && S.me.isAdmin ? MUS_SITE_TITLES[id] + ' включится, когда владелец сервера положит файл ' + MUS_SOURCE_KEYFILE[id] + ' (инструкция выпуска)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
-          return;
-        }
-        if (id === 'jamendo') st3.jamendoManual = true;
-        if (id === 'podcasts') st3.podcastsManual = true;
-        st3.sites[id] = !st3.sites[id];
-        ch.classList.toggle('on', st3.sites[id]);
-        ch.textContent = (st3.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
-      });
+      musWireChips();
     }).catch(() => {});
   }
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
   if (isDisk) ydPaneStart().catch(() => {});
+}
+/** pkg3-105: список лент подкастов в «⋯» у владельца: читает сервер из файла
+ * (или ленту по умолчанию), удаление ленты — запись того же файла. */
+async function musPodFeedsLoad() {
+  const box = $('#mus-pod-list');
+  if (!box) return;
+  try {
+    const r = await api('/api/podfeeds');
+    const feeds = Array.isArray(r.feeds) ? r.feeds : [];
+    box.innerHTML = feeds.length
+      ? feeds.map((f, i) => '<div class="mus-plsrow"><span class="mus-plname">' + escapeHtml(f.title || f.url) + '</span><button class="mus-rowb danger" data-mus-pod-del="' + i + '" title="Убрать ленту">✕</button></div>').join('')
+        + (r.source === 'default' ? '<div class="tiny muted">Сейчас работает лента по умолчанию: файла лент на сервере нет.</div>' : '')
+      : '<div class="tiny muted">Лент нет: подкасты отдыхают по вашему выбору.</div>';
+    for (const b of $$('#modal [data-mus-pod-del]')) b.addEventListener('click', async () => {
+      const i = Number(b.getAttribute('data-mus-pod-del'));
+      const left = feeds.filter((x, k) => k !== i).map(f2 => ({ title: f2.title, url: f2.url }));
+      try {
+        await api('/api/podfeeds', { method: 'POST', body: { feeds: left } });
+        musPodFeedsLoad();
+      } catch (e) { toast('Не удалось сохранить ленты: ' + (e.message || e), true); }
+    });
+  } catch (e) { box.textContent = 'Не удалось прочитать список лент: ' + (e.message || e); }
+}
+/** pkg3-105: фишки сайтов поиска проводим в одном месте (живут в оверлее «⋯»).
+ * Выключенный владельцем источник не включается кликом — подсказываем кому что. */
+function musWireChips() {
+  for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
+    const id = ch.getAttribute('data-mus-site');
+    const st = musSearchState();
+    if (musSourceOff(id)) {
+      toast(S.me && S.me.isAdmin ? MUS_SITE_TITLES[id] + ' включится, когда владелец сервера положит файл ' + MUS_SOURCE_KEYFILE[id] + ' (инструкция выпуска)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
+      return;
+    }
+    if (id === 'jamendo') st.jamendoManual = true;   // сам снял галочку — не навязывать
+    if (id === 'podcasts') st.podcastsManual = true;
+    st.sites[id] = !st.sites[id];
+    ch.classList.toggle('on', st.sites[id]);
+    ch.textContent = (st.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
+  });
 }
 
 /** pkg3-87: «🎵 музыка» у чужого аватара: публичные плейлисты участника, только
