@@ -158,7 +158,7 @@ r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({}, cre
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-104', 'сервер помечен pkg3-104');
+ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
 
 const widgetTrack = {
   id: 't-w1', kind: 'widget', what: 'track',
@@ -209,16 +209,16 @@ ok(appJs.includes('трек из личного списка или встрое
   'pkg3-92: виджету и личным спискам синхронное прослушивание честно объясняет отказ простыми словами');
 ok(appJs.includes('data-musof-kind') && appJs.includes('musicPlayOnce(b.getAttribute(\'data-musof-url\'), b.getAttribute(\'data-musof-title\'), 0, b.getAttribute(\'data-musof-kind\'))'),
   'чужой публичный трек-виджет включается тем же встроенным плеером');
-ok(appJs.includes('mus-badge-y') && appJs.includes('↗ Яндекс'),
-  'в списке треков виджет помечен значком «Я» и ссылкой «↗ Яндекс»');
+ok(appJs.includes('mus-badge-y') && appJs.includes('Открыть в Яндекс.Музыке'),
+  'в списке треков виджет помечен значком «Я» и ссылкой на Яндекс.Музыку');
 ok(appJs.includes('MUS.plId = null; musWidgetHide(); musicFabSync();')
   && appJs.includes('if (musicIsWidget(gone) && MUS.widget && MUS.widget.id === gone.id) musWidgetStop();'),
   'удаление плейлиста или звучащего виджета гасит панель — чужой плеер не играет «без хозяина»');
-ok(appJs.includes('id="mus-add-hint"') && appJs.includes('Вставьте: код плеера Яндекс.Музыки'),
+ok(appJs.includes('id="mus-add-hint"') && appJs.includes('Код плеера Яндекс.Музыки, ссылка на трек/альбом'),
   'поле добавления подсказывает, что можно вставить');
 ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
   'панель, значок и виджет-режим плеера оформлены в стилях');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v97';"), 'кэш статики поднят до v93 — друзья получат новый клиент');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93 — друзья получат новый клиент');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 ok(pkg.scripts.test.includes('test/music88.mjs'), 'тест pkg3-88 включён в общую цепочку проверки');
 

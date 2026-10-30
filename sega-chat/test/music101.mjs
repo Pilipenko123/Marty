@@ -97,7 +97,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-104', 'сервер помечен pkg3-104');
+ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
 
 const song = 'http://' + mockHost + '/audio/ok.mp3';
 /** Путь плеера: пропуск входным запросом → звук БЕЗ заголовков (как <audio>). */
@@ -167,8 +167,8 @@ const srv = read('server.js');
 const mst = read('lib/musstream.js');
 const pkg = read('package.json');
 const readme = read('README.md');
-ok(appJs.includes("const BUILD = 'pkg3-104';") && apiJs.includes("const BUILD = 'pkg3-104';"), 'BUILD pkg3-104 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v97';"), 'кэш статики поднят до v95');
+ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v95');
 ok(css.includes('button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0'), 'у «＋» в находках явная маленькая ширина — глобальное правило его больше не растягивает');
 ok(!/button\.mini\.mus-add-sm\{[^}]*width:100%/.test(css), 'и ширина 100% у него не осталась');
 ok(appJs.includes('MUS_PROXY_HOSTS') && appJs.includes("'/api/musstream?t='"), 'клиент знает запасной путь и адрес с пропуском');

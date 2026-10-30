@@ -101,7 +101,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-104', 'сервер помечен pkg3-104');
+ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
 
 console.log('\n  1. Релевантность: лишнее не показываем, точное — первым');
 r = await call('/api/mussearch?q=neon&sites=yapfiles,archive,commons,openverse', {}, admin);
@@ -138,12 +138,12 @@ ok(appJs.includes('mus-prog') && appJs.includes('Спрашиваю сайты: 
   'линия загрузки и счётчик опрошенных сайтов в окне поиска');
 ok(appJs.includes("api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + id)"),
   'сайты опрашиваются параллельно по одному — прогресс честный');
-ok(appJs.includes('mus-sr-cov') && appJs.includes('onerror="this.style.display=\'none\'"'),
-  'обложка в строке находки; если файла обложки нет — картинка прячется');
-ok(appJs.includes('mus-sr-t') && appJs.includes('mus-add-sm') && css.includes('.mus-add-sm{'),
-  'название читается одной строкой с многоточием, «＋» уменьшен');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v97';"), 'кэш статики поднят до v93');
-ok(appJs.includes("const BUILD = 'pkg3-104';") && apiJs.includes("const BUILD = 'pkg3-104';"), 'BUILD pkg3-104 совпадает в клиенте и на сервере');
+ok(appJs.includes('musCoverBigHtml') && appJs.includes('onerror="this.style.display=\'none\'"') && css.includes('.mus-coverbox'),
+  'обложка играющего трека — во всю ширину; нет файла — картинка прячется, остаётся винил с ♪');
+ok(appJs.includes('mus-ti') && appJs.includes('mus-addbtn') && css.includes('.mus-addbtn{'),
+  'название читается одной строкой, «＋» уменьшен');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music98.mjs'), 'тест music98 включён в цепочку npm test');
 ok(readme.includes('| pkg3-98 |'), 'в журнале README есть строка выпуска pkg3-98');
 const deps = JSON.parse(pkg).dependencies;

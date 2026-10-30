@@ -103,7 +103,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-104', 'сервер помечен pkg3-104');
+ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
 
 console.log('\n  1. Поиск по четырём сайтам');
 r = await call('/api/mussearch?q=neon&sites=yapfiles,archive,commons,openverse', {}, admin);
@@ -149,13 +149,13 @@ ok(appJs.includes('data-mus-pl="search"') && appJs.includes('🔎 Поиск м�
   'в окне музыки — панель «Поиск музыки»');
 ok(appJs.includes('data-mus-site=') && css.includes('.mus-site-chip{'),
   'фишки сайтов: владелец выбирает, по каким искать');
-ok(appJs.includes('data-mus-s-play=') && appJs.includes('musicPlayOnce(r.url, r.title, 0)'),
-  '▶ прослушивает находку нашим плеером, не добавляя');
+ok(appJs.includes('data-mus-s-play=') && appJs.includes("musicPlayOnce(r.url, r.title, 0, '', r.site)"),
+  '▶ прослушивает находку нашим плеером, не добавляя (и передаёт источник: подкасты умеют через сервер)');
 ok(appJs.includes('data-mus-s-add=') && appJs.includes('data-mus-pick=') && appJs.includes('Добавить трек в плейлист:'),
   '＋ даёт список плейлистов; после выбора трек ложится в выбранный');
 ok(appJs.includes('Такой трек уже есть в плейлисте'), 'повторная добавка того же url честно отклоняется');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v97';"), 'кэш статики поднят до v93');
-ok(appJs.includes("const BUILD = 'pkg3-104';") && apiJs.includes("const BUILD = 'pkg3-104';"), 'BUILD pkg3-104 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music97.mjs'), 'тест music97 включён в цепочку npm test');
 ok(readme.includes('| pkg3-97 |'), 'в журнале README есть строка выпуска pkg3-97');
 const deps = JSON.parse(pkg).dependencies;

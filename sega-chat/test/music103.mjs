@@ -1,7 +1,7 @@
 // test/music103.mjs — pkg3-103: «Аудиокниги (ru)» и «Подкасты (RSS)».
 // Игрушечные Интернет-архив (advancedsearch + metadata) и RSS-ленты: главы книг
 // по-русски, enclosure типа audio, кривые и мёртвые ленты не валят поиск,
-// флаг podcasts в /api/state живёт и оживает без перезапуска.
+// флаг podcasts в /api/state живёт: лента по умолчанию в коде, файл владельца главный.
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -92,7 +92,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-104', 'сервер помечен pkg3-104');
+ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
 
 console.log('\n  1. Аудиокниги (ru): главы книг с прицелом по языку и коллекциям');
 r = await call('/api/mussearch?q=' + encodeURIComponent('чехов рассказы') + '&sites=audiobooks', {}, admin);
@@ -103,16 +103,14 @@ ok(ab[0] && ab[0].url.includes('/download/ru-book1/chekhov_01.mp3'), 'пряма
 ok(ab[0] && ab[0].cover.includes('__ia_thumb.jpg'), 'обложка-миниатюра набора подтянута');
 ok((r.d.sites || [])[0] && r.d.sites[0].ok === true, 'источник отчитался успехом');
 
-console.log('\n  2. Подкасты: без файла лент — честный отказ, с файлом — выпуски');
-r = await call('/api/mussearch?q=интервью&sites=podcasts', {}, admin);
-ok(r.status === 200 && (r.d.sites || [])[0] && r.d.sites[0].ok === false && /ленты подкастов не положены/.test(r.d.sites[0].error || ''),
-  'лент нет — фишка честно говорит «ленты не положены», маршрут не падает');
+console.log('\n  2. Подкасты: лента по умолчанию в коде, файл владельца всегда главный');
 r = await call('/api/state');
-ok(r.status === 200 && r.d.podcasts === false, 'без файла /api/state честно говорит podcasts:false — клиенты прячут фишку');
-fs.writeFileSync(feedsPath, JSON.stringify({ feeds: [
+ok(r.status === 200 && r.d.podcasts === true, 'без файла /api/state говорит podcasts:true — работает проверенная лента по умолчанию (вариант В)');
+const feedsBody = JSON.stringify({ feeds: [
   { title: 'Тест-радио', url: mockBase + '/feed.xml' },
   { title: 'Мёртвая лента', url: mockBase + '/nope.xml' }
-] }));
+] });
+fs.writeFileSync(feedsPath, feedsBody);   // файл владельца перекрывает ленту по умолчанию
 r = await call('/api/state');
 ok(r.status === 200 && r.d.podcasts === true, 'положили ленты — /api/state без перезапуска говорит podcasts:true');
 await wait(400);   // кэш поиска (200 мс в тесте) должен отпустить прежний пустой ответ
@@ -124,6 +122,10 @@ ok(pc[0] && pc[0].url === 'https://pod-cdn.example/ep1.mp3', 'ссылка на 
 ok((r.d.sites || [])[0] && r.d.sites[0].ok === true, 'мёртвая лента не свалила поиск: источник отчитался успехом');
 r = await call('/api/mussearch?q=кот&sites=podcasts', {}, admin);
 ok((r.d.results || []).length === 0 || (r.d.results || []).every(x => /кот/i.test(x.title)), 'нерелевантные выпуски отфильтрованы по названию');
+fs.writeFileSync(feedsPath, JSON.stringify({ feeds: [] }));   // владелец выключил подкасты вовсе
+r = await call('/api/state');
+ok(r.status === 200 && r.d.podcasts === false, 'пустой файл лент: подкасты выключены выбором владельца, фишка тихая');
+fs.writeFileSync(feedsPath, feedsBody);   // вернём ленты остальным проверкам
 
 console.log('\n  3. Вход и метки выпуска');
 r = await call('/api/mussearch?q=чехов&sites=audiobooks', {}, null);
@@ -147,8 +149,8 @@ ok(appJs.includes("audiobooks: 'аудиокниги (ru)'") && appJs.includes("
 ok(appJs.includes('function musSourceOff(') && appJs.includes('MUS_SOURCE_KEYFILE'), 'тихие фишки источников с файлом-ключом обобщены (Jamendo и подкасты)');
 ok(appJs.includes('let modalDownInside = false;') && appJs.includes('if (modalDownInside) return;'),
   'pkg3-103: выделение текста не сворачивает окно — сворачиваем только если нажатие началось мимо');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v97';"), 'кэш статики поднят до v96');
-ok(appJs.includes("const BUILD = 'pkg3-104';") && apiJs.includes("const BUILD = 'pkg3-104';"), 'BUILD pkg3-104 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v96');
+ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music103.mjs'), 'тест music103 включён в цепочку npm test');
 ok(readme.includes('| pkg3-103 |'), 'в журнале README есть строка выпуска pkg3-103');
 const deps = JSON.parse(pkg).dependencies;
