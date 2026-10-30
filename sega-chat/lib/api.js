@@ -16,11 +16,12 @@ const backup = require('./backup');
 const smtp = require('./smtp.js');   // pkg3-64: письма привязки почты и восстановления (без новых зависимостей)
 const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
 const mussearch = require('./mussearch.js');   // pkg3-97: поиск треков с прямыми ссылками по выбранным сайтам
+const musstream = require('./musstream.js');   // pkg3-101: запасной путь звука — поток через сервер
 
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-100';
+const BUILD = 'pkg3-101';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1648,6 +1649,26 @@ function createApi(store, opts = {}) {
         return J(200, await mussearch.search(q, sites, Number(query.get('limit')) || 8));
       } catch (e) {
         return E(502, e.message || 'Сайты не отвечают');
+      }
+    }
+    // pkg3-101: запасной путь звука — ПРОСЛУШИВАНИЕ ЧЕРЕЗ СЕРВЕР. Устройство
+    // слушает наш адрес, сервер трубой передаёт байты источника (mp3d.jamendo.com
+    // в сети владельца закрыт, а с VPS открыт — замер 28.10). Не открытый прокси:
+    // только вошедшие, только дроссель, только белые домены источников поиска
+    // (lib/musstream.js), байты в памяти не копятся. Ответ особый: out.pipe —
+    // server.js передаёт поток в сокет как есть (cloud такой маршрут не поднимает).
+    if (pathname === '/api/musstream' && method === 'GET') {
+      if (throttle('musstream-' + me.id, 90)) return E(429, 'Слишком много запусков через сервер — подождите немного');
+      const url = String(query.get('url') || '').slice(0, 2048);
+      if (!url) return E(400, 'Нет ссылки на трек');
+      const range = req.headers && req.headers.range ? String(req.headers.range) : undefined;
+      try {
+        const up = await musstream.openStream(url, { range });
+        return { status: up.status, headers: up.headers, pipe: { stream: up.stream, abort: up.abort } };
+      } catch (e) {
+        if (e.code === 'busy') return E(503, e.message);
+        if (e.code === 'denied') return E(403, e.message);
+        return E(502, e.message || 'Источник не отдал звук');
       }
     }
     // pkg3-92: живой статус ОДНОГО человека для режима «Слушаю с …»: плашка
