@@ -67,7 +67,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-100', 'сервер помечен pkg3-100');
+ok(r.status === 200 && r.d.build === 'pkg3-101', 'сервер помечен pkg3-101');
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
@@ -129,8 +129,8 @@ ok(appJs.includes('function musicPlay(pl, idx)') && appJs.includes('id="mus-seek
   'плеер: играть/пауза, следующий/предыдущий, перемотка и громкость');
 ok(appJs.includes('function musicProbe(url)') && appJs.includes('setTimeout(() => res(false), 6000)'),
   'проба ссылки: 6 секунд на отклик файла, иначе честное предупреждение про страницу');
-ok(appJs.includes('a.src = t.url;') && !apiJs.includes('musicFiles'),
-  'звук идёт НАПРЯМУЮ с источника в устройство: сервер треки не хранит и не relay-ит');
+ok(appJs.includes('function musStartStream(') && appJs.includes('MUS_PROXY_HOSTS') && !apiJs.includes('musicFiles'),
+  'pkg3-101: главная дорога — прямая ссылка в устройство; сервер треки НЕ хранит, а relay включён только запасным путём и только для белых доменов');
 ok(appJs.includes("confirm('Показывать плейлист другим участникам?"),
   'видимость плейлиста выбирается при создании: публичный или «только я»');
 ok(css.includes('.mus-player{') && css.includes('.mus-pls{'), 'плеер и список плейлистов оформлены');
