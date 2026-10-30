@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-102';
+const BUILD = 'pkg3-103';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -620,6 +620,7 @@ async function boot() {
   S.serverBuild = st.build || 'без метки (старше pkg2-3)';
   S.serverLabel = st.serverLabel || '';   // pkg3-51: «VPS (основной)» / «Яндекс (запасной)»
   S.jamendoOn = st.jamendo !== false;   // pkg3-100: включён ли источник Jamendo на сервере
+  S.podcastsOn = st.podcasts !== false;   // pkg3-103: положены ли ленты подкастов (файл на сервере)
   if (st.setupRequired) { loadUi.hide(); return screen('setup'); }
   // pkg3-64: ссылка из письма («…/?recover=…») ведёт прямо на экран восстановления
   const recToken = new URLSearchParams(location.search).get('recover');
@@ -4771,20 +4772,29 @@ async function musicSave() {
 const musicAll = () => ((S.music && S.music.pub) || []).concat((S.music && S.music.priv) || []);
 // ─────────────────────────── pkg3-97: поиск музыки ───────────────────────────
 const MUS_SEARCH = 'search';
-const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', jamendo: 'Jamendo CC', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC', ccmixter: 'ccMixter CC' };
+const MUS_SITE_TITLES = { yapfiles: 'yapfiles.ru', jamendo: 'Jamendo CC', archive: 'archive.org', commons: 'wikimedia', openverse: 'openverse CC', ccmixter: 'ccMixter CC', audiobooks: 'аудиокниги (ru)', podcasts: 'подкасты (RSS)' };
+/** pkg3-103: источники, которые владелец включает файлом на сервере (ключ
+ * Jamendo, ленты подкастов): пока файла нет, фишка у всех тихая и неактивная,
+ * как в 100-м, — без служебных надписей в общем окне. */
+const MUS_SOURCE_KEYFILE = { jamendo: '/opt/sega/keys/jamendo.json', podcasts: '/opt/sega/keys/podcasts.json' };
+function musSourceOff(id) {
+  if (id === 'jamendo') return S.jamendoOn === false;
+  if (id === 'podcasts') return S.podcastsOn === false;
+  return false;
+}
 function musSearchState() {
-  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, jamendo: S.jamendoOn !== false, archive: true, commons: true, openverse: true, ccmixter: true }, results: [], status: [] };
+  if (!MUS.search) MUS.search = { q: '', sites: { yapfiles: true, jamendo: S.jamendoOn !== false, archive: true, commons: true, openverse: true, ccmixter: true, audiobooks: true, podcasts: S.podcastsOn !== false }, results: [], status: [] };
   return MUS.search;
 }
 function musSearchSitesHtml() {
   const st = musSearchState();
   return Object.keys(MUS_SITE_TITLES).map(id => {
-    // pkg3-100: пока владелец сервера не положил ключ Jamendo, фишка у всех
+    // pkg3-100/103: пока владелец сервера не положил ключ/ленты, фишка у всех
     // участников тихая и неактивная — никаких служебных надписей людям
-    const off = id === 'jamendo' && S.jamendoOn === false;
+    const off = musSourceOff(id);
     const on = st.sites[id] && !off;
     const title = off
-      ? (S.me && S.me.isAdmin ? 'Jamendo: владелец сервера включает источник файлом /opt/sega/keys/jamendo.json' : 'Этот источник включает владелец сервера')
+      ? (S.me && S.me.isAdmin ? MUS_SITE_TITLES[id] + ': владелец сервера включает источник файлом ' + MUS_SOURCE_KEYFILE[id] : 'Этот источник включает владелец сервера')
       : 'Искать по сайту ' + MUS_SITE_TITLES[id];
     return '<button class="mus-site-chip' + (on ? ' on' : '') + (off ? ' off' : '') + '" data-mus-site="' + id + '" title="' + escapeHtml(title) + '">' + (on ? '✓ ' : '') + MUS_SITE_TITLES[id] + '</button>';
   }).join('');
@@ -5759,37 +5769,42 @@ async function openMusic(wantId) {
   for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
     const id = ch.getAttribute('data-mus-site');
     const st = musSearchState();
-    // pkg3-100: выключенный Jamendo не включается кликом — подсказываем кому что
-    if (id === 'jamendo' && S.jamendoOn === false) {
-      toast(S.me && S.me.isAdmin ? 'Jamendo включится, когда владелец сервера положит файл /opt/sega/keys/jamendo.json (инструкция pkg3-100)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
+    // pkg3-100/103: выключенный владельцем источник не включается кликом — подсказываем кому что
+    if (musSourceOff(id)) {
+      toast(S.me && S.me.isAdmin ? MUS_SITE_TITLES[id] + ' включится, когда владелец сервера положит файл ' + MUS_SOURCE_KEYFILE[id] + ' (инструкция выпуска)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
       return;
     }
     if (id === 'jamendo') st.jamendoManual = true;   // сам снял галочку — не навязывать
+    if (id === 'podcasts') st.podcastsManual = true;
     st.sites[id] = !st.sites[id];
     ch.classList.toggle('on', st.sites[id]);
     ch.textContent = (st.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
   });
   if (isSearch) {
     musSearchRenderRows();   // слушатели строк результатов
-    // pkg3-100: открыв панель, тихо спрашиваем сервер про Jamendo: ключ мог
-    // лечь в любую минуту — фишка включится у всех сама, без настроек
+    // pkg3-100/103: открыв панель, тихо спрашиваем сервер про Jamendo и подкасты:
+    // ключ и ленты могли лечь в любую минуту — фишки включатся у всех сами
     api('/api/state').then(st2 => {
       const on = st2 && st2.jamendo !== false;
-      if (on === S.jamendoOn) return;
-      S.jamendoOn = on;
+      const onP = st2 && st2.podcasts !== false;
+      if (on === S.jamendoOn && onP === S.podcastsOn) return;
+      S.jamendoOn = on; S.podcastsOn = onP;
       const stt = musSearchState();
       if (on && !stt.jamendoManual) stt.sites.jamendo = true;
       if (!on) stt.sites.jamendo = false;
+      if (onP && !stt.podcastsManual) stt.sites.podcasts = true;
+      if (!onP) stt.sites.podcasts = false;
       const box = $('#mus-sites');
       if (box) box.innerHTML = musSearchSitesHtml();
       for (const ch of $$('#modal [data-mus-site]')) ch.addEventListener('click', () => {
         const id = ch.getAttribute('data-mus-site');
         const st3 = musSearchState();
-        if (id === 'jamendo' && S.jamendoOn === false) {
-          toast(S.me && S.me.isAdmin ? 'Jamendo включится, когда владелец сервера положит файл /opt/sega/keys/jamendo.json (инструкция pkg3-100)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
+        if (musSourceOff(id)) {
+          toast(S.me && S.me.isAdmin ? MUS_SITE_TITLES[id] + ' включится, когда владелец сервера положит файл ' + MUS_SOURCE_KEYFILE[id] + ' (инструкция выпуска)' : 'Этот источник музыки включает владелец сервера — пока он отдыхает', true);
           return;
         }
         if (id === 'jamendo') st3.jamendoManual = true;
+        if (id === 'podcasts') st3.podcastsManual = true;
         st3.sites[id] = !st3.sites[id];
         ch.classList.toggle('on', st3.sites[id]);
         ch.textContent = (st3.sites[id] ? '✓ ' : '') + (MUS_SITE_TITLES[id] || id);
@@ -9255,8 +9270,17 @@ function musAddMinBtn() {
 $('#modal-close').addEventListener('click', () => {
   if (document.querySelector('#modal-body .mus-wrap')) musCloseFull(); else hide($('#modal'));
 });
+// pkg3-103: «клик мимо окна = свернуть» больше не ловит ВЫДЕЛЕНИЕ текста: человек
+// мог нажать ВНУТРИ окна (в строке поиска) и отпустить мышь снаружи — событие
+// click при этом приходит фону, и окно сворачивалось прямо под рукой. Теперь
+// запоминаем, где НАЧАЛОСЬ нажатие, и сворачиваем только если оно началось мимо.
+let modalDownInside = false;
+document.addEventListener('pointerdown', e => {
+  modalDownInside = !!(e.target && e.target.closest && e.target.closest('#modal'));
+}, true);
 $('#modal').addEventListener('click', e => {
   if (e.target.id !== 'modal') return;
+  if (modalDownInside) return;   // Нажали внутри (выделение, перетаскивание) — не трогаем окно
   if (document.querySelector('#modal-body .mus-wrap')) musMinimize(); else hide($('#modal'));   // клик мимо окна = свернуть
 });
 
