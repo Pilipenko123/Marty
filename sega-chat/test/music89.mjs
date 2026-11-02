@@ -103,7 +103,7 @@ ok(!BAD_LOOP.test(appJs), 'в public/app.js нет ни одного цикла 
 ok(appJs.includes("for (const b of $$('#modal [data-mus-edit]'))"), 'кнопки «правка» треков обходятся через $$ (список)');
 ok(appJs.includes("if (act === 'del') { trOvl.classList.remove('show'); await musTrackRemove(pl, i); return; }"), 'удаление трека — пунктом меню карандаша (pkg3-114: крестика в строке нет)');
 ok(appJs.includes("for (const chip of $$('#modal [data-coins-run]'))"), 'чипы забегов «Сталкера» обходятся через $$ (список)');
-ok(appJs.includes("for (const b of $$('#modal [data-mus-play]'))"), 'кнопки «▶» треков по-прежнему через $$');
+ok(appJs.includes("for (const b of $$('#modal .mus-trs:not(#mus-sres) [data-mus-play]'))"), 'кнопки «▶» треков по-прежнему через $$ (pkg3-115: строки поиска — отдельно)');
 ok(!BAD_LOOP.test(pasteJs), 'в public/music-paste.js циклов по одиночному $ нет');
 
 // ── 5. Слушатели плеера на месте: добавить, стоп, вместе ──
@@ -118,8 +118,8 @@ console.log('\n  Метки выпуска и кэш');
 
 // ── 6. BUILD, кэш, стили, цепочка тестов ──
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' в обоих файлах');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v107';"), 'кэш статики поднят до v93');
-ok(dom42.includes('sega-static-v107') && sound80.includes('sega-static-v107') && games81.includes('sega-static-v107'),
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v108';"), 'кэш статики поднят до v93');
+ok(dom42.includes('sega-static-v108') && sound80.includes('sega-static-v108') && games81.includes('sega-static-v108'),
   'три набора тестов ждут именно v93');
 ok(css.includes('.mus-ctl .mini.primary{width:auto;margin-top:0}'), 'кнопка «▶ / ⏸» больше не растягивается на всю строку (⏮ не остаётся одна)');
 ok(css.includes('.mus-add .mini.primary{width:100%;margin-top:0}'), '«Добавить» осталась широкой, но без лишнего отступа');

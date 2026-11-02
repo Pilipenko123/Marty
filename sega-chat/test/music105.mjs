@@ -114,7 +114,7 @@ console.log('\n  4. Метки выпуска в коде');
 const appJs = read('public/app.js'), msJs = read('lib/musstream.js'), mseJs = read('lib/mussearch.js'), apiJs = read('lib/api.js');
 ok(appJs.includes('const proxyOn = musProxyOk(url) || !!(opts && opts.pod);'), 'клиент: подкаст-треку запасной путь разрешён всегда');
 ok(appJs.includes("{ pod: t.site === 'podcasts' }") && appJs.includes("{ pod: site === 'podcasts' }"), 'клиент: оба запуска плеера знают источник трека');
-ok(appJs.includes('musicPlayOnce(url, title, offset, kind, site)') && appJs.includes('musicPlayOnce(r.url, r.title, 0, \'\', r.site)'), 'клиент: источник находки доезжает до плеера');
+ok(appJs.includes('musicPlayOnce(url, title, offset, kind, site)') && appJs.includes("site: r.site || ''")   /* pkg3-115: находки едут в плеер плейлистом поиска */, 'клиент: источник находки доезжает до плеера');
 ok(appJs.includes('site: res.site || \'\''), 'клиент: трек в плейлисте помнит свой источник');
 ok(msJs.includes('mussearch.podHostOk(h)'), 'сервер: труба пускает хозяев из прочитанных лент');
 ok(mseJs.includes('rememberPodHost(url);') && mseJs.includes('const POD_HOST_TTL = 72 * 3600 * 1000;'), 'сервер: хозяин запоминается при чтении ленты, запись живёт 72 часа');

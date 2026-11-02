@@ -150,12 +150,12 @@ ok(appJs.includes('data-mus-pl="search"') && appJs.includes('🔎 Поиск м�
   'в окне музыки — панель «Поиск музыки»');
 ok(appJs.includes('data-mus-site=') && css.includes('.mus-site-chip{'),
   'фишки сайтов: владелец выбирает, по каким искать');
-ok(appJs.includes('data-mus-s-play=') && appJs.includes("musicPlayOnce(r.url, r.title, 0, '', r.site)"),
-  '▶ прослушивает находку нашим плеером, не добавляя (и передаёт источник: подкасты умеют через сервер)');
+ok(appJs.includes('musicPlay(musSearchPl(), i)') && appJs.includes("site: r.site || ''"),
+  '▶ играет находку нашим плеером как трек плейлиста поиска, не добавляя (pkg3-115; источник передаётся: подкасты умеют через сервер)');
 ok(appJs.includes('data-mus-s-add=') && appJs.includes('data-mus-pick=') && appJs.includes('Добавить трек в плейлист:'),
   '＋ даёт список плейлистов; после выбора трек ложится в выбранный');
 ok(appJs.includes('Такой трек уже есть в плейлисте'), 'повторная добавка того же url честно отклоняется');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v107';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v108';"), 'кэш статики поднят до v93');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music97.mjs'), 'тест music97 включён в цепочку npm test');
 ok(readme.includes('| pkg3-97 |'), 'в журнале README есть строка выпуска pkg3-97');

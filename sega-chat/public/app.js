@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-114';
+const BUILD = 'pkg3-115';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4835,12 +4835,16 @@ function musSearchRowsHtml() {
   // pkg3-105: строка находки по согласованной болванке: кнопка «▶», название
   // целиком (полное — в подсказке), бейдж источника и уменьшенный «＋».
   // Обложка находки живёт в большом квадрате над списком, когда трек играет.
-  return st.results.map((r, i) => `<div class="mus-tr mus-sr">
-    <button class="mus-pbtn" data-mus-s-play="${i}" title="Прослушать (в плейлист не добавляется)">▶</button>
-    <span class="mus-ti" title="${escapeHtml(r.title || r.url)}"><span class="mq">${escapeHtml(r.title || r.url)}</span></span>
-    <span class="mus-badge" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[r.site] || r.site)}</span>
+  const pl = musSearchPl();
+  return pl.tracks.map((t, i) => {
+    const cur = MUS.plId === MUS_SEARCH && MUS.idx === i;
+    return `<div class="mus-tr mus-sr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
+    <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза (в плейлист не добавляется)">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
+    ${musThumbHtml(t)}
+    <span class="mus-ti" title="${escapeHtml(t.title)}"><span class="mq${t.title.length > 24 ? '' : ' mq-s'}">${escapeHtml(t.title)}</span></span>
+    <span class="mus-badge" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[t.site] || t.site)}</span>
     <button class="mus-addbtn" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
-  </div>`).join('');
+  </div>`; }).join('');
 }
 async function musSearchRun() {
   const st = musSearchState();
@@ -4908,7 +4912,7 @@ function musShowSearchView() {
   if (bar) bar.textContent = 'Найдено: ' + st.results.length;
   const list = document.getElementById('mus-list');
   if (!list) return;
-  list.innerHTML = '<div class="mus-trs" id="mus-sres">' + musSearchRowsHtml() + '</div>';
+  list.innerHTML = '<div class="mus-trs" id="mus-sres" data-pl="search">' + musSearchRowsHtml() + '</div>';
   musSearchRenderRows();
 }
 /** pkg3-105: большая обложка текущего трека: вручную прикреплённая важнее
@@ -4941,7 +4945,18 @@ function musCoverPickHtml() {
 function musSearchRenderRows() {
   const box = $('#mus-sres');
   if (box) box.innerHTML = musSearchRowsHtml();
-  for (const b of $$('#modal [data-mus-s-play]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-play'))]; if (r) musicPlayOnce(r.url, r.title, 0, '', r.site); });
+  // pkg3-115: ▶ в строке поиска — как в плейлисте: пауза/продолжить у текущего, иначе старт
+  for (const b of $$('#mus-sres [data-mus-play]')) b.addEventListener('click', () => {
+    const i = Number(b.getAttribute('data-mus-play'));
+    if (MUS.plId === MUS_SEARCH && MUS.idx === i) {
+      musBreakFollow();
+      const a = musicAudio();
+      if (a.paused) a.play().catch(() => {}); else a.pause();
+      musicTickUi();
+      return;
+    }
+    musicPlay(musSearchPl(), i);
+  });
   for (const b of $$('#modal [data-mus-s-add]')) b.addEventListener('click', () => { const r = musSearchState().results[Number(b.getAttribute('data-mus-s-add'))]; if (r) musSearchPickAdd(r); });
 }
 /** pkg3-97: «＋» даёт список плейлистов; после выбора трек ложится в выбранный. */
@@ -4968,7 +4983,21 @@ function musSearchPickAdd(res) {
   });
   document.body.appendChild(ovl);
 }
-const musicFind = id => musicAll().find(p => p.id === id) || null;
+/** pkg3-115: результаты поиска — полноценный плейлист (временный, не
+ * сохраняется): ▶/❚❚ в строке, перемотка ⏮ ⏭, автопереход к следующему,
+ * бегущая строка. Треки получают обложку сайта и источник. */
+function musSearchPl() {
+  const st = musSearchState();
+  return { id: MUS_SEARCH, name: 'Результаты поиска', vis: 'priv',
+    tracks: st.results.map((r, i) => ({ id: 's' + i + ':' + (r.url || ''), url: r.url, title: r.title || r.url, cover: '', coverSite: r.cover || '', site: r.site || '' })) };
+}
+const musicFind = id => id === MUS_SEARCH ? musSearchPl() : (musicAll().find(p => p.id === id) || null);
+/** pkg3-115: маленькая обложка у ▶ в строке: своя или с сайта, иначе значок ♪. */
+function musThumbHtml(t) {
+  const src = t ? (t.cover || t.coverSite || '') : '';
+  if (src) return `<span class="mus-thumb"><img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentNode.textContent='♪'"></span>`;
+  return '<span class="mus-thumb mus-thumb-n">♪</span>';
+}
 const musicUid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 function musicPlay(pl, idx) {
   musBreakFollow();   // pkg3-92: свой трек — синхронизация обрывается
@@ -5286,7 +5315,7 @@ function musVizSync() {
   if (box.dataset.st === st) return;
   box.dataset.st = st;
   box.innerHTML = st === 'on' ? MUS_VIZ_ANIM
-    : st === 'still' ? '<img class="mus-eq-still" src="img/music-eq-still.png" alt="">'
+    : st === 'still' ? '<img class="mus-eq-still" src="img/music-eq-pause.png" alt="">'
     : '';     // убрали — анимация честно остановилась, место пустое
 }
 
@@ -5759,7 +5788,7 @@ async function openMusic(wantId) {
       : pl ? (pl.name + ' · ' + (pl.vis === 'priv' ? 'только я' : 'публичный') + ' · ' + ((pl.tracks || []).length))
         : 'Плейлистов пока нет';
   const listHtml = isSearch
-    ? '<div class="mus-trs" id="mus-sres">' + musSearchRowsHtml() + '</div>'
+    ? '<div class="mus-trs" id="mus-sres" data-pl="search">' + musSearchRowsHtml() + '</div>'
     : isDisk ? `<div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
         <div class="mus-disk-addline hidden" id="mus-disk-addline"></div>
         <div class="mus-trs" id="mus-disk-files"></div>`
@@ -5767,6 +5796,7 @@ async function openMusic(wantId) {
           const cur = MUS.plId === pl.id && MUS.idx === i;
           return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
+            ${musThumbHtml(t)}
             <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
             <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>
@@ -5925,9 +5955,9 @@ async function openMusic(wantId) {
     m[vis].push(np);
     await musicSave(); openMusic(np.id);
   });
-  for (const b of $$('#modal [data-mus-play]')) b.addEventListener('click', () => {
+  for (const b of $$('#modal .mus-trs:not(#mus-sres) [data-mus-play]')) b.addEventListener('click', () => {   // pkg3-115: у строк поиска свой слушатель
     const i = Number(b.getAttribute('data-mus-play'));
-    if (!pl) return;
+    if (!pl || isSearch) return;
     // pkg3-93: нажатие на ТЕКУЩИЙ трек — пауза/продолжить (значок ❚❚/▶ в списке)
     if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl.tracks || [])[i])) {
       musBreakFollow();
