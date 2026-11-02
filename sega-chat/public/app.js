@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-111';
+const BUILD = 'pkg3-112';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4913,12 +4913,29 @@ function musShowSearchView() {
 }
 /** pkg3-105: большая обложка текущего трека: вручную прикреплённая важнее
  * обложки сайта, а когда нет ни той ни другой — винил со значком ♪. */
+/** pkg3-112: четыре стандартные обложки владельца; выбор хранится на устройстве. */
+const MUS_COVERS = [
+  { id: '1', src: 'img/music-cover.jpg', t: 'Наушники на виниле' },
+  { id: '2', src: 'img/music-cover2.jpg', t: 'Feel the music' },
+  { id: '3', src: 'img/music-cover3.gif', t: 'Кассета' },
+  { id: '4', src: 'img/music-cover4.jpg', t: 'Проигрыватель' }
+];
+function musCoverDefault() {
+  let id = '1';
+  try { id = localStorage.getItem('sega.musCover') || '1'; } catch (e) { /* нет хранилища */ }
+  return MUS_COVERS.find(c => c.id === id) || MUS_COVERS[0];
+}
 function musCoverBigHtml(t) {
   const src = t ? (t.cover || t.coverSite || '') : '';
-  if (src) return `<img src="${escapeHtml(src)}" alt="" onerror="this.src='img/music-cover.jpg';this.onerror=null">`;
-  // pkg3-111: когда у трека нет своей обложки — картинка владельца «Обложка»
-  // (проигрыватель с наушниками) вместо нарисованного винила.
-  return `<img src="img/music-cover.jpg" alt="">`;
+  const def = musCoverDefault().src;
+  if (src) return `<img src="${escapeHtml(src)}" alt="" onerror="this.src='${def}';this.onerror=null">`;
+  // pkg3-111: когда у трека нет своей обложки — картинка владельца «Обложка»;
+  // pkg3-112: касание по ней открывает выбор из четырёх стандартных.
+  return `<img src="${def}" alt="" class="mus-cov-def" title="Нажмите, чтобы выбрать стандартную обложку">`;
+}
+function musCoverPickHtml() {
+  const cur = musCoverDefault().id;
+  return MUS_COVERS.map(c => `<button class="mus-covpick${c.id === cur ? ' cur' : ''}" data-mus-cov="${c.id}" title="${c.t}"><img src="${c.src}" alt="${c.t}"></button>`).join('');
 }
 
 function musSearchRenderRows() {
@@ -5251,19 +5268,27 @@ async function ydConnect() {
  *  браузер не умеет ни того, ни другого — остаётся неподвижный кадр.
  *  В «эконом-режиме» (S.eco) движение выключено совсем. */
 const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'
-  + '<source srcset="img/music-viz.webp" type="image/webp">'
-  + '<img src="img/music-viz.gif" alt=""></picture>';
-function musVizSync() {
-  const box = document.getElementById('mus-viz');
-  if (!box) return;
+  + '<source srcset="img/music-eq.webp" type="image/webp">'
+  + '<img src="img/music-eq.gif" alt=""></picture>';
+/** pkg3-112: полоса-эквалайзер между обложкой и перемоткой. Три состояния:
+ *  «on» — играет (живая картинка), «still» — пауза посреди трека (стоп-кадр),
+ *  «off» — трек не запущен / стоп / кончился (пустая рамка). В эконом-режиме
+ *  на игре тоже стоп-кадр, чтобы не крутить анимацию. */
+function musVizState() {
   const a = MUS.a;
-  const playing = !!a && !a.paused && !a.ended && !MUS.widget && !S.eco;
-  const was = box.dataset.on === '1';
-  if (playing === was) return;
-  box.dataset.on = playing ? '1' : '0';
-  const anim = box.querySelector('.mus-viz-anim');
-  if (playing) { if (!anim) box.insertAdjacentHTML('beforeend', MUS_VIZ_ANIM); }
-  else if (anim) anim.remove();     // убрали — анимация честно остановилась
+  const has = !!a && !!MUS.list[MUS.idx] && !MUS.widget && !a.ended && (a.currentTime > 0 || !a.paused);
+  if (!has) return 'off';
+  return (!a.paused && !S.eco) ? 'on' : 'still';
+}
+function musVizSync() {
+  const box = document.getElementById('mus-eq');
+  if (!box) return;
+  const st = musVizState();
+  if (box.dataset.st === st) return;
+  box.dataset.st = st;
+  box.innerHTML = st === 'on' ? MUS_VIZ_ANIM
+    : st === 'still' ? '<img class="mus-eq-still" src="img/music-eq-still.png" alt="">'
+    : '';     // убрали — анимация честно остановилась, место пустое
 }
 
 function musUiMode() {
@@ -5292,6 +5317,9 @@ function musicNowUi() {
   // pkg3-105: обложка во всю ширину и подпись «Сейчас играет»
   const img = document.getElementById('mus-cover-img');
   if (img) img.innerHTML = musCoverBigHtml(t);
+  // pkg3-112: справа от обложки — название текущего трека с переносом по словам
+  const nt = document.getElementById('mus-now-title');
+  if (nt) nt.textContent = t ? (t.title || t.url) : 'Выберите трек в списке';
   // pkg3-111: подписи «Сейчас играет» под обложкой больше нет — название видно
   // в подсвеченной строке списка (бегущая строка туда-обратно).
   musUiMode();   // pkg3-88: обычный трек или встроенный плеер Яндекса
@@ -5687,8 +5715,9 @@ async function openMusic(wantId) {
     <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : ''}</div>
     <div class="mus-coverbox">
       <div class="mus-cov-left" id="mus-cover-img"></div>
-      <div class="mus-viz" id="mus-viz"><img class="mus-viz-still" src="img/music-viz-still.png" alt=""></div>
+      <div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowt" id="mus-now-title">—</div></div>
     </div>
+    <div class="mus-eq" id="mus-eq" data-st="off" aria-hidden="true"></div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
     <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
     <div class="mus-list" id="mus-list">${listHtml}</div>
@@ -5708,6 +5737,12 @@ async function openMusic(wantId) {
     </div>
     <span class="hidden" id="mus-now">—</span><span class="hidden" id="mus-now-kind"></span><span class="tiny mus-follow-t hidden" id="mus-follow-t"></span>
     <input type="file" id="mus-cov-file" accept="image/*" class="hidden">
+    <div class="mus-ovl" id="mus-cov-ovl"><div class="mus-mwin mus-covwin">
+      <h3>Стандартная обложка</h3>
+      <div class="mus-covgrid">${musCoverPickHtml()}</div>
+      <div class="tiny muted">Показывается у треков без своей обложки. Выбор хранится на этом устройстве.</div>
+      <button class="mini" id="mus-cov-close">Закрыть</button>
+    </div></div>
     <div class="mus-ovl" id="mus-dots-ovl"><div class="mus-mwin">
       <h3>Параметры поиска</h3>
       <div class="mus-sites" id="mus-sites">${musSearchSitesHtml()}</div>
@@ -5756,6 +5791,25 @@ async function openMusic(wantId) {
   const dotsOvl = $('#mus-dots-ovl'), plsOvl = $('#mus-pls-ovl'), trOvl = $('#mus-trovl');
   const dotsBtn = $('#mus-dots-btn');
   if (dotsBtn) dotsBtn.addEventListener('click', () => { if (dotsOvl) dotsOvl.classList.toggle('show'); });
+  // pkg3-112: касание по стандартной обложке — выбор из четырёх
+  const covOvl = $('#mus-cov-ovl');
+  const covBox = $('#mus-cover-img');
+  if (covBox) covBox.addEventListener('click', e => {
+    if (!e.target.closest('.mus-cov-def') || !covOvl) return;
+    covOvl.classList.add('show');
+  });
+  if (covOvl) covOvl.addEventListener('click', e => {
+    const b = e.target.closest('[data-mus-cov]');
+    if (b) {
+      try { localStorage.setItem('sega.musCover', b.getAttribute('data-mus-cov')); } catch (er) { /* нет хранилища */ }
+      for (const x of covOvl.querySelectorAll('.mus-covpick')) x.classList.toggle('cur', x === b);
+      musicNowUi();
+      covOvl.classList.remove('show');
+      return;
+    }
+    if (e.target.closest('#mus-cov-close') || e.target === covOvl) covOvl.classList.remove('show');
+  });
+  musOrientLock(true);
   const plsBtn = $('#mus-pls-btn');
   if (plsBtn) plsBtn.addEventListener('click', () => { if (plsOvl) plsOvl.classList.toggle('show'); });
   for (const cid of ['#mus-dots-close', '#mus-pls-close']) {
@@ -9561,6 +9615,7 @@ function musMinimize() {
   const fab = document.getElementById('music-fab');
   if (!box || !fab) { hide($('#modal')); return; }
   const cr = box.getBoundingClientRect();
+  musOrientLock(false);
   hide($('#modal'));
   S.musOpen = false; S.musFabHidden = false; S.musFabEarned = true;   // pkg3-95: пузырёк заработан
   musicFabSync();
@@ -9568,6 +9623,29 @@ function musMinimize() {
   if (!box.animate || !fr.width) return;
   musFly({ x: cr.left, y: cr.top, w: cr.width, h: cr.height }, { x: fr.left, y: fr.top, w: fr.width, h: fr.height }, () => musicFabSync());
 }
+/** pkg3-112: окно музыки на телефоне не поворачивается боком. Где браузер
+ * разрешает (Android, приложение с рабочего стола) — просим замок портрета;
+ * где нет (iPhone) — оформление само держит окно «стоймя»: при повороте
+ * телефона окно разворачивается обратно (см. data-land и styles.css). */
+function musOrientLock(on) {
+  const so = screen.orientation;
+  try {
+    if (on && so && so.lock) so.lock('portrait').catch(() => {});
+    else if (!on && so && so.unlock) so.unlock();
+  } catch (e) { /* не поддерживается — работает запасной путь */ }
+}
+function musLandSync() {
+  const so = screen.orientation;
+  const t = (so && so.type) || '';
+  let land = '';
+  if (t.startsWith('landscape')) land = t.endsWith('secondary') ? 'secondary' : 'primary';
+  else if (!t && typeof window.orientation === 'number' && Math.abs(window.orientation) === 90) land = window.orientation === 90 ? 'primary' : 'secondary';
+  if (land) document.documentElement.setAttribute('data-land', land);
+  else document.documentElement.removeAttribute('data-land');
+}
+musLandSync();
+window.addEventListener('orientationchange', () => { musLandSync(); setTimeout(musLandSync, 300); });
+if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', musLandSync);
 /** pkg3-94: «Закрыть» (крестик) закрывает ВСЁ: окно, пузырёк и музыку, если
  * она играла (файл или виджет); трансляция статуса «слушает» гаснет сразу
  * (kick внутри fabSync шлёт music-off, раз плеер остановлен). */
@@ -9575,7 +9653,9 @@ function musCloseFull() {
   if (MUS.widget) musWidgetStop();
   const a = MUS.a;
   if (a && !a.paused) a.pause();
+  if (a) { try { a.currentTime = 0; } catch (e) { /* нет источника */ } }   // pkg3-112: крестик = стоп: полоса-эквалайзер гаснет
   musStopFollow(true);   // «Слушаю с …» тоже заканчивается тихо
+  musOrientLock(false);
   hide($('#modal'));
   S.musOpen = false; S.musFabHidden = true;
   musicFabSync();

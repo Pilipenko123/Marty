@@ -69,7 +69,7 @@ ok(/#modal\.mus-modal\{background:#000\}/.test(mob), 'поля вокруг ок
 ok(/#modal\.mus-modal \.modal-box\{background:#000;border:0;color:#f2f2f2\}/.test(mob), 'само окно чёрное, без рамки, с светлым текстом в любой гамме');
 ok(/#modal\.mus-modal \.modal-head\{background:#000;border-bottom:0\}/.test(mob), 'шапка без линии снизу');
 ok(/#modal\.mus-modal \.mus-coverbox\{border:0;/.test(mob) && /#modal\.mus-modal \.mus-cov-left\{border-right:0/.test(mob), 'блок обложки без рамок и перегородки');
-ok(/#modal\.mus-modal \.mus-list\{border:0;background:#000;padding:0/.test(mob), 'список без рамки и подложки');
+ok(/#modal\.mus-modal \.mus-list\{border:1px solid #3a3a46;background:#000/.test(mob), 'список на чёрной подложке (pkg3-112: владелец попросил рамку обратно)');
 ok(/#modal\.mus-modal \.mus-foot\{border-top:0\}/.test(mob), 'низ без линии');
 ok(/#modal\.mus-modal \.mus-srow input\{background:#141418;border:1px solid #2a2a32;color:#f2f2f2/.test(mob), 'поле поиска тёмное, текст светлый');
 ok(/#modal\.mus-modal \.mini\{background:#17171c;color:#e8e8ee/.test(mob) && /#modal\.mus-modal \.mus-skip\{background:#17171c/.test(mob), 'кнопки тёмные');
@@ -83,8 +83,8 @@ ok(existsSync(cov), 'public/img/music-cover.jpg на месте');
 const sz = existsSync(cov) ? statSync(cov).size : 0;
 ok(sz > 10 * 1024 && sz < 160 * 1024, `картинка лёгкая (${Math.round(sz / 1024)} КБ)`);
 if (existsSync(cov)) { const b = readFileSync(cov); ok(b[0] === 0xFF && b[1] === 0xD8, 'это настоящий JPEG'); }
-ok(/return `<img src="img\/music-cover\.jpg" alt="">`;/.test(app), 'трек без своей обложки показывает её');
-ok(/onerror="this\.src='img\/music-cover\.jpg';this\.onerror=null"/.test(app), 'если своя обложка трека не загрузилась — тоже она, а не пустота');
+ok(/return `<img src="\$\{def\}" alt="" class="mus-cov-def"/.test(app) && /src: 'img\/music-cover\.jpg'/.test(app), 'трек без своей обложки показывает её (pkg3-112: или другую выбранную из четырёх)');
+ok(/onerror="this\.src='\$\{def\}';this\.onerror=null"/.test(app), 'если своя обложка трека не загрузилась — стандартная, а не пустота');
 ok(!/<svg viewBox="0 0 400 400"[^>]*>[\s\S]*?musg1/.test(app.slice(app.indexOf('function musCoverBigHtml'), app.indexOf('function musSearchRenderRows'))), 'нарисованный винил со значком ♪ убран');
 ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:cover/.test(css.replace(/\s+/g, ' ')), 'картинка заполняет половину без искажений');
 
