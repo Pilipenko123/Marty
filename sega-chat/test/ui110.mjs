@@ -44,10 +44,10 @@ ok(iMob > 0, 'мобильный блок плеера на месте и леж
 ok(/flex-wrap:wrap/.test(wrapBase), 'общий контейнер .mus-wrap действительно «резиновый» (flex-wrap:wrap) — источник дефекта');
 ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*flex-wrap:nowrap/s.test(mob),
   'у плеера перенос запрещён прямо (flex-wrap:nowrap) — вторая колонка справа больше не появляется');
-ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*display:grid/s.test(mob),
-  'раскладка плеера — сетка, а не «резиновая лента»');
-ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*grid-template-rows:auto auto auto auto auto minmax\(0,1fr\) auto auto auto/s.test(mob),
-  'строки заданы заранее: четыре «свои», список забирает остаток (minmax(0,1fr)), ниже — три кнопки и громкость');
+ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*flex-flow:column nowrap/s.test(mob),
+  'раскладка плеера — колонка без переноса (pkg3-111: вместо сетки, чтобы скрытые/добавленные строки её не ломали)');
+ok(/#modal\.mus-modal \.mus-wrap\.mus-v105 > \*\{flex:0 0 auto\}/.test(mob) && /#modal\.mus-modal \.mus-list\{flex:1 1 0/.test(mob),
+  'все блоки «свои» по высоте, список забирает остаток (flex:1 1 0)');
 ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*height:100%/s.test(mob),
   'сетка занимает всю высоту окна (иначе список не сможет прокручиваться внутри)');
 
@@ -80,7 +80,7 @@ console.log('\n  4. Обложка, перемотка, кнопки, громк
 ok(/#modal\.mus-modal \.mus-coverbox\{[^}]*max-height:22dvh/s.test(mob), 'обложка ужата до 22% высоты экрана');
 ok(/#modal\.mus-modal \.mus-coverbox\{[^}]*width:100%/s.test(mob), 'обложка занимает ширину окна и не шире');
 ok(/#modal\.mus-modal \.mus-three\{[^}]*gap:20px/s.test(mob), 'три кнопки плеера вписаны в свою строку');
-ok(/#modal\.mus-modal \.mus-playbig\{width:60px;height:60px/.test(mob) && /#modal\.mus-modal \.mus-skip\{width:44px/.test(mob),
+ok(/#modal\.mus-modal \.mus-playbig\{width:60px;height:60px/.test(mob) && /#modal\.mus-modal \.mus-skip\{width:60px;height:60px/.test(mob),
   'кнопки плеера удобного размера для пальца');
 ok(/#modal\.mus-modal \.mus-foot\{[^}]*flex-wrap:nowrap/s.test(mob), 'низ окна (громкость и тумблер) не разъезжается');
 ok(/#modal\.mus-modal \.mus-foot input\[type=range\]\{[^}]*min-width:40px/s.test(mob),
@@ -89,8 +89,8 @@ ok(/#modal\.mus-modal \.mus-sw-t\{[^}]*text-overflow:ellipsis/s.test(mob),
   'длинная подпись тумблера обрезается многоточием, а не вылезает за край');
 ok(/max-height:640px/.test(mob) && /#modal\.mus-modal \.mus-coverbox\{max-height:16dvh\}/.test(mob),
   'на низком экране обложка ужимается, кнопки остаются на виду');
-ok(/max-height:480px/.test(mob) && /#modal\.mus-modal \.mus-sqbar,\s*#modal\.mus-modal \.mus-cover-cap\{display:none\}/.test(mob),
-  'на очень низком экране (телефон боком) подсказка и подпись убираются — плеер влезает целиком');
+ok(/max-height:480px/.test(mob) && /#modal\.mus-modal \.mus-sqbar\{display:none\}/.test(mob),
+  'на очень низком экране (телефон боком) строка состояния поиска убирается — плеер влезает целиком');
 ok(mob.includes('#plus-scrim{display:block'), 'меню «+» по-прежнему приглушает список чатов на телефоне');
 
 console.log('\n  5. Разметка окна не изменилась и не потеряла блоки');
@@ -98,8 +98,8 @@ for (const part of ['mus-srow', 'mus-sqbar', 'mus-coverbox', 'mus-list', 'mus-pr
   ok(app.includes(`class="${part}`) || app.includes(`${part}"`), `блок .${part} на месте в окне музыки`);
 }
 ok(/\{ cls: 'mus-modal' \}\)/.test(app), 'пометка окна музыки (mus-modal) на месте');
-ok(!/\.modal-body > \.mus-wrap\.mus-v105\{[^}]*display:flex;flex-direction:column/s.test(css),
-  'прежняя «резиновая» колонка из 109-го убрана');
+ok(!/\.modal-body > \.mus-wrap\.mus-v105\{[^}]*display:flex;flex-direction:column;/s.test(css) && !/\.modal-body > \.mus-wrap\.mus-v105\{(?![^}]*nowrap)[^}]*\}/s.test(mob),
+  'прежняя «резиновая» колонка из 109-го (без nowrap) не вернулась');
 
 console.log('\n  6. Отметки выпуска');
 const b2 = /const BUILD = '([^']+)'/.exec(app)[1];

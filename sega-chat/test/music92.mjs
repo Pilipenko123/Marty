@@ -175,7 +175,7 @@ ok(apiJs.includes("'/api/music/status'") && apiJs.includes("'/api/music/follow-h
   'сервер: маршрут живого статуса и выдача временной ссылки своего круга');
 ok(appJs.includes("kind: 'music', note: musicStatusNote(), sync: musicStatusSync()"),
   'клиент шлёт якорь только при включённой видимости и делимом треке');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v103';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v104';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music92.mjs'), 'тест music92 включён в цепочку npm test');
 ok(readme.includes('| pkg3-92 |'), 'в журнале README есть строка выпуска pkg3-92');
 const deps = JSON.parse(pkg).dependencies;
