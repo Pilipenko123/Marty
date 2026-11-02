@@ -1765,12 +1765,28 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
   border-right:1px solid var(--line);background:#120b1e}
 .mus-v105 .mus-cov-left img,.mus-v105 .mus-cov-left svg{width:100%;height:100%;object-fit:cover;display:block}
 .mus-v105 .mus-viz{position:relative;overflow:hidden;background:#05080f}
-.mus-v105 .mus-viz img,.mus-v105 .mus-viz-anim{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+/* pkg3-112: справа от обложки — название трека с переносом (вместо картинки) */
+.mus-v105 .mus-nowbox{display:flex;align-items:center;justify-content:center;padding:8px 10px;text-align:center}
+.mus-v105 .mus-nowt{font-size:14px;line-height:1.3;font-weight:600;color:#f2f2f2;overflow-wrap:anywhere;word-break:break-word;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;overflow:hidden;max-height:100%}
+/* pkg3-112: узкая полоса-эквалайзер во всю ширину между обложкой и перемоткой:
+   живёт только пока играет музыка, на паузе — стоп-кадр, иначе пустая рамка */
+.mus-v105 .mus-eq{height:40px;margin:8px 0 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#000}
+.mus-v105 .mus-eq img,.mus-v105 .mus-eq .mus-viz-anim{display:block;width:100%;height:100%;object-fit:fill}
+.mus-v105 .mus-eq .mus-viz-anim img{width:100%;height:100%}
+/* pkg3-112: касание по стандартной обложке → выбор из четырёх */
+.mus-v105 .mus-cov-def{cursor:pointer}
+.mus-v105 .mus-covgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 8px}
+.mus-v105 .mus-covpick{padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;background:#000;cursor:pointer;aspect-ratio:1/1}
+.mus-v105 .mus-covpick img{display:block;width:100%;height:100%;object-fit:cover}
+.mus-v105 .mus-covpick.cur{border-color:var(--accent-2);box-shadow:0 0 0 2px rgba(47,198,246,.25)}
+.mus-v105 .mus-covwin .mini{margin-top:8px}
 .mus-v105 .mus-cover-cap{padding:6px 2px 0;font-size:12px;color:var(--muted);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mus-v105 .mus-plhead{display:flex;align-items:center;gap:8px;margin:12px 0 6px}
 .mus-v105 .mus-plname{flex:1 1 auto;min-width:0;font-size:13px;font-weight:600;color:var(--accent-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mus-v105 .mus-list{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:4px}
+.mus-v105 .mus-list .mus-trs{max-height:none;min-height:0;overflow:visible;margin-bottom:0}   /* pkg3-112: прокручивается только рамка списка — полоса одна */
 .mus-v105 .mus-tr{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px}
 .mus-v105 .mus-tr.cur{background:var(--accent-soft);outline:1px solid var(--accent-2)}
 .mus-v105 .mus-pbtn{width:26px;height:26px;flex:none;border-radius:7px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;cursor:pointer}
@@ -1860,7 +1876,14 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
   #modal.mus-modal .mini.primary{background:var(--accent);color:#fff;border-color:transparent}
   #modal.mus-modal .mus-coverbox{border:0;border-radius:14px;background:#000}
   #modal.mus-modal .mus-cov-left{border-right:0;background:#000}
-  #modal.mus-modal .mus-list{border:0;background:#000;padding:0;border-radius:0}
+  /* pkg3-112: список обведён и с постоянной полосой прокрутки */
+  #modal.mus-modal .mus-list{border:1px solid #3a3a46;background:#000;padding:4px;border-radius:12px;overflow-y:scroll;
+    scrollbar-width:thin;scrollbar-color:#7a7a8c #17171c;scrollbar-gutter:stable}
+  #modal.mus-modal .mus-list::-webkit-scrollbar{width:6px;-webkit-appearance:none}
+  #modal.mus-modal .mus-list::-webkit-scrollbar-track{background:#17171c;border-radius:3px}
+  #modal.mus-modal .mus-list::-webkit-scrollbar-thumb{background:#7a7a8c;border-radius:3px}
+  #modal.mus-modal .mus-eq{height:36px;margin:0;border-color:#3a3a46}
+  #modal.mus-modal .mus-nowt{font-size:13px}
   #modal.mus-modal .mus-tr{padding:7px 6px}
   #modal.mus-modal .mus-tr.cur{background:rgba(255,255,255,.08);outline:0}
   #modal.mus-modal .mus-rowb{border-color:#2e2e38;color:#9a9aa6;background:transparent}
@@ -1874,6 +1897,7 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 }
 @media (max-width:900px) and (max-height:640px){
   #modal.mus-modal .mus-coverbox{max-height:16dvh}
+  #modal.mus-modal .mus-eq{height:28px}
   #modal.mus-modal .mus-three .mus-playbig,#modal.mus-modal .mus-three .mus-skip{width:52px;height:52px;font-size:17px}
 }
 /* совсем низкий экран (телефон боком): убираем необязательные подписи, чтобы
@@ -1882,4 +1906,17 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
   #modal.mus-modal .mus-sqbar{display:none}
   #modal.mus-modal .mus-coverbox{max-height:12dvh}
   #modal.mus-modal .mus-playbig,#modal.mus-modal .mus-skip{width:46px;height:46px;font-size:16px}
+}
+/* pkg3-112: окно «Моя музыка» на телефоне НЕ ложится набок. Где браузер даёт
+   замок ориентации (Android), экран просто не поворачивается; где не даёт
+   (iPhone) — окно поворачиваем обратно сами: ширина = высота экрана и наоборот,
+   верх окна смотрит туда, где физический верх телефона (data-land ставит app.js). */
+@media (max-width:1000px) and (orientation:landscape) and (max-height:600px){
+  :root[data-land] #modal.mus-modal .modal-box{position:fixed;top:0;left:0;width:100dvh;height:100dvw;max-height:none;
+    transform-origin:0 0;transform:rotate(-90deg) translateX(-100%)}
+  :root[data-land="secondary"] #modal.mus-modal .modal-box{transform:rotate(90deg) translateY(-100%)}
+  :root[data-land] #modal.mus-modal .mus-coverbox{max-height:22dvw}
+  :root[data-land] #modal.mus-modal .mus-eq{height:36px}
+  :root[data-land] #modal.mus-modal .mus-playbig,:root[data-land] #modal.mus-modal .mus-skip{width:60px;height:60px;font-size:19px}
+  :root[data-land] #modal.mus-modal .mus-sqbar{display:block}
 }

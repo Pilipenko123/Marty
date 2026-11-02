@@ -76,8 +76,8 @@ ok(!/^\s*\.modal-box\{[^}]*height:100dvh/m.test(css), 'прочие окна (н
 // ─────────────────────────── 3. обложка: вдвое ниже и две половины
 console.log('\n  3. Обложка: половина высоты, две половины по вертикали');
 ok(/<div class="mus-cov-left" id="mus-cover-img"><\/div>/.test(app), 'слева — половина под обложку трека');
-ok(/<div class="mus-viz" id="mus-viz"><img class="mus-viz-still" src="img\/music-viz-still.png" alt=""><\/div>/.test(app),
-  'справа — половина под живую картинку (неподвижный кадр лежит под анимацией)');
+ok(/<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowt" id="mus-now-title">/.test(app),
+  'справа — половина под название трека (pkg3-112: вместо картинки)');
 const boxAt = app.indexOf('<div class="mus-coverbox">');
 ok(boxAt > 0 && !app.includes('id="mus-cover-cap"'), 'подписи «Сейчас играет» под блоком нет (pkg3-111: по просьбе владельца убрана как дублирование)');
 const covCss = (/\.mus-v105 \.mus-coverbox\{[^}]*\}/.exec(css) || [''])[0];
@@ -89,10 +89,11 @@ ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:cover/.test(css.replace(
   'обложка заполняет свою половину без искажений');
 
 // ─────────────────────────── 4. живая картинка: движется вместе со звуком
+// (pkg3-112: переехала из квадрата рядом с обложкой в узкую полосу под ней)
 console.log('\n  4. Живая картинка: движется, пока играет музыка');
-const gif = join(PUB, 'img', 'music-viz.gif');
-const webp = join(PUB, 'img', 'music-viz.webp');
-const still = join(PUB, 'img', 'music-viz-still.png');
+const gif = join(PUB, 'img', 'music-eq.gif');
+const webp = join(PUB, 'img', 'music-eq.webp');
+const still = join(PUB, 'img', 'music-eq-still.png');
 ok(existsSync(gif) && existsSync(webp) && existsSync(still), 'картинки на месте: gif, лёгкая webp-анимация и неподвижный кадр');
 ok(size(gif) > 1000 && size(gif) < 400 * 1024, `gif не тяжелее 400 КБ (${Math.round(size(gif) / 1024)} КБ)`);
 ok(size(webp) > 1000 && size(webp) < 120 * 1024, `webp-анимация лёгкая (${Math.round(size(webp) / 1024)} КБ) — её и получат телефоны`);
@@ -100,15 +101,15 @@ ok(size(still) > 1000 && size(still) < 60 * 1024, `неподвижный кад
 const gifBuf = readFileSync(gif);
 ok(gifBuf.slice(0, 6).toString() === 'GIF89a', 'gif — настоящий GIF');
 const gw = gifBuf.readUInt16LE(6), gh = gifBuf.readUInt16LE(8);
-ok(gw === gh && gw >= 160, `кадр квадратный ${gw}×${gh} — ровно по размеру половины блока`);
+ok(gw >= 4 * gh, `кадр узкий и широкий ${gw}×${gh} — полоса во всю ширину окна`);
 ok(/const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'/.test(app), 'живая картинка вставляется как <picture>');
-ok(/<source srcset="img\/music-viz\.webp" type="image\/webp">/.test(app) && /<img src="img\/music-viz\.gif"/.test(app),
+ok(/<source srcset="img\/music-eq\.webp" type="image\/webp">/.test(app) && /<img src="img\/music-eq\.gif"/.test(app),
   'сначала лёгкая webp-анимация, запасной путь — gif для старых устройств');
 ok(/function musVizSync\(\)/.test(app), 'есть отдельная сверка «играет / стоит» (musVizSync)');
-ok(/const playing = !!a && !a\.paused && !a\.ended && !MUS\.widget && !S\.eco;/.test(app),
+ok(/return \(!a\.paused && !S\.eco\) \? 'on' : 'still';/.test(app),
   'картинка движется только когда звук действительно играет (и не в эконом-режиме)');
-ok(/else if \(anim\) anim\.remove\(\);/.test(app),
-  'на паузе анимация убирается совсем — картинка честно замирает и не крутится вхолостую');
+ok(/: '';\s+\/\/ убрали — анимация честно остановилась/.test(app),
+  'без трека анимация убирается совсем — картинка честно гаснет и не крутится вхолостую');
 ok(/MUS\.a\.addEventListener\('play', musVizSync\)/.test(app) && /MUS\.a\.addEventListener\('pause', musVizSync\)/.test(app)
   && /MUS\.a\.addEventListener\('ended', musVizSync\)/.test(app),
   'сверка срабатывает на «играть», «пауза» и «трек кончился»');
@@ -124,7 +125,7 @@ ok(b2 === BUILD, `отметка выпуска совпадает в серве
 ok(/const BUILD = '([^']+)'/.exec(api)[1] === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка выпуска ${BUILD}`);
 ok(cache !== 'sega-static-v101', `кэш оформления поднят (${cache}) — устройства получат новый вид`);
-ok(readdirSync(join(PUB, 'img')).some(f => f === 'music-viz.webp'), 'картинки лежат в public/img и уедут вместе с программой');
+ok(readdirSync(join(PUB, 'img')).some(f => f === 'music-eq.webp'), 'картинки лежат в public/img и уедут вместе с программой');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
 process.exit(bad ? 1 : 0);
