@@ -121,7 +121,8 @@ button.icon:hover{background:var(--line-2);color:var(--text)}
 .me-name{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .me-sub{font-size:11.5px;color:#9dc0d1}
 .rail-top .av-wrap .status{border-color:var(--dark)}
-.rail-search{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.rail-search{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;
+  position:relative}   /* pkg3-109: меню «+» отсчитывается от строки поиска и падает прямо под неё */
 .rail-search input{margin:0;background:var(--panel-2);padding:8px 11px;font-size:13px}
 .new-chat{background:var(--accent);color:#fff;border-radius:8px;padding:9px;font-size:13px;font-weight:600;transition:background .15s}
 .new-chat:hover{background:#1a3f7d}
@@ -1359,15 +1360,28 @@ html,body{overflow-x:hidden}
 .plus-btn{flex:0 0 auto;width:40px;height:36px;padding:0}
 .plus-btn .ic{width:17px;height:17px}
 .plus-btn[aria-expanded="true"]{background:#1a3f7d}
-.plus-menu{position:absolute;top:calc(100% - 4px);right:12px;z-index:60;min-width:236px;
-  background:var(--panel-2);border:1px solid var(--line);border-radius:11px;padding:5px;
-  box-shadow:0 12px 32px rgba(0,0,0,.30);display:flex;flex-direction:column;gap:2px}
-.plus-menu button{display:flex;align-items:center;gap:9px;background:none;border:0;color:inherit;
-  padding:9px 10px;border-radius:8px;font-size:13px;font-weight:500;text-align:left;cursor:pointer;width:100%}
-.plus-menu button:hover{background:var(--accent-soft)}
-.plus-menu .pm-ic{display:inline-flex;width:17px;height:17px;align-items:center;justify-content:center;
-  font-size:14px;line-height:1;flex:0 0 auto}
-.plus-menu .pm-ic .ic{width:17px;height:17px}
+/* pkg3-109: меню «+» больше не сливается с фоном списка чатов: своя подложка
+   (серый фон приложения против белой колонки), заметная синяя рамка, глубокая
+   тень, заголовок «Быстрые действия» и пункты-карточки. На телефоне список под
+   меню ещё и приглушается (см. #plus-scrim ниже). */
+.plus-menu{position:absolute;top:calc(100% - 2px);right:12px;z-index:60;min-width:252px;
+  background:var(--bg);border:2px solid var(--accent);border-radius:14px;padding:6px;
+  box-shadow:0 24px 52px rgba(4,18,30,.45),0 6px 16px rgba(4,18,30,.22),0 0 0 5px rgba(35,83,162,.12);
+  display:flex;flex-direction:column;gap:3px;animation:popIn .16s ease both}
+.plus-menu .pm-head{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+  color:var(--accent);padding:5px 8px 6px}
+.plus-menu button{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
+  color:var(--text);padding:11px 11px;border-radius:10px;font-size:14px;font-weight:600;text-align:left;
+  cursor:pointer;width:100%;transition:background .12s,color .12s,border-color .12s}
+.plus-menu button:hover,.plus-menu button:focus-visible{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.plus-menu button:active{transform:translateY(1px)}
+.plus-menu .pm-ic{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;
+  font-size:16px;line-height:1;flex:0 0 auto}
+.plus-menu .pm-ic .ic{width:19px;height:19px}
+/* pkg3-109: кнопка «+» выглядит нажатой, пока меню открыто */
+#btn-plus[aria-expanded="true"]{background:#16386e;box-shadow:inset 0 0 0 2px #fff}
+/* pkg3-109: приглушение списка чатов под меню (только телефон — см. адаптив) */
+#plus-scrim{display:none}
 
 /* pkg3-52: участники, найденные строкой «Найти чат или участника» — ниже своих чатов */
 .rail-group.people{color:var(--accent)}
@@ -1738,11 +1752,18 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-srow input{flex:1 1 auto;min-width:0}
 .mus-v105 .mus-dotsbtn{flex:none;font-size:15px;letter-spacing:1px}
 .mus-v105 .mus-sqbar{margin:0 2px 8px;color:var(--muted)}
-.mus-v105 .mus-coverbox{position:relative;width:100%;aspect-ratio:1/1;max-height:44vh;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--panel-2)}
-.mus-v105 .mus-coverbox #mus-cover-img{position:absolute;inset:0}
-.mus-v105 .mus-coverbox img{width:100%;height:100%;object-fit:cover;display:block}
-.mus-v105 .mus-coverbox svg{width:100%;height:100%;display:block}
-.mus-v105 .mus-cover-cap{position:absolute;left:0;right:0;bottom:0;padding:26px 12px 10px;font-size:12px;color:#ffe9c9;background:linear-gradient(transparent,rgba(0,0,0,.82))}
+/* pkg3-109: место под обложку ВДВОЕ ниже и разделено по вертикали:
+   слева — обложка трека (или ♪, если её нет), справа — живая картинка,
+   которая движется, пока играет музыка, и замирает на паузе. */
+.mus-v105 .mus-coverbox{display:grid;grid-template-columns:1fr 1fr;width:100%;aspect-ratio:2/1;
+  max-height:26vh;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--panel-2)}
+.mus-v105 .mus-cov-left{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  border-right:1px solid var(--line);background:#120b1e}
+.mus-v105 .mus-cov-left img,.mus-v105 .mus-cov-left svg{width:100%;height:100%;object-fit:cover;display:block}
+.mus-v105 .mus-viz{position:relative;overflow:hidden;background:#05080f}
+.mus-v105 .mus-viz img,.mus-v105 .mus-viz-anim{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.mus-v105 .mus-cover-cap{padding:6px 2px 0;font-size:12px;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mus-v105 .mus-plhead{display:flex;align-items:center;gap:8px;margin:12px 0 6px}
 .mus-v105 .mus-plname{flex:1 1 auto;min-width:0;font-size:13px;font-weight:600;color:var(--accent-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mus-v105 .mus-list{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:4px}
@@ -1774,3 +1795,42 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-plsrow.cur{background:var(--accent-soft)}
 .mus-v105 .mus-plsrow .mus-plsopen{flex:1 1 auto;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mus-v105 .mus-listhead{font-size:12px;color:var(--accent-2);margin:2px 4px 6px}
+
+/* ═══ pkg3-109: ТЕЛЕФОН — «Моя музыка» как настоящий плеер ═══
+   Окно разворачивается на весь экран: обложка с живой картинкой сверху,
+   список треков занимает всё свободное место и прокручивается ВНУТРИ себя,
+   а перемотка, три большие кнопки и громкость всегда на виду. Ничего не
+   вылезает за край и не требует «доскроллить» страницу. */
+@media (max-width:900px){
+  #modal.mus-modal{padding:0;align-items:stretch}
+  #modal.mus-modal .modal-box{width:100%;max-width:none;height:100dvh;max-height:100dvh;border-radius:0;
+    box-shadow:none;display:flex;flex-direction:column;overflow:hidden}
+  #modal.mus-modal .modal-head{flex:0 0 auto;padding:10px 14px;
+    padding-top:calc(10px + env(safe-area-inset-top))}
+  #modal.mus-modal .modal-body{flex:1 1 auto;min-height:0;overflow:hidden;
+    padding:6px 12px calc(8px + env(safe-area-inset-bottom))}
+  #modal.mus-modal .mus-wrap.mus-v105{display:flex;flex-direction:column;height:100%;min-height:0;max-height:none}
+  #modal.mus-modal .mus-srow,
+  #modal.mus-modal .mus-sqbar,
+  #modal.mus-modal .mus-coverbox,
+  #modal.mus-modal .mus-plhead,
+  #modal.mus-modal .mus-cover-cap,
+  #modal.mus-modal .mus-progline,
+  #modal.mus-modal .mus-three,
+  #modal.mus-modal .mus-foot{flex:0 0 auto}
+  #modal.mus-modal .mus-sqbar{max-height:2.8em;overflow:hidden;display:-webkit-box;
+    -webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:4px}
+  #modal.mus-modal .mus-coverbox{max-height:24dvh}
+  #modal.mus-modal .mus-cover-cap{margin-bottom:2px}
+  #modal.mus-modal .mus-plhead{margin:2px 0 4px}
+  #modal.mus-modal .mus-list{flex:1 1 auto;min-height:56px;max-height:none;overflow-y:auto}
+  #modal.mus-modal .mus-progline{margin:6px 0 0}
+  #modal.mus-modal .mus-three{margin:6px 0;gap:22px}
+  #modal.mus-modal .mus-playbig{width:62px;height:62px;font-size:20px}
+  #modal.mus-modal .mus-skip{width:46px;height:46px}
+  #modal.mus-modal .mus-foot{padding-top:6px}
+  /* меню «+»: список чатов под ним приглушается — сразу видно, что меню открыто */
+  #plus-scrim{display:block;position:absolute;inset:0;z-index:1;background:rgba(8,20,28,.42);
+    opacity:0;pointer-events:none;transition:opacity .16s ease}
+  #plus-scrim.on{opacity:1;pointer-events:auto}
+}

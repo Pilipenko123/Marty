@@ -204,6 +204,7 @@
       </div>
       <!-- pkg3-52: быстрые действия одной кнопкой «+» (прежние «Новый чат» и «♟ Игра» убраны) -->
       <div id="plus-menu" class="plus-menu hidden" role="menu" aria-label="Быстрые действия">
+        <div class="pm-head">Быстрые действия</div>
         <button type="button" role="menuitem" data-plus="game"><span class="pm-ic">♟</span> Новая игра</button>
         <button type="button" role="menuitem" data-plus="group"><span class="pm-ic" data-ic="users"></span> Создать групповой чат</button>
         <button type="button" role="menuitem" data-plus="invite"><span class="pm-ic" data-ic="send"></span> Пригласить по ссылке</button>
@@ -222,6 +223,8 @@
       </div>
       <button class="gear" id="btn-gear" type="button" title="Настройки: уведомления, звук, тема, гамма"><span data-ic="gear" data-ic-size="big"></span></button>
     </div>
+    <!-- pkg3-109: приглушение списка чатов, пока открыто меню «+» (телефон) -->
+    <div id="plus-scrim" aria-hidden="true"></div>
   </aside>
 
   <!-- pkg3-108: затемнение под шторкой списка чатов (телефон): касание справа

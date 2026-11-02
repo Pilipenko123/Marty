@@ -134,7 +134,8 @@ const cache = /const STATIC_CACHE = '([^']+)'/.exec(read(join(PUB, 'sw.js')))[1]
 ok(b1 === b2, `отметка выпуска совпадает в сервере и клиенте (${b1})`);
 const readme = read(join(HERE, '..', 'README.md'));
 ok(readme.includes('| ' + b1 + ' |'), `в журнале README есть строка этого выпуска (${b1})`);
-ok(cache === 'sega-static-v101', `кэш оформления поднят (${cache}) — устройства сами получат новый клиент`);
+ok(cache !== 'sega-static-v101' && /^sega-static-v\d+$/.test(cache),
+  `кэш оформления поднят (${cache}) — устройства сами получат новый клиент`);
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
 process.exit(bad ? 1 : 0);
