@@ -76,11 +76,11 @@ ok(/function musVizState\(\)/.test(app), 'есть расчёт состояни
 ok(/const has = !!a && !!MUS\.list\[MUS\.idx\] && !MUS\.widget && !a\.ended && \(a\.currentTime > 0 \|\| !a\.paused\);/.test(app),
   '«есть что показывать» = трек выбран, не кончился, и либо играет, либо остановлен посреди');
 ok(/if \(!has\) return 'off';/.test(app) && /return \(!a\.paused && !S\.eco\) \? 'on' : 'still';/.test(app), 'три состояния: пусто / движется / стоп-кадр');
-ok(/box\.innerHTML = st === 'on' \? MUS_VIZ_ANIM\s*: st === 'still' \? '<img class="mus-eq-still" src="img\/music-eq-still\.png" alt="">'\s*: '';/.test(app),
+ok(/box\.innerHTML = st === 'on' \? MUS_VIZ_ANIM\s*: st === 'still' \? '<img class="mus-eq-still" src="img\/music-eq-pause\.png" alt="">'\s*: '';/.test(app),
   'играет — анимация, пауза — стоп-кадр, иначе — пусто');
 ok(!/music-eq\.webp/.test(app) && /<img src="img\/music-eq\.gif"/.test(app), 'полоса — GIF владельца (pkg3-114)');
 ok(/try \{ a\.currentTime = 0; \} catch \(e\)[^\n]*крестик = стоп/.test(app), 'крестик = стоп: позиция сбрасывается, полоса гаснет');
-for (const [f, max] of [['music-eq.gif', 200], ['music-eq-still.png', 30]]) {
+for (const [f, max] of [['music-eq.gif', 200], ['music-eq-pause.png', 30]]) {
   const sz = size(join(PUB, 'img', f));
   ok(sz > 500 && sz < max * 1024, `${f} на месте и не тяжелее ${max} КБ (${Math.round(sz / 1024)} КБ)`);
 }

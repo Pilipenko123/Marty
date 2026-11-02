@@ -92,7 +92,7 @@ ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:contain/.test(css.replac
 // (pkg3-112: переехала из квадрата рядом с обложкой в узкую полосу под ней)
 console.log('\n  4. Живая картинка: движется, пока играет музыка');
 const gif = join(PUB, 'img', 'music-eq.gif');
-const still = join(PUB, 'img', 'music-eq-still.png');
+const still = join(PUB, 'img', 'music-eq-pause.png');
 ok(existsSync(gif) && existsSync(still), 'картинки на месте: gif-анимация и неподвижный кадр (pkg3-114: WebP для чёрно-белых столбиков вышел тяжелее GIF — убран)');
 ok(size(gif) > 1000 && size(gif) < 400 * 1024, `gif не тяжелее 400 КБ (${Math.round(size(gif) / 1024)} КБ)`);
 ok(size(still) > 1000 && size(still) < 60 * 1024, `неподвижный кадр лёгкий (${Math.round(size(still) / 1024)} КБ)`);

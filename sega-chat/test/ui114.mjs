@@ -76,7 +76,7 @@ const g = existsSync(gif) ? readFileSync(gif) : Buffer.alloc(10);
 ok(g.readUInt16LE(6) === 560 && g.readUInt16LE(8) === 80, `габариты прежние 560×80 (${g.readUInt16LE(6)}×${g.readUInt16LE(8)})`);
 ok(g.length > 20 * 1024 && g.length < 200 * 1024, `вес ${Math.round(g.length / 1024)} КБ`);
 ok(/const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'\s*\+ '<img src="img\/music-eq\.gif" alt=""><\/picture>';/.test(app), 'в плеер вставляется именно она');
-const still = join(PUB, 'img', 'music-eq-still.png');
+const still = join(PUB, 'img', 'music-eq-pause.png');
 ok(existsSync(still) && statSync(still).size < 30 * 1024, 'стоп-кадр обновлён и лёгкий');
 
 console.log('\n  5. ПК: яркая обводка окна');

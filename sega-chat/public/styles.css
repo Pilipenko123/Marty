@@ -1794,6 +1794,10 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-tr.cur{background:var(--accent-soft);outline:1px solid var(--accent-2)}
 .mus-v105 .mus-pbtn{width:26px;height:26px;flex:none;border-radius:7px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;cursor:pointer}
 .mus-v105 .mus-tr.cur .mus-pbtn{border-color:var(--accent-2);color:var(--accent-2)}
+/* pkg3-115: маленькая обложка у ▶ (своя или с сайта), без неё — значок ♪ */
+.mus-v105 .mus-thumb{flex:none;width:26px;height:26px;border-radius:6px;overflow:hidden;background:var(--panel-2);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--accent-2)}
+.mus-v105 .mus-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .mus-v105 .mus-ti{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;white-space:nowrap;-webkit-text-size-adjust:100%;text-size-adjust:100%}   /* pkg3-113: iPhone не раздувает шрифт длинных названий */
 .mus-v105 .mus-rowb{flex:none;width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;font-size:11px}
 .mus-v105 .mus-rowb.danger{border-color:var(--red);color:var(--red)}
