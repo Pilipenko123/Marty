@@ -126,7 +126,7 @@ const css = readFileSync(path.join(ROOT, 'public', 'styles.css'), 'utf8');
 ok(indexHtml.includes('data-plus="music"') && appJs.includes("act === 'music'"),
   'в меню «+» — плашка «Моя музыка» (pkg3-87: прямо в первом меню)');
 ok(!appJs.includes('data-ng-music'), 'из списка игр музыка ушла (не игра)');
-ok(appJs.includes('function musicPlay(pl, idx)') && appJs.includes('id="mus-seek"') && appJs.includes('id="mus-vol"'),
+ok(appJs.includes('function musicPlay(pl, idx') && appJs.includes('id="mus-seek"') && appJs.includes('id="mus-vol"'),
   'плеер: играть/пауза, следующий/предыдущий, перемотка и громкость');
 ok(appJs.includes('function musicProbe(url)') && appJs.includes('setTimeout(() => res(false), 6000)'),
   'проба ссылки: 6 секунд на отклик файла, иначе честное предупреждение про страницу');
