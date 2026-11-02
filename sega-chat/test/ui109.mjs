@@ -64,11 +64,12 @@ ok(/md\.classList\.add\(opts\.cls\)/.test(app) && /md\.classList\.remove\('mus-m
 ok(/\{ cls: 'mus-modal' \}\)/.test(app), 'окно «Моя музыка» открывается с этой пометкой');
 ok(/#modal\.mus-modal \.modal-box\{[^}]*height:100dvh/s.test(css), 'на телефоне окно музыки занимает весь экран');
 ok(/#modal\.mus-modal \.modal-body\{[^}]*overflow:hidden/s.test(css), 'внутри окна прокручивается только список, а не всё окно');
-ok(/#modal\.mus-modal \.mus-wrap\.mus-v105\{[^}]*display:flex;flex-direction:column/s.test(css),
-  'окно раскладывается колонкой: обложка → список → кнопки');
-ok(/#modal\.mus-modal \.mus-list\{flex:1 1 auto/s.test(css), 'список треков занимает всё свободное место');
+ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*grid-template-rows:auto auto auto auto auto minmax\(0,1fr\)/s.test(css),
+  'окно разложено сеткой: обложка → список → кнопки, список забирает остаток');
+ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*display:grid/s.test(css), 'плеер разложен сеткой: строка списка забирает остаток высоты');
+ok(/#modal\.mus-modal \.mus-list\{[^}]*min-height:0/s.test(css), 'список треков занимает всё свободное место (и может ужаться)');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*overflow-y:auto/s.test(css), 'длинный список прокручивается внутри себя');
-ok(/#modal\.mus-modal \.mus-playbig\{width:62px/.test(css) && /#modal\.mus-modal \.mus-three\{[^}]*margin/s.test(css),
+ok(/#modal\.mus-modal \.mus-playbig\{width:(60|62)px/.test(css) && /#modal\.mus-modal \.mus-skip\{width:44px/.test(css),
   'кнопки ▶/❚❚ и перемотка остаются на виду и стали удобнее для пальца');
 ok(!/^\s*\.modal-box\{[^}]*height:100dvh/m.test(css), 'прочие окна (настройки, приглашения) не тронуты');
 

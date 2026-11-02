@@ -51,7 +51,7 @@ ok(appJs.includes('mb.addEventListener(\'click\', () => musMinimize());'), 'шт
 
 console.log('\n  4. Инварианты выпуска');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v102';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v103';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music94.mjs'), 'тест music94 включён в цепочку npm test');
 ok(readme.includes('| pkg3-94 |'), 'в журнале README есть строка выпуска pkg3-94');
 const deps = JSON.parse(pkg).dependencies;
