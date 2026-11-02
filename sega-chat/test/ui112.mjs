@@ -40,11 +40,11 @@ ok(/\.mus-v105 \.mus-list \.mus-trs\{max-height:none;min-height:0;overflow:visib
 ok(/\.mus-v105 \.mus-list\{max-height:200px;overflow-y:auto/.test(css), 'рамка списка прокручивается как прежде');
 
 console.log('\n  2. Телефон: список обведён, полоса прокрутки постоянная');
-ok(/#modal\.mus-modal \.mus-list\{border:1px solid #3a3a46;[^}]*border-radius:12px;overflow-y:auto/.test(mob),
-  'рамка с закруглением, список прокручивается внутри');
+ok(/#modal\.mus-modal \.mus-list\{[^}]*border-radius:12px;overflow-y:auto/.test(mob) && /\.mus-v105 \.mus-list\{[^}]*border:1px solid var\(--line\)/.test(css),
+  'рамка с закруглением (как на ПК), список прокручивается внутри');
 ok(/#modal\.mus-modal \.mus-sbar\{display:block;flex:0 0 6px/.test(mob) && /function musSbarSync\(\)/.test(app), 'постоянная полоса прокрутки — своя, рядом со списком (pkg3-113: родную iPhone прячет)');
-ok(/#modal\.mus-modal \.mus-list::-webkit-scrollbar\{display:none/.test(mob) && /#modal\.mus-modal \.mus-sbar i\{[^}]*background:#8a8a9c/.test(mob),
-  'родная полоса спрятана, бегунок своей — светлый и заметный');
+ok(/#modal\.mus-modal \.mus-list::-webkit-scrollbar\{display:none/.test(mob) && /#modal\.mus-modal \.mus-sbar i\{[^}]*background:var\(--accent-2\)/.test(mob),
+  'родная полоса спрятана, бегунок своей — акцентного цвета, заметный');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*flex:1 1 0/.test(mob) || /#modal\.mus-modal \.mus-list\{flex:1 1 0/.test(mob), 'список по-прежнему забирает остаток высоты');
 
 console.log('\n  3. Телефон: окно не ложится набок');
@@ -78,9 +78,9 @@ ok(/const has = !!a && !!MUS\.list\[MUS\.idx\] && !MUS\.widget && !a\.ended && \
 ok(/if \(!has\) return 'off';/.test(app) && /return \(!a\.paused && !S\.eco\) \? 'on' : 'still';/.test(app), 'три состояния: пусто / движется / стоп-кадр');
 ok(/box\.innerHTML = st === 'on' \? MUS_VIZ_ANIM\s*: st === 'still' \? '<img class="mus-eq-still" src="img\/music-eq-still\.png" alt="">'\s*: '';/.test(app),
   'играет — анимация, пауза — стоп-кадр, иначе — пусто');
-ok(/<source srcset="img\/music-eq\.webp" type="image\/webp">/.test(app) && /<img src="img\/music-eq\.gif"/.test(app), 'лёгкий WebP, запасной GIF');
+ok(!/music-eq\.webp/.test(app) && /<img src="img\/music-eq\.gif"/.test(app), 'полоса — GIF владельца (pkg3-114)');
 ok(/try \{ a\.currentTime = 0; \} catch \(e\)[^\n]*крестик = стоп/.test(app), 'крестик = стоп: позиция сбрасывается, полоса гаснет');
-for (const [f, max] of [['music-eq.gif', 200], ['music-eq.webp', 120], ['music-eq-still.png', 30]]) {
+for (const [f, max] of [['music-eq.gif', 200], ['music-eq-still.png', 30]]) {
   const sz = size(join(PUB, 'img', f));
   ok(sz > 500 && sz < max * 1024, `${f} на месте и не тяжелее ${max} КБ (${Math.round(sz / 1024)} КБ)`);
 }

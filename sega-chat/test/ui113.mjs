@@ -54,10 +54,10 @@ ok(/const need = sh > ch \+ 2;\s+bar\.classList\.toggle\('none', !need\);/.test(
 ok(/const h = Math\.max\(24, Math\.round\(th \* ch \/ sh\)\);/.test(app) && /const top = Math\.round\(\(th - h\) \* \(list\.scrollTop \/ \(sh - ch\)\)\);/.test(app),
   'высота и положение бегунка — из прокрутки списка, не короче 24px');
 ok(/list0\.addEventListener\('scroll', musSbarSync, \{ passive: true \}\)/.test(app), 'бегунок едет при прокрутке');
-ok(/musSbarSync\(\);\s+\/\/ pkg3-113: бегунок своей полосы прокрутки/.test(app), 'и пересчитывается на тике звука (список перерисовывается при поиске/смене плейлиста)');
-ok(/window\.addEventListener\('resize', \(\) => \{ if \(S\.musOpen\) musSbarSync\(\); \}\);/.test(app), 'и при повороте/смене размера');
-ok(/#modal\.mus-modal \.mus-sbar\{display:block;flex:0 0 6px;width:6px;border-radius:3px;background:#1f1f26/.test(mob), 'дорожка 6px всегда видна');
-ok(/#modal\.mus-modal \.mus-sbar i\{[^}]*background:#8a8a9c;min-height:24px\}/.test(mob), 'бегунок светлый');
+ok(/musFitList\(\);\s+\/\/ pkg3-114: высота списка числом \(телефон\)/.test(app) && /lw\.style\.height = h \+ 'px'[^\n]*\n[\s\S]{0,200}musSbarSync\(\);/.test(app), 'и пересчитывается на тике звука вместе с высотой списка (pkg3-114)');
+ok(/window\.addEventListener\('resize', \(\) => \{ if \(S\.musOpen\) musFitList\(\); \}\);/.test(app), 'и при повороте/смене размера (через пересчёт высоты, pkg3-114)');
+ok(/#modal\.mus-modal \.mus-sbar\{display:block;flex:0 0 6px;width:6px;border-radius:3px;background:var\(--panel-2\);border:1px solid var\(--line\)/.test(mob), 'дорожка 6px всегда видна (цвета как на ПК)');
+ok(/#modal\.mus-modal \.mus-sbar i\{[^}]*background:var\(--accent-2\);min-height:24px\}/.test(mob), 'бегунок акцентного цвета');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*scrollbar-width:none/.test(mob) && /#modal\.mus-modal \.mus-list::-webkit-scrollbar\{display:none/.test(mob), 'родная полоса спрятана — двух полос не будет');
 ok(/\.mus-v105 \.mus-sbar\{display:none\}/.test(css), 'на ПК своя полоса не показывается — там родная');
 
@@ -76,8 +76,8 @@ const left = rule('.mus-v105 .mus-cov-left', css);
 ok(/padding:10px/.test(left) && !/border-right/.test(left) && !/background:#120b1e/.test(left), 'слева нет перегородки и своего фона, есть поля вокруг картинки');
 ok(/\.mus-v105 \.mus-cov-left img,\.mus-v105 \.mus-cov-left svg\{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain/.test(css),
   'картинка вписана целиком без обрезки');
-ok(/#modal\.mus-modal \.mus-coverbox\{border:1px solid #3a3a46;border-radius:14px;background:#000\}/.test(mob) && !/#modal\.mus-modal \.mus-cov-left\{border-right/.test(mob),
-  'на телефоне — та же единая рамка на чёрном');
+ok(/#modal\.mus-modal \.mus-coverbox\{border-radius:14px;background:#000\}/.test(mob) && !/#modal\.mus-modal \.mus-cov-left\{border-right/.test(mob),
+  'на телефоне — та же единая рамка (цвет как на ПК) на чёрном');
 ok(/if \(!covBox\.querySelector\('\.mus-cov-def'\) \|\| !covOvl\) return;/.test(app), 'выбор обложки открывается касанием по всей левой части (не только по картинке)');
 
 console.log('\n  5. iPhone не раздувает шрифт длинных названий');

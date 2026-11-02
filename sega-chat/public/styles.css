@@ -1819,6 +1819,10 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-plsrow .mus-plsopen{flex:1 1 auto;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mus-v105 .mus-listhead{font-size:12px;color:var(--accent-2);margin:2px 4px 6px}
 
+/* pkg3-114: на ПК у окна «Моя музыка» чёткая яркая обводка */
+#modal.mus-modal .modal-box{border:2px solid var(--accent-2);box-shadow:0 0 0 1px rgba(0,0,0,.25),0 0 22px rgba(47,198,246,.45),0 30px 70px rgba(5,25,40,.4)}
+.mus-v105 .mus-tm-del{border-color:var(--red);color:var(--red)}   /* pkg3-114: «убрать из плейлиста» в меню карандаша */
+
 /* ═══ pkg3-109/110: ТЕЛЕФОН — «Моя музыка» как настоящий плеер ═══
    Дефект 109-го: контейнер окна оставался «резиновым» (.mus-wrap наследовал
    flex-wrap:wrap), поэтому на телефоне содержимое не влезало по высоте и
@@ -1873,30 +1877,26 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
   /* pkg3-111: окно музыки на телефоне — чёрный плеер до краёв экрана, без
      рамок и подложек (любая гамма: светлая, тёмная, синт) */
   #modal.mus-modal{background:#000}
-  #modal.mus-modal .modal-box{background:#000;border:0;color:#f2f2f2}
+  #modal.mus-modal .modal-box{background:#000;border:0;box-shadow:none;color:#f2f2f2}
   #modal.mus-modal .modal-head{background:#000;border-bottom:0}
   #modal.mus-modal .modal-head h3{color:#fff}
   #modal.mus-modal .modal-body{background:#000}
-  #modal.mus-modal .muted,#modal.mus-modal .tiny.muted{color:#9a9aa6}
-  #modal.mus-modal .mus-srow input{background:#141418;border:1px solid #2a2a32;color:#f2f2f2;border-radius:12px;padding:9px 12px}
-  #modal.mus-modal .mus-srow input::placeholder{color:#7d7d8a}
-  #modal.mus-modal .mini{background:#17171c;color:#e8e8ee;border-color:#2e2e38}
-  #modal.mus-modal .mini.primary{background:var(--accent);color:#fff;border-color:transparent}
-  #modal.mus-modal .mus-coverbox{border:1px solid #3a3a46;border-radius:14px;background:#000}
+  /* pkg3-114: кнопки, поля, список и рамки — ровно те же, что на ПК (свои
+     «телефонные» перекраски убраны); чёрный только сам фон окна и поля вокруг */
+  #modal.mus-modal .mus-srow input{border-radius:12px;padding:9px 12px}
+  #modal.mus-modal .mus-coverbox{border-radius:14px;background:#000}
   /* pkg3-112: список обведён и с постоянной полосой прокрутки */
-  #modal.mus-modal .mus-list{border:1px solid #3a3a46;background:#000;padding:4px;border-radius:12px;overflow-y:auto;
+  #modal.mus-modal .mus-list{background:#000;padding:4px;border-radius:12px;overflow-y:auto;
     scrollbar-width:none;-webkit-overflow-scrolling:touch}
   #modal.mus-modal .mus-list::-webkit-scrollbar{display:none;width:0;height:0}
-  #modal.mus-modal .mus-sbar{display:block;flex:0 0 6px;width:6px;border-radius:3px;background:#1f1f26;position:relative;overflow:hidden}
-  #modal.mus-modal .mus-sbar i{position:absolute;left:0;right:0;top:0;height:30%;border-radius:3px;background:#8a8a9c;min-height:24px}
+  #modal.mus-modal .mus-sbar{display:block;flex:0 0 6px;width:6px;border-radius:3px;background:var(--panel-2);border:1px solid var(--line);box-sizing:border-box;position:relative;overflow:hidden}
+  #modal.mus-modal .mus-sbar i{position:absolute;left:0;right:0;top:0;height:30%;border-radius:3px;background:var(--accent-2);min-height:24px}
   #modal.mus-modal .mus-sbar.none i{display:none}
-  #modal.mus-modal .mus-eq{height:36px;margin:0;border-color:#3a3a46}
+  #modal.mus-modal .mus-eq{height:36px;margin:0}
   #modal.mus-modal .mus-nowt{font-size:13px}
   #modal.mus-modal .mus-tr{padding:7px 6px}
-  #modal.mus-modal .mus-tr.cur{background:rgba(255,255,255,.08);outline:0}
-  #modal.mus-modal .mus-rowb{border-color:#2e2e38;color:#9a9aa6;background:transparent}
   #modal.mus-modal .mus-foot{border-top:1px solid var(--line);padding-top:10px;gap:10px}
-  #modal.mus-modal .mus-mwin{background:#101014;border-color:#2e2e38;color:#f2f2f2}
+  #modal.mus-modal .mus-mwin{color:#f2f2f2}
   /* меню «+»: список чатов под ним приглушается — сразу видно, что меню открыто */
   #plus-scrim{display:block;position:absolute;inset:0;z-index:1;background:rgba(8,20,28,.42);
     opacity:0;pointer-events:none;transition:opacity .16s ease}

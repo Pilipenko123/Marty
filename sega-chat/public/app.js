@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-113';
+const BUILD = 'pkg3-114';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5268,8 +5268,7 @@ async function ydConnect() {
  *  браузер не умеет ни того, ни другого — остаётся неподвижный кадр.
  *  В «эконом-режиме» (S.eco) движение выключено совсем. */
 const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'
-  + '<source srcset="img/music-eq.webp" type="image/webp">'
-  + '<img src="img/music-eq.gif" alt=""></picture>';
+  + '<img src="img/music-eq.gif" alt=""></picture>';   // pkg3-114: белые столбики владельца; GIF 111 КБ (WebP вышел тяжелее)
 /** pkg3-112: полоса-эквалайзер между обложкой и перемоткой. Три состояния:
  *  «on» — играет (живая картинка), «still» — пауза посреди трека (стоп-кадр),
  *  «off» — трек не запущен / стоп / кончился (пустая рамка). В эконом-режиме
@@ -5327,6 +5326,58 @@ function musicNowUi() {
 /** pkg3-111: бегущая строка названия ходит ТУДА-ОБРАТНО и не показывает
  * пустоту: меряем, на сколько название шире своей ячейки, и отдаём это число
  * оформлению (--mq-shift). Влезает целиком — стоит на месте. */
+/** pkg3-114: убрать трек из плейлиста (из меню карандаша; раньше — крестик в строке). */
+async function musTrackRemove(pl, i) {
+  if (!pl || !pl.tracks || !pl.tracks[i]) return;
+  if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
+  // pkg3-88: если убирают виджет, который звучит прямо сейчас, — гасим панель,
+  // иначе чужой плеер продолжал бы играть «без хозяина»
+  const gone = pl.tracks[i];
+  if (musicIsWidget(gone) && MUS.widget && MUS.widget.id === gone.id) musWidgetStop();
+  pl.tracks.splice(i, 1);
+  await musicSave(); openMusic(pl.id);
+}
+/** pkg3-114: высота плеера на телефоне считается ЧИСЛОМ, а не оформлением:
+ * iPhone дважды не дал колонке узнать свою высоту (113-й), и список выталкивал
+ * кнопки за экран. Теперь: окно = видимая высота экрана, тело = окно минус шапка,
+ * список = тело минус все остальные блоки. Пересчёт при открытии, повороте,
+ * смене размера и на тике звука. На ПК не вмешиваемся. */
+function musFitList() {
+  const md = document.getElementById('modal');
+  if (!md || !md.classList.contains('mus-modal') || md.classList.contains('hidden')) return;
+  const box = md.querySelector('.modal-box'), head = md.querySelector('.modal-head');
+  if (!window.matchMedia('(max-width:900px)').matches) {   // ПК: оформление справляется само
+    if (box) box.style.height = '';
+    return;
+  }
+  const body = document.getElementById('modal-body');
+  const wrap = body && body.querySelector('.mus-wrap');
+  const lw = wrap && wrap.querySelector('.mus-listwrap');
+  if (!box || !head || !body || !wrap || !lw) return;
+  const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  const land = document.documentElement.getAttribute('data-land');
+  const boxH = land ? window.innerWidth : vh;   // окно развёрнуто «стоймя» при повороте
+  box.style.height = boxH + 'px';
+  const bodyH = boxH - head.offsetHeight;
+  body.style.height = bodyH + 'px'; body.style.flex = 'none';
+  const cs = getComputedStyle(body);
+  const inner = bodyH - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+  wrap.style.height = inner + 'px'; wrap.style.flex = 'none';
+  const gap = parseFloat(getComputedStyle(wrap).rowGap || getComputedStyle(wrap).gap) || 4;
+  let others = 0, n = 0;
+  for (const el of wrap.children) {
+    if (el === lw) { n++; continue; }
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.position === 'fixed') continue;
+    others += el.offsetHeight + (parseFloat(st.marginTop) || 0) + (parseFloat(st.marginBottom) || 0);
+    n++;
+  }
+  const h = Math.max(72, Math.floor(inner - others - gap * Math.max(0, n - 1)));
+  lw.style.height = h + 'px'; lw.style.flex = 'none'; lw.style.minHeight = '0';
+  const list = lw.querySelector('.mus-list');
+  if (list) { list.style.height = h + 'px'; list.style.maxHeight = h + 'px'; }
+  musSbarSync();
+}
 /** pkg3-113: своя полоса прокрутки списка на телефоне: iPhone родную прячет,
  * а владелец просил постоянную. Высота и положение бегунка — из прокрутки списка. */
 function musSbarSync() {
@@ -5371,7 +5422,7 @@ function musicTickUi() {
   // на паузе строка замирает и значок возвращается к ▶.
   const tog2 = document.getElementById('mus-toggle');
   if (tog2 && !MUS.widget) tog2.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';
-  musSbarSync();                      // pkg3-113: бегунок своей полосы прокрутки
+  musFitList();                       // pkg3-114: высота списка числом (телефон)
   const rowsBox = document.querySelector('#modal .mus-trs[data-pl]');
   if (rowsBox) {
     const rpl = rowsBox.getAttribute('data-pl');
@@ -5718,8 +5769,7 @@ async function openMusic(wantId) {
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
             <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
-            <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка">✎</button>
-            <button class="mus-rowb danger" data-mus-del="${i}" title="Убрать трек">✕</button>
+            <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>
           </div>`;
         }).join('') || '<div class="tiny muted">В плейлисте пока нет треков — добавьте первый через «⋯» → «Умная вставка».</div>'}</div>`
         : '<div class="tiny muted">Создайте первый плейлист кнопкой «Плейлисты ▾» — в нём будут треки-ссылки на файлы.</div>';
@@ -5804,6 +5854,7 @@ async function openMusic(wantId) {
   musicNowUi(); musicTickUi(); musVizSync();
   const list0 = $('#mus-list');
   if (list0) { list0.addEventListener('scroll', musSbarSync, { passive: true }); setTimeout(musSbarSync, 0); }
+  musFitList(); setTimeout(musFitList, 50); setTimeout(musFitList, 350);   // pkg3-114: сразу, после раскладки и после анимации появления
   const vol0 = $('#mus-vol');
   if (vol0) vol0.value = String(Math.round(musicAudio().volume * 100));
   // pkg3-105: три оверлея («⋯», «Плейлисты ▾», меню трека) — открыть/закрыть
@@ -5900,6 +5951,7 @@ async function openMusic(wantId) {
       + '<div class="mus-sec"><button class="mini" data-tm="ren">✎ название и ссылка</button> '
       + '<button class="mini" data-tm="cov">🖼 прикрепить обложку</button> '
       + (t.cover ? '<button class="mini" data-tm="uncov">убрать ручную обложку</button> ' : '')
+      + '<button class="mini mus-tm-del" data-tm="del">✕ убрать из плейлиста</button> '   // pkg3-114: крестик из строки переехал сюда
       + '<button class="mini" data-tm="close">Закрыть</button></div>';
     trOvl.classList.add('show');
     menu.onclick = async e => {
@@ -5907,6 +5959,7 @@ async function openMusic(wantId) {
       if (!bb) return;
       const act = bb.getAttribute('data-tm');
       if (act === 'close') { trOvl.classList.remove('show'); return; }
+      if (act === 'del') { trOvl.classList.remove('show'); await musTrackRemove(pl, i); return; }
       if (act === 'cov') {
         const fi = $('#mus-cov-file');
         if (!fi) return;
@@ -5947,17 +6000,6 @@ async function openMusic(wantId) {
       t.title = title.trim() || t.title || t.url;
       await musicSave(); openMusic(pl.id);
     };
-  });
-  for (const b of $$('#modal [data-mus-del]')) b.addEventListener('click', async () => {
-    if (!pl) return;
-    const i = Number(b.getAttribute('data-mus-del'));
-    if (!confirm('Убрать трек «' + (pl.tracks[i].title || pl.tracks[i].url) + '» из плейлиста?')) return;
-    // pkg3-88: если убирают виджет, который звучит прямо сейчас, — гасим панель,
-    // иначе чужой плеер продолжал бы играть «без хозяина»
-    const gone = pl.tracks[i];
-    if (musicIsWidget(gone) && MUS.widget && MUS.widget.id === gone.id) musWidgetStop();
-    pl.tracks.splice(i, 1);
-    await musicSave(); openMusic(pl.id);
   });
   const addTr = $('#mus-add-tr');
   if (addTr) addTr.addEventListener('click', async () => {
@@ -9022,7 +9064,9 @@ document.addEventListener('mousedown', e => {
   if (!e.target.closest('#emoji-pop,.emoji-btn')) closeEmoji();
 });
 window.addEventListener('resize', closeEmoji);
-window.addEventListener('resize', () => { if (S.musOpen) musSbarSync(); });   // pkg3-113
+window.addEventListener('resize', () => { if (S.musOpen) musFitList(); });   // pkg3-113/114
+window.addEventListener('orientationchange', () => { if (S.musOpen) { setTimeout(musFitList, 60); setTimeout(musFitList, 400); } });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { if (S.musOpen) musFitList(); });
 
 $('#notify-sound').addEventListener('change', async e => {
   S.notify.sound = e.target.checked;
@@ -9608,6 +9652,10 @@ function modal(title, html, opts) {
   const md = $('#modal');
   md.classList.remove('mus-modal');
   if (opts && opts.cls) md.classList.add(opts.cls);
+  // pkg3-114: высоты, посчитанные числом для плеера на телефоне, другим окнам не нужны
+  const bx = md.querySelector('.modal-box'), bd = md.querySelector('.modal-body');
+  if (bx) bx.style.height = '';
+  if (bd) { bd.style.height = ''; bd.style.flex = ''; }
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = html;
   paintIcons($('#modal'));
