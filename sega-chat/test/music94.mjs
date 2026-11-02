@@ -1,6 +1,7 @@
 // test/music94.mjs — pkg3-94: пузырёк честно исчезает при развороте, крестик
 // закрывает ВСЁ (окно, пузырёк, музыку, статус), «Свернуть» — шторка-язычок.
 // Набор меток клиента/стилей (сервер выпуска не менялся).
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,8 +50,8 @@ ok(appJs.includes('if (mb) mb.remove();'), 'у прочих модалок шт�
 ok(appJs.includes('mb.addEventListener(\'click\', () => musMinimize());'), 'шторка сворачивает окно в пузырёк перелётом');
 
 console.log('\n  4. Инварианты выпуска');
-ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music94.mjs'), 'тест music94 включён в цепочку npm test');
 ok(readme.includes('| pkg3-94 |'), 'в журнале README есть строка выпуска pkg3-94');
 const deps = JSON.parse(pkg).dependencies;

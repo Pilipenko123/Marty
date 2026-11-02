@@ -17,11 +17,12 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
 const mussearch = require('./mussearch.js');   // pkg3-97: поиск треков с прямыми ссылками по выбранным сайтам
 const musstream = require('./musstream.js');   // pkg3-101: запасной путь звука — поток через сервер
+const emoji = require('./emoji.js');         // pkg3-108: смайлы отдаёт наш сервер (копия в памяти)
 
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-105';
+const BUILD = 'pkg3-108';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1392,6 +1393,33 @@ function createApi(store, opts = {}) {
       db.sessions[token] = { uid: user.id, exp: Date.now() + SESSION_TTL };
       save();
       return J(200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
+    }
+
+    // pkg3-108: СМАЙЛЫ ЧЕРЕЗ НАШ СЕРВЕР. Картинка смайла — обычный <img>, и
+    // заголовок входа он приложить не умеет; поэтому маршрут живёт в открытой
+    // зоне и отдаёт ТОЛЬКО файлы смайлов по строгому образцу кода (см.
+    // lib/emoji.js). Копия держится в памяти сервера: устройство просит смайл
+    // у нас, а не у чужого CDN, который в чужой сети может быть закрыт.
+    // Дроссель мягкий: первый показ пачки смайлов — это десятки картинок.
+    if (pathname.startsWith('/api/emoji/') && method === 'GET') {
+      const name = pathname.slice('/api/emoji/'.length);
+      const m = /^([0-9a-f-]+)\.svg$/.exec(name);
+      if (!m || !emoji.isValidCode(m[1])) return E(404, 'Нет такого смайла');
+      if (throttle('emoji:' + ip, 600)) return E(429, 'Слишком много запросов — смайлы подождут минуту');
+      try {
+        const got = await emoji.get(m[1]);
+        return {
+          status: 200,
+          headers: {
+            'Content-Type': got.type,
+            // Смайл — вечный файл: браузер и служебный воркер держат его у себя.
+            'Cache-Control': 'public, max-age=31536000, immutable'
+          },
+          body: got.buf
+        };
+      } catch (e) {
+        return E(404, e.code === 'bad' ? 'Нет такого смайла' : 'Смайл не получен — покажем системный значок');
+      }
     }
 
     // pkg3-102: ЗАПАСНОЙ ПУТЬ ЗВУКА ДЛЯ ПЛЕЕРА: встроенный плеер (<audio>) не

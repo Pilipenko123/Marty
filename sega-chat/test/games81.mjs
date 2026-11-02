@@ -14,6 +14,7 @@
  *     просыпается после сна, цифры настроек контрастные, карта не выделяется.
  * Запуск: node test/games81.mjs
  */
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -74,7 +75,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
+ok(r.status === 200 && r.d.build === BUILD, 'сервер помечен текущим выпуском ' + BUILD);
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');
@@ -262,9 +263,9 @@ ok(apiJs.includes('const watchNow = new Map();') && apiJs.includes('function isW
 ok(apiJs.includes('if (skipWatchers && isWatchingGame(u.id, chat.id)) continue;'),
   'пункт 11: notifyPush пропускает смотрящих');
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"),
-  'BUILD pkg3-105 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"),
+  'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93');
 ok(gs.includes("version: 'pkg3-85'"), 'звуковой движок помечен pkg3-85');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');

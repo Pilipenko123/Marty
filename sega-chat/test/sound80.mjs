@@ -10,6 +10,7 @@
  *     «Золотая лихорадка» вместо «Монет», тишина в открытом чате.
  * Запуск: node test/sound80.mjs
  */
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -207,9 +208,9 @@ ok(appJs.includes('data-ng-rules="${r}"') && appJs.includes("gameIconImg(r, 'gim
 ok(apiJs.includes('«Сталкер»: есть новости забега'), 'pkg3-83: пуш сервера говорит «Сталкер»');
 
 // инварианты выпуска
-ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"),
-  'BUILD pkg3-105 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"),
+  'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');

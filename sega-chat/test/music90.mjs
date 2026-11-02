@@ -17,6 +17,7 @@
  *
  * Запуск: node test/music90.mjs
  */
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -174,7 +175,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
+ok(r.status === 200 && r.d.build === BUILD, 'сервер помечен текущим выпуском ' + BUILD);
 const secret = hex(24);
 const sha = crypto.createHash('sha256').update(secret).digest('hex');
 const ir = await call('/api/invites', { method: 'POST', body: { invSalt: hex(), wrappedRoomKey: 'k:' + hex(), secretHash: sha } }, admin);
@@ -294,14 +295,14 @@ const dom42 = read('test/dom42.mjs');
 const sound80 = read('test/sound80.mjs');
 const games81 = read('test/games81.mjs');
 
-ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
+ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 const yadiskJs = read('lib/yadisk.js');
 ok(!/fields:/.test(yadiskJs) && yadiskJs.includes('pkg3-91'), 'pkg3-91: запрос списка Диска идёт без параметра fields');
 ok(yadiskJs.includes('Яндекс.Диск ответил 200, но без списка'), 'pkg3-91: человеческий текст для «200 без списка»');
 const filesCalls = calls.filter(c => c.t === 'files');
 ok(filesCalls.length > 0 && filesCalls.every(c => c.fields === null), 'pkg3-91: ни один список не запрошен с fields (игрушечный Яндекс это наказывает)');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
-ok(dom42.includes('sega-static-v98') && sound80.includes('sega-static-v98') && games81.includes('sega-static-v98'), 'три набора тестов ждут именно v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93');
+ok(dom42.includes('sega-static-v101') && sound80.includes('sega-static-v101') && games81.includes('sega-static-v101'), 'три набора тестов ждут именно v93');
 for (const s of ['MUS_DISK', 'musicIsDisk', 'musicStartDiskTrack', '/api/yadisk/files', '/api/yadisk/href', '/api/yadisk/state', 'data-mus-disk-play', 'data-mus-disk-add', 'data-mus-pl="yadisk"', '☁ Яндекс.Диск']) {
   ok(appJs.includes(s), 'клиент содержит «' + s + '»');
 }

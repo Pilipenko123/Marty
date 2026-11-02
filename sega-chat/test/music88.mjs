@@ -13,6 +13,7 @@
  *     личные списки остаются шифротекстом: слепота не нарушена.
  * Запуск: node test/music88.mjs
  */
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -158,7 +159,7 @@ r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({}, cre
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
+ok(r.status === 200 && r.d.build === BUILD, 'сервер помечен текущим выпуском ' + BUILD);
 
 const widgetTrack = {
   id: 't-w1', kind: 'widget', what: 'track',
@@ -218,7 +219,7 @@ ok(appJs.includes('id="mus-add-hint"') && appJs.includes('Код плеера Я
   'поле добавления подсказывает, что можно вставить');
 ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
   'панель, значок и виджет-режим плеера оформлены в стилях');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93 — друзья получат новый клиент');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93 — друзья получат новый клиент');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 ok(pkg.scripts.test.includes('test/music88.mjs'), 'тест pkg3-88 включён в общую цепочку проверки');
 
