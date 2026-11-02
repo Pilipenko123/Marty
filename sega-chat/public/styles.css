@@ -1823,6 +1823,10 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-plsrow .mus-plsopen{flex:1 1 auto;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mus-v105 .mus-listhead{font-size:12px;color:var(--accent-2);margin:2px 4px 6px}
 
+/* pkg3-116: пока окно «Моя музыка» открыто, страница не прокручивается —
+   иначе клавиатура телефона «тянет» документ и окно уезжает вниз. */
+html.mus-lock,html.mus-lock body{overflow:hidden;height:100%;overscroll-behavior:none}
+
 /* pkg3-114: на ПК у окна «Моя музыка» чёткая яркая обводка */
 #modal.mus-modal .modal-box{border:2px solid var(--accent-2);box-shadow:0 0 0 1px rgba(0,0,0,.25),0 0 22px rgba(47,198,246,.45),0 30px 70px rgba(5,25,40,.4)}
 .mus-v105 .mus-tm-del{border-color:var(--red);color:var(--red)}   /* pkg3-114: «убрать из плейлиста» в меню карандаша */
@@ -1836,7 +1840,11 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
    в строке «minmax(0,1fr)» и прокручивается внутри себя, а обложка, перемотка,
    три кнопки и громкость всегда на экране. Перенос в колонки невозможен. */
 @media (max-width:900px){
-  #modal.mus-modal{padding:0;overflow:hidden}
+  /* pkg3-116: верх окна прибит к верху экрана. Раньше окно центрировалось по
+     вертикали (align-items:center у общего .modal), и когда выезжала клавиатура,
+     видимая высота уменьшалась — окно опускалось, оставляя чёрную полосу сверху.
+     Теперь сдвигаться вниз ему просто некуда. */
+  #modal.mus-modal{padding:0;overflow:hidden;align-items:flex-start}
   #modal.mus-modal .modal-box{width:100%;max-width:none;height:100dvh;max-height:100dvh;border-radius:0;
     box-shadow:none;display:flex;flex-direction:column;overflow:hidden}
   #modal.mus-modal .modal-head{flex:0 0 auto;padding:10px 14px;

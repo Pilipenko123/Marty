@@ -73,8 +73,8 @@ ok(/\.mus-v105 \.mus-eq\{height:40px;[^}]*border:1px solid var\(--line\);border-
 ok(/#modal\.mus-modal \.mus-eq\{height:36px/.test(mob), 'на телефоне ещё уже (36px)');
 ok(/\.mus-v105 \.mus-eq img,\.mus-v105 \.mus-eq \.mus-viz-anim\{[^}]*width:100%;height:100%;object-fit:fill\}/.test(css), 'картинка растягивается на всю полосу');
 ok(/function musVizState\(\)/.test(app), 'есть расчёт состояния полосы');
-ok(/const has = !!a && !!MUS\.list\[MUS\.idx\] && !MUS\.widget && !a\.ended && \(a\.currentTime > 0 \|\| !a\.paused\);/.test(app),
-  '«есть что показывать» = трек выбран, не кончился, и либо играет, либо остановлен посреди');
+ok(/const has = !!a && !!MUS\.list\[MUS\.idx\] && !MUS\.widget && !MUS\.dead && !a\.ended\s+&& a\.currentTime >= MUS_VIZ_FROM;/.test(app),
+  'pkg3-116: «есть что показывать» = трек выбран, не кончился, не отказал и звучит уже хотя бы секунду');
 ok(/if \(!has\) return 'off';/.test(app) && /return \(!a\.paused && !S\.eco\) \? 'on' : 'still';/.test(app), 'три состояния: пусто / движется / стоп-кадр');
 ok(/box\.innerHTML = st === 'on' \? MUS_VIZ_ANIM\s*: st === 'still' \? '<img class="mus-eq-still" src="img\/music-eq-pause\.png" alt="">'\s*: '';/.test(app),
   'играет — анимация, пауза — стоп-кадр, иначе — пусто');

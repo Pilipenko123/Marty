@@ -35,7 +35,7 @@ console.log('  1. Телефон: высота считается числом')
 ok(fit.length > 0, 'есть расчёт высоты (musFitList)');
 ok(/if \(!window\.matchMedia\('\(max-width:900px\)'\)\.matches\) \{[^}]*box\.style\.height = '';\s*return;/s.test(fit), 'на ПК не вмешивается (и снимает своё, если было)');
 ok(/const vh = \(window\.visualViewport && window\.visualViewport\.height\) \|\| window\.innerHeight;/.test(fit), 'высота окна — видимая высота экрана (visualViewport), не 100dvh из оформления');
-ok(/const boxH = land \? window\.innerWidth : vh;/.test(fit), 'при повороте телефона (окно «стоймя») высота берётся из ширины экрана');
+ok(/const boxH = land \? window\.innerWidth : vhUse;/.test(fit), 'при повороте телефона (окно «стоймя») высота берётся из ширины экрана; pkg3-116: без клавиатуры — видимая высота как есть');
 ok(/box\.style\.height = boxH \+ 'px';/.test(fit) && /body\.style\.height = bodyH \+ 'px'; body\.style\.flex = 'none';/.test(fit), 'окно и тело получают высоту числом');
 ok(/wrap\.style\.height = inner \+ 'px'; wrap\.style\.flex = 'none';/.test(fit), 'обёртка плеера — тоже');
 ok(/others \+= el\.offsetHeight \+ \(parseFloat\(st\.marginTop\) \|\| 0\) \+ \(parseFloat\(st\.marginBottom\) \|\| 0\);/.test(fit) && /if \(st\.display === 'none' \|\| st\.position === 'fixed'\) continue;/.test(fit),

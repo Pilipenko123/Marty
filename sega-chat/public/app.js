@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-115';
+const BUILD = 'pkg3-116';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4641,7 +4641,12 @@ async function openKnocks(c) {
  * можем ни перемотать его, ни услышать, когда трек кончился. Поэтому виджет
  * живёт в отдельной панели внизу окна, не участвует в «🎧 вместе» и не
  * транслируется в статус — там, где нужна точность, работаем только с файлами. */
-const MUS = { a: null, list: [], idx: -1, plId: null, widget: null };
+const MUS = { a: null, list: [], idx: -1, plId: null, widget: null,
+  dead: false,     // pkg3-116: текущий трек не заиграл — полосы нет, идёт пропуск
+  fails: 0,        // pkg3-116: сколько треков подряд не заиграло (защита от вечного перебора)
+  vizTimer: 0,     // pkg3-116: будильник «гистограмма просыпается на первой секунде»
+  fitH: 0,         // pkg3-116: высота окна, посчитанная БЕЗ клавиатуры (клавиатура её не меняет)
+  vvBase: 0 };     // pkg3-116: полная видимая высота экрана — по ней узнаём выехавшую клавиатуру
 /** pkg3-88: трек-виджет (плеер Яндекс.Музыки) вместо прямой ссылки на файл. */
 const musicIsWidget = t => !!(t && t.kind === 'widget');
 /** pkg3-90: трек с Яндекс.Диска. У него нет постоянного url — вместо него
@@ -4669,6 +4674,9 @@ function musicAudio() {
     MUS.a.addEventListener('play', musVizSync);      // pkg3-109: картинка оживает
     MUS.a.addEventListener('pause', musVizSync);     // …и замирает на паузе
     MUS.a.addEventListener('ended', musVizSync);
+    // pkg3-116: звук пошёл — список отказов обнуляется, а полоса-гистограмма
+    // просыпается ровно на первой секунде звучания (чуть раньше будильник).
+    MUS.a.addEventListener('playing', () => { MUS.fails = 0; MUS.dead = false; musVizArm(); });
     MUS.a.addEventListener('timeupdate', musicTickUi);
     MUS.a.addEventListener('seeked', () => musicStatusKick());   // pkg3-92: перемотка сразу обновляет якорь для слушающих вместе
   }
@@ -4999,8 +5007,12 @@ function musThumbHtml(t) {
   return '<span class="mus-thumb mus-thumb-n">♪</span>';
 }
 const musicUid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-function musicPlay(pl, idx) {
+function musicPlay(pl, idx, opts) {
   musBreakFollow();   // pkg3-92: свой трек — синхронизация обрывается
+  // pkg3-116: запуск руками — счётчик отказов с нуля; запуск после пропуска
+  // (opts.keepFails) его сохраняет, иначе перебор списка был бы бесконечным.
+  if (!opts || !opts.keepFails) MUS.fails = 0;
+  MUS.dead = false;
   MUS.list = (pl && pl.tracks) || [];
   MUS.idx = idx;
   MUS.plId = (pl && pl.id) || null;
@@ -5011,8 +5023,35 @@ function musicPlay(pl, idx) {
   // pkg3-90: трек с Диска — сначала свежая временная ссылка, потом наш плеер
   if (musicIsDisk(t)) { musicStartDiskTrack(t); return; }
   musWidgetHide();
-  musStartStream(musicAudio(), t.url, p => toast(musDeadMsg(p), true), { pod: t.site === 'podcasts' });   // pkg3-101: с запасным путём через сервер; pkg3-105: подкасты — всегда
+  // pkg3-101: запасной путь через сервер; pkg3-105: подкасты — всегда
+  // pkg3-116: не заиграло — трек пропускается, включается следующий
+  musStartStream(musicAudio(), t.url, p => musTrackDead(p, t), { pod: t.site === 'podcasts' });
+  musVizArm();
   musicNowUi(); musicFabSync(); musRowsRerender(); musicTickUi();
+}
+/** pkg3-116: трек не заиграл — молча (одной подсказкой) пропускаем его и
+ *  включаем СЛЕДУЮЩИЙ, по кругу. Счётчик отказов подряд не даёт зациклиться:
+ *  перебрали весь список — останавливаемся и честно говорим причину (третьим
+ *  доводом можно передать своё объяснение — так делает трек с Яндекс.Диска).
+ *  Счётчик обнуляется, как только звук действительно пошёл. */
+function musTrackDead(viaProxy, track, reason) {
+  MUS.dead = true;
+  musVizSync();                          // полосы нет: гистограмма не врёт
+  const n = MUS.list.length;
+  const a = MUS.a;
+  if (!n || MUS.fails + 2 > n) {         // этот отказ был последним в списке
+    MUS.fails = 0;
+    if (a) { try { a.pause(); a.currentTime = 0; } catch (e) { /* нет источника */ } }
+    MUS.idx = -1;                        // ни один трек не заиграл — плеер «стоп»
+    musicNowUi(); musicFabSync(); musicTickUi();
+    toast(reason || musDeadMsg(viaProxy), true);
+    return;
+  }
+  MUS.fails++;
+  const name = String((track && (track.title || track.url)) || 'Трек');
+  toast('«' + name.slice(0, 70) + '» не проигрался — включаю следующий', true);
+  const next = (MUS.idx + 1) % n;
+  musicPlay(musicFind(MUS.plId) || { id: MUS.plId, tracks: MUS.list }, next, { keepFails: true });
 }
 /** pkg3-95: строки плейлиста перерисовываются при каждом старте трека: текущая
  * строка сразу получает ❚❚ и бегущую строку названия, а не ждёт переоткрытия
@@ -5114,7 +5153,9 @@ async function musicStartDiskTrack(t) {
     a.src = r.href;
     await a.play();
   } catch (e) {
-    toast('Трек с Диска не заиграл: ' + (e.message || e), true);
+    // pkg3-116: файл на Диске не отдался — тоже пропускаем и включаем следующий
+    if (MUS.list[MUS.idx] === t) musTrackDead(false, t, 'Трек с Диска не заиграл: ' + (e.message || e));
+    else toast('Трек с Диска не заиграл: ' + (e.message || e), true);
   }
   musicNowUi(); musicFabSync();
 }
@@ -5301,12 +5342,23 @@ const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'
 /** pkg3-112: полоса-эквалайзер между обложкой и перемоткой. Три состояния:
  *  «on» — играет (живая картинка), «still» — пауза посреди трека (стоп-кадр),
  *  «off» — трек не запущен / стоп / кончился (пустая рамка). В эконом-режиме
- *  на игре тоже стоп-кадр, чтобы не крутить анимацию. */
+ *  на игре тоже стоп-кадр, чтобы не крутить анимацию.
+ *  pkg3-116: полоса живёт ТОЛЬКО со звуком — от первой секунды воспроизведения
+ *  и до конца трека. Не заиграл (битая ссылка, источник молчит) — полосы нет
+ *  вовсе, а плеер тем временем пропускает трек и включает следующий. */
+const MUS_VIZ_FROM = 1;   // с какой секунды звучания показывать гистограмму
 function musVizState() {
   const a = MUS.a;
-  const has = !!a && !!MUS.list[MUS.idx] && !MUS.widget && !a.ended && (a.currentTime > 0 || !a.paused);
+  const has = !!a && !!MUS.list[MUS.idx] && !MUS.widget && !MUS.dead && !a.ended
+    && a.currentTime >= MUS_VIZ_FROM;
   if (!has) return 'off';
   return (!a.paused && !S.eco) ? 'on' : 'still';
+}
+/** pkg3-116: страховка на первую секунду — браузер не всегда присылает «тик»
+ *  ровно на 1,0 с, поэтому будим сверку сами немного позже. */
+function musVizArm() {
+  if (MUS.vizTimer) { clearTimeout(MUS.vizTimer); MUS.vizTimer = 0; }
+  MUS.vizTimer = setTimeout(() => { MUS.vizTimer = 0; musVizSync(); }, 1200);
 }
 function musVizSync() {
   const box = document.getElementById('mus-eq');
@@ -5366,6 +5418,25 @@ async function musTrackRemove(pl, i) {
   pl.tracks.splice(i, 1);
   await musicSave(); openMusic(pl.id);
 }
+/** pkg3-116: выехала ли клавиатура телефона. Признак надёжный и без чужих
+ * библиотек: поле ВНУТРИ окна музыки в фокусе, а видимая высота экрана заметно
+ * меньше обычной (на iOS клавиатура уменьшает именно visualViewport). */
+function musKbOpen() {
+  const ae = document.activeElement;
+  if (!ae || !ae.tagName || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
+  if (!ae.closest || !ae.closest('#modal.mus-modal')) return false;
+  const vv = window.visualViewport;
+  if (!vv) return false;
+  return vv.height < (MUS.vvBase || window.innerHeight || vv.height) - 80;
+}
+/** pkg3-116: пока окно музыки открыто, страница не прокручивается: иначе
+ * клавиатура «тянет» документ и окно уезжает вниз, оставляя чёрную полосу. */
+function musLockScroll(on) {
+  const r = document.documentElement;
+  if (!r || !r.classList) return;
+  r.classList.toggle('mus-lock', !!on);
+  if (on) { try { window.scrollTo(0, 0); } catch (e) { /* нет окна */ } }
+}
 /** pkg3-114: высота плеера на телефоне считается ЧИСЛОМ, а не оформлением:
  * iPhone дважды не дал колонке узнать свою высоту (113-й), и список выталкивал
  * кнопки за экран. Теперь: окно = видимая высота экрана, тело = окно минус шапка,
@@ -5373,7 +5444,7 @@ async function musTrackRemove(pl, i) {
  * смене размера и на тике звука. На ПК не вмешиваемся. */
 function musFitList() {
   const md = document.getElementById('modal');
-  if (!md || !md.classList.contains('mus-modal') || md.classList.contains('hidden')) return;
+  if (!md || !md.classList.contains('mus-modal') || md.classList.contains('hidden')) { musLockScroll(false); return; }
   const box = md.querySelector('.modal-box'), head = md.querySelector('.modal-head');
   if (!window.matchMedia('(max-width:900px)').matches) {   // ПК: оформление справляется само
     if (box) box.style.height = '';
@@ -5385,7 +5456,12 @@ function musFitList() {
   if (!box || !head || !body || !wrap || !lw) return;
   const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
   const land = document.documentElement.getAttribute('data-land');
-  const boxH = land ? window.innerWidth : vh;   // окно развёрнуто «стоймя» при повороте
+  // pkg3-116: клавиатура уменьшает видимую высоту — окно от этого не сжимается
+  // и не съезжает: держим высоту, посчитанную БЕЗ клавиатуры.
+  const kb = !land && musKbOpen();
+  if (!kb) { MUS.vvBase = vh; MUS.fitH = land ? 0 : vh; }
+  const vhUse = kb ? (MUS.fitH || MUS.vvBase || vh) : vh;
+  const boxH = land ? window.innerWidth : vhUse;   // окно развёрнуто «стоймя» при повороте
   box.style.height = boxH + 'px';
   const bodyH = boxH - head.offsetHeight;
   body.style.height = bodyH + 'px'; body.style.flex = 'none';
@@ -5879,12 +5955,22 @@ async function openMusic(wantId) {
   // кнопка «Свернуть» левее крестика; первый вход за сеанс — разворот из пузырька.
   const musWasOpen = S.musOpen;
   S.musOpen = true; S.musFabHidden = false;
+  MUS.fitH = 0; MUS.vvBase = 0;   // pkg3-116: высоты считаем заново для этого открытия
+  musLockScroll(true);
   musAddMinBtn();
   if (!musWasOpen) musExpandAnim(); else musicFabSync();   // pkg3-94: сначала гасим пузырёк, потом перелёт
   musicNowUi(); musicTickUi(); musVizSync();
   const list0 = $('#mus-list');
   if (list0) { list0.addEventListener('scroll', musSbarSync, { passive: true }); setTimeout(musSbarSync, 0); }
   musFitList(); setTimeout(musFitList, 50); setTimeout(musFitList, 350);   // pkg3-114: сразу, после раскладки и после анимации появления
+  // pkg3-116: клавиатура выехала или спряталась — пересчитываем высоты, но окно
+  // остаётся на месте (верх прибит к верху экрана, высота не меняется).
+  const kbWrap = document.querySelector('#modal.mus-modal .mus-wrap');
+  if (kbWrap) kbWrap.addEventListener('focusin', e => {
+    const t = e.target;
+    if (!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName || '')) return;
+    setTimeout(musFitList, 80); setTimeout(musFitList, 350);
+  });
   const vol0 = $('#mus-vol');
   if (vol0) vol0.value = String(Math.round(musicAudio().volume * 100));
   // pkg3-105: три оверлея («⋯», «Плейлисты ▾», меню трека) — открыть/закрыть
@@ -9716,6 +9802,7 @@ function musMinimize() {
   musOrientLock(false);
   hide($('#modal'));
   S.musOpen = false; S.musFabHidden = false; S.musFabEarned = true;   // pkg3-95: пузырёк заработан
+  musLockScroll(false);   // pkg3-116: окно свёрнуто — страница снова прокручивается
   musicFabSync();
   const fr = fab.getBoundingClientRect();
   if (!box.animate || !fr.width) return;
@@ -9756,6 +9843,7 @@ function musCloseFull() {
   musOrientLock(false);
   hide($('#modal'));
   S.musOpen = false; S.musFabHidden = true;
+  musLockScroll(false);   // pkg3-116: окно закрыто — страница снова прокручивается
   musicFabSync();
 }
 /** pkg3-94: разворот: габарит пузырька берём ПОКА он виден, затем гасим его
