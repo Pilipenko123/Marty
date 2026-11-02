@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-110';
+const BUILD = 'pkg3-111';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4915,18 +4915,10 @@ function musShowSearchView() {
  * обложки сайта, а когда нет ни той ни другой — винил со значком ♪. */
 function musCoverBigHtml(t) {
   const src = t ? (t.cover || t.coverSite || '') : '';
-  if (src) return `<img src="${escapeHtml(src)}" alt="" onerror="this.style.display='none'">`;
-  return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <defs><radialGradient id="musg1" cx="35%" cy="30%"><stop offset="0%" stop-color="#3a2350"/><stop offset="100%" stop-color="#120b1e"/></radialGradient>
-    <radialGradient id="musg2" cx="50%" cy="50%"><stop offset="0%" stop-color="#ffb454"/><stop offset="55%" stop-color="#b4571f"/><stop offset="100%" stop-color="#3a1c07"/></radialGradient></defs>
-    <rect width="400" height="400" fill="url(#musg1)"/>
-    <circle cx="200" cy="205" r="128" fill="#0b0713" stroke="#e33ff0" stroke-opacity=".35"/>
-    <circle cx="200" cy="205" r="100" fill="none" stroke="#ffffff" stroke-opacity=".06"/>
-    <circle cx="200" cy="205" r="76" fill="none" stroke="#ffffff" stroke-opacity=".06"/>
-    <circle cx="200" cy="205" r="46" fill="url(#musg2)"/>
-    <circle cx="200" cy="205" r="5" fill="#0b0713"/>
-    <text x="200" y="222" text-anchor="middle" fill="#ffe9c9" font-size="46" font-family="system-ui">♪</text>
-  </svg>`;
+  if (src) return `<img src="${escapeHtml(src)}" alt="" onerror="this.src='img/music-cover.jpg';this.onerror=null">`;
+  // pkg3-111: когда у трека нет своей обложки — картинка владельца «Обложка»
+  // (проигрыватель с наушниками) вместо нарисованного винила.
+  return `<img src="img/music-cover.jpg" alt="">`;
 }
 
 function musSearchRenderRows() {
@@ -5300,9 +5292,25 @@ function musicNowUi() {
   // pkg3-105: обложка во всю ширину и подпись «Сейчас играет»
   const img = document.getElementById('mus-cover-img');
   if (img) img.innerHTML = musCoverBigHtml(t);
-  const cap = document.getElementById('mus-cover-cap');
-  if (cap) cap.textContent = t ? ('Сейчас играет: ' + (t.title || t.url)) : 'Сейчас ничего не играет';
+  // pkg3-111: подписи «Сейчас играет» под обложкой больше нет — название видно
+  // в подсвеченной строке списка (бегущая строка туда-обратно).
   musUiMode();   // pkg3-88: обычный трек или встроенный плеер Яндекса
+}
+/** pkg3-111: бегущая строка названия ходит ТУДА-ОБРАТНО и не показывает
+ * пустоту: меряем, на сколько название шире своей ячейки, и отдаём это число
+ * оформлению (--mq-shift). Влезает целиком — стоит на месте. */
+function musMqFit(row) {
+  const ti = row.querySelector('.mus-ti');
+  const mq = ti && ti.querySelector('.mq');
+  if (!ti || !mq) return;
+  const over = Math.ceil(mq.scrollWidth - ti.clientWidth);
+  const shift = over > 2 ? -over : 0;
+  if (mq.dataset.mqShift !== String(shift)) {
+    mq.dataset.mqShift = String(shift);
+    mq.style.setProperty('--mq-shift', shift + 'px');
+    mq.style.setProperty('--mq-dur', Math.max(4, Math.min(14, over / 25)) + 's');
+    mq.classList.toggle('mq-s', !shift);
+  }
 }
 function musicTickUi() {
   const a = MUS.a;
@@ -5331,6 +5339,7 @@ function musicTickUi() {
       row.classList.toggle('paused', !!(a.paused || a.ended));
       const pb = row.querySelector('[data-mus-play]');
       if (pb) pb.textContent = isCur && !a.paused && !a.ended ? '❚❚' : '▶';
+      if (isCur) musMqFit(row);
     }
   }
 }
@@ -5671,19 +5680,18 @@ async function openMusic(wantId) {
         : '<div class="tiny muted">Создайте первый плейлист кнопкой «Плейлисты ▾» — в нём будут треки-ссылки на файлы.</div>';
   modal('Моя музыка', `<div class="mus-wrap mus-v105">
     <div class="mus-srow">
-      <input id="mus-sq" type="text" placeholder="Поиск музыки: введите и нажмите «Найти»" value="${escapeHtml(st0.q || '')}">
+      <input id="mus-sq" type="text" placeholder="найти трек" value="${escapeHtml(st0.q || '')}">
       <button class="mini primary" id="mus-sq-go">Найти</button>
       <button class="mini mus-dotsbtn" id="mus-dots-btn" title="Параметры: сайты поиска, умная вставка">⋯</button>
     </div>
-    <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : 'Отметьте сайты в «⋯» и нажмите «Найти». Сервер спросит сайты как обычный посетитель и вернёт названия с прямыми ссылками.'}</div>
+    <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : ''}</div>
     <div class="mus-coverbox">
       <div class="mus-cov-left" id="mus-cover-img"></div>
       <div class="mus-viz" id="mus-viz"><img class="mus-viz-still" src="img/music-viz-still.png" alt=""></div>
     </div>
-    <div class="mus-cover-cap" id="mus-cover-cap"></div>
+    <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
     <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
     <div class="mus-list" id="mus-list">${listHtml}</div>
-    <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
     <div class="mus-three">
       <button class="mus-skip" id="mus-prev" title="Предыдущий трек">⏮</button>
       <button class="mus-playbig" id="mus-toggle" title="Играть / пауза">▶</button>

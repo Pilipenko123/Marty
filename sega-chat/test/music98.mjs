@@ -139,11 +139,11 @@ ok(appJs.includes('mus-prog') && appJs.includes('Спрашиваю сайты: 
   'линия загрузки и счётчик опрошенных сайтов в окне поиска');
 ok(appJs.includes("api('/api/mussearch?q=' + encodeURIComponent(st.q) + '&sites=' + id)"),
   'сайты опрашиваются параллельно по одному — прогресс честный');
-ok(appJs.includes('musCoverBigHtml') && appJs.includes('onerror="this.style.display=\'none\'"') && css.includes('.mus-coverbox'),
-  'обложка играющего трека — во всю ширину; нет файла — картинка прячется, остаётся винил с ♪');
+ok(appJs.includes('musCoverBigHtml') && appJs.includes('img/music-cover.jpg') && css.includes('.mus-coverbox'),
+  'обложка играющего трека — во всю ширину; нет файла — картинка владельца «Обложка» (pkg3-111)');
 ok(appJs.includes('mus-ti') && appJs.includes('mus-addbtn') && css.includes('.mus-addbtn{'),
   'название читается одной строкой, «＋» уменьшен');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v103';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v104';"), 'кэш статики поднят до v93');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music98.mjs'), 'тест music98 включён в цепочку npm test');
 ok(readme.includes('| pkg3-98 |'), 'в журнале README есть строка выпуска pkg3-98');

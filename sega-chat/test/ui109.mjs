@@ -64,12 +64,12 @@ ok(/md\.classList\.add\(opts\.cls\)/.test(app) && /md\.classList\.remove\('mus-m
 ok(/\{ cls: 'mus-modal' \}\)/.test(app), 'окно «Моя музыка» открывается с этой пометкой');
 ok(/#modal\.mus-modal \.modal-box\{[^}]*height:100dvh/s.test(css), 'на телефоне окно музыки занимает весь экран');
 ok(/#modal\.mus-modal \.modal-body\{[^}]*overflow:hidden/s.test(css), 'внутри окна прокручивается только список, а не всё окно');
-ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*grid-template-rows:auto auto auto auto auto minmax\(0,1fr\)/s.test(css),
-  'окно разложено сеткой: обложка → список → кнопки, список забирает остаток');
-ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*display:grid/s.test(css), 'плеер разложен сеткой: строка списка забирает остаток высоты');
+ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*flex-flow:column nowrap/s.test(css),
+  'окно разложено колонкой без переноса: обложка → список → кнопки (pkg3-111)');
+ok(/#modal\.mus-modal \.mus-list\{flex:1 1 0/.test(css), 'список треков забирает остаток высоты (pkg3-111)');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*min-height:0/s.test(css), 'список треков занимает всё свободное место (и может ужаться)');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*overflow-y:auto/s.test(css), 'длинный список прокручивается внутри себя');
-ok(/#modal\.mus-modal \.mus-playbig\{width:(60|62)px/.test(css) && /#modal\.mus-modal \.mus-skip\{width:44px/.test(css),
+ok(/#modal\.mus-modal \.mus-playbig\{width:(60|62)px/.test(css) && /#modal\.mus-modal \.mus-skip\{width:60px/.test(css),
   'кнопки ▶/❚❚ и перемотка остаются на виду и стали удобнее для пальца');
 ok(!/^\s*\.modal-box\{[^}]*height:100dvh/m.test(css), 'прочие окна (настройки, приглашения) не тронуты');
 
@@ -78,9 +78,8 @@ console.log('\n  3. Обложка: половина высоты, две пол
 ok(/<div class="mus-cov-left" id="mus-cover-img"><\/div>/.test(app), 'слева — половина под обложку трека');
 ok(/<div class="mus-viz" id="mus-viz"><img class="mus-viz-still" src="img\/music-viz-still.png" alt=""><\/div>/.test(app),
   'справа — половина под живую картинку (неподвижный кадр лежит под анимацией)');
-const capAt = app.indexOf('<div class="mus-cover-cap" id="mus-cover-cap"></div>');
 const boxAt = app.indexOf('<div class="mus-coverbox">');
-ok(boxAt > 0 && capAt > boxAt, 'подпись «Сейчас играет» переехала под блок и не закрывает картинки');
+ok(boxAt > 0 && !app.includes('id="mus-cover-cap"'), 'подписи «Сейчас играет» под блоком нет (pkg3-111: по просьбе владельца убрана как дублирование)');
 const covCss = (/\.mus-v105 \.mus-coverbox\{[^}]*\}/.exec(css) || [''])[0];
 ok(/grid-template-columns:1fr 1fr/.test(covCss), 'блок делится на две равные половины по вертикали');
 ok(/aspect-ratio:2\/1/.test(covCss), 'высота блока — половина ширины (было 1/1 — квадрат во весь экран)');

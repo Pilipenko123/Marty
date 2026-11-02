@@ -36,18 +36,18 @@ ok(appJs.includes("row.classList.toggle('paused', !!(a.paused || a.ended));"),
   'на паузе бегущая строка замирает у текущей строки');
 
 console.log('\n  2. Бегущая строка заготовлена у каждого трека');
-ok(css.includes('.mus-tr .mq{display:inline-block;white-space:nowrap;max-width:100%}'),
+ok(css.includes('.mus-tr .mq{display:inline-block;white-space:nowrap;max-width:none}'),   // pkg3-111: ширина настоящая, чтобы мерить переполнение
   'mq-обёртка есть у каждой строки списка');
-ok(css.includes('.mus-tr.cur .mq{padding-left:100%;animation:mus-mq 9s linear infinite}'),
+ok(css.includes('.mus-tr.cur .mq{animation:mus-mq var(--mq-dur,8s) ease-in-out infinite alternate'),   // pkg3-111: туда-обратно, без пустоты
   'едет и отъезжает справа только текущая строка');
 ok(css.includes('.mus-tr.cur.paused .mq{animation-play-state:paused}'),
   'пауза останавливает строку');
-ok(appJs.includes("mq-s") && css.includes('.mus-tr.cur .mq.mq-s{animation:none;padding-left:0}'),
+ok(appJs.includes("mq-s") && css.includes('.mus-tr.cur .mq.mq-s{animation:none;transform:none}'),
   'короткие названия (до 24 знаков) стоят на месте и видны целиком; длинные едут');
 
 console.log('\n  3. Инварианты выпуска');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v103';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v104';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music96.mjs'), 'тест music96 включён в цепочку npm test');
 ok(readme.includes('| pkg3-96 |'), 'в журнале README есть строка выпуска pkg3-96');
 const deps = JSON.parse(pkg).dependencies;
