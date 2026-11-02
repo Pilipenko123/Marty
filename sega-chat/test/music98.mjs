@@ -143,7 +143,7 @@ ok(appJs.includes('musCoverBigHtml') && appJs.includes('onerror="this.style.disp
   'обложка играющего трека — во всю ширину; нет файла — картинка прячется, остаётся винил с ♪');
 ok(appJs.includes('mus-ti') && appJs.includes('mus-addbtn') && css.includes('.mus-addbtn{'),
   'название читается одной строкой, «＋» уменьшен');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v102';"), 'кэш статики поднят до v93');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music98.mjs'), 'тест music98 включён в цепочку npm test');
 ok(readme.includes('| pkg3-98 |'), 'в журнале README есть строка выпуска pkg3-98');

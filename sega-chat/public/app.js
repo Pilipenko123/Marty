@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-108';
+const BUILD = 'pkg3-109';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4666,6 +4666,9 @@ function musicAudio() {
     MUS.a.addEventListener('ended', () => musicStep(1, true));
     MUS.a.addEventListener('play', musicFabSync);
     MUS.a.addEventListener('pause', musicFabSync);
+    MUS.a.addEventListener('play', musVizSync);      // pkg3-109: картинка оживает
+    MUS.a.addEventListener('pause', musVizSync);     // …и замирает на паузе
+    MUS.a.addEventListener('ended', musVizSync);
     MUS.a.addEventListener('timeupdate', musicTickUi);
     MUS.a.addEventListener('seeked', () => musicStatusKick());   // pkg3-92: перемотка сразу обновляет якорь для слушающих вместе
   }
@@ -5248,6 +5251,29 @@ async function ydConnect() {
   if (document.getElementById('mus-disk-bar')) ydPaneStart().catch(() => {});
 }
 /** Подпись плеера в окне «Моя музыка» в зависимости от рода трека. */
+/** pkg3-109: ПРАВАЯ ПОЛОВИНА ОБЛОЖКИ — живая картинка (неоновое кольцо).
+ *  Играет музыка — картинка движется; пауза, конец трека или трек ещё не
+ *  запущен — стоит неподвижный кадр. Двигаемся ТОЛЬКО тогда, когда окно музыки
+ *  открыто: закрыли окно — картинка не крутится и батарею не ест.
+ *  Формат: WebP-анимация (лёгкая) с запасным GIF для старых устройств; если
+ *  браузер не умеет ни того, ни другого — остаётся неподвижный кадр.
+ *  В «эконом-режиме» (S.eco) движение выключено совсем. */
+const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'
+  + '<source srcset="img/music-viz.webp" type="image/webp">'
+  + '<img src="img/music-viz.gif" alt=""></picture>';
+function musVizSync() {
+  const box = document.getElementById('mus-viz');
+  if (!box) return;
+  const a = MUS.a;
+  const playing = !!a && !a.paused && !a.ended && !MUS.widget && !S.eco;
+  const was = box.dataset.on === '1';
+  if (playing === was) return;
+  box.dataset.on = playing ? '1' : '0';
+  const anim = box.querySelector('.mus-viz-anim');
+  if (playing) { if (!anim) box.insertAdjacentHTML('beforeend', MUS_VIZ_ANIM); }
+  else if (anim) anim.remove();     // убрали — анимация честно остановилась
+}
+
 function musUiMode() {
   // pkg3-105: окно одноколоночное: большая кнопка показывает ■ для виджета
   // Яндекса, ❚/▶ для нашего звука; тумблер видимости живёт в нижнем ряду.
@@ -5280,6 +5306,7 @@ function musicNowUi() {
 }
 function musicTickUi() {
   const a = MUS.a;
+  musVizSync();                       // pkg3-109: картинка оживает вместе со звуком
   const time = document.getElementById('mus-time');
   const seek = document.getElementById('mus-seek');
   if (!a || !time) return;
@@ -5649,7 +5676,11 @@ async function openMusic(wantId) {
       <button class="mini mus-dotsbtn" id="mus-dots-btn" title="Параметры: сайты поиска, умная вставка">⋯</button>
     </div>
     <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : 'Отметьте сайты в «⋯» и нажмите «Найти». Сервер спросит сайты как обычный посетитель и вернёт названия с прямыми ссылками.'}</div>
-    <div class="mus-coverbox"><div id="mus-cover-img"></div><div class="mus-cover-cap" id="mus-cover-cap"></div></div>
+    <div class="mus-coverbox">
+      <div class="mus-cov-left" id="mus-cover-img"></div>
+      <div class="mus-viz" id="mus-viz"><img class="mus-viz-still" src="img/music-viz-still.png" alt=""></div>
+    </div>
+    <div class="mus-cover-cap" id="mus-cover-cap"></div>
     <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
     <div class="mus-list" id="mus-list">${listHtml}</div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
@@ -5703,14 +5734,14 @@ async function openMusic(wantId) {
       <div class="mus-sec"><button class="mini primary" id="mus-add-pl">+ новый плейлист</button> <button class="mini" id="mus-pls-close">Закрыть</button></div>
     </div></div>
     <div class="mus-ovl" id="mus-trovl"><div class="mus-mwin" id="mus-trmenu"></div></div>
-  </div>`);
+  </div>`, { cls: 'mus-modal' });
   // pkg3-93: окно открыто — пузырёк прячется (иллюзия «это одно и то же»);
   // кнопка «Свернуть» левее крестика; первый вход за сеанс — разворот из пузырька.
   const musWasOpen = S.musOpen;
   S.musOpen = true; S.musFabHidden = false;
   musAddMinBtn();
   if (!musWasOpen) musExpandAnim(); else musicFabSync();   // pkg3-94: сначала гасим пузырёк, потом перелёт
-  musicNowUi(); musicTickUi();
+  musicNowUi(); musicTickUi(); musVizSync();
   const vol0 = $('#mus-vol');
   if (vol0) vol0.value = String(Math.round(musicAudio().volume * 100));
   // pkg3-105: три оверлея («⋯», «Плейлисты ▾», меню трека) — открыть/закрыть
@@ -8033,6 +8064,10 @@ function plusMenu(open) {
   if (!m || !b) return;
   m.classList.toggle('hidden', !open);
   b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  // pkg3-109: на телефоне список чатов под меню приглушается — сразу видно,
+  // что открыто меню, а не «просто список». Касание мимо меню его закрывает.
+  const sc = $('#plus-scrim');
+  if (sc) sc.classList.toggle('on', !!open);
 }
 $('#btn-plus').addEventListener('click', e => {
   e.stopPropagation();
@@ -8053,6 +8088,7 @@ $('#plus-menu').addEventListener('click', e => {
 document.addEventListener('click', e => {
   if (!e.target.closest('#plus-menu') && !e.target.closest('#btn-plus')) plusMenu(false);
 });
+$('#plus-scrim').addEventListener('click', () => plusMenu(false));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') plusMenu(false); });
 
 // ─────────────────────────────────────────── pkg3-53: свои разделы (папки) чатов
@@ -9481,9 +9517,15 @@ $('#search-results').addEventListener('click', e => {
 });
 
 // ─────────────────────────────────────────── модальные окна
-function modal(title, html) {
+function modal(title, html, opts) {
   const mb = document.getElementById('modal-min');   // pkg3-93: «Свернуть» живёт только у окна музыки
   if (mb) mb.remove();
+  // pkg3-109: пометка окна. По ней телефон разворачивает «Мою музыку» на весь
+  // экран и раскладывает её как плеер (обложка, список, кнопки — без прокрутки
+  // страницы). Прочие окна пометки не получают.
+  const md = $('#modal');
+  md.classList.remove('mus-modal');
+  if (opts && opts.cls) md.classList.add(opts.cls);
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = html;
   paintIcons($('#modal'));
