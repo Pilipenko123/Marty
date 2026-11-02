@@ -92,19 +92,16 @@ ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:contain/.test(css.replac
 // (pkg3-112: переехала из квадрата рядом с обложкой в узкую полосу под ней)
 console.log('\n  4. Живая картинка: движется, пока играет музыка');
 const gif = join(PUB, 'img', 'music-eq.gif');
-const webp = join(PUB, 'img', 'music-eq.webp');
 const still = join(PUB, 'img', 'music-eq-still.png');
-ok(existsSync(gif) && existsSync(webp) && existsSync(still), 'картинки на месте: gif, лёгкая webp-анимация и неподвижный кадр');
+ok(existsSync(gif) && existsSync(still), 'картинки на месте: gif-анимация и неподвижный кадр (pkg3-114: WebP для чёрно-белых столбиков вышел тяжелее GIF — убран)');
 ok(size(gif) > 1000 && size(gif) < 400 * 1024, `gif не тяжелее 400 КБ (${Math.round(size(gif) / 1024)} КБ)`);
-ok(size(webp) > 1000 && size(webp) < 120 * 1024, `webp-анимация лёгкая (${Math.round(size(webp) / 1024)} КБ) — её и получат телефоны`);
 ok(size(still) > 1000 && size(still) < 60 * 1024, `неподвижный кадр лёгкий (${Math.round(size(still) / 1024)} КБ)`);
 const gifBuf = readFileSync(gif);
 ok(gifBuf.slice(0, 6).toString() === 'GIF89a', 'gif — настоящий GIF');
 const gw = gifBuf.readUInt16LE(6), gh = gifBuf.readUInt16LE(8);
 ok(gw >= 4 * gh, `кадр узкий и широкий ${gw}×${gh} — полоса во всю ширину окна`);
 ok(/const MUS_VIZ_ANIM = '<picture class="mus-viz-anim">'/.test(app), 'живая картинка вставляется как <picture>');
-ok(/<source srcset="img\/music-eq\.webp" type="image\/webp">/.test(app) && /<img src="img\/music-eq\.gif"/.test(app),
-  'сначала лёгкая webp-анимация, запасной путь — gif для старых устройств');
+ok(!/music-eq\.webp/.test(app) && /<img src="img\/music-eq\.gif"/.test(app), 'полоса — GIF (pkg3-114)');
 ok(/function musVizSync\(\)/.test(app), 'есть отдельная сверка «играет / стоит» (musVizSync)');
 ok(/return \(!a\.paused && !S\.eco\) \? 'on' : 'still';/.test(app),
   'картинка движется только когда звук действительно играет (и не в эконом-режиме)');
@@ -125,7 +122,7 @@ ok(b2 === BUILD, `отметка выпуска совпадает в серве
 ok(/const BUILD = '([^']+)'/.exec(api)[1] === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка выпуска ${BUILD}`);
 ok(cache !== 'sega-static-v101', `кэш оформления поднят (${cache}) — устройства получат новый вид`);
-ok(readdirSync(join(PUB, 'img')).some(f => f === 'music-eq.webp'), 'картинки лежат в public/img и уедут вместе с программой');
+ok(readdirSync(join(PUB, 'img')).some(f => f === 'music-eq.gif'), 'картинки лежат в public/img и уедут вместе с программой');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
 process.exit(bad ? 1 : 0);

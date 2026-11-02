@@ -66,13 +66,13 @@ ok(/max-height:480px\)\{[^@]*\.mus-playbig,#modal\.mus-modal \.mus-skip\{width:4
 
 console.log('\n  5. Чёрный плеер без рамок до краёв экрана (только телефон)');
 ok(/#modal\.mus-modal\{background:#000\}/.test(mob), 'поля вокруг окна чёрные');
-ok(/#modal\.mus-modal \.modal-box\{background:#000;border:0;color:#f2f2f2\}/.test(mob), 'само окно чёрное, без рамки, с светлым текстом в любой гамме');
+ok(/#modal\.mus-modal \.modal-box\{background:#000;border:0;box-shadow:none;color:#f2f2f2\}/.test(mob), 'само окно чёрное, без рамки и тени, со светлым текстом в любой гамме');
 ok(/#modal\.mus-modal \.modal-head\{background:#000;border-bottom:0\}/.test(mob), 'шапка без линии снизу');
-ok(/#modal\.mus-modal \.mus-coverbox\{border:1px solid #3a3a46;border-radius:14px/.test(mob) && !/#modal\.mus-modal \.mus-cov-left\{border-right:1px/.test(mob), 'блок обложки — одна общая закруглённая рамка без перегородки (pkg3-113)');
-ok(/#modal\.mus-modal \.mus-list\{border:1px solid #3a3a46;background:#000/.test(mob), 'список на чёрной подложке (pkg3-112: владелец попросил рамку обратно)');
+ok(/#modal\.mus-modal \.mus-coverbox\{border-radius:14px;background:#000\}/.test(mob) && !/#modal\.mus-modal \.mus-cov-left\{border-right:1px/.test(mob), 'блок обложки — одна общая закруглённая рамка (цвет как на ПК) без перегородки (pkg3-113/114)');
+ok(/#modal\.mus-modal \.mus-list\{background:#000;padding:4px;border-radius:12px/.test(mob) && !/#modal\.mus-modal \.mus-list\{[^}]*border:0/.test(mob), 'список на чёрной подложке, рамка — как на ПК (pkg3-114)');
 ok(/#modal\.mus-modal \.mus-foot\{border-top:1px solid var\(--line\)/.test(mob), 'низ — как на ПК, с линией (pkg3-113)');
-ok(/#modal\.mus-modal \.mus-srow input\{background:#141418;border:1px solid #2a2a32;color:#f2f2f2/.test(mob), 'поле поиска тёмное, текст светлый');
-ok(/#modal\.mus-modal \.mini\{background:#17171c;color:#e8e8ee/.test(mob) && !/#modal\.mus-modal \.mus-skip\{background:#17171c/.test(mob), 'мелкие кнопки тёмные, кнопки плеера — как на ПК (pkg3-113)');
+ok(/#modal\.mus-modal \.mus-srow input\{border-radius:12px;padding:9px 12px\}/.test(mob) && !/#modal\.mus-modal \.mus-srow input\{background:#141418/.test(mob), 'поле поиска — цвета как на ПК (pkg3-114), только скруглённее');
+ok(!/#modal\.mus-modal \.mini\{background:#17171c/.test(mob) && !/#modal\.mus-modal \.mus-skip\{background:#17171c/.test(mob), 'все кнопки — цвета как на ПК (pkg3-114: своих «телефонных» перекрасок нет)');
 ok(!/^\s*\.modal-box\{[^}]*background:#000/m.test(css) && !/^#modal \.modal-box\{[^}]*#000/m.test(css), 'прочие окна и компьютер не почернели');
 const boxBase = (/\n\.modal-box\{[^}]*\}/.exec(css) || [''])[0];
 ok(/background:#fff/.test(boxBase), 'общее окно по-прежнему белое');
