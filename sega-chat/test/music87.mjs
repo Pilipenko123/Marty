@@ -9,6 +9,7 @@
  *     окно чужих публичных плейлистов только для чтения.
  * Запуск: node test/music87.mjs
  */
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -68,7 +69,7 @@ let r = await call(base, '/api/setup', { method: 'POST', body: Object.assign({},
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token, adminId = r.d.user.id;
 r = await call(base, '/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
+ok(r.status === 200 && r.d.build === BUILD, 'сервер помечен текущим выпуском ' + BUILD);
 async function register(c, inviter) {
   const secret = hex(24);
   const sha = crypto.createHash('sha256').update(secret).digest('hex');

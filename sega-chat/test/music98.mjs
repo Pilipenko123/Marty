@@ -1,6 +1,7 @@
 // test/music98.mjs — pkg3-98: релевантность находок, обложки, прогресс поиска.
 // Живой сервер против игрушечных сайтов: нерелевантные названия отфильтрованы,
 // точные совпадения первыми, обложки подтянуты с четырёх сайтов.
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -101,7 +102,7 @@ let r = await call('/api/setup', { method: 'POST', body: Object.assign({}, creds
 ok(r.status === 200, 'мессенджер настроен');
 const admin = r.d.token;
 r = await call('/api/state');
-ok(r.status === 200 && r.d.build === 'pkg3-105', 'сервер помечен pkg3-105');
+ok(r.status === 200 && r.d.build === BUILD, 'сервер помечен текущим выпуском ' + BUILD);
 
 console.log('\n  1. Релевантность: лишнее не показываем, точное — первым');
 r = await call('/api/mussearch?q=neon&sites=yapfiles,archive,commons,openverse', {}, admin);
@@ -142,8 +143,8 @@ ok(appJs.includes('musCoverBigHtml') && appJs.includes('onerror="this.style.disp
   'обложка играющего трека — во всю ширину; нет файла — картинка прячется, остаётся винил с ♪');
 ok(appJs.includes('mus-ti') && appJs.includes('mus-addbtn') && css.includes('.mus-addbtn{'),
   'название читается одной строкой, «＋» уменьшен');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v93');
-ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v93');
+ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music98.mjs'), 'тест music98 включён в цепочку npm test');
 ok(readme.includes('| pkg3-98 |'), 'в журнале README есть строка выпуска pkg3-98');
 const deps = JSON.parse(pkg).dependencies;

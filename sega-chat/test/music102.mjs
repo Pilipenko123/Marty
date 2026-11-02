@@ -3,6 +3,7 @@
 // звучало как «источник не отдал звук». Теперь пропуск живёт в памяти сервера:
 // выдаётся входным запросом, предъявляется без заголовков, привязан к ссылке,
 // 20 минут скользящих (в тесте — доли секунды), старый адрес без пропуска закрыт.
+import { BUILD } from './build.mjs';   // pkg3-108: номер выпуска — из кода
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -112,8 +113,8 @@ const apiJs = read('lib/api.js');
 const sw = read('public/sw.js');
 const pkg = read('package.json');
 const readme = read('README.md');
-ok(appJs.includes("const BUILD = 'pkg3-105';") && apiJs.includes("const BUILD = 'pkg3-105';"), 'BUILD pkg3-105 совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v98';"), 'кэш статики поднят до v95');
+ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v101';"), 'кэш статики поднят до v95');
 ok(apiJs.includes('MUS_TICKET_TTL') && apiJs.includes('musTicketIssue('), 'пропуски в памяти сервера, срок из env (тестам — доли секунды)');
 ok(apiJs.includes("pathname === '/api/musstream-ticket' && method === 'POST'"), 'выдача пропуска — входной маршрут');
 ok(appJs.includes('function musProxyOk(') && appJs.includes('startProxy'), 'клиент: белый список отдельно, тихий переход с пропуском отдельно');

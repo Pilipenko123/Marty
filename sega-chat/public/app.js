@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-105';
+const BUILD = 'pkg3-108';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -131,8 +131,12 @@ const PATS = [
   { id: 'sunset', prev: '', bg: '#000', big: true }
 ];
 // ─────────────────────────────────────────── современные эмодзи (Twemoji, CC-BY)
-// Картинки подтягиваются с CDN; если сети нет — onerror возвращает системный символ.
-const TW_URL = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/';
+// pkg3-108: картинки смайлов отдаёт НАШ сервер (/api/emoji/<код>.svg): он держит
+// копию в памяти. Раньше картинка шла напрямую с чужого CDN, и там, где этот CDN
+// в сети закрыт, в панели реакций оставалась ПУСТАЯ кнопка. Теперь порядок такой:
+// наш сервер → чужой CDN (запасной путь) → системный значок (сам символ).
+const TW_URL = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/';
+const EMO_SRC = '/api/emoji/';
 const EMO_RE = /(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu;
 // ─────────────────────────────────────────── локальный кэш медиа (IndexedDB)
 // Раз загруженное видео/фото/файл живёт в памяти устройства: открываться будет
@@ -168,11 +172,31 @@ function mediaPlayerHtml(rec, id) {
   if ((rec.mime || '').startsWith('image/')) return `<img class="att" src="${url}" alt="вложение">`;
   return `<a class="att-file" href="${url}" download="${escapeHtml(rec.name || 'file')}">${SV(ICONS.download)}<span>${escapeHtml(rec.name || 'файл')}</span><span class="tiny muted">${fmtBytes(rec.size || rec.blob.size || 0)} · из памяти устройства</span></a>`;
 }
-function twEmo(html) {
-  if (S.eco) return String(html);   // эконом-режим: никаких картинок-смайлов с CDN
+/** Имя файла смайла по правилам Twemoji: у одиночного знака «невидимый
+ *  уточнитель» FE0F в имени файла НЕ пишется (❤️ → 2764), а внутри склейки
+ *  из нескольких знаков (через ZWJ) — пишется. Из-за прежней ошибки часть
+ *  смайлов просила несуществующий файл и «не загружалась». */
+function twCode(seq) {
+  const s = seq.indexOf('\u200d') >= 0 ? seq : seq.replace(/\ufe0f/g, '');
+  return [...s].map(c => c.codePointAt(0).toString(16)).join('-');
+}
+/** Картинка смайла. Если наш сервер не отдал (нет сети, старый кэш) — берём у
+ *  чужого CDN, а если и там нет — показываем сам символ системным значком. */
+function segaEmoFail(img) {
+  const fb = img.getAttribute('data-emo-fb');
+  if (fb) { img.removeAttribute('data-emo-fb'); img.src = fb; return; }
+  const alt = img.getAttribute('alt') || '';
+  if (alt) img.replaceWith(document.createTextNode(alt));
+}
+window.segaEmoFail = segaEmoFail;   // вызывается из onerror в разметке
+function twEmo(html, opts) {
+  if (S.eco) return String(html);   // эконом-режим: никаких картинок-смайлов
+  const eager = !!(opts && opts.eager);
   return String(html).replace(EMO_RE, seq => {
-    const cp = [...seq].map(c => c.codePointAt(0).toString(16)).join('-');
-    return `<img class="emo" src="${TW_URL}${cp}.png" alt="${seq}" loading="lazy" onerror="this.replaceWith(document.createTextNode(this.alt))">`;
+    const cp = twCode(seq);
+    return `<img class="emo" src="${BASE}${EMO_SRC}${cp}.svg" alt="${seq}"`
+      + (eager ? '' : ' loading="lazy"')
+      + ` onerror="segaEmoFail(this)" data-emo="${cp}" data-emo-fb="${TW_URL}${cp}.svg">`;
   });
 }
 const linkify = h => h.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
@@ -6448,7 +6472,7 @@ function rxRowHtml(m) {
   // pkg3-61: в подсказке — имена, а кнопка «👥» открывает список «кто что поставил»
   return `<div class="rx-row">${keys.map(k => {
     const names = (rx[k] || []).map(id => (userById(id) || { name: 'Бывший участник' }).name).join(', ');
-    return `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${escapeHtml(names)}">${twEmo(escapeHtml(k))}<span>${(rx[k] || []).length}</span></button>`;
+    return `<button class="rx ${(rx[k] || []).includes(S.me.id) ? 'mine' : ''}" data-rx="${escapeHtml(k)}" data-mid="${m.id}" title="${escapeHtml(names)}">${twEmo(escapeHtml(k), { eager: true })}<span>${(rx[k] || []).length}</span></button>`;
   }).join('')}<button class="rx rx-who" data-rxlist="${m.id}" title="Кто поставил реакции">👥</button></div>`;
 }
 /** pkg3-61: кто поставил реакции — по смайликам, именами. */
@@ -7049,7 +7073,7 @@ $('#chat-list').addEventListener('click', async e => {
   }
   const item = e.target.closest('[data-chat],[data-peer]');
   if (!item) return;
-  $('#rail').classList.remove('open');
+  closeRail();
   if (item.dataset.chat) return openChat(item.dataset.chat);
   try {
     const r = await api('/api/dm', { method: 'POST', body: { peer: item.dataset.peer } });
@@ -7250,8 +7274,59 @@ $('#chat-filter').addEventListener('input', e => {
   else railFindSeq++;                                              // устаревшие ответы — мимо
   renderAll();
 });
-$('#btn-open-rail').addEventListener('click', () => $('#rail').classList.add('open'));
-$('#btn-close-rail').addEventListener('click', () => $('#rail').classList.remove('open'));
+/** pkg3-108: шторка со списком чатов на телефоне прячется не только крестиком,
+ *  но и касанием свободного места справа (затемнение) и смахиванием влево. */
+function openRail() {
+  const rail = $('#rail');
+  rail.classList.add('open');
+  rail.style.transition = ''; rail.style.transform = '';
+  const scrim = $('#rail-scrim');
+  if (scrim) scrim.classList.add('on');
+}
+function closeRail() {
+  const rail = $('#rail');
+  rail.classList.remove('open');
+  rail.style.transition = ''; rail.style.transform = '';
+  const scrim = $('#rail-scrim');
+  if (scrim) scrim.classList.remove('on');
+}
+$('#btn-open-rail').addEventListener('click', openRail);
+$('#btn-close-rail').addEventListener('click', closeRail);
+$('#rail-scrim').addEventListener('click', closeRail);
+
+/* Смахивание списка чатов влево закрывает его (как в обычных мессенджерах):
+   палец ведёт шторку за собой, при отпускании она либо уезжает, либо
+   возвращается на место. Вертикальная прокрутка списка при этом не страдает —
+   мы не отменяем касание, а только следим за направлением. */
+(function railSwipe() {
+  const rail = $('#rail');
+  let x0 = 0, y0 = 0, dx = 0, dy = 0, dragging = false, wide = 0;
+  const mobile = () => window.matchMedia('(max-width:900px)').matches;
+  rail.addEventListener('touchstart', e => {
+    if (!mobile() || !rail.classList.contains('open') || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    x0 = t.clientX; y0 = t.clientY; dx = 0; dy = 0; dragging = true;
+    wide = rail.offsetWidth || 300;
+    rail.style.transition = 'none';
+  }, { passive: true });
+  rail.addEventListener('touchmove', e => {
+    if (!dragging || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    dx = t.clientX - x0; dy = t.clientY - y0;
+    if (Math.abs(dx) < Math.abs(dy)) return;            // это прокрутка списка, не смахивание
+    if (dx < 0) rail.style.transform = `translateX(${Math.max(-wide, dx)}px)`;
+    else if (rail.style.transform) rail.style.transform = '';  // вправо тянуть некуда
+  }, { passive: true });
+  const finish = () => {
+    if (!dragging) return;
+    dragging = false;
+    rail.style.transition = '';                          // вернуть плавность
+    rail.style.transform = '';
+    if (dx < -Math.min(80, wide * 0.25)) closeRail();
+  };
+  rail.addEventListener('touchend', finish, { passive: true });
+  rail.addEventListener('touchcancel', finish, { passive: true });
+})();
 
 async function openThread(id) {
   S.threadId = id; S.sig = '';
@@ -7286,7 +7361,9 @@ async function goToMessage(id) {
   }, 80);
 }
 
-const MS_RX_SET = ['👍', '❤️', '😂', '', '😢', ''];
+// pkg3-108: в наборах реакций стояли ПУСТЫЕ строки — в панели реакций на
+// телефоне это были пустые кнопки («смайл не загрузился»). Набор заполнен.
+const MS_RX_SET = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
 function toggleBigRx(mid) {
   const el = document.getElementById('m-' + mid);
   if (!el) return;
@@ -7294,9 +7371,10 @@ function toggleBigRx(mid) {
   if (old) { old.remove(); return; }
   const box = document.createElement('div');
   box.className = 'rx-big';
-  box.innerHTML = MS_RX_SET.map(em => `<button class="rx-big-btn" data-rxset="${em}" data-mid="${mid}">${em}</button>`).join('')
+  box.innerHTML = MS_RX_SET.map(em => `<button class="rx-big-btn" data-rxset="${em}" data-mid="${mid}">${twEmo(escapeHtml(em), { eager: true })}</button>`).join('')
     + `<button class="rx-big-btn" data-rxmore="${mid}" title="Любой смайл">…</button>`;
   (el.querySelector('.tools') || el).appendChild(box);
+  keepMsgVisible(el);
 }
 /** Клавиатура при правке не должна заслонять редактируемое сообщение. */
 function keepEditVisible(mid) {
@@ -7315,24 +7393,57 @@ function keepEditVisible(mid) {
 }
 
 
+/** Убрать клавиатуру: касание СВОБОДНОГО места в ленте (не сообщения, не
+ *  кнопки). Раньше клавиатура пряталась сама после отправки — теперь только так. */
+function hideKeyboard() {
+  const a = document.activeElement;
+  if (a && a.matches && a.matches('#input, #thread-input')) a.blur();
+}
+/** pkg3-108: плашка под сообщением (реакция, ответ, комментарий, правка,
+ *  удаление) НЕ ДОЛЖНА прятаться за полем ввода. Она живёт в потоке прямо под
+ *  пузырём, поэтому у последнего сообщения уезжает ниже экрана. Здесь лента
+ *  сдвигается вверх ровно настолько, чтобы низ сообщения вместе с плашкой был
+ *  виден целиком (и чтобы верх сообщения не улетел за шапку). */
+function keepMsgVisible(el) {
+  if (!el) return;
+  const box = el.closest('#thread-body') || el.closest('#messages');
+  if (!box) return;
+  const clamp = () => {
+    if (!el.isConnected || !box.isConnected) return;
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    const comp = document.getElementById(box.id === 'thread-body' ? 'thread-composer' : 'composer');
+    const cr = comp ? comp.getBoundingClientRect() : null;
+    const bottom = Math.min(b.bottom, cr && cr.top > b.top ? cr.top : b.bottom) - 10;
+    const top = b.top + 10;
+    let d = 0;
+    if (r.bottom > bottom) d = r.bottom - bottom;      // плашка ушла под поле ввода
+    else if (r.top < top) d = r.top - top;             // сообщение спряталось под шапкой
+    if (d) box.scrollTop += d;
+  };
+  clamp();
+  requestAnimationFrame(clamp);
+  setTimeout(clamp, 140);                              // на телефоне плашка дорисовывается с задержкой
+}
+
 function handleMsgClick(e) {
   // на телефоне инструменты сообщения открываются тапом по сообщению,
   // чтобы панель кнопок не распирала ленту по горизонтали
   if (window.matchMedia('(max-width:900px)').matches) {
     const msgEl = e.target.closest('.msg');
     const solo = (el) => $$('#messages .msg.show-tools').forEach(x => { if (x !== el) x.classList.remove('show-tools'); });
-    if (!msgEl) { solo(null); }                       // касание мимо — плашка закрывается
+    if (!msgEl) { solo(null); hideKeyboard(); }        // касание мимо — плашка закрывается, клавиатура убирается
     else {
       const media = e.target.closest('img.att, video, audio, [data-upl]');
       const interactive = e.target.closest('button, a, [data-goto], input, textarea');
       if (interactive) { solo(msgEl); }               // кнопки, цитата, ссылки работают сразу
       else if (media) {
         // 1-е касание по медиа — плашка; 2-е (когда плашка открыта) — открыть медиа
-        if (!msgEl.classList.contains('show-tools')) { solo(msgEl); msgEl.classList.add('show-tools'); return; }
+        if (!msgEl.classList.contains('show-tools')) { solo(msgEl); msgEl.classList.add('show-tools'); keepMsgVisible(msgEl); return; }
       } else {
         const was = msgEl.classList.contains('show-tools');
         solo(null);
-        if (!was) msgEl.classList.add('show-tools');
+        if (!was) { msgEl.classList.add('show-tools'); keepMsgVisible(msgEl); }
         return;
       }
     }
@@ -7421,7 +7532,7 @@ $('#messages').addEventListener('click', async e => {
 $('#scroll-bottom').addEventListener('click', () => { const b = $('#messages'); b.scrollTop = b.scrollHeight; });
 
 // ─────────────────────────────────────────── реакции на сообщения
-const RX_SET = ['😀','😂','😍','👍','👎','','🔥','🎉','❤️','😢','😮','🤝'];
+const RX_SET = ['😀','😂','😍','👍','👎','😮','🔥','🎉','❤️','😢','🙏','🤝'];
 let rxPopFor = null;
 function closeRxPicker() { const p = $('#rx-pop'); if (p) { hide(p); rxPopFor = null; } }
 function openRxPicker(mid, anchor) {
@@ -7446,7 +7557,7 @@ function openRxPop(mid, anchor) {
   }
   if (rxPopFor === mid && !pop.classList.contains('hidden')) return closeRxPicker();
   rxPopFor = mid;
-  pop.innerHTML = RX_SET.map(e => `<button data-rxset="${e}" title="${e}">${twEmo(escapeHtml(e))}</button>`).join('');
+  pop.innerHTML = RX_SET.map(e => `<button data-rxset="${e}" title="${e}">${twEmo(escapeHtml(e), { eager: true })}</button>`).join('');
   show(pop);
   const r = anchor.getBoundingClientRect();
   const w = pop.offsetWidth || 286;
@@ -7874,7 +7985,7 @@ document.addEventListener('click', async e => {
 });
 // ─────────────────────────────────────────── создание группового чата
 function openCreateChat() {
-  $('#rail').classList.remove('open');
+  closeRail();
   const others = S.users.filter(u => u.id !== S.me.id && !u.displayAs);   // pkg3-62: слитых не зовём
   modal('Новый групповой чат', `
     <label>Название чата<input type="text" id="nc-title" maxlength="60" placeholder="например: Партия в бридж"></label>
@@ -7931,7 +8042,7 @@ $('#plus-menu').addEventListener('click', e => {
   const it = e.target.closest('[data-plus]');
   if (!it) return;
   plusMenu(false);
-  $('#rail').classList.remove('open');                 // на телефоне шторка списка закрывается
+  closeRail();                 // на телефоне шторка списка закрывается
   const act = it.dataset.plus;
   if (act === 'game') return openNewGame();
   if (act === 'group') return openCreateChat();
@@ -8564,6 +8675,10 @@ async function send({ textarea, parent, attachKey }) {
   const text = textarea.value.trim();
   const att = S[attachKey];
   if (!text && !att) return;
+  // pkg3-108: на телефоне после отправки клавиатура должна ОСТАВАТЬСЯ открытой —
+  // человек почти всегда пишет следующее письмо сразу. Клавиатуру убирает только
+  // касание свободного места (см. hideKeyboard ниже).
+  const keepKeyboard = document.activeElement === textarea;
   const c = curChat();
   if (!c) return toast('Сначала выберите чат', true);
   stopTypingSignal();   // pkg3-77: письмо само скажет «дописал» — сигнал «пишет…» гаснет
@@ -8583,6 +8698,7 @@ async function send({ textarea, parent, attachKey }) {
   textarea.value = ''; autoGrow(textarea);
   clearAttach(attachKey);
   if (!parent) { S.quote = null; renderQuoteBar(); }
+  if (keepKeyboard) { try { textarea.focus({ preventScroll: true }); } catch (e) { textarea.focus(); } }
 
   // Сообщение появляется в ленте СРАЗУ (с часиками «отправляется»), а не после
   // ответа сервера: раньше человек смотрел на пустое место две-три секунды.
@@ -8691,6 +8807,17 @@ function fireNotify(ticket) {
     }).catch(() => {});
   } catch (e) {}
 }
+/* pkg3-108: кнопка «отправить» раньше забирала фокус у поля ввода — система
+   считала это уходом из поля и убирала клавиатуру. Теперь касание кнопки фокус
+   не отнимает: поле остаётся активным, клавиатура никуда не девается. */
+function noFocusSteal(el) {
+  if (!el) return;
+  // Отменяем именно «нажатие мыши»: фокус с поля ввода не снимается, клавиатура
+  // остаётся. Само нажатие (click) приходит как обычно — кнопка работает.
+  el.addEventListener('mousedown', e => e.preventDefault());
+}
+noFocusSteal($('#btn-send'));
+noFocusSteal($('#thread-send'));
 $('#btn-send').addEventListener('click', () => send({ textarea: $('#input'), attachKey: 'attach' }));
 $('#thread-send').addEventListener('click', () => send({ textarea: $('#thread-input'), parent: S.threadId, attachKey: 'threadAttach' }));
 
@@ -8750,7 +8877,7 @@ function insertAtCursor(textarea, text) {
 }
 function placeEmojiPanel(btn) {
   const pop = $('#emoji-pop');
-  pop.innerHTML = EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}">${twEmo(escapeHtml(e))}</button>`).join('');
+  pop.innerHTML = EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}">${twEmo(escapeHtml(e), { eager: true })}</button>`).join('');
   const r = btn.getBoundingClientRect();
   show(pop);
   const w = pop.offsetWidth || 280, h = pop.offsetHeight || 220;
@@ -9510,7 +9637,7 @@ async function setPush(on) {
 
 // профиль
 $('#btn-profile').addEventListener('click', () => {
-  $('#rail').classList.remove('open');
+  closeRail();
   const me = userById(S.me.id) || S.me;
   modal('Профиль', `
     <div class="avatar-pick">
@@ -9596,7 +9723,7 @@ $('#btn-profile').addEventListener('click', () => {
 
 // управление мессенджером (админ)
 $('#btn-admin').addEventListener('click', async () => {
-  $('#rail').classList.remove('open');
+  closeRail();
   modal('Управление мессенджером', `
     <div class="divider"><span>Участники</span></div>
     <div id="ad-users"></div>
@@ -9945,7 +10072,7 @@ async function decryptLocal() {
 }
 
 $('#btn-export').addEventListener('click', () => {
-  $('#rail').classList.remove('open');
+  closeRail();
   const c = curChat();
   modal('Архивы', `
     <p class="hint">Читаемая копия открывается в любом браузере без пароля: в ней ваши чаты, комментарии и ссылки между сообщениями. Зашифрованная выгрузка безопасна, но открывается только этим приложением.</p>
@@ -10154,7 +10281,7 @@ function paintPalettePickers() {
 
 // ─────────────────────────────────────────── окно настроек (шестерёнка)
 function openSettings() {
-  $('#rail').classList.remove('open');
+  closeRail();
   paintPalettePickers();
   const ar = $('#row-admin-invites');   // pkg3-45: админский экран виден только администратору
   if (ar) ar.style.display = (S.me && S.me.isAdmin) ? '' : 'none';
