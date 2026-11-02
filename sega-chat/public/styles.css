@@ -1759,12 +1759,14 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 /* pkg3-109: место под обложку ВДВОЕ ниже и разделено по вертикали:
    слева — обложка трека (или ♪, если её нет), справа — живая картинка,
    которая движется, пока играет музыка, и замирает на паузе. */
-.mus-v105 .mus-coverbox{display:grid;grid-template-columns:1fr 1fr;width:100%;aspect-ratio:2/1;
-  max-height:26vh;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--panel-2)}
+.mus-v105 .mus-coverbox{display:grid;grid-template-columns:44% 1fr;width:100%;aspect-ratio:2/1;
+  max-height:26vh;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#05080f}
+/* pkg3-113: без явного деления пополам — одна общая рамка, обложка слева
+   вписана целиком (с полями, без обрезки), справа название */
 .mus-v105 .mus-cov-left{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;
-  border-right:1px solid var(--line);background:#120b1e}
-.mus-v105 .mus-cov-left img,.mus-v105 .mus-cov-left svg{width:100%;height:100%;object-fit:cover;display:block}
-.mus-v105 .mus-viz{position:relative;overflow:hidden;background:#05080f}
+  padding:10px;min-width:0;min-height:0}
+.mus-v105 .mus-cov-left img,.mus-v105 .mus-cov-left svg{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;border-radius:10px}
+.mus-v105 .mus-viz{position:relative;overflow:hidden;min-width:0;min-height:0}
 /* pkg3-112: справа от обложки — название трека с переносом (вместо картинки) */
 .mus-v105 .mus-nowbox{display:flex;align-items:center;justify-content:center;padding:8px 10px;text-align:center}
 .mus-v105 .mus-nowt{font-size:14px;line-height:1.3;font-weight:600;color:#f2f2f2;overflow-wrap:anywhere;word-break:break-word;
@@ -1786,12 +1788,13 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
 .mus-v105 .mus-plhead{display:flex;align-items:center;gap:8px;margin:12px 0 6px}
 .mus-v105 .mus-plname{flex:1 1 auto;min-width:0;font-size:13px;font-weight:600;color:var(--accent-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mus-v105 .mus-list{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:4px}
-.mus-v105 .mus-list .mus-trs{max-height:none;min-height:0;overflow:visible;margin-bottom:0}   /* pkg3-112: прокручивается только рамка списка — полоса одна */
+.mus-v105 .mus-list .mus-trs{max-height:none;min-height:0;overflow:visible;margin-bottom:0}
+.mus-v105 .mus-sbar{display:none}   /* pkg3-113: своя полоса прокрутки — только на телефоне */   /* pkg3-112: прокручивается только рамка списка — полоса одна */
 .mus-v105 .mus-tr{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px}
 .mus-v105 .mus-tr.cur{background:var(--accent-soft);outline:1px solid var(--accent-2)}
 .mus-v105 .mus-pbtn{width:26px;height:26px;flex:none;border-radius:7px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;cursor:pointer}
 .mus-v105 .mus-tr.cur .mus-pbtn{border-color:var(--accent-2);color:var(--accent-2)}
-.mus-v105 .mus-ti{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;white-space:nowrap}
+.mus-v105 .mus-ti{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;white-space:nowrap;-webkit-text-size-adjust:100%;text-size-adjust:100%}   /* pkg3-113: iPhone не раздувает шрифт длинных названий */
 .mus-v105 .mus-rowb{flex:none;width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;font-size:11px}
 .mus-v105 .mus-rowb.danger{border-color:var(--red);color:var(--red)}
 .mus-v105 .mus-badge{flex:none;font-size:10px;color:var(--accent-2);border:1px solid var(--accent-2);border-radius:20px;padding:1px 8px;opacity:.9}
@@ -1830,14 +1833,18 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
     box-shadow:none;display:flex;flex-direction:column;overflow:hidden}
   #modal.mus-modal .modal-head{flex:0 0 auto;padding:10px 14px;
     padding-top:calc(10px + env(safe-area-inset-top))}
-  #modal.mus-modal .modal-body{flex:1 1 auto;min-height:0;overflow:hidden;
+  #modal.mus-modal .modal-body{flex:1 1 auto;min-height:0;overflow:hidden;display:flex;flex-direction:column;
     padding:6px 10px calc(6px + env(safe-area-inset-bottom))}
   /* pkg3-111: колонка БЕЗ переноса (nowrap — причина дефекта 109-го закрыта),
      список треков — единственный тянущийся блок; строки добавляются/прячутся
      свободно (подсказка поиска, линия загрузки) и раскладку не ломают */
   #modal.mus-modal .modal-body > .mus-wrap.mus-v105{
-    display:flex;flex-flow:column nowrap;flex-wrap:nowrap;width:100%;max-width:100%;height:100%;min-height:0;
+    display:flex;flex-flow:column nowrap;flex-wrap:nowrap;width:100%;max-width:100%;height:auto;flex:1 1 auto;min-height:0;
     gap:4px;overflow:hidden}
+  /* pkg3-113: обёртка списка — единственный тянущийся блок; внутри сам список
+     и своя полоса прокрутки (iPhone родную прячет, своя видна всегда) */
+  #modal.mus-modal .mus-listwrap{flex:1 1 0;min-height:0;display:flex;flex-flow:row nowrap;gap:4px;position:relative}
+  #modal.mus-modal .mus-listwrap .mus-list{flex:1 1 0;min-width:0;min-height:0;height:auto;max-height:none}
   #modal.mus-modal .mus-wrap.mus-v105 > *{flex:0 0 auto}
   #modal.mus-modal .mus-wrap.mus-v105 > *{min-width:0;max-width:100%;box-sizing:border-box}
   /* строка поиска: поле тянется, кнопки «Найти» и «⋯» остаются на экране */
@@ -1853,9 +1860,10 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
   #modal.mus-modal .mus-plhead{margin:0}
   #modal.mus-modal .mus-list{flex:1 1 0;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;margin:0}
   #modal.mus-modal .mus-progline{margin:2px 0 0}
-  #modal.mus-modal .mus-three{margin:0;gap:20px}
-  #modal.mus-modal .mus-playbig{width:60px;height:60px;font-size:19px}
-  #modal.mus-modal .mus-skip{width:60px;height:60px;font-size:19px}
+  #modal.mus-modal .mus-three{margin:4px 0;gap:18px}
+  /* pkg3-113: кнопки и низ окна — точно как на ПК (размер, цвет, линия сверху) */
+  #modal.mus-modal .mus-playbig{width:58px;height:58px;font-size:19px}
+  #modal.mus-modal .mus-skip{width:58px;height:58px;font-size:19px}
   #modal.mus-modal .mus-foot{padding-top:4px;gap:8px;flex-wrap:nowrap;overflow:hidden}
   #modal.mus-modal .mus-foot input[type=range]{flex:1 1 40px;min-width:40px}
   #modal.mus-modal .mus-foot label.tiny{flex:0 0 auto}
@@ -1874,21 +1882,20 @@ button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0;padding:2px 8px;fo
   #modal.mus-modal .mus-srow input::placeholder{color:#7d7d8a}
   #modal.mus-modal .mini{background:#17171c;color:#e8e8ee;border-color:#2e2e38}
   #modal.mus-modal .mini.primary{background:var(--accent);color:#fff;border-color:transparent}
-  #modal.mus-modal .mus-coverbox{border:0;border-radius:14px;background:#000}
-  #modal.mus-modal .mus-cov-left{border-right:0;background:#000}
+  #modal.mus-modal .mus-coverbox{border:1px solid #3a3a46;border-radius:14px;background:#000}
   /* pkg3-112: список обведён и с постоянной полосой прокрутки */
-  #modal.mus-modal .mus-list{border:1px solid #3a3a46;background:#000;padding:4px;border-radius:12px;overflow-y:scroll;
-    scrollbar-width:thin;scrollbar-color:#7a7a8c #17171c;scrollbar-gutter:stable}
-  #modal.mus-modal .mus-list::-webkit-scrollbar{width:6px;-webkit-appearance:none}
-  #modal.mus-modal .mus-list::-webkit-scrollbar-track{background:#17171c;border-radius:3px}
-  #modal.mus-modal .mus-list::-webkit-scrollbar-thumb{background:#7a7a8c;border-radius:3px}
+  #modal.mus-modal .mus-list{border:1px solid #3a3a46;background:#000;padding:4px;border-radius:12px;overflow-y:auto;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #modal.mus-modal .mus-list::-webkit-scrollbar{display:none;width:0;height:0}
+  #modal.mus-modal .mus-sbar{display:block;flex:0 0 6px;width:6px;border-radius:3px;background:#1f1f26;position:relative;overflow:hidden}
+  #modal.mus-modal .mus-sbar i{position:absolute;left:0;right:0;top:0;height:30%;border-radius:3px;background:#8a8a9c;min-height:24px}
+  #modal.mus-modal .mus-sbar.none i{display:none}
   #modal.mus-modal .mus-eq{height:36px;margin:0;border-color:#3a3a46}
   #modal.mus-modal .mus-nowt{font-size:13px}
   #modal.mus-modal .mus-tr{padding:7px 6px}
   #modal.mus-modal .mus-tr.cur{background:rgba(255,255,255,.08);outline:0}
   #modal.mus-modal .mus-rowb{border-color:#2e2e38;color:#9a9aa6;background:transparent}
-  #modal.mus-modal .mus-skip{background:#17171c;border-color:#2e2e38;color:#fff}
-  #modal.mus-modal .mus-foot{border-top:0}
+  #modal.mus-modal .mus-foot{border-top:1px solid var(--line);padding-top:10px;gap:10px}
   #modal.mus-modal .mus-mwin{background:#101014;border-color:#2e2e38;color:#f2f2f2}
   /* меню «+»: список чатов под ним приглушается — сразу видно, что меню открыто */
   #plus-scrim{display:block;position:absolute;inset:0;z-index:1;background:rgba(8,20,28,.42);

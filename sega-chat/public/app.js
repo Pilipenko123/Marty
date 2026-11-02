@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-112';
+const BUILD = 'pkg3-113';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5327,6 +5327,22 @@ function musicNowUi() {
 /** pkg3-111: бегущая строка названия ходит ТУДА-ОБРАТНО и не показывает
  * пустоту: меряем, на сколько название шире своей ячейки, и отдаём это число
  * оформлению (--mq-shift). Влезает целиком — стоит на месте. */
+/** pkg3-113: своя полоса прокрутки списка на телефоне: iPhone родную прячет,
+ * а владелец просил постоянную. Высота и положение бегунка — из прокрутки списка. */
+function musSbarSync() {
+  const list = document.getElementById('mus-list');
+  const bar = document.getElementById('mus-sbar');
+  if (!list || !bar) return;
+  const sh = list.scrollHeight, ch = list.clientHeight;
+  const need = sh > ch + 2;
+  bar.classList.toggle('none', !need);
+  if (!need) return;
+  const th = bar.clientHeight;
+  const h = Math.max(24, Math.round(th * ch / sh));
+  const top = Math.round((th - h) * (list.scrollTop / (sh - ch)));
+  const i = bar.firstElementChild;
+  if (i) { i.style.height = h + 'px'; i.style.top = top + 'px'; }
+}
 function musMqFit(row) {
   const ti = row.querySelector('.mus-ti');
   const mq = ti && ti.querySelector('.mq');
@@ -5355,6 +5371,7 @@ function musicTickUi() {
   // на паузе строка замирает и значок возвращается к ▶.
   const tog2 = document.getElementById('mus-toggle');
   if (tog2 && !MUS.widget) tog2.textContent = (!a.paused && !a.ended) ? '❚❚' : '▶';
+  musSbarSync();                      // pkg3-113: бегунок своей полосы прокрутки
   const rowsBox = document.querySelector('#modal .mus-trs[data-pl]');
   if (rowsBox) {
     const rpl = rowsBox.getAttribute('data-pl');
@@ -5720,7 +5737,7 @@ async function openMusic(wantId) {
     <div class="mus-eq" id="mus-eq" data-st="off" aria-hidden="true"></div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
     <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
-    <div class="mus-list" id="mus-list">${listHtml}</div>
+    <div class="mus-listwrap"><div class="mus-list" id="mus-list">${listHtml}</div><div class="mus-sbar none" id="mus-sbar" aria-hidden="true"><i></i></div></div>
     <div class="mus-three">
       <button class="mus-skip" id="mus-prev" title="Предыдущий трек">⏮</button>
       <button class="mus-playbig" id="mus-toggle" title="Играть / пауза">▶</button>
@@ -5785,6 +5802,8 @@ async function openMusic(wantId) {
   musAddMinBtn();
   if (!musWasOpen) musExpandAnim(); else musicFabSync();   // pkg3-94: сначала гасим пузырёк, потом перелёт
   musicNowUi(); musicTickUi(); musVizSync();
+  const list0 = $('#mus-list');
+  if (list0) { list0.addEventListener('scroll', musSbarSync, { passive: true }); setTimeout(musSbarSync, 0); }
   const vol0 = $('#mus-vol');
   if (vol0) vol0.value = String(Math.round(musicAudio().volume * 100));
   // pkg3-105: три оверлея («⋯», «Плейлисты ▾», меню трека) — открыть/закрыть
@@ -5795,7 +5814,7 @@ async function openMusic(wantId) {
   const covOvl = $('#mus-cov-ovl');
   const covBox = $('#mus-cover-img');
   if (covBox) covBox.addEventListener('click', e => {
-    if (!e.target.closest('.mus-cov-def') || !covOvl) return;
+    if (!covBox.querySelector('.mus-cov-def') || !covOvl) return;   // pkg3-113: касание по всей левой части
     covOvl.classList.add('show');
   });
   if (covOvl) covOvl.addEventListener('click', e => {
@@ -9003,6 +9022,7 @@ document.addEventListener('mousedown', e => {
   if (!e.target.closest('#emoji-pop,.emoji-btn')) closeEmoji();
 });
 window.addEventListener('resize', closeEmoji);
+window.addEventListener('resize', () => { if (S.musOpen) musSbarSync(); });   // pkg3-113
 
 $('#notify-sound').addEventListener('change', async e => {
   S.notify.sound = e.target.checked;
