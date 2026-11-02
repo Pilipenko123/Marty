@@ -48,8 +48,8 @@ ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*flex-flow:column
   'раскладка плеера — колонка без переноса (pkg3-111: вместо сетки, чтобы скрытые/добавленные строки её не ломали)');
 ok(/#modal\.mus-modal \.mus-wrap\.mus-v105 > \*\{flex:0 0 auto\}/.test(mob) && /#modal\.mus-modal \.mus-list\{flex:1 1 0/.test(mob),
   'все блоки «свои» по высоте, список забирает остаток (flex:1 1 0)');
-ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*height:100%/s.test(mob),
-  'сетка занимает всю высоту окна (иначе список не сможет прокручиваться внутри)');
+ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*flex:1 1 auto;min-height:0/s.test(mob) && /#modal\.mus-modal \.modal-body\{[^}]*display:flex;flex-direction:column/s.test(mob),
+  'колонка растягивается на всю высоту окна как flex-ребёнок (pkg3-113: height:100% iPhone не понимал)');
 
 console.log('\n  2. Ни один блок не шире экрана');
 ok(/#modal\.mus-modal \.mus-wrap\.mus-v105 > \*\{[^}]*min-width:0/s.test(mob),
@@ -79,8 +79,8 @@ ok(/#modal\.mus-modal \.mus-list\{[^}]*overflow-x:hidden/s.test(mob), 'спис�
 console.log('\n  4. Обложка, перемотка, кнопки, громкость');
 ok(/#modal\.mus-modal \.mus-coverbox\{[^}]*max-height:22dvh/s.test(mob), 'обложка ужата до 22% высоты экрана');
 ok(/#modal\.mus-modal \.mus-coverbox\{[^}]*width:100%/s.test(mob), 'обложка занимает ширину окна и не шире');
-ok(/#modal\.mus-modal \.mus-three\{[^}]*gap:20px/s.test(mob), 'три кнопки плеера вписаны в свою строку');
-ok(/#modal\.mus-modal \.mus-playbig\{width:60px;height:60px/.test(mob) && /#modal\.mus-modal \.mus-skip\{width:60px;height:60px/.test(mob),
+ok(/#modal\.mus-modal \.mus-three\{[^}]*gap:18px/s.test(mob), 'три кнопки плеера вписаны в свою строку');
+ok(/#modal\.mus-modal \.mus-playbig\{width:58px;height:58px/.test(mob) && /#modal\.mus-modal \.mus-skip\{width:58px;height:58px/.test(mob),
   'кнопки плеера удобного размера для пальца');
 ok(/#modal\.mus-modal \.mus-foot\{[^}]*flex-wrap:nowrap/s.test(mob), 'низ окна (громкость и тумблер) не разъезжается');
 ok(/#modal\.mus-modal \.mus-foot input\[type=range\]\{[^}]*min-width:40px/s.test(mob),

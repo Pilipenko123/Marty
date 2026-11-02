@@ -69,7 +69,7 @@ ok(/#modal\.mus-modal \.modal-body > \.mus-wrap\.mus-v105\{[^}]*flex-flow:column
 ok(/#modal\.mus-modal \.mus-list\{flex:1 1 0/.test(css), 'список треков забирает остаток высоты (pkg3-111)');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*min-height:0/s.test(css), 'список треков занимает всё свободное место (и может ужаться)');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*overflow-y:auto/s.test(css), 'длинный список прокручивается внутри себя');
-ok(/#modal\.mus-modal \.mus-playbig\{width:(60|62)px/.test(css) && /#modal\.mus-modal \.mus-skip\{width:60px/.test(css),
+ok(/#modal\.mus-modal \.mus-playbig\{width:58px/.test(css) && /#modal\.mus-modal \.mus-skip\{width:58px/.test(css),   // pkg3-113: как на ПК
   'кнопки ▶/❚❚ и перемотка остаются на виду и стали удобнее для пальца');
 ok(!/^\s*\.modal-box\{[^}]*height:100dvh/m.test(css), 'прочие окна (настройки, приглашения) не тронуты');
 
@@ -81,12 +81,12 @@ ok(/<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowt" id="mus-n
 const boxAt = app.indexOf('<div class="mus-coverbox">');
 ok(boxAt > 0 && !app.includes('id="mus-cover-cap"'), 'подписи «Сейчас играет» под блоком нет (pkg3-111: по просьбе владельца убрана как дублирование)');
 const covCss = (/\.mus-v105 \.mus-coverbox\{[^}]*\}/.exec(css) || [''])[0];
-ok(/grid-template-columns:1fr 1fr/.test(covCss), 'блок делится на две равные половины по вертикали');
+ok(/grid-template-columns:44% 1fr/.test(covCss), 'блок: обложка слева, название справа, без явного деления пополам (pkg3-113)');
 ok(/aspect-ratio:2\/1/.test(covCss), 'высота блока — половина ширины (было 1/1 — квадрат во весь экран)');
 ok(/max-height:26vh/.test(covCss) && !/max-height:44vh/.test(covCss), 'потолок высоты снижен с 44vh до 26vh — место стало вдвое ниже');
 ok(!/aspect-ratio:1\/1/.test(covCss), 'прежняя квадратная обложка не вернулась');
-ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:cover/.test(css.replace(/\s+/g, ' ')),
-  'обложка заполняет свою половину без искажений');
+ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:contain/.test(css.replace(/\s+/g, ' ')),
+  'обложка вписана целиком без обрезки (pkg3-113)');
 
 // ─────────────────────────── 4. живая картинка: движется вместе со звуком
 // (pkg3-112: переехала из квадрата рядом с обложкой в узкую полосу под ней)

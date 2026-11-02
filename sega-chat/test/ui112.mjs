@@ -40,11 +40,11 @@ ok(/\.mus-v105 \.mus-list \.mus-trs\{max-height:none;min-height:0;overflow:visib
 ok(/\.mus-v105 \.mus-list\{max-height:200px;overflow-y:auto/.test(css), 'рамка списка прокручивается как прежде');
 
 console.log('\n  2. Телефон: список обведён, полоса прокрутки постоянная');
-ok(/#modal\.mus-modal \.mus-list\{border:1px solid #3a3a46;[^}]*border-radius:12px;overflow-y:scroll/.test(mob),
-  'рамка с закруглением и полоса прокрутки всегда (overflow-y:scroll)');
-ok(/#modal\.mus-modal \.mus-list\{[^}]*scrollbar-width:thin;scrollbar-color:#7a7a8c #17171c/.test(mob), 'тонкая видимая полоса (Firefox/новые Chrome)');
-ok(/#modal\.mus-modal \.mus-list::-webkit-scrollbar\{width:6px;-webkit-appearance:none\}/.test(mob) && /#modal\.mus-modal \.mus-list::-webkit-scrollbar-thumb\{background:#7a7a8c/.test(mob),
-  'полоса нарисована явно и для iPhone/Android (WebKit) — не прячется');
+ok(/#modal\.mus-modal \.mus-list\{border:1px solid #3a3a46;[^}]*border-radius:12px;overflow-y:auto/.test(mob),
+  'рамка с закруглением, список прокручивается внутри');
+ok(/#modal\.mus-modal \.mus-sbar\{display:block;flex:0 0 6px/.test(mob) && /function musSbarSync\(\)/.test(app), 'постоянная полоса прокрутки — своя, рядом со списком (pkg3-113: родную iPhone прячет)');
+ok(/#modal\.mus-modal \.mus-list::-webkit-scrollbar\{display:none/.test(mob) && /#modal\.mus-modal \.mus-sbar i\{[^}]*background:#8a8a9c/.test(mob),
+  'родная полоса спрятана, бегунок своей — светлый и заметный');
 ok(/#modal\.mus-modal \.mus-list\{[^}]*flex:1 1 0/.test(mob) || /#modal\.mus-modal \.mus-list\{flex:1 1 0/.test(mob), 'список по-прежнему забирает остаток высоты');
 
 console.log('\n  3. Телефон: окно не ложится набок');
@@ -94,7 +94,7 @@ for (const f of ['music-cover.jpg', 'music-cover2.jpg', 'music-cover3.gif', 'mus
   ok(sz > 5000 && sz < 200 * 1024, `${f} на месте и лёгкая (${Math.round(sz / 1024)} КБ)`);
 }
 ok(/localStorage\.getItem\('sega\.musCover'\)/.test(app) && /localStorage\.setItem\('sega\.musCover', b\.getAttribute\('data-mus-cov'\)\)/.test(app), 'выбор хранится на устройстве');
-ok(/class="mus-cov-def"/.test(app) && /if \(!e\.target\.closest\('\.mus-cov-def'\) \|\| !covOvl\) return;/.test(app), 'касание именно по стандартной обложке (не по своей обложке трека) открывает выбор');
+ok(/class="mus-cov-def"/.test(app) && /if \(!covBox\.querySelector\('\.mus-cov-def'\) \|\| !covOvl\) return;/.test(app), 'выбор открывается только когда показана стандартная обложка (не своя обложка трека)');
 ok(app.includes('id="mus-cov-ovl"') && app.includes('<h3>Стандартная обложка</h3>') && app.includes('${musCoverPickHtml()}'), 'окошко выбора с четырьмя картинками');
 ok(/\.mus-v105 \.mus-covgrid\{display:grid;grid-template-columns:1fr 1fr/.test(css) && /\.mus-v105 \.mus-covpick\.cur\{border-color:var\(--accent-2\)/.test(css), 'картинки в две колонки, выбранная подсвечена');
 ok(/onerror="this\.src='\$\{def\}';this\.onerror=null"/.test(app), 'своя обложка трека важнее; при её сбое — выбранная стандартная');
