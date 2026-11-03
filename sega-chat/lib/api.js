@@ -22,7 +22,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-120';
+const BUILD = 'pkg3-121';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -2889,7 +2889,28 @@ function createApi(store, opts = {}) {
       if (keys && me.yadisk && typeof me.yadisk.blob === 'string') {
         connected = !!yadisk.openToken(yadisk.tokenKey(keys.clientSecret), me.yadisk.blob);
       }
-      return J(200, { keys: !!keys, connected });
+      // pkg3-121: вместе с подключением говорим, открыт ли Диск другим участникам
+      return J(200, { keys: !!keys, connected, share: me.diskShare !== false });
+    }
+    // pkg3-121: проверка приложения Яндекса. У второго (тестового) аккаунта
+    // страница согласия отвечала «400 · Неизвестно приложение с таким client_id»,
+    // и человек не понимал, что это не про SEGA-CHAT. Теперь сервер сам
+    // спрашивает у Яндекса страницу по своему client_id и говорит по-русски.
+    if (pathname === '/api/yadisk/diag' && method === 'GET') {
+      if (throttle('yd-diag-' + me.id, 20)) return E(429, 'Слишком часто — подождите минуту');
+      const keys = yadisk.loadKeys();
+      if (!keys) return J(200, { keys: false, ok: false, status: 0, reason: 'keys' });
+      const pr = await yadisk.probeAuth(keys);
+      const tail = String(keys.clientId || '').slice(-4);
+      return J(200, { keys: true, ok: !!pr.ok, status: pr.status || 0, reason: pr.reason || '', clientId: tail });
+    }
+    // pkg3-121: владелец решает, слышны ли его треки с Диска другим участникам.
+    // По умолчанию — да (просьба владельца), выключить можно этим тумблером.
+    if (pathname === '/api/yadisk/share' && method === 'POST') {
+      const b = req.body || {};
+      me.diskShare = b.share !== false;
+      save();
+      return J(200, { ok: true, share: me.diskShare });
     }
     if (pathname === '/api/yadisk/auth-url' && method === 'GET') {
       const keys = yadisk.loadKeys();
@@ -2928,6 +2949,62 @@ function createApi(store, opts = {}) {
         return J(200, await yadisk.downloadHref(tok.access_token, String(query.get('path') || '')));
       } catch (e) {
         if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
+        if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+
+    // pkg3-121: трек с Диска ДРУГОГО участника. Владелец просил, чтобы его музыка
+    // была доступна другим — для прослушивания и добавления в плейлист.
+    // Правила (и почему это безопасно):
+    //   • только для тех, кто состоит с владельцем в общем чате;
+    //   • только те пути, что владелец САМ положил в свои ОТКРЫТЫЕ плейлисты —
+    //     по чужому Диску нельзя гулять, угадывая имена файлов;
+    //   • владелец может закрыть доступ тумблером (/api/yadisk/share);
+    //   • ссылка по-прежнему короткоживущая, звук идёт с серверов Яндекса.
+    if (pathname === '/api/yadisk/shared-href' && method === 'GET') {
+      if (throttle('yd-shr-' + me.id, 120)) return E(429, 'Слишком много запусков треков — подождите немного');
+      const of = String(query.get('of') || '');
+      const path = yadisk.safePath(String(query.get('path') || ''));
+      if (!path) return E(400, 'Неверный путь к файлу на Диске');
+      if (!of || of === me.id) {
+        // свой Диск — обычный путь (тот же, что /api/yadisk/href)
+        const keys0 = yadisk.loadKeys();
+        const tok0 = await ydFreshToken(me, keys0);
+        if (!tok0) return E(409, keys0 ? 'Яндекс.Диск не подключён (или связь с ним истекла)' : YD_KEYS_HINT);
+        try { return J(200, await yadisk.downloadHref(tok0.access_token, path)); }
+        catch (e) {
+          if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
+          if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+          return E(502, e.message || 'Яндекс.Диск не отвечает');
+        }
+      }
+      const ou = db.users.find(x => x.id === of);
+      if (!ou) return E(404, 'Нет такого участника');
+      if (ou.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+      let inScope = false;
+      for (const c of db.chats) {
+        const ms = c && c.members;
+        if (Array.isArray(ms) && ms.includes(me.id) && ms.includes(of)) { inScope = true; break; }
+      }
+      if (!inScope) return E(404, 'Этот человек не из ваших чатов');
+      // белый список: путь должен лежать в ОТКРЫТЫХ плейлистах владельца
+      let published = false;
+      for (const pl of (Array.isArray(ou.musicPub) ? ou.musicPub : [])) {
+        for (const t of ((pl && pl.tracks) || [])) {
+          if (t && t.kind === 'disk' && String(t.path || '') === path) { published = true; break; }
+        }
+        if (published) break;
+      }
+      if (!published) return E(404, 'Участник убрал этот трек из своих открытых плейлистов');
+      const keys = yadisk.loadKeys();
+      if (!keys) return E(409, YD_KEYS_HINT);
+      try {
+        const tok = await ydFreshToken(ou, keys);
+        if (!tok) return E(409, 'У участника Яндекс.Диск не подключён');
+        return J(200, await yadisk.downloadHref(tok.access_token, path));
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) return E(409, 'Диск участника отозвал доступ');
         if (e.status === 400 || e.status === 404) return E(e.status, e.message);
         return E(502, e.message || 'Яндекс.Диск не отвечает');
       }

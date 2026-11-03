@@ -57,7 +57,8 @@ ok(appJs.includes('const fr = fab.getBoundingClientRect();') && appJs.includes('
 console.log('\n  4. Текущий трек в списке');
 ok(appJs.includes("'❚❚'") && appJs.includes("pb.textContent = isCur && !a.paused && !a.ended ? '❚❚' : '▶';"),
   'pkg3-96: у играющего трека значок ▶ живьём становится ❚❚ ровно на текущей строке');
-ok(css.includes('@keyframes mus-mq') && appJs.includes('class="mq${'),
+// pkg3-121: класс mq теперь у КАЖДОЙ строки, а «едет или стоит» решает замер
+ok(css.includes('@keyframes mus-mq') && appJs.includes('<span class="mq">'),
   'pkg3-96: бегущая строка заготовлена у каждого трека, едет у текущего — читается целиком');
 ok(css.includes('.mus-tr.cur.paused .mq{animation-play-state:paused}'),
   'на паузе бегущая строка замирает');
@@ -66,7 +67,7 @@ ok(appJs.includes('if (MUS.plId === pl.id && MUS.idx === i && !musicIsWidget((pl
 
 console.log('\n  5. Инварианты выпуска');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v113';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v114';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music93.mjs'), 'тест music93 включён в цепочку npm test');
 ok(readme.includes('| pkg3-93 |'), 'в журнале README есть строка выпуска pkg3-93');
 const deps = JSON.parse(pkg).dependencies;

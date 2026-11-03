@@ -34,28 +34,31 @@ console.log('  pkg3-120: бегущая строка и источник тре�
 console.log('            ссылка Яндекс.Музыки — плеер в чате');
 console.log('══════════════════════════════════════════════════\n');
 
-console.log('  1. «Моя музыка»: название снова едет туда-обратно');
-ok(/<div class="mus-nowt"><span class="mq" id="mus-now-title">/.test(app),
-  'название в окне — бегущая строка (.mq), а не простой текст');
-const mqRule = near('.mus-v105 .mus-nowt .mq{');
-ok(mqRule !== '', 'для неё есть своё правило');
-ok(/animation:mus-mq var\(--mq-dur,9s\) ease-in-out infinite alternate/.test(mqRule),
+console.log('  1. «Моя музыка»: бегущая строка в строках списка, название в окне — с переносом');
+// pkg3-121: владелец уточнил — строка едет В СПИСКЕ (плейлист и результаты поиска),
+// а справа от обложки название читается переносом.
+ok(/<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowcol"><div class="mus-nowt" id="mus-now-title">/.test(app),
+  'справа от обложки — обычное название (с переносом), а не бегущая строка');
+const nowt = near('.mus-v105 .mus-nowt{\n  display:-webkit-box');
+ok(/-webkit-line-clamp:6/.test(nowt) && /overflow:hidden/.test(nowt), 'название в окне ограничено шестью строками и переносится');
+ok(!/\.mus-v105 \.mus-nowt \.mq\{/.test(css), 'правила «едет название в окне» больше нет');
+ok(/<span class="mq">\$\{escapeHtml\(t\.title/.test(app), 'в строке плейлиста название — бегущая строка (.mq)');
+ok(/<span class="mq">\$\{escapeHtml\(t\.title\)\}/.test(app), 'в результатах поиска — тоже (.mq)');
+const mqRule = near('.mus-tr.cur .mq{');
+ok(/animation:mus-mq var\(--mq-dur,8s\) ease-in-out infinite alternate/.test(mqRule),
   'анимация туда-обратно (alternate), длительность из --mq-dur');
-ok(/white-space:nowrap/.test(mqRule), 'строка не переносится — иначе ползти нечему');
 ok(/@keyframes mus-mq\{0%,14%\{transform:translateX\(0\)\}86%,100%\{transform:translateX\(var\(--mq-shift,0px\)\)\}\}/.test(css),
   'ключевые кадры прежние: доехала и поехала назад');
-const mqStop = near('.mus-v105 .mus-nowt .mq.mq-s{');
-ok(/animation:none;transform:none/.test(mqStop), 'короткое название стоит на месте (класс mq-s)');
-ok(/word-break:break-word/.test(mqStop), 'и переносится по словам, как в 119-м');
-ok(/function musMarqueeSync\(\)/.test(app), 'длину поездки считает app.js');
-ok(/setProperty\('--mq-shift', \(-shift\) \+ 'px'\)/.test(app), 'сдвиг = насколько название шире своей ячейки');
-ok(/setProperty\('--mq-dur'/.test(app), 'время поездки — по длине пути');
-ok(/classList\.toggle\('mq-s', shift < 4\)/.test(app), 'влезает целиком — класс mq-s, ползти не надо');
-ok(/musMarqueeKick\(\);   \/\/ pkg3-120/.test(app), 'пересчёт запускается при смене трека');
-ok(/musVizSync\(\); musMarqueeKick\(\);/.test(app), 'и когда окно музыки отрисовано (ширина уже известна)');
+ok(/\.mus-tr\.cur \.mq\.mq-s\{animation:none;transform:none\}/.test(css), 'короткое название стоит на месте (класс mq-s)');
+ok(/function musMqFit\(row\)/.test(app), 'длину поездки считает app.js');
+ok(/mq\.style\.setProperty\('--mq-shift', shift \+ 'px'\)/.test(app), 'сдвиг = насколько название шире своей ячейки');
+ok(/mq\.style\.setProperty\('--mq-dur'/.test(app), 'время поездки — по длине пути');
+ok(/mq\.classList\.toggle\('mq-s', !shift\)/.test(app), 'влезает целиком — класс mq-s, ползти не надо');
+ok(/function musMarqueeSync\(\)[\s\S]{0,400}document\.querySelectorAll\('#modal \.mus-trs'\)/.test(app),
+  'замер обходит ВСЕ списки окна музыки (плейлист, поиск, Диск)');
+ok(/delete mq\.dataset\.mqShift/.test(app), 'перед замером кэш ширины сбрасывается (бейдж источника её меняет)');
+ok(/musicNowUi\(\); musicTickUi\(\); musVizSync\(\); musMarqueeKick\(\);/.test(app), 'пересчёт идёт сразу после отрисовки окна');
 ok(/addEventListener\('resize', \(\) => musMarqueeKick\(\)\)/.test(app), 'и после поворота телефона / изменения ширины');
-ok(/\.mus-v105 \.mus-nowt\{\n  display:block;width:100%/.test(css),
-  'название занимает всю ячейку — от неё и считается «не влезает»');
 
 console.log('\n  2. Видно, с какого ресурса играет трек');
 ok(/id="mus-now-src"/.test(app), 'под названием есть строка источника');
@@ -64,7 +67,8 @@ ok(/const src = document\.getElementById\('mus-now-src'\)/.test(app), 'musicNowU
 ok(/src\.classList\.toggle\('hidden', !ru\)/.test(app), 'нет источника — подписи не видно');
 ok(/function musSourceRu\(t\)/.test(app), 'есть одна общая подпись источника');
 ok(/musicIsWidget\(t\)\) return 'Яндекс\.Музыка'/.test(app), 'трек-виджет Яндекса — «Яндекс.Музыка»');
-ok(/musicIsDisk\(t\)\) return 'Яндекс\.Диск'/.test(app), 'файл с Диска — «Яндекс.Диск»');
+ok(/return \(t\.diskOf && S\.me && t\.diskOf !== S\.me\.id\) \? 'Диск участника' : 'Яндекс\.Диск'/.test(app),
+  'файл с Диска — «Яндекс.Диск», а с чужого — «Диск участника»');
 ok(/MUS_SITE_TITLES\[t\.site\]/.test(app), 'сайт поиска — его человеческое имя (MUS_SITE_TITLES)');
 ok(/u\.hostname/.test(app), 'иначе — имя сайта из самой ссылки');
 const srcRule = near('.mus-v105 .mus-nowsrc{');
@@ -112,7 +116,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(sw) || [])[1];
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(api) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v113', `кэш оформления поднят (${cache}) — устройства получат правки`);
+ok(cache === 'sega-static-v114', `кэш оформления поднят (${cache}) — устройства получат правки`);
 ok(i120 > 0 && i120 > css.indexOf('pkg3-119'), 'блок 120-го идёт после 119-го — его правила побеждают');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

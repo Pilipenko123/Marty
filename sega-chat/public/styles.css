@@ -2322,27 +2322,16 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
    ссылка Яндекс.Музыки в сообщении — карточка-плеер прямо в чате
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* 1. Окно «Моя музыка»: справа от обложки — название ОДНОЙ строкой.
-   Не влезает целиком — строка сама едет туда-обратно (--mq-shift/--mq-dur
-   меряет app.js), влезает — стоит на месте. Под названием — откуда трек. */
+/* 1. Окно «Моя музыка»: справа от обложки — название трека С ПЕРЕНОСОМ
+   (pkg3-121: владелец попросил вернуть перенос — длинное имя читается целиком),
+   под ним — откуда трек. Бегущая строка живёт в строках списка (pkg3-96/120). */
 .mus-v105 .mus-nowcol{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:6px;width:100%;min-width:0;max-height:100%;overflow:hidden;
 }
 .mus-v105 .mus-nowt{
-  display:block;width:100%;max-width:100%;overflow:hidden;text-align:center;
-  -webkit-line-clamp:none;-webkit-box-orient:horizontal;
-}
-.mus-v105 .mus-nowt .mq{
-  display:inline-block;white-space:nowrap;max-width:none;font:inherit;color:inherit;
-  animation:mus-mq var(--mq-dur,9s) ease-in-out infinite alternate;will-change:transform;
-}
-.mus-v105 .mus-nowt .mq.mq-s{
-  animation:none;transform:none;white-space:normal;
-  overflow-wrap:anywhere;word-break:break-word;
-}
-@media (prefers-reduced-motion:reduce){
-  .mus-v105 .mus-nowt .mq{animation:none;transform:none;white-space:normal;overflow-wrap:anywhere}
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;
+  width:100%;max-width:100%;overflow:hidden;text-align:center;
 }
 /* подпись «откуда трек»: Яндекс.Музыка / Яндекс.Диск / сайт поиска */
 .mus-v105 .mus-nowsrc{
@@ -2392,3 +2381,12 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
   .ym-embed .ym-txt{font-size:12px}
   .ym-embed .ym-play{padding:4px 10px;font-size:12px}
 }
+
+/* pkg3-121: чужой плейлист — трек с Диска участника играет, «＋» забирает его
+   в свой плейлист. Строка = сам трек + маленькая кнопка добавления справа. */
+.mus-of-row{display:flex;align-items:stretch;gap:6px;min-width:0}
+.mus-of-row .mus-of-tr{min-width:0}
+.mus-of-row .mus-of-add{flex:0 0 auto;width:34px;padding:0;font-size:14px;line-height:1;
+  border:1.5px solid var(--glow-line);border-radius:8px;background:var(--panel-2);color:var(--text);cursor:pointer}
+.mus-of-row .mus-of-add:hover{color:var(--accent-2);border-color:var(--accent-2)}
+.mus-of-tr.d{border-color:var(--glow-line)}

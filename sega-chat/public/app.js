@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-120';
+const BUILD = 'pkg3-121';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4856,7 +4856,7 @@ function musSearchRowsHtml() {
     return `<div class="mus-tr mus-sr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
     <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза (в плейлист не добавляется)">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
     ${musThumbHtml(t)}
-    <span class="mus-ti" title="${escapeHtml(t.title)}"><span class="mq${t.title.length > 24 ? '' : ' mq-s'}">${escapeHtml(t.title)}</span></span>
+    <span class="mus-ti" title="${escapeHtml(t.title)}"><span class="mq">${escapeHtml(t.title)}</span></span>
     <span class="mus-badge" title="Источник прямой ссылки">${escapeHtml(MUS_SITE_TITLES[t.site] || t.site)}</span>
     <button class="mus-addbtn" data-mus-s-add="${i}" title="Добавить в плейлист">＋</button>
   </div>`; }).join('');
@@ -5153,7 +5153,12 @@ async function musicStartDiskTrack(t) {
   a.pause();
   musicNowUi(); musicFabSync();
   try {
-    const r = await api('/api/yadisk/href?path=' + encodeURIComponent(t.path || ''));
+    // pkg3-121: трек может лежать на Диске ДРУГОГО участника (он им поделился).
+    // Тогда просим ссылку у сервера с пометкой, чей Диск; свой — как раньше.
+    const mine = !t.diskOf || (S.me && t.diskOf === S.me.id);
+    const r = mine
+      ? await api('/api/yadisk/href?path=' + encodeURIComponent(t.path || ''))
+      : await api('/api/yadisk/shared-href?of=' + encodeURIComponent(t.diskOf) + '&path=' + encodeURIComponent(t.path || ''));
     if (!r || !r.href) throw new Error('сервер не дал ссылку на файл');
     // пока ждали ссылку, человек мог включить другой трек — не перебиваем его
     if (MUS.list[MUS.idx] !== t) return;
@@ -5190,6 +5195,7 @@ async function ydPaneStart() {
   try {
     const s = await api('/api/yadisk/state');
     y.keys = !!s.keys; y.connected = !!s.connected;
+    y.share = s.share !== false;   // pkg3-121: открыт ли мой Диск другим участникам
   } catch (e) {
     ydBar('Сервер не отвечает: ' + escapeHtml(e.message || String(e)));
     return;
@@ -5207,7 +5213,8 @@ function ydRenderOff() {
   } else {
     ydBar('Яндекс.Диск не подключён.'
       + '<br><span class="tiny muted">Кнопка «Подключить» откроет страницу Яндекса: войдите в свой аккаунт и разрешите SEGA-CHAT <b>читать</b> Диск (писать и удалять файлы сервер не сможет). После разрешения окно подхватит подключение само.</span>'
-      + '<br><button class="mini primary" id="mus-disk-connect">Подключить Яндекс.Диск</button>');
+      + '<br><button class="mini primary" id="mus-disk-connect">Подключить Яндекс.Диск</button> '
+      + '<button class="mini" id="mus-disk-diag" title="Проверить, что приложение Яндекса на сервере живо и пускает этот аккаунт">Проверить приложение</button>');
   }
   const box = document.getElementById('mus-disk-files');
   if (box) box.innerHTML = '';
@@ -5217,6 +5224,8 @@ function ydRenderOff() {
   if (rb) rb.addEventListener('click', () => { ydPaneStart().catch(() => {}); });
   const cb = document.getElementById('mus-disk-connect');
   if (cb) cb.addEventListener('click', () => { ydConnect(); });
+  const db = document.getElementById('mus-disk-diag');
+  if (db) db.addEventListener('click', () => { ydDiag(true); });
 }
 /** Загрузка списка аудиофайлов со всего Диска (страницами по 200). */
 async function ydLoadFiles(reset) {
@@ -5249,9 +5258,26 @@ function ydRenderOn() {
   const y = ydState();
   ydBar('✅ Яндекс.Диск подключён. <span class="tiny muted">Файлы остаются на Диске: звук идёт с серверов Яндекса прямо в браузер, место на сервере не тратится. Ссылка на трек временная и создаётся заново при каждом запуске.</span> '
     + '<button class="mini" id="mus-disk-reload">Обновить список</button> '
-    + '<button class="mini danger" id="mus-disk-off">Отключить</button>');
+    + '<button class="mini danger" id="mus-disk-off">Отключить</button>'
+    // pkg3-121: по просьбе владельца его Диск теперь доступен другим
+    + '<br><label class="tiny mus-disk-share"><input type="checkbox" id="mus-disk-share"' + (y.share !== false ? ' checked' : '')
+    + '> другие участники могут слушать мои треки с Диска и забирать их в свои плейлисты'
+    + ' <span class="muted">(только то, что лежит в моих открытых плейлистах)</span></label>');
   const rl = document.getElementById('mus-disk-reload');
   if (rl) rl.addEventListener('click', () => { ydLoadFiles(true).catch(() => {}); });
+  const sh = document.getElementById('mus-disk-share');
+  if (sh) sh.addEventListener('change', async () => {
+    try {
+      await api('/api/yadisk/share', { method: 'POST', body: { share: !!sh.checked } });
+      y.share = !!sh.checked;
+      toast(sh.checked
+        ? 'Готово: треки с вашего Диска из открытых плейлистов могут слушать другие'
+        : 'Готово: треки с вашего Диска снова слышны только вам');
+    } catch (e) {
+      sh.checked = y.share !== false;
+      toast('Не удалось сохранить настройку: ' + (e.message || e), true);
+    }
+  });
   const of = document.getElementById('mus-disk-off');
   if (of) of.addEventListener('click', async () => {
     if (!confirm('Отключить Яндекс.Диск? Треки, уже добавленные в плейлисты, останутся в списках, но играть не будут, пока Диск снова не подключён.')) return;
@@ -5301,7 +5327,8 @@ function ydRenderOn() {
       if (!pl) { toast('Сначала создайте плейлист слева', true); return; }
       pl.tracks = pl.tracks || [];
       if (pl.tracks.some(t => musicIsDisk(t) && t.path === f.path)) { toast('Этот файл уже есть в плейлисте «' + pl.name + '»', true); return; }
-      pl.tracks.push({ id: musicUid(), kind: 'disk', path: f.path, title: f.name, cover: '' });
+      // pkg3-121: помним, чей это Диск, — по этому полю трек смогут слушать другие
+      pl.tracks.push({ id: musicUid(), kind: 'disk', path: f.path, title: f.name, cover: '', diskOf: (S.me && S.me.id) || '' });
       try {
         await musicSave();
         toast('Добавлено в плейлист «' + pl.name + '»: ' + f.name);
@@ -5309,9 +5336,59 @@ function ydRenderOn() {
     }
   };
 }
+/**
+ * pkg3-121: ПРОВЕРКА ПРИЛОЖЕНИЯ ЯНДЕКСА до того, как человека отправят на
+ * страницу согласия. Сервер сам спрашивает у Яндекса страницу по своему
+ * client_id и смотрит, знает ли Яндекс такое приложение. Так владелец видит
+ * понятную подсказку вместо чужой страницы «400 · Неизвестно приложение с
+ * таким client_id». Возвращает { ok, text } — текст готов к показу.
+ */
+async function ydDiag(show) {
+  let r = null;
+  try {
+    r = await api('/api/yadisk/diag');
+  } catch (e) {
+    const t = 'Проверка не получилась: ' + (e.message || e);
+    if (show) toast(t, true);
+    return { ok: false, text: t, reason: 'net' };
+  }
+  if (!r.keys) {
+    const t = 'На сервере нет файла ключей приложения Яндекса: /opt/sega/keys/yandex-oauth.json';
+    if (show) toast(t, true);
+    return { ok: false, text: t, reason: 'keys' };
+  }
+  if (r.reason === 'unknown-app') {
+    const t = 'Яндекс не знает приложение с этим client_id: приложение удалено или в файле ключей чужой ID. Откройте oauth.yandex.ru, найдите (или создайте) приложение с правами «Чтение всего Диска», скопируйте ClientID в /opt/sega/keys/yandex-oauth.json и нажмите «Проверить приложение».';
+    if (show) toast(t, true);
+    return { ok: false, text: t, reason: 'unknown-app' };
+  }
+  if (!r.ok) {
+    const t = 'Яндекс ответил на проверку кодом ' + (r.status || '?') + '. Если приложение только что создано — подождите пару минут и проверьте снова.';
+    if (show) toast(t, true);
+    return { ok: false, text: t, reason: 'status' };
+  }
+  const t = 'Приложение Яндекса живо' + (r.clientId ? ' (client_id …' + r.clientId + ')' : '') + ': можно подключать Диск.';
+  if (show) toast(t);
+  return { ok: true, text: t, reason: '' };
+}
+/** Человеческое окно «что делать» — открывается, когда подключать бесполезно. */
+function ydDiagHelp(text) {
+  modal('Яндекс.Диск: нужна правка на стороне Яндекса', `
+    <p class="hint">${escapeHtml(text)}</p>
+    <p class="hint">Если это ваш второй (тестовый) аккаунт, а на главном Диск уже подключён — <b>подключать второй Диск не нужно</b>: треки с вашего Диска уже видны другим в «Музыке» участника, а в этом окне есть тумблер «другие участники могут слушать мои треки с Диска».</p>
+    <p class="hint">Приложение, у которого нет публикации, пускает только свой аккаунт. На oauth.yandex.ru откройте приложение → «Доступ к API» и добавьте аккаунт в тестировщики либо опубликуйте приложение.</p>
+    <button class="mini primary" id="yd-diag-close">Понятно</button>`);
+  const b = document.getElementById('yd-diag-close');
+  if (b) b.addEventListener('click', () => hide($('#modal')));
+}
 /** Подключение: открываем страницу Яндекса в новом окне и тихо опрашиваем
- * сервер, пока владелец жмёт «Разрешить». Как только токен лёг — список сам. */
+ *  сервер, пока владелец жмёт «Разрешить». Как только токен лёг — список сам. */
 async function ydConnect() {
+  // pkg3-121: сначала проверяем, что Яндекс вообще знает наше приложение —
+  // иначе человек уходит на чужую страницу с ошибкой 400 и не понимает, что это
+  const chk = await ydDiag(false);
+  if (!chk.ok && chk.reason === 'unknown-app') { ydDiagHelp(chk.text); return; }
+  if (!chk.ok && chk.reason === 'keys') { ydDiagHelp(chk.text); return; }
   let url = '';
   try {
     const r = await api('/api/yadisk/auth-url');
@@ -5424,7 +5501,10 @@ function musicNowUi() {
 function musSourceRu(t) {
   if (!t) return '';
   if (musicIsWidget(t)) return 'Яндекс.Музыка';
-  if (musicIsDisk(t)) return 'Яндекс.Диск';
+  if (musicIsDisk(t)) {
+    // pkg3-121: трек может быть с Диска другого участника — так и подписываем
+    return (t.diskOf && S.me && t.diskOf !== S.me.id) ? 'Диск участника' : 'Яндекс.Диск';
+  }
   if (t.site && MUS_SITE_TITLES[t.site]) return MUS_SITE_TITLES[t.site];
   try {
     const u = new URL(t.url || '');
@@ -5433,34 +5513,27 @@ function musSourceRu(t) {
   return t.site ? String(t.site) : '';
 }
 /**
- * pkg3-120: меряем бегущую строку названия в окне «Моя музыка»: насколько
- * строка шире своей ячейки — на столько и уезжает (--mq-shift), время — по
- * длине пути. Влезает целиком — стоит на месте (класс mq-s).
- * Нет большой строки (окно ещё не открыто) — меряем подсвеченную в списке.
+ * pkg3-120 (pkg3-121: строк стало больше): бегущая строка названия живёт в
+ * СТРОКАХ списка «Моей музыки» — и в плейлисте, и в результатах поиска.
+ * Меряем каждую строку заново: насколько название шире своей ячейки — на
+ * столько оно и уезжает (--mq-shift), время — по длине пути. Влезает
+ * целиком — класс mq-s, строка стоит на месте.
  */
 function musMarqueeSync() {
-  let mq = document.getElementById('mus-now-title');
-  let box = mq && mq.parentElement;
-  if (!mq || !box) {
-    const list = document.getElementById('mus-list');
-    mq = list && list.querySelector('.mus-tr.cur .mq');
-    box = mq && (mq.closest('.mus-ti') || mq.parentElement);
-    if (!mq || !box) return;
+  const boxes = document.querySelectorAll('#modal .mus-trs');
+  if (!boxes.length) return;
+  for (const box of boxes) {
+    for (const row of box.children) {
+      if (!row.classList || !row.classList.contains('mus-tr')) continue;
+      const mq = row.querySelector('.mq');
+      if (!mq) continue;
+      delete mq.dataset.mqShift;   // ширину могли изменить (бейдж источника, поворот)
+      musMqFit(row);
+    }
   }
-  const shift = Math.max(0, (mq.scrollWidth || 0) - (box.clientWidth || 0));
-  mq.classList.toggle('mq-s', shift < 4);
-  if (shift < 4) {
-    mq.style.removeProperty('--mq-shift');
-    mq.style.removeProperty('--mq-dur');
-    return;
-  }
-  mq.style.setProperty('--mq-shift', (-shift) + 'px');
-  mq.style.setProperty('--mq-dur', Math.max(6, Math.min(26, 5 + shift / 28)).toFixed(1) + 's');
 }
-// поворот телефона и изменение ширины окна — пересчитать длину строки
-if (typeof window !== 'undefined') {
-  window.addEventListener('resize', () => musMarqueeKick());
-}
+// поворот телефона и изменение ширины окна — пересчитать бегущие строки
+if (typeof window !== 'undefined') window.addEventListener('resize', () => musMarqueeKick());
 
 function musMarqueeKick() {
   if (typeof window === 'undefined') return;
@@ -5939,7 +6012,7 @@ async function openMusic(wantId) {
           return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
             ${musThumbHtml(t)}
-            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
+            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
             <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>
           </div>`;
@@ -5954,7 +6027,7 @@ async function openMusic(wantId) {
     <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : ''}</div>
     <div class="mus-coverbox">
       <div class="mus-cov-left" id="mus-cover-img"></div>
-      <div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowcol"><div class="mus-nowt"><span class="mq" id="mus-now-title">—</span></div><div class="mus-nowsrc tiny hidden" id="mus-now-src"></div></div></div>
+      <div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowcol"><div class="mus-nowt" id="mus-now-title">—</div><div class="mus-nowsrc tiny hidden" id="mus-now-src"></div></div></div>
     </div>
     <div class="mus-eq" id="mus-eq" data-st="off" aria-hidden="true"></div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
@@ -6349,16 +6422,42 @@ async function openMusicOf(u) {
   } catch (e) { toast('Не удалось открыть музыку участника: ' + (e.message || e), true); return; }
   const pls = pub.filter(p => (p.tracks || []).length);
   modal('Музыка · ' + (u.name || ''), pls.length ? `
-    <div class="mus-of">${pls.map(p => `
+    <div class="mus-of">${pls.map((p, pi) => `
       <div class="mus-of-pl"><b>${escapeHtml(p.name || 'Плейлист')}</b>
-        ${(p.tracks || []).map(t => musicIsDisk(t)
-          ? `<button class="mus-of-tr" disabled title="Трек с личного Яндекс.Диска владельца: чужой Диск сервер не читает, такой трек играет только у владельца">☁ ${escapeHtml(t.title || t.path || '')} <span class="mus-badge-d">диск владельца</span></button>`
-          : `<button class="mus-of-tr${musicIsWidget(t) ? ' y' : ''}" data-musof-url="${escapeHtml(t.url)}" data-musof-kind="${escapeHtml(t.kind || '')}" data-musof-title="${escapeHtml(t.title || t.url)}" title="Включить на моём устройстве">▶ ${escapeHtml(t.title || t.url)}${musicIsWidget(t) ? ' <span class="mus-badge-y">Я</span>' : ''}</button>`).join('')}
+        ${(p.tracks || []).map((t, ti) => musicIsDisk(t)
+          // pkg3-121: трек с Диска участника теперь можно СЛУШАТЬ (если он не
+          // закрыл доступ) и ЗАБРАТЬ в свой плейлист — тогда он играет и у вас
+          ? `<div class="mus-of-row"><button class="mus-of-tr d" data-musof-disk="${pi}:${ti}" title="Слушать трек с Диска участника">▶ ☁ ${escapeHtml(t.title || t.path || '')} <span class="mus-badge-d">диск</span></button><button class="mini mus-of-add" data-musof-add="${pi}:${ti}" title="Добавить в мой плейлист">＋</button></div>`
+          : `<div class="mus-of-row"><button class="mus-of-tr${musicIsWidget(t) ? ' y' : ''}" data-musof-url="${escapeHtml(t.url)}" data-musof-kind="${escapeHtml(t.kind || '')}" data-musof-title="${escapeHtml(t.title || t.url)}" title="Включить на моём устройстве">▶ ${escapeHtml(t.title || t.url)}${musicIsWidget(t) ? ' <span class="mus-badge-y">Я</span>' : ''}</button><button class="mini mus-of-add" data-musof-add="${pi}:${ti}" title="Добавить в мой плейлист">＋</button></div>`).join('')}
       </div>`).join('')}
     </div>
-    <p class="hint">Это публичные плейлисты участника: звук идёт с источника прямо на ваше устройство, треки не скачиваются на сервер. Личные списки (если они есть) видны только владельцу.</p>`
+    <p class="hint">Это публичные плейлисты участника: звук идёт с источника прямо на ваше устройство, треки не скачиваются на сервер. Треки с Диска участника играют, пока он не закрыл к ним доступ; «＋» кладёт трек в ваш плейлист — он будет играть и у вас. Личные списки (если они есть) видны только владельцу.</p>`
     : '<div class="tiny muted">У участника пока нет публичных плейлистов с треками.</div>');
+  const trackAt = (key) => {
+    const p = key.split(':');
+    const pl = pls[Number(p[0])];
+    return pl && pl.tracks ? pl.tracks[Number(p[1])] : null;
+  };
   $('#modal-body').addEventListener('click', e => {
+    const add = e.target.closest('[data-musof-add]');
+    if (add) {
+      const t = trackAt(add.getAttribute('data-musof-add'));
+      // у старых треков пометки «чей Диск» нет — подставляем владельца списка
+      if (t) musAskPlaylist(Object.assign({}, t, { diskOf: t.diskOf || u.id }));
+      return;
+    }
+    const disk = e.target.closest('[data-musof-disk]');
+    if (disk) {
+      const t = trackAt(disk.getAttribute('data-musof-disk'));
+      if (!t) return;
+      hide($('#modal'));
+      // один трек как временный список: следующий/предыдущий уводили бы в чужие
+      // списки, которые не сохранены у нас (pkg3-121)
+      MUS.list = [Object.assign({}, t, { diskOf: t.diskOf || u.id })];
+      MUS.idx = 0; MUS.plId = null;
+      musicStartDiskTrack(MUS.list[0]);
+      return;
+    }
     const b = e.target.closest('[data-musof-url]');
     if (!b) return;
     hide($('#modal'));
@@ -6366,6 +6465,38 @@ async function openMusicOf(u) {
     // встроенным плеером, а не нашим звуковым элементом
     musicPlayOnce(b.getAttribute('data-musof-url'), b.getAttribute('data-musof-title'), 0, b.getAttribute('data-musof-kind'));
   });
+}
+/** pkg3-121: «＋» у чужого трека — в какой плейлист положить. Дисковый трек
+ *  копируется вместе с пометкой, чей это Диск: иначе у вас он не заиграет. */
+function musAskPlaylist(t) {
+  const all = musicAll();
+  if (!all.length) { toast('Сначала создайте плейлист — слева кнопка «+ плейлист»', true); return; }
+  const ovl = document.createElement('div');
+  ovl.className = 'ask-ovl';
+  ovl.innerHTML = '<div class="ask-card"><div class="ask-t">Добавить трек в плейлист:</div><div class="ask-b ask-list">'
+    + all.map(p => '<button class="mini" data-mus-pick="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + ' <span class="tiny muted">' + (p.vis === 'priv' ? '· только я' : '· публичный') + '</span></button>').join('')
+    + '<button class="mini" data-mus-pick="">Отмена</button></div></div>';
+  ovl.addEventListener('click', async e => {
+    const b = e.target.closest('[data-mus-pick]');
+    if (!b) return;
+    const id = b.getAttribute('data-mus-pick');
+    ovl.remove();
+    if (!id) return;
+    const pl = musicFind(id);
+    if (!pl) return;
+    const same = x => musicIsDisk(t)
+      ? (musicIsDisk(x) && x.path === t.path && (x.diskOf || '') === (t.diskOf || ''))
+      : (x.url === t.url);
+    if ((pl.tracks || []).some(same)) { toast('Такой трек уже есть в плейлисте «' + pl.name + '»', true); return; }
+    pl.tracks.push(musicIsDisk(t)
+      ? { id: musicUid(), kind: 'disk', path: t.path, title: t.title || t.path, cover: t.cover || '', diskOf: t.diskOf || '' }
+      : { id: musicUid(), url: t.url, title: t.title || t.url, cover: t.cover || '', coverSite: t.coverSite || '', site: t.site || '', kind: t.kind || '' });
+    try {
+      await musicSave();
+      toast('Трек добавлен в плейлист «' + pl.name + '»' + (musicIsDisk(t) ? ' — он будет играть и у вас' : ''));
+    } catch (err) { toast('Не удалось сохранить плейлист: ' + (err.message || err), true); }
+  });
+  document.body.appendChild(ovl);
 }
 
 async function openNewGame() {
