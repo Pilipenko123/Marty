@@ -177,8 +177,16 @@ a{color:var(--accent-2);text-decoration:none}
     inset 0 0 30px rgba(var(--glow-rgb),var(--gin));
 }
 .glow--soft{border-color:rgba(var(--glow-rgb),calc(.24 + var(--g2) * .6))}
-:root[data-glow="off"] .glow{border-color:var(--line);box-shadow:var(--shadow)}
-:root[data-glow="off"] .glow--window{border-color:var(--line);box-shadow:0 32px 70px rgba(2,12,20,.45)}
+/* «Выключено» — не серость, а тонкая цветная рамка без ореола: контраст остаётся,
+   а браузеру не надо рисовать большие тени (это и есть эконом-режим) */
+:root[data-glow="off"] .glow{
+  border-color:rgba(var(--glow-rgb),.32);
+  box-shadow:0 0 0 1px rgba(var(--glow-rgb),.12),var(--shadow);
+}
+:root[data-glow="off"] .glow--window{
+  border-color:rgba(var(--glow-rgb),.45);
+  box-shadow:0 0 0 1px rgba(var(--glow-rgb),.14),0 32px 70px rgba(2,12,20,.45);
+}
 
 /* ══════════════════════════════════════════════════════════════
    РАМКА МАКЕТА (сверху) — это НЕ часть приложения
