@@ -45,7 +45,8 @@ ok(/coverSite: r\.cover \|\| '', site: r\.site \|\| ''/.test(app), 'треки �
 ok(/data-mus-play="\$\{i\}"/.test(rows) && !/data-mus-s-play/.test(app), 'строки находок в общем формате (▶ с data-mus-play), старого data-mus-s-play нет');
 ok(/\$\{cur && MUS\.a && !MUS\.a\.paused \? '❚❚' : '▶'\}/.test(rows) && /class="mus-tr mus-sr\$\{cur \? ' cur' : ''\}\$\{cur && MUS\.a && MUS\.a\.paused \? ' paused' : ''\}"/.test(rows),
   '▶ у играющей находки становится ❚❚, строка подсвечена, на паузе — отмечена');
-ok(/<span class="mq\$\{t\.title\.length > 24 \? '' : ' mq-s'\}">/.test(rows), 'бегущая строка у длинного названия');
+// pkg3-121: класс mq у каждой строки, «едет или стоит» решает замер ширины
+ok(/<span class="mq">\$\{escapeHtml\(t\.title\)\}<\/span>/.test(rows), 'бегущая строка у длинного названия');
 ok(app.includes('<div class="mus-trs" id="mus-sres" data-pl="search">') && (app.match(/id="mus-sres" data-pl="search"/g) || []).length === 2,
   'список находок помечен data-pl="search" (и при открытии, и после поиска) — тик звука ведёт ❚❚ и бегущую строку');
 ok(/for \(const b of \$\$\('#mus-sres \[data-mus-play\]'\)\)/.test(app) && /musicPlay\(musSearchPl\(\), i\);/.test(app), '▶ в строке находки запускает её как трек плейлиста поиска');

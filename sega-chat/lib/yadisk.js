@@ -187,6 +187,27 @@ function tokenFromResponse(r) {
   };
 }
 
+/**
+ * pkg3-121: знает ли Яндекс наше приложение. Спрашиваем у Яндекса ту же
+ * страницу согласия, на которую уводим человека, и смотрим ответ: живое
+ * приложение отдаёт 200/302, удалённое или чужой client_id — 400 и текст
+ * «Неизвестно приложение с таким client_id». Так приложение может показать
+ * СВОЮ подсказку вместо чужой страницы с ошибкой 400.
+ */
+async function probeAuth(keys, c) {
+  const conf = c || cfg();
+  if (!keys || !keys.clientId) return { ok: false, status: 0, reason: 'keys' };
+  const url = buildAuthUrl(keys, 'sega-probe-' + Date.now().toString(36), conf);
+  let r;
+  try { r = await httpJSON(url, { timeout: 8000 }); }
+  catch (e) { return { ok: false, status: 0, reason: 'net', text: String(e.message || e) }; }
+  const text = String(r.text || '');
+  const unknown = r.status === 400 || /Неизвестно приложение|Unknown (application|client)/i.test(text);
+  if (unknown) return { ok: false, status: r.status, reason: 'unknown-app' };
+  if (r.status >= 200 && r.status < 400) return { ok: true, status: r.status, reason: '' };
+  return { ok: false, status: r.status, reason: 'status' };
+}
+
 /** Путь к файлу на Диске: принимаем «disk:/Музыка/трек.mp3» и «/Музыка/трек.mp3»,
  * всё остальное (пусто, «..», чужие схемы, мусор) — отбраковываем. */
 function safePath(raw) {
@@ -284,5 +305,5 @@ function diskResult(r, limit, offset) {
 module.exports = {
   cfg, loadKeys, tokenKey, sealToken, openToken,
   buildAuthUrl, exchangeCode, refreshTokens,
-  listAudio, downloadHref, safePath, httpJSON
+  listAudio, downloadHref, safePath, httpJSON, probeAuth
 };
