@@ -93,15 +93,15 @@
    ГАММЫ — реальные цвета SEGA-CHAT (PALS в app.js).
    Каждая задаёт цвет акцента, второго акцента и СВЕЧЕНИЯ (--glow-rgb).
    ══════════════════════════════════════════════════════════════ */
-:root[data-pal="classic"] { --accent:#2353a2; --accent-2:#2fc6f6; --glow-rgb:47,198,246;  --rail:#12323f; --rail-2:#1b4354 }
-:root[data-pal="sea"]     { --accent:#0f766e; --accent-2:#2dd4bf; --glow-rgb:45,212,191;  --rail:#0b3b36; --rail-2:#11554e }
-:root[data-pal="lavender"]{ --accent:#6d5bd0; --accent-2:#a78bfa; --glow-rgb:167,139,250; --rail:#2b2350; --rail-2:#3b3170 }
-:root[data-pal="olive"]   { --accent:#5f7a2e; --accent-2:#a3c14a; --glow-rgb:163,193,74;  --rail:#2b3616; --rail-2:#3d4a20 }
-:root[data-pal="sunset"]  { --accent:#c05038; --accent-2:#f59e6b; --glow-rgb:245,158,107; --rail:#4a1f16; --rail-2:#6b2d1f }
-:root[data-pal="honey"]   { --accent:#a9761f; --accent-2:#e8b54a; --glow-rgb:232,181,74;  --rail:#3a2c10; --rail-2:#4d3a15 }
-:root[data-pal="rose"]    { --accent:#b04a68; --accent-2:#e58aa4; --glow-rgb:229,138,164; --rail:#401c26; --rail-2:#572634 }
-:root[data-pal="mint"]    { --accent:#2f9e77; --accent-2:#7fd6b5; --glow-rgb:127,214,181; --rail:#0e2f25; --rail-2:#144032 }
-:root[data-pal="graphite"]{ --accent:#4b5563; --accent-2:#9aa5b1; --glow-rgb:154,165,177; --rail:#242a31; --rail-2:#333a42 }
+:root[data-pal="classic"] { --accent:#3b5bdb; --accent-2:#4dabf7; --glow-rgb:47,198,246;  --rail:#12323f; --rail-2:#1b4354 }
+:root[data-pal="sea"]     { --accent:#0e7490; --accent-2:#22d3ee; --glow-rgb:45,212,191;  --rail:#0b3b36; --rail-2:#11554e }
+:root[data-pal="lavender"]{ --accent:#6d4aff; --accent-2:#a78bfa; --glow-rgb:167,139,250; --rail:#2b2350; --rail-2:#3b3170 }
+:root[data-pal="olive"]   { --accent:#4d7c0f; --accent-2:#a3e635; --glow-rgb:163,193,74;  --rail:#2b3616; --rail-2:#3d4a20 }
+:root[data-pal="sunset"]  { --accent:#d9480f; --accent-2:#fb923c; --glow-rgb:245,158,107; --rail:#4a1f16; --rail-2:#6b2d1f }
+:root[data-pal="honey"]   { --accent:#b45309; --accent-2:#fbbf24; --glow-rgb:232,181,74;  --rail:#3a2c10; --rail-2:#4d3a15 }
+:root[data-pal="rose"]    { --accent:#db2777; --accent-2:#f9a8d4; --glow-rgb:229,138,164; --rail:#401c26; --rail-2:#572634 }
+:root[data-pal="mint"]    { --accent:#059669; --accent-2:#6ee7b7; --glow-rgb:127,214,181; --rail:#0e2f25; --rail-2:#144032 }
+:root[data-pal="graphite"]{ --accent:#475569; --accent-2:#94a3b8; --glow-rgb:154,165,177; --rail:#242a31; --rail-2:#333a42 }
 /* Синтвейв — отдельный мир: своя тёмная подложка и неоновая окантовка */
 :root[data-pal="synth"]{
   --accent:#00e5ff; --accent-2:#ff2bd6; --glow-rgb:255,43,214;
@@ -853,19 +853,19 @@ a{color:var(--accent-2);text-decoration:none}
    добавляется только data-glow и --r.
    ─────────────────────────────────────────────────────────────── */
 const PALS = [
-  { id:'classic',  name:'Классика',  c1:'#2353a2', c2:'#2fc6f6' },
+  { id:'classic',  name:'Классика',  c1:'#3b5bdb', c2:'#4dabf7' },
   { id:'synth',    name:'Синтвейв',  c1:'#ff2bd6', c2:'#00e5ff' },
-  { id:'sea',      name:'Морская',   c1:'#0f766e', c2:'#2dd4bf' },
-  { id:'lavender', name:'Лаванда',   c1:'#6d5bd0', c2:'#a78bfa' },
-  { id:'olive',    name:'Олива',     c1:'#5f7a2e', c2:'#a3c14a' },
-  { id:'sunset',   name:'Закат',     c1:'#c05038', c2:'#f59e6b' },
-  { id:'honey',    name:'Мёд',       c1:'#a9761f', c2:'#e8b54a' },
-  { id:'rose',     name:'Роза',      c1:'#b04a68', c2:'#e58aa4' },
-  { id:'mint',     name:'Мята',      c1:'#2f9e77', c2:'#7fd6b5' },
-  { id:'graphite', name:'Графит',    c1:'#4b5563', c2:'#9aa5b1' }
+  { id:'sea',      name:'Морская',   c1:'#0e7490', c2:'#22d3ee' },
+  { id:'lavender', name:'Лаванда',   c1:'#6d4aff', c2:'#a78bfa' },
+  { id:'olive',    name:'Олива',     c1:'#4d7c0f', c2:'#a3e635' },
+  { id:'sunset',   name:'Закат',     c1:'#d9480f', c2:'#fb923c' },
+  { id:'honey',    name:'Мёд',       c1:'#b45309', c2:'#fbbf24' },
+  { id:'rose',     name:'Роза',      c1:'#db2777', c2:'#f9a8d4' },
+  { id:'mint',     name:'Мята',      c1:'#059669', c2:'#6ee7b7' },
+  { id:'graphite', name:'Графит',    c1:'#475569', c2:'#94a3b8' }
 ];
 const root = document.documentElement;
-const state = { pal:'classic', theme:'dark', glow:'soft', r:18 };
+const state = { pal:'classic', theme:'dark', glow:'soft', r:16 };   // pkg3-117: в приложении по умолчанию 16 px
 const mq = window.matchMedia('(prefers-color-scheme: dark)');
 
 /* гаммы */

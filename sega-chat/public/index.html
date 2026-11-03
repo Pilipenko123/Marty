@@ -41,6 +41,10 @@
     var p = localStorage.getItem('sega.pal') || 'synth';   /* pkg3-34: синтвейв по умолчанию */
     d.dataset.pal = p;
     if (p === 'synth') d.dataset.theme = 'dark';           /* синтвейв всегда тёмный */
+    /* pkg3-117: светящаяся окантовка и скругление — тоже до отрисовки */
+    d.dataset.glow = localStorage.getItem('sega.glow') || 'soft';
+    var rr117 = parseInt(localStorage.getItem('sega.radius'), 10);
+    if (rr117 >= 8 && rr117 <= 26) d.style.setProperty('--r', rr117 + 'px');
   } catch (e) {}
 })();
 </script>
@@ -182,7 +186,7 @@
   <!-- левая колонка: список чатов -->
   <aside id="rail">
     <div class="rail-head">
-      <div class="rail-brand"><span class="lock-box"><img class="logo" src="logo.png" alt="SEGA"><sup>®</sup><span class="sep"></span><span class="word">CHAT</span></span></div>
+      <div class="rail-brand"><span class="lock-box" title="SEGA-CHAT"><img class="logo" src="logo.png" alt="SEGA"><span class="sep"></span><span class="word">CHAT</span></span></div>
       <div class="rail-top">
         <div class="me" id="me-box">
           <span id="me-avatar"></span>
@@ -341,6 +345,19 @@
       <div class="divider"><span>Гамма оформления</span></div>
       <div class="pals" id="pals"></div>
       <div class="hint">Гамма применяется и к светлой, и к тёмной теме; «Синтвейв» бывает только тёмным. Это личная настройка: каждый участник выбирает гамму на своём устройстве — сразу для всех чатов.</div>
+      <div class="divider"><span>Окантовка</span></div>
+      <div class="set-row"><span class="ico" data-ic="palette"></span>
+        <div class="t"><b>Свечение</b><span>ореол вокруг окон, меню и панелей; цвет берётся из гаммы</span></div>
+        <div class="gseg" id="glow-seg" role="group" aria-label="Сила свечения">
+          <button type="button" data-glow="soft">Спокойное</button>
+          <button type="button" data-glow="bright">Яркое</button>
+          <button type="button" data-glow="off">Выключено</button>
+        </div></div>
+      <div class="set-row"><span class="ico" data-ic="restore"></span>
+        <div class="t"><b>Скругление углов</b><span id="radius-val">16 px</span></div>
+        <input class="range" id="radius-range" type="range" min="8" max="26" step="2" value="16" aria-label="Скругление углов">
+      </div>
+      <div class="hint">«Выключено» — тонкая цветная рамка без ореола: так окна выглядят и в экономном режиме (там свечение гаснет само). Выбор запоминается на этом устройстве.</div>
       <div class="divider"><span>Ещё</span></div>
       <div class="hint" id="cache-state" style="margin-bottom:8px"></div>
       <div class="set-actions">

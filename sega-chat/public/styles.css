@@ -1,13 +1,13 @@
 /* SEGA-CHAT — оформление в духе мессенджера Bitrix24:
    светлый фон, белые карточки, круглые аватары, голубые «пузыри» своих сообщений */
 :root{
-  --bg:#eef2f4;
+  --bg:#eaeff5;
   --panel:#ffffff;
-  --panel-2:#f7f9fa;
-  --line:#e3e9ed;
-  --line-2:#eef2f5;
-  --text:#1f2b33;
-  --muted:#8b98a4;
+  --panel-2:#f5f8fb;
+  --line:#dfe7ef;
+  --line-2:#ecf1f6;
+  --text:#1b2530;
+  --muted:#8494a2;
   --accent:#2353a2;          /* синий SEGA */
   --accent-2:#2fc6f6;        /* голубой */
   --accent-soft:#e8f4fe;
@@ -15,9 +15,22 @@
   --dark-2:#1b4354;
   --green:#7bc31e;
   --red:#ff5752;
-  --own:#e4f2fd;             /* пузырь своего сообщения */
-  --mention:#fff6d9;
+  --own:#e3eefc;             /* пузырь своего сообщения */
+  --mention:#fff4d6;
   --radius:12px;
+  /* pkg3-117: СВЕТЯЩАЯСЯ ОКАНТОВКА. Один рецепт на всё приложение:
+     цвет берётся из гаммы (--glow-rgb в блоках гамм ниже), сила — из
+     data-glow на <html>, скругление — из --r (ползунок в настройках). */
+  --glow-rgb:47,198,246;
+  --g1:.18;                 /* тонкий контур по кромке */
+  --g2:.30;                 /* мягкий ореол */
+  --gb:18px;                /* размытие ореола */
+  --gin:.035;               /* очень мягкая внутренняя подсветка */
+  --r:16px;                 /* скругление окон и панелей */
+  --glow-ring:0 0 0 1px rgba(var(--glow-rgb),var(--g1));
+  --glow-halo:0 0 var(--gb) rgba(var(--glow-rgb),var(--g2)),0 0 calc(var(--gb) * 2.4) rgba(var(--glow-rgb),calc(var(--g2) * .42));
+  --glow-in:inset 0 0 26px rgba(var(--glow-rgb),var(--gin));
+  --glow-line:rgba(var(--glow-rgb),calc(.16 + var(--g2) * .62));
   --sans:"Helvetica Neue",-apple-system,system-ui,"Segoe UI",Roboto,Arial,sans-serif;
 }
 *{box-sizing:border-box}
@@ -350,20 +363,20 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
    или системная настройка prefers-color-scheme). Переопределяем
    только переменные и те места, где цвета заданы явно. */
 :root[data-theme="dark"]{
-  --bg:#0f1b21;
-  --panel:#16252d;
-  --panel-2:#1b2d36;
-  --line:#263944;
-  --line-2:#20323b;
-  --text:#e6eef2;
-  --muted:#8ba0ac;
+  --bg:#0d141a;
+  --panel:#151e26;
+  --panel-2:#1a242d;
+  --line:#26323c;
+  --line-2:#202b34;
+  --text:#e8eff5;
+  --muted:#8a9aa7;
   --accent:#4a97dd;
   --accent-2:#2fc6f6;
   --accent-soft:#193243;
-  --dark:#0b171d;
-  --dark-2:#12323f;
-  --own:#1d3a4d;
-  --mention:#3b3218;
+  --dark:#0a1117;
+  --dark-2:#101b22;
+  --own:#1c3145;
+  --mention:#3a2f12;
   --red:#ff6b66;
 }
 :root[data-theme="dark"] body{color:var(--text)}
@@ -416,13 +429,21 @@ mark{background:#ffe9a8;border-radius:3px;padding:0 2px}
 .set-actions .ghost{display:flex;align-items:center;justify-content:center;gap:7px}
 .set-actions .ghost .ic{width:16px;height:16px}
 /* гаммы — квадратики с закруглёнными углами и градиентом-подсказкой */
-.pals{display:flex;gap:9px;margin-top:8px;flex-wrap:wrap}
-.pal{width:40px;height:40px;border-radius:12px;cursor:pointer;border:2px solid transparent;transition:transform .15s,border-color .15s;
-  position:relative;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
-.pal:hover{transform:scale(1.08)}
-.pal.on{border-color:var(--text)}
+/* pkg3-117: квадратики выбора гаммы — меньше и с мягким ореолом (как в образце) */
+.pals{display:flex;gap:9px;margin-top:8px;flex-wrap:wrap;align-items:center}
+.pal{
+  width:32px;height:32px;border-radius:10px;cursor:pointer;border:2px solid transparent;
+  position:relative;flex:none;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),0 0 11px var(--pal-halo,transparent);
+  transition:transform .15s,border-color .15s,box-shadow .15s;
+}
+.pal:hover{transform:scale(1.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.34),0 0 17px var(--pal-halo,transparent)}
+.pal.on{border-color:var(--text);transform:scale(1.06);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.34),0 0 16px var(--pal-halo,transparent)}
 .pal.on::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  color:#fff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.45)}
+  color:#fff;font-weight:800;font-size:12px;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) .pal.on{
+  border-color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.34),0 0 18px var(--pal-halo,transparent)}
 
 /* ───────── минималистичные SVG-иконки ───────── */
 .ic{width:19px;height:19px;flex:none;vertical-align:-4px;display:block}
@@ -501,23 +522,30 @@ label.icon.attach .ic{width:19px;height:19px}
 :root{--ios-on:#34c759;--pal-plate-a:#2353a226;--pal-plate-b:#2fc6f626}
 :root[data-theme="dark"]{--pal-plate-a:#2353a240;--pal-plate-b:#2fc6f640}
 
-:root[data-in-app][data-pal="sea"]{--accent:#0f766e;--accent-2:#2dd4bf;--accent-soft:#e0f5f1;--own:#def2ee;--dark:#0b3b36;--dark-2:#11554e;--pal-plate-a:#0f766e26;--pal-plate-b:#2dd4bf26}
-:root[data-in-app][data-pal="lavender"]{--accent:#6d5bd0;--accent-2:#a78bfa;--accent-soft:#edeafc;--own:#e9e5fa;--dark:#2b2350;--dark-2:#3b3170;--pal-plate-a:#6d5bd026;--pal-plate-b:#a78bfa26}
-:root[data-in-app][data-pal="olive"]{--accent:#5f7a2e;--accent-2:#a3c14a;--accent-soft:#eef4e0;--own:#e9f1d9;--dark:#2b3616;--dark-2:#3d4a20;--pal-plate-a:#5f7a2e26;--pal-plate-b:#a3c14a26}
-:root[data-in-app][data-pal="sunset"]{--accent:#c05038;--accent-2:#f59e6b;--accent-soft:#fbe9e4;--own:#f9e3dc;--dark:#4a1f16;--dark-2:#6b2d1f;--pal-plate-a:#c0503826;--pal-plate-b:#f59e6b26}
-:root[data-in-app][data-pal="honey"]{--accent:#a9761f;--accent-2:#e8b54a;--accent-soft:#f8efdd;--own:#f6ecd8;--dark:#3a2c10;--dark-2:#4d3a15;--pal-plate-a:#a9761f26;--pal-plate-b:#e8b54a26}
-:root[data-in-app][data-pal="rose"]{--accent:#b04a68;--accent-2:#e58aa4;--accent-soft:#f9e7ec;--own:#f7e0e7;--dark:#401c26;--dark-2:#572634;--pal-plate-a:#b04a6826;--pal-plate-b:#e58aa426}
-:root[data-in-app][data-pal="mint"]{--accent:#2f9e77;--accent-2:#7fd6b5;--accent-soft:#e2f5ec;--own:#ddf2e8;--dark:#0e2f25;--dark-2:#144032;--pal-plate-a:#2f9e7726;--pal-plate-b:#7fd6b526}
-:root[data-in-app][data-pal="graphite"]{--accent:#4b5563;--accent-2:#9aa5b1;--accent-soft:#eceff2;--own:#e6eaee;--dark:#242a31;--dark-2:#333a42;--pal-plate-a:#4b556326;--pal-plate-b:#9aa5b126}
+/* pkg3-117: ГАММЫ ОФОРМЛЕНИЯ. Обновлённая палитра: каждый цвет — пара
+   «акцент + второй акцент»; второй задаёт цвет светящейся окантовки
+   (--glow-rgb). «Классика» — раньше жила в базовых значениях, теперь
+   тоже отдельная гамма, чтобы у неё был свой цвет свечения. */
+:root[data-in-app][data-pal="classic"]{--accent:#3b5bdb;--accent-2:#4dabf7;--accent-soft:#e8edfc;--own:#e4ebfd;--dark:#16234d;--dark-2:#1e3163;--glow-rgb:77,171,247;--pal-plate-a:#3b5bdb26;--pal-plate-b:#4dabf726}
+:root[data-in-app][data-pal="sea"]{--accent:#0e7490;--accent-2:#22d3ee;--accent-soft:#e0f5fa;--own:#ddf2f8;--dark:#08313c;--dark-2:#0b4553;--glow-rgb:34,211,238;--pal-plate-a:#0e749026;--pal-plate-b:#22d3ee26}
+:root[data-in-app][data-pal="lavender"]{--accent:#6d4aff;--accent-2:#a78bfa;--accent-soft:#ece8ff;--own:#e8e3ff;--dark:#241a52;--dark-2:#32246e;--glow-rgb:167,139,250;--pal-plate-a:#6d4aff26;--pal-plate-b:#a78bfa26}
+:root[data-in-app][data-pal="olive"]{--accent:#4d7c0f;--accent-2:#a3e635;--accent-soft:#f0f7e2;--own:#ecf5db;--dark:#212f0a;--dark-2:#2e4210;--glow-rgb:163,230,53;--pal-plate-a:#4d7c0f26;--pal-plate-b:#a3e63526}
+:root[data-in-app][data-pal="sunset"]{--accent:#d9480f;--accent-2:#fb923c;--accent-soft:#feece3;--own:#fde7db;--dark:#43160a;--dark-2:#5c1f0d;--glow-rgb:251,146,60;--pal-plate-a:#d9480f26;--pal-plate-b:#fb923c26}
+:root[data-in-app][data-pal="honey"]{--accent:#b45309;--accent-2:#fbbf24;--accent-soft:#fdf1de;--own:#fbeed7;--dark:#38210a;--dark-2:#4a2c0d;--glow-rgb:251,191,36;--pal-plate-a:#b4530926;--pal-plate-b:#fbbf2426}
+:root[data-in-app][data-pal="rose"]{--accent:#db2777;--accent-2:#f9a8d4;--accent-soft:#fde9f2;--own:#fce4ef;--dark:#3c0f22;--dark-2:#52142f;--glow-rgb:249,168,212;--pal-plate-a:#db277726;--pal-plate-b:#f9a8d426}
+:root[data-in-app][data-pal="mint"]{--accent:#059669;--accent-2:#6ee7b7;--accent-soft:#e2f8ef;--own:#ddf6ec;--dark:#053a2a;--dark-2:#074c37;--glow-rgb:110,231,183;--pal-plate-a:#05966926;--pal-plate-b:#6ee7b726}
+:root[data-in-app][data-pal="graphite"]{--accent:#475569;--accent-2:#94a3b8;--accent-soft:#eceff3;--own:#e7ebef;--dark:#1f2833;--dark-2:#2a3542;--glow-rgb:148,163,184;--pal-plate-a:#47556926;--pal-plate-b:#94a3b826}
 
-:root[data-in-app][data-theme="dark"][data-pal="sea"]{--accent:#39b8a8;--accent-soft:#123c38;--own:#123c38;--dark:#06231f;--dark-2:#0b332e;--pal-plate-a:#39b8a840;--pal-plate-b:#2dd4bf40}
-:root[data-in-app][data-theme="dark"][data-pal="lavender"]{--accent:#9d8df2;--accent-soft:#2a2450;--own:#2a2450;--dark:#191430;--dark-2:#221c43;--pal-plate-a:#9d8df240;--pal-plate-b:#a78bfa40}
-:root[data-in-app][data-theme="dark"][data-pal="olive"]{--accent:#a8c46a;--accent-soft:#2c3618;--own:#2c3618;--dark:#191f0d;--dark-2:#232c12;--pal-plate-a:#a8c46a40;--pal-plate-b:#a3c14a40}
-:root[data-in-app][data-theme="dark"][data-pal="sunset"]{--accent:#e2836c;--accent-soft:#4a241a;--own:#4a241a;--dark:#2b120c;--dark-2:#3d1a11;--pal-plate-a:#e2836c40;--pal-plate-b:#f59e6b40}
-:root[data-in-app][data-theme="dark"][data-pal="honey"]{--accent:#d9a94a;--accent-soft:#3a2f14;--own:#3a2f14;--dark:#221908;--dark-2:#2e220c;--pal-plate-a:#d9a94a40;--pal-plate-b:#e8b54a40}
-:root[data-in-app][data-theme="dark"][data-pal="rose"]{--accent:#d98aa0;--accent-soft:#40202b;--own:#40202b;--dark:#251016;--dark-2:#33161e;--pal-plate-a:#d98aa040;--pal-plate-b:#e58aa440}
-:root[data-in-app][data-theme="dark"][data-pal="mint"]{--accent:#6cc7a4;--accent-soft:#14382c;--own:#14382c;--dark:#081b15;--dark-2:#0b241c;--pal-plate-a:#6cc7a440;--pal-plate-b:#7fd6b540}
-:root[data-in-app][data-theme="dark"][data-pal="graphite"]{--accent:#aeb7c2;--accent-soft:#2b3138;--own:#2b3138;--dark:#14171b;--dark-2:#1c2126;--pal-plate-a:#aeb7c240;--pal-plate-b:#9aa5b140}
+/* тёмная тема: акценты светлее, подложки глубже */
+:root[data-in-app][data-theme="dark"][data-pal="classic"]{--accent:#7cb0ff;--accent-soft:#17263f;--own:#17263f;--dark:#0d1626;--dark-2:#142034;--glow-rgb:96,165,250;--pal-plate-a:#7cb0ff40;--pal-plate-b:#4dabf740}
+:root[data-in-app][data-theme="dark"][data-pal="sea"]{--accent:#4dd8e8;--accent-soft:#0d3038;--own:#0d3038;--dark:#061f26;--dark-2:#0a2c35;--glow-rgb:34,211,238;--pal-plate-a:#4dd8e840;--pal-plate-b:#22d3ee40}
+:root[data-in-app][data-theme="dark"][data-pal="lavender"]{--accent:#b3a1ff;--accent-soft:#241f47;--own:#241f47;--dark:#171233;--dark-2:#221a49;--glow-rgb:167,139,250;--pal-plate-a:#b3a1ff40;--pal-plate-b:#a78bfa40}
+:root[data-in-app][data-theme="dark"][data-pal="olive"]{--accent:#b8e06a;--accent-soft:#26300f;--own:#26300f;--dark:#161d09;--dark-2:#20290d;--glow-rgb:163,230,53;--pal-plate-a:#b8e06a40;--pal-plate-b:#a3e63540}
+:root[data-in-app][data-theme="dark"][data-pal="sunset"]{--accent:#ff9a63;--accent-soft:#3d1a10;--own:#3d1a10;--dark:#2a1109;--dark-2:#3a170c;--glow-rgb:251,146,60;--pal-plate-a:#ff9a6340;--pal-plate-b:#fb923c40}
+:root[data-in-app][data-theme="dark"][data-pal="honey"]{--accent:#f2ba4b;--accent-soft:#352812;--own:#352812;--dark:#211809;--dark-2:#2d210c;--glow-rgb:251,191,36;--pal-plate-a:#f2ba4b40;--pal-plate-b:#fbbf2440}
+:root[data-in-app][data-theme="dark"][data-pal="rose"]{--accent:#ff8fc0;--accent-soft:#3a1a28;--own:#3a1a28;--dark:#26111b;--dark-2:#331724;--glow-rgb:249,168,212;--pal-plate-a:#ff8fc040;--pal-plate-b:#f9a8d440}
+:root[data-in-app][data-theme="dark"][data-pal="mint"]{--accent:#5ee0b0;--accent-soft:#10302a;--own:#10302a;--dark:#071f1b;--dark-2:#0b2b25;--glow-rgb:110,231,183;--pal-plate-a:#5ee0b040;--pal-plate-b:#6ee7b740}
+:root[data-in-app][data-theme="dark"][data-pal="graphite"]{--accent:#b9c4d0;--accent-soft:#262e38;--own:#262e38;--dark:#151a21;--dark-2:#1d242c;--glow-rgb:148,163,184;--pal-plate-a:#b9c4d040;--pal-plate-b:#94a3b840}
 
 /* ───────── выпадающее меню «⋯» (как в макете) ───────── */
 #topbar{position:relative}
@@ -1038,6 +1066,7 @@ html,body{overflow-x:hidden}
   --own:#2a1040; --mention:#3a2c0c;
   --ios-on:#ff2bd6;
   --pal-plate-a:#ff2bd64d; --pal-plate-b:#00e5ff4d;
+  --glow-rgb:255,43,214;      /* pkg3-117: неоновая окантовка */
 }
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) body{color:var(--text);scrollbar-color:#4a2a8c rgba(13,2,33,.5)}
 :root[data-in-app][data-pal="synth"]:not([data-eco="1"]) ::selection{background:rgba(255,43,214,.45)}
@@ -1938,4 +1967,93 @@ html.mus-lock,html.mus-lock body{overflow:hidden;height:100%;overscroll-behavior
   :root[data-land] #modal.mus-modal .mus-eq{height:36px}
   :root[data-land] #modal.mus-modal .mus-playbig,:root[data-land] #modal.mus-modal .mus-skip{width:60px;height:60px;font-size:19px}
   :root[data-land] #modal.mus-modal .mus-sqbar{display:block}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   pkg3-117: СВЕТЯЩАЯСЯ ОКАНТОВКА ВО ВСЁМ ПРИЛОЖЕНИИ
+   Один рецепт (--glow-ring / --glow-halo / --glow-line) на все окна, меню и
+   панели. Цвет берётся из гаммы, сила — из data-glow на <html>, скругление —
+   из --r. Раскладка и расположение кнопок не меняются: добавляются только
+   рамка, ореол и скругление.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* сила свечения: спокойное (по умолчанию) / яркое / выключено / эконом */
+:root[data-glow="bright"]{--g1:.30;--g2:.55;--gb:30px;--gin:.07}
+:root[data-glow="off"]{--g1:0;--g2:0;--gb:6px;--gin:0}
+:root[data-eco="1"]{--g1:0;--g2:0;--gb:6px;--gin:0}
+
+/* ── окна: настройки, профиль, музыка, архивы, приглашения ───────────── */
+.modal-box{
+  border:2px solid var(--glow-line);
+  border-radius:var(--r);
+  box-shadow:var(--glow-ring),var(--glow-halo),0 30px 70px rgba(5,25,40,.45),var(--glow-in);
+}
+/* карточки входа и регистрации — тот же рецепт, чтобы стиль был единым */
+.card{border:2px solid var(--glow-line);border-radius:calc(var(--r) + 2px);
+  box-shadow:var(--glow-ring),var(--glow-halo),0 24px 60px rgba(5,25,40,.4),var(--glow-in)}
+/* маленькие окна-вопросы, меню «⋯», «＋», эмодзи, всплывающие подсказки */
+.ask-card,#drop,#emoji-pop,.plus-menu,.mus-mwin{
+  border:1.5px solid var(--glow-line);
+  border-radius:calc(var(--r) - 2px);
+  box-shadow:var(--glow-ring),var(--glow-halo),0 16px 40px rgba(5,25,40,.35),var(--glow-in);
+}
+/* полоса результатов поиска и плашка архива — «панели» внутри ленты */
+#search-results{border-bottom:1px solid var(--glow-line);
+  box-shadow:0 8px 26px -16px rgba(var(--glow-rgb),calc(var(--g2) * 1.4)),var(--glow-in)}
+.archive-banner, .dm-banner{border:1.5px solid var(--glow-line);border-radius:var(--r);
+  box-shadow:var(--glow-ring),var(--glow-halo),0 4px 18px rgba(20,50,70,.10)}
+.toast{border:1.5px solid var(--glow-line);box-shadow:var(--glow-ring),var(--glow-halo),0 10px 30px rgba(5,25,40,.35)}
+
+/* ── панели: чаты слева, лента, комментарии справа, низ и верх ───────── */
+#rail{border-right:1px solid var(--glow-line);
+  box-shadow:var(--glow-ring),var(--glow-halo),inset -1px 0 0 rgba(var(--glow-rgb),calc(var(--g1) * .8)),var(--glow-in)}
+#thread{border-left:1px solid var(--glow-line);
+  box-shadow:var(--glow-ring),var(--glow-halo),inset 1px 0 0 rgba(var(--glow-rgb),calc(var(--g1) * .8)),var(--glow-in)}
+#topbar{border-bottom:1px solid var(--glow-line);
+  box-shadow:0 1px 0 rgba(var(--glow-rgb),var(--g1)),0 10px 26px -20px rgba(var(--glow-rgb),calc(var(--g2) * 1.6))}
+#composer,#thread-composer{border-top:1px solid var(--glow-line);
+  box-shadow:0 -1px 0 rgba(var(--glow-rgb),var(--g1)),0 -10px 26px -20px rgba(var(--glow-rgb),calc(var(--g2) * 1.6))}
+/* выбранный чат — светящаяся плашка */
+.chat-item.active{box-shadow:var(--glow-ring),0 0 16px rgba(var(--glow-rgb),calc(var(--g2) * .85))}
+/* поле ввода в фокусе и поиск — тот же цвет, что у окантовки */
+input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
+  box-shadow:0 0 0 3px rgba(var(--glow-rgb),calc(var(--g1) * .9)),0 0 16px rgba(var(--glow-rgb),calc(var(--g2) * .8))}
+/* пузырёк «Моя музыка» и шторка «Свернуть» */
+.music-fab{border:1.5px solid var(--glow-line);
+  box-shadow:var(--glow-ring),0 0 20px rgba(var(--glow-rgb),calc(var(--g2) * 1.2)),0 8px 24px rgba(5,25,40,.28)}
+.mus-shutter{border-color:var(--glow-line);
+  box-shadow:var(--glow-ring),0 0 16px rgba(var(--glow-rgb),calc(var(--g2) * .9)),0 2px 10px rgba(0,0,0,.4)}
+/* кнопки при наведении — мягкий ореол, размеры и места прежние */
+.mini:hover,.ghost:hover,.icon:hover,.new-chat:hover,.send:hover,.gseg button:hover{
+  box-shadow:0 0 0 1px rgba(var(--glow-rgb),calc(var(--g1) * 1.8)),0 0 14px rgba(var(--glow-rgb),calc(var(--g2) * .55))
+}
+
+/* эконом-режим: ореола нет, остаётся тонкая цветная рамка (и никаких больших теней) */
+:root[data-eco="1"] #rail,:root[data-eco="1"] #thread,:root[data-eco="1"] #topbar,
+:root[data-eco="1"] #composer,:root[data-eco="1"] #thread-composer,
+:root[data-eco="1"] .modal-box,:root[data-eco="1"] .card,:root[data-eco="1"] .ask-card,
+:root[data-eco="1"] .plus-menu,:root[data-eco="1"] #drop,:root[data-eco="1"] #emoji-pop,
+:root[data-eco="1"] .music-fab,:root[data-eco="1"] .archive-banner,:root[data-eco="1"] .toast{
+  box-shadow:none !important;
+}
+
+/* ── новые переключатели в настройках: сила свечения и скругление ─────── */
+.gseg{display:inline-flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:11px;padding:3px;flex:none}
+.gseg button{padding:5px 9px;border-radius:8px;font-size:12px;color:var(--muted);line-height:1.2;white-space:nowrap;
+  transition:background .15s,color .15s,box-shadow .15s}
+.gseg button:hover{color:var(--text)}
+.gseg button.on{background:var(--panel);color:var(--accent-2);font-weight:600;
+  box-shadow:0 1px 2px rgba(10,30,45,.12),0 0 0 1px rgba(var(--glow-rgb),.35),0 0 10px rgba(var(--glow-rgb),calc(var(--g2) * .7))}
+.range{width:150px;flex:none;accent-color:var(--accent-2)}
+@media (max-width:420px){
+  .set-row{flex-wrap:wrap}
+  .gseg{order:3;margin-top:6px}
+  .range{width:100%;order:3;margin-top:6px}
+}
+
+/* телефон: окно музыки по-прежнему чёрное, без рамки — правило ниже по файлу
+   сильнее общего, поэтому повторяем его после нового рецепта */
+@media (max-width:900px){
+  #modal.mus-modal .modal-box{background:#000;border:0;box-shadow:none;color:#f2f2f2;border-radius:0}
 }
