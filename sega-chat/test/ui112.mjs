@@ -59,7 +59,8 @@ ok(/transform:rotate\(-90deg\) translateX\(-100%\)/.test(css) && /:root\[data-la
 ok(!/^\s*\.modal-box\{[^}]*rotate\(/m.test(css), 'прочие окна не поворачиваются');
 
 console.log('\n  4. Справа от обложки — название трека');
-ok(win.includes('<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowt" id="mus-now-title">'), 'на месте картинки — блок с названием');
+// pkg3-120: блок прежний, название внутри стало бегущей строкой (.mq)
+ok(win.includes('<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowcol"><div class="mus-nowt"><span class="mq" id="mus-now-title">'), 'на месте картинки — блок с названием');
 ok(!win.includes('music-viz-still') && !app.includes('img/music-viz.'), 'прежней квадратной картинки в коде нет');
 ok(!existsSync(join(PUB, 'img', 'music-viz.gif')) && !existsSync(join(PUB, 'img', 'music-viz.webp')), 'и файлы её убраны — программа легче');
 ok(/const nt = document\.getElementById\('mus-now-title'\);\s+if \(nt\) nt\.textContent = t \? \(t\.title \|\| t\.url\) : 'Выберите трек в списке';/.test(app),
