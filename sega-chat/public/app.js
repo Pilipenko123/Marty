@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-119';
+const BUILD = 'pkg3-120';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5409,7 +5409,63 @@ function musicNowUi() {
   if (nt) nt.textContent = t ? (t.title || t.url) : 'Выберите трек в списке';
   // pkg3-111: подписи «Сейчас играет» под обложкой больше нет — название видно
   // в подсвеченной строке списка (бегущая строка туда-обратно).
+  // pkg3-120: с какого ресурса играет трек — подпись рядом с названием
+  const src = document.getElementById('mus-now-src');
+  if (src) {
+    const ru = musSourceRu(t);
+    src.textContent = ru;
+    src.classList.toggle('hidden', !ru);
+  }
   musUiMode();   // pkg3-88: обычный трек или встроенный плеер Яндекса
+  musMarqueeKick();   // pkg3-120: длинное название снова едет туда-обратно
+}
+/** pkg3-120: человеческая подпись источника трека («Яндекс.Музыка», «☁ диск»,
+ *  сайт поиска, иначе — имя сайта из ссылки). */
+function musSourceRu(t) {
+  if (!t) return '';
+  if (musicIsWidget(t)) return 'Яндекс.Музыка';
+  if (musicIsDisk(t)) return 'Яндекс.Диск';
+  if (t.site && MUS_SITE_TITLES[t.site]) return MUS_SITE_TITLES[t.site];
+  try {
+    const u = new URL(t.url || '');
+    return (u.hostname || '').replace(/^www\./, '');
+  } catch (e) {}
+  return t.site ? String(t.site) : '';
+}
+/**
+ * pkg3-120: меряем бегущую строку названия в окне «Моя музыка»: насколько
+ * строка шире своей ячейки — на столько и уезжает (--mq-shift), время — по
+ * длине пути. Влезает целиком — стоит на месте (класс mq-s).
+ * Нет большой строки (окно ещё не открыто) — меряем подсвеченную в списке.
+ */
+function musMarqueeSync() {
+  let mq = document.getElementById('mus-now-title');
+  let box = mq && mq.parentElement;
+  if (!mq || !box) {
+    const list = document.getElementById('mus-list');
+    mq = list && list.querySelector('.mus-tr.cur .mq');
+    box = mq && (mq.closest('.mus-ti') || mq.parentElement);
+    if (!mq || !box) return;
+  }
+  const shift = Math.max(0, (mq.scrollWidth || 0) - (box.clientWidth || 0));
+  mq.classList.toggle('mq-s', shift < 4);
+  if (shift < 4) {
+    mq.style.removeProperty('--mq-shift');
+    mq.style.removeProperty('--mq-dur');
+    return;
+  }
+  mq.style.setProperty('--mq-shift', (-shift) + 'px');
+  mq.style.setProperty('--mq-dur', Math.max(6, Math.min(26, 5 + shift / 28)).toFixed(1) + 's');
+}
+// поворот телефона и изменение ширины окна — пересчитать длину строки
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => musMarqueeKick());
+}
+
+function musMarqueeKick() {
+  if (typeof window === 'undefined') return;
+  if (window.requestAnimationFrame) requestAnimationFrame(() => requestAnimationFrame(musMarqueeSync));
+  else setTimeout(musMarqueeSync, 30);
 }
 /** pkg3-111: бегущая строка названия ходит ТУДА-ОБРАТНО и не показывает
  * пустоту: меряем, на сколько название шире своей ячейки, и отдаём это число
@@ -5883,7 +5939,7 @@ async function openMusic(wantId) {
           return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
             ${musThumbHtml(t)}
-            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}</span>
+            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq${(String(t.title || t.url || t.path || '').length > 24) ? '' : ' mq-s'}">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
             <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>
           </div>`;
@@ -5898,7 +5954,7 @@ async function openMusic(wantId) {
     <div class="mus-sqbar tiny" id="mus-sq-bar">${st0.results.length ? 'Найдено: ' + st0.results.length : ''}</div>
     <div class="mus-coverbox">
       <div class="mus-cov-left" id="mus-cover-img"></div>
-      <div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowt" id="mus-now-title">—</div></div>
+      <div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowcol"><div class="mus-nowt"><span class="mq" id="mus-now-title">—</span></div><div class="mus-nowsrc tiny hidden" id="mus-now-src"></div></div></div>
     </div>
     <div class="mus-eq" id="mus-eq" data-st="off" aria-hidden="true"></div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
@@ -5969,7 +6025,7 @@ async function openMusic(wantId) {
   musLockScroll(true);
   musAddMinBtn();
   if (!musWasOpen) musExpandAnim(); else musicFabSync();   // pkg3-94: сначала гасим пузырёк, потом перелёт
-  musicNowUi(); musicTickUi(); musVizSync();
+  musicNowUi(); musicTickUi(); musVizSync(); musMarqueeKick();
   const list0 = $('#mus-list');
   if (list0) { list0.addEventListener('scroll', musSbarSync, { passive: true }); setTimeout(musSbarSync, 0); }
   musFitList(); setTimeout(musFitList, 50); setTimeout(musFitList, 350);   // pkg3-114: сразу, после раскладки и после анимации появления
@@ -6673,6 +6729,49 @@ function renderTopbar() {
   }
 }
 
+// ─────────── pkg3-120: ссылка Яндекс.Музыки в сообщении → плеер в чате ───────
+/**
+ * Ссылка Яндекс.Музыки в сообщении → карточка-плеер ПОД текстом пузыря.
+ * Разбор — тем же проверенным модулем «умной вставки», что и в окне «Моя
+ * музыка» (public/music-paste.js): он собирает адрес встроенного плеера САМ,
+ * только на music.yandex.ru и только понятного типа. Чужой HTML из сообщения
+ * в разметку не попадает — в рамку идёт лишь этот белый список адресов.
+ * В экономном режиме медиа не грузим совсем: текст со ссылкой остаётся.
+ */
+function ymEmbedHtml(text) {
+  if (!text || S.eco) return '';
+  const s = String(text);
+  if (!/music\.yandex\.|ya\.ru\/music/i.test(s)) return '';
+  const r = musicParsePaste(s);
+  if (!r || r.kind !== 'widget' || !r.url) return '';
+  const h = Math.min(420, Number(r.h) > 60 ? Number(r.h) : 180);
+  const what = musicWhatRu(r.what);
+  return `<div class="ym-embed" data-ym="${escapeHtml(r.url)}" data-ym-h="${h}">`
+    + `<div class="ym-poster"><span class="ym-logo" aria-hidden="true">Я</span>`
+    + `<span class="ym-txt">Яндекс.Музыка · ${escapeHtml(what)}</span>`
+    + `<a class="ym-open" href="${escapeHtml(r.orig || 'https://music.yandex.ru/')}" target="_blank" rel="noopener noreferrer" title="Открыть на сайте Яндекс.Музыки">↗</a>`
+    + `<button type="button" class="ym-play" data-ym-play="1">▶ Слушать здесь</button></div></div>`;
+}
+// нажатие «Слушать здесь» — на месте постера появляется плеер Яндекса
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-ym-play]');
+  if (!b) return;
+  const box = b.closest('.ym-embed');
+  if (!box) return;
+  const src = box.getAttribute('data-ym');
+  if (!src) return;
+  const f = document.createElement('iframe');
+  f.setAttribute('src', src);
+  f.setAttribute('title', 'Плеер Яндекс.Музыки');
+  f.setAttribute('frameborder', '0');
+  f.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+  f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox');
+  f.style.height = (Number(box.getAttribute('data-ym-h')) || 180) + 'px';
+  box.textContent = '';
+  box.appendChild(f);
+  box.classList.add('on');
+});
+
 function mentionize(text) {
   let html = linkify(escapeHtml(text));
   const names = S.users.map(u => u.name).sort((a, b) => b.length - a.length);
@@ -6810,7 +6909,7 @@ function messageHtml(m, opts = {}) {
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
-        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${gamePayloadHtml(p, chatById(m.chat))}
+        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${ymEmbedHtml(p.text)}${gamePayloadHtml(p, chatById(m.chat))}
         ${p.att ? attHtml(p.att) : ''}
       </div>
       ${rxHtml}
@@ -7000,7 +7099,7 @@ function renderThread() {
   box.innerHTML = `<div class="parent-card">
       <div style="display:flex;gap:9px;align-items:center">${avatarHtml(author, 'sm', true)}
         <div><div class="who">${escapeHtml(author.name)}</div><div class="tiny muted">${fmtDay(parent.ts)}, ${fmtTime(parent.ts)}</div></div></div>
-      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${gamePayloadHtml(p, chatById(parent.chat))}
+      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${ymEmbedHtml(p.text)}${gamePayloadHtml(p, chatById(parent.chat))}
       ${p.att ? attHtml(p.att) : ''}
     </div>` + kids.map((k, i) => messageHtml(k, { noThread: true, continued: canGroup(kids[i - 1], k), continues: canGroup(k, kids[i + 1]) })).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;

@@ -2316,3 +2316,79 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 :root[data-eco="1"][data-theme="dark"] #rail .rail-head{
   background:linear-gradient(180deg,#5a6672,#454f5a);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   pkg3-120: бегущая строка названия и подпись источника в «Моей музыке»,
+   ссылка Яндекс.Музыки в сообщении — карточка-плеер прямо в чате
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Окно «Моя музыка»: справа от обложки — название ОДНОЙ строкой.
+   Не влезает целиком — строка сама едет туда-обратно (--mq-shift/--mq-dur
+   меряет app.js), влезает — стоит на месте. Под названием — откуда трек. */
+.mus-v105 .mus-nowcol{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;width:100%;min-width:0;max-height:100%;overflow:hidden;
+}
+.mus-v105 .mus-nowt{
+  display:block;width:100%;max-width:100%;overflow:hidden;text-align:center;
+  -webkit-line-clamp:none;-webkit-box-orient:horizontal;
+}
+.mus-v105 .mus-nowt .mq{
+  display:inline-block;white-space:nowrap;max-width:none;font:inherit;color:inherit;
+  animation:mus-mq var(--mq-dur,9s) ease-in-out infinite alternate;will-change:transform;
+}
+.mus-v105 .mus-nowt .mq.mq-s{
+  animation:none;transform:none;white-space:normal;
+  overflow-wrap:anywhere;word-break:break-word;
+}
+@media (prefers-reduced-motion:reduce){
+  .mus-v105 .mus-nowt .mq{animation:none;transform:none;white-space:normal;overflow-wrap:anywhere}
+}
+/* подпись «откуда трек»: Яндекс.Музыка / Яндекс.Диск / сайт поиска */
+.mus-v105 .mus-nowsrc{
+  display:inline-block;max-width:100%;padding:1px 9px;line-height:1.35;
+  font-weight:600;letter-spacing:.03em;color:var(--muted);
+  border:1px solid var(--glow-line);border-radius:999px;
+  background:var(--panel-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* 2. Ссылка Яндекс.Музыки в сообщении — карточка-плеер ПОД текстом пузыря.
+   Сам текст с ссылкой остаётся как был (её видно и по ней можно уйти на сайт).
+   Рамка Яндекса грузится по кнопке «Слушать здесь» — в чате бывает много
+   ссылок, и держать все плееры сразу тяжело. */
+.ym-embed{
+  margin-top:8px;overflow:hidden;
+  border:1.5px solid var(--glow-line);border-radius:calc(var(--r) - 10px);
+  background:var(--panel-2);box-shadow:var(--shadow-soft);
+}
+.ym-embed .ym-poster{display:flex;align-items:center;gap:9px;padding:8px 10px;min-width:0}
+.ym-embed .ym-logo{
+  flex:0 0 auto;width:26px;height:26px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:14px;color:#fff;
+  background:linear-gradient(135deg,#ff2bd6,#7b61ff);
+}
+.ym-embed .ym-txt{
+  flex:1 1 auto;min-width:0;font-size:12.5px;line-height:1.3;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.ym-embed .ym-play{
+  flex:0 0 auto;font:inherit;font-size:12.5px;font-weight:600;
+  color:var(--text);cursor:pointer;padding:5px 12px;
+  border:1.5px solid var(--glow-line);border-radius:999px;background:var(--panel);
+}
+.ym-embed .ym-play:hover,.ym-embed .ym-play:focus-visible{color:var(--accent-2);border-color:var(--accent-2)}
+.ym-embed .ym-open{
+  flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  width:25px;height:25px;border-radius:50%;font-size:12.5px;
+  border:1.5px solid var(--glow-line);color:var(--muted);text-decoration:none;
+}
+.ym-embed .ym-open:hover,.ym-embed .ym-open:focus-visible{color:var(--accent-2);border-color:var(--accent-2)}
+.ym-embed iframe{display:block;width:100%;border:0;background:transparent}
+.ym-embed.on{border-radius:calc(var(--r) - 10px)}
+/* экономный режим: медиа не грузим (карточка и не рисуется) */
+:root[data-eco="1"] .ym-embed{display:none}
+@media (max-width:560px){
+  .ym-embed .ym-txt{font-size:12px}
+  .ym-embed .ym-play{padding:4px 10px;font-size:12px}
+}

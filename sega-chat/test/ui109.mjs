@@ -76,7 +76,8 @@ ok(!/^\s*\.modal-box\{[^}]*height:100dvh/m.test(css), 'прочие окна (н
 // ─────────────────────────── 3. обложка: вдвое ниже и две половины
 console.log('\n  3. Обложка: половина высоты, две половины по вертикали');
 ok(/<div class="mus-cov-left" id="mus-cover-img"><\/div>/.test(app), 'слева — половина под обложку трека');
-ok(/<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowt" id="mus-now-title">/.test(app),
+// pkg3-120: название слева-справа осталось на месте, но стало бегущей строкой
+ok(/<div class="mus-viz mus-nowbox" id="mus-viz"><div class="mus-nowcol"><div class="mus-nowt"><span class="mq" id="mus-now-title">/.test(app),
   'справа — половина под название трека (pkg3-112: вместо картинки)');
 const boxAt = app.indexOf('<div class="mus-coverbox">');
 ok(boxAt > 0 && !app.includes('id="mus-cover-cap"'), 'подписи «Сейчас играет» под блоком нет (pkg3-111: по просьбе владельца убрана как дублирование)');
