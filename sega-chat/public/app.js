@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-118';
+const BUILD = 'pkg3-119';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -6613,17 +6613,6 @@ function musicStatusOf(uid) {
   if (!s || Date.now() - s.at > 60000) return null;
   return s;
 }
-function musicLine(c) {
-  const ids = (c.members || []).filter(id => id !== (S.me || {}).id && musicStatusOf(id));
-  if (!ids.length) return '';
-  return ids.map(id => {
-    const st = musicStatusOf(id);
-    const nm = escapeHtml((userById(id) || {}).name || 'Кто-то');
-    // pkg3-92: плашка кликабельна — нажавший слушает синхронно (кроме самого слушателя)
-    return '<button class="mus-plate" data-mus-follow="' + id + '" title="Слушать вместе: догнать трек с того же места">' + MUS_EQ + ' ' + nm + (st.note ? ' слушает: ' + escapeHtml(st.note) : ' слушает музыку') + '</button>';
-  }).join(' · ');
-}
-
 function typingLine(c) {
   const ts = typingIn(c.id);
   if (!ts.length) return '';
@@ -6676,7 +6665,9 @@ function renderTopbar() {
   } else {
     const online = c.members.map(userById).filter(isOnline).length;
     // pkg3-77: имена тех, кто пишет/загружает; pkg3-87: и кто слушает музыку
-    const act = [typingLine(c), musicLine(c)].filter(Boolean).join(' · ');
+    // pkg3-119: музыка НЕ идёт в статус группового чата — она живёт в личных
+    // плашках участников (список участников, личные чаты, левая колонка)
+    const act = typingLine(c);
     $('#chat-sub').innerHTML = `${plural(c.members.length, 'участник', 'участника', 'участников')} · <span style="color:#5c9c1e">${act || online + ' в сети'}</span>`;
     $('#input').placeholder = 'Пишите';
   }

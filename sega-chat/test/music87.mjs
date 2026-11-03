@@ -156,8 +156,11 @@ ok(appJs.includes('function musicStatusKick(') && appJs.includes("kind: 'music'"
   'плеер сам ставит и снимает статус «🎵 слушает» на play/pause');
 ok(appJs.includes('function musicStatusNote(') && appJs.includes('const pub = !!pl'),
   'название трека уходит в статус ТОЛЬКО из публичного плейлиста');
-ok(appJs.includes('function musicLine(') && appJs.includes('🎵 слушает'),
-  'шапка и список участников показывают «🎵 слушает»');
+// pkg3-119: в статусе ГРУППОВОГО чата музыки больше нет — только у участников
+ok(!appJs.includes('function musicLine(') && !/\[typingLine\(c\), musicLine\(c\)\]/.test(appJs),
+  'в статус группового чата «слушает музыку» больше не транслируется');
+ok(appJs.includes("+ 'слушает'") && appJs.includes('data-mus-follow='),
+  'личные плашки «слушает» (шапка личной переписки, список участников) остались');
 ok(css.includes('.mus-of-tr'), 'окно чужой музыки оформлено');
 
 console.log('\n  итог: ' + good + ' ✓, ' + bad + ' провалов');

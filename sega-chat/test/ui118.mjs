@@ -117,9 +117,11 @@ ok(/@media \(max-width:900px\)\{[\s\S]*#modal\.mus-modal \.modal-box\{background
 ok(/#modal\.mus-modal \.mus-coverbox\{background:[\s\S]{0,200}radial-gradient/.test(neu), 'обложка — тот же рендер, что на ПК');
 ok(/#modal\.mus-modal \.mus-mwin\{color:var\(--text\)\}/.test(neu), 'текст внутри — как на ПК, а не белый на чёрном');
 ok(!/background:#000;border:0;box-shadow:none;color:#f2f2f2/.test(css), 'прежний «чёрный плеер» телефона убран');
-const tail = css.slice(css.lastIndexOf('@media (max-width:900px){'));
-ok(/#modal\.mus-modal \.modal-box\{background:var\(--panel\);border:0;box-shadow:none;border-radius:0\}/.test(tail),
-  'последнее слово в файле — телефонное окно без рамки (общий рецепт его не вернёт)');
+// телефонное правило без рамки должно стоять ПОСЛЕ общего рецепта окон
+const iMusMob = css.lastIndexOf('#modal.mus-modal .modal-box{background:var(--panel);border:0;box-shadow:none;border-radius:0}');
+const iRecipe = css.indexOf('.modal-box{\n  border:2px solid var(--glow-line)');
+ok(iMusMob > 0 && iRecipe > 0 && iMusMob > iRecipe,
+  'телефонное окно без рамки объявлено ПОСЛЕ общего рецепта (он его не вернёт)');
 
 console.log('\n  7. Экономный режим: батарейка, серо-белое, скругления на месте');
 ok(html.includes('data-ic="battery"'), 'значок экономного режима — батарейка');
