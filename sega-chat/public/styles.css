@@ -26,7 +26,7 @@
   --g2:.30;                 /* мягкий ореол */
   --gb:18px;                /* размытие ореола */
   --gin:.035;               /* очень мягкая внутренняя подсветка */
-  --r:16px;                 /* скругление окон и панелей */
+  --r:26px;                 /* pkg3-118: скругление всегда максимальное */
   --glow-ring:0 0 0 1px rgba(var(--glow-rgb),var(--g1));
   --glow-halo:0 0 var(--gb) rgba(var(--glow-rgb),var(--g2)),0 0 calc(var(--gb) * 2.4) rgba(var(--glow-rgb),calc(var(--g2) * .42));
   --glow-in:inset 0 0 26px rgba(var(--glow-rgb),var(--gin));
@@ -950,22 +950,36 @@ html,body{overflow-x:hidden}
 }
 
 /* ───────── экономный режим «читалка» (pkg3-32/33): 1 бит, только чёрное и белое ───────── */
+/* pkg3-118: вместо «1 бита» — серо-белая, но контрастная и чёткая гамма:
+   белые панели, серые линии в 1,5–2 px, никаких полутонов-градиентов и теней.
+   Скругления остаются такими же, как в обычном режиме. */
 :root[data-eco="1"]{
-  --bg:#ffffff; --panel:#ffffff; --panel-2:#ffffff; --line:#000000; --line-2:#000000;
-  --text:#000000; --muted:#000000; --accent:#000000; --ios-on:#000000;
+  --bg:#e8ecef; --panel:#ffffff; --panel-2:#eef1f4; --panel-3:#e3e8ed;
+  --line:#98a5b0; --line-2:#c2ccd4;
+  --text:#0f1519; --muted:#4d5a66;
+  --accent:#39424c; --accent-2:#5b6875; --accent-soft:#dfe5ea; --own:#e6eaee;
+  --ios-on:#4a5561; --dark:#39424c; --dark-2:#4b5661;
+  --glow-rgb:125,138,150; --pal-plate-a:#39424c1f; --pal-plate-b:#5b68751f;
+  --red:#b23b30; --ok:#1f7a4d;
 }
 :root[data-eco="1"][data-theme="dark"]{
-  --bg:#000000; --panel:#000000; --panel-2:#000000; --line:#ffffff; --line-2:#ffffff;
-  --text:#ffffff; --muted:#ffffff; --accent:#ffffff; --ios-on:#ffffff;
+  --bg:#1b2126; --panel:#242b31; --panel-2:#2b333a; --panel-3:#313a42;
+  --line:#6b7883; --line-2:#4b565f;
+  --text:#eef2f5; --muted:#aab5be;
+  --accent:#c9d3db; --accent-2:#a2b2bf; --accent-soft:#39434c; --own:#2f3a43;
+  --ios-on:#c9d3db; --dark:#2a323a; --dark-2:#39434c;
+  --glow-rgb:170,184,196; --pal-plate-a:#c9d3db1f; --pal-plate-b:#a2b2bf1f;
+  --red:#e06a5e; --ok:#4fc98a;
 }
-/* дизеринг «электронных чернил» вместо любых полутонов */
-:root[data-eco="1"] body{
-  background-image:conic-gradient(#000 0 25%, #fff 0 50%, #000 0 75%, #fff 0);
-  background-size:2px 2px;
+/* pkg3-118: «немного пиксельности» — редкая серая клетка только на подложке
+   между панелями (сами панели чистые, текст без ряби) */
+:root[data-eco="1"] #screen-app{
+  background-image:repeating-conic-gradient(var(--line-2) 0 25%, transparent 0 50%);
+  background-size:4px 4px;
 }
-:root[data-eco="1"][data-theme="dark"] body{
-  background-image:conic-gradient(#fff 0 25%, #000 0 50%, #fff 0 75%, #000 0);
-  background-size:2px 2px;
+:root[data-eco="1"][data-theme="dark"] #screen-app{
+  background-image:repeating-conic-gradient(var(--line-2) 0 25%, transparent 0 50%);
+  background-size:4px 4px;
 }
 :root[data-eco="1"] .center,:root[data-eco="1"] #load-ui{background:#fff;}
 :root[data-eco="1"][data-theme="dark"] .center,:root[data-eco="1"][data-theme="dark"] #load-ui{background:#000;}
@@ -976,38 +990,30 @@ html,body{overflow-x:hidden}
 :root[data-eco="1"][data-theme="dark"] #load-ui .lu-bar i{background:#fff;}
 :root[data-eco="1"] .logo,:root[data-eco="1"] img,:root[data-eco="1"] video{
   filter:grayscale(1) contrast(1000);image-rendering:pixelated;}
-/* прямые углы, чёрные контуры, никаких теней и полутонов */
+/* pkg3-118: чёткие линии и никаких теней, но скругления — как в обычном режиме */
 :root[data-eco="1"] .bubble,:root[data-eco="1"] .card,:root[data-eco="1"] .chat-item,
 :root[data-eco="1"] .day span,:root[data-eco="1"] .tool,:root[data-eco="1"] .mini,
 :root[data-eco="1"] .new-chat,:root[data-eco="1"] input,:root[data-eco="1"] textarea,
 :root[data-eco="1"] .modal-body label select,
 :root[data-eco="1"] .invite-card,:root[data-eco="1"] #msg-sheet,:root[data-eco="1"] .rx,
-:root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .avatar{
-  border-radius:0;box-shadow:none;}
-:root[data-eco="1"] .bubble{border:2px solid #000;background:#fff;}
-:root[data-eco="1"] .msg.mine .bubble{background:#000;border-color:#000;color:#fff;}
+:root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .avatar,
+:root[data-eco="1"] .modal-box,:root[data-eco="1"] .plus-menu,:root[data-eco="1"] .btn{
+  box-shadow:none;
+}
+:root[data-eco="1"] .bubble{border:1.5px solid var(--line);background:var(--panel)}
+:root[data-eco="1"] .msg.mine .bubble{background:var(--own);border-color:var(--accent-2);color:var(--text)}
 :root[data-eco="1"] .msg.mine .bubble .who,:root[data-eco="1"] .msg.mine .bubble .meta,
-:root[data-eco="1"] .msg.mine .bubble .tiny{color:#fff;}
-:root[data-eco="1"][data-theme="dark"] .bubble{border-color:#fff;background:#000;}
-:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble{background:#fff;color:#000;border-color:#fff;}
-:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble .who,:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble .meta,
-:root[data-eco="1"][data-theme="dark"] .msg.mine .bubble .tiny{color:#000;}
-:root[data-eco="1"] .avatar{background:#000 !important;color:#fff !important;}
-:root[data-eco="1"][data-theme="dark"] .avatar{background:#fff !important;color:#000 !important;}
-:root[data-eco="1"] .status.on{background:#000;border:2px solid #fff;}
-:root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .new-chat{background:#000;color:#fff;}
-:root[data-eco="1"][data-theme="dark"] .badge,:root[data-eco="1"][data-theme="dark"] .send,
-:root[data-eco="1"][data-theme="dark"] .new-chat{background:#fff;color:#000;}
-:root[data-eco="1"] .mini,:root[data-eco="1"] .tool{border:2px solid #000;background:#fff;color:#000;}
-:root[data-eco="1"][data-theme="dark"] .mini,:root[data-eco="1"][data-theme="dark"] .tool{border-color:#fff;background:#000;color:#fff;}
-:root[data-eco="1"] .chat-item.active{background:#000;}
-:root[data-eco="1"] .chat-item.active .ci-name,:root[data-eco="1"] .chat-item.active .ci-last{color:#fff;}
-:root[data-eco="1"][data-theme="dark"] .chat-item.active{background:#fff;}
-:root[data-eco="1"][data-theme="dark"] .chat-item.active .ci-name,:root[data-eco="1"][data-theme="dark"] .chat-item.active .ci-last{color:#000;}
-:root[data-eco="1"] .m-at{background:#fff;color:#000;border:1px solid #000;}
-:root[data-eco="1"][data-theme="dark"] .m-at{background:#000;color:#fff;border-color:#fff;}
-:root[data-eco="1"] .eco-hidden{border:2px dashed #000;opacity:1;}
-:root[data-eco="1"][data-theme="dark"] .eco-hidden{border-color:#fff;}
+:root[data-eco="1"] .msg.mine .bubble .tiny{color:var(--muted)}
+:root[data-eco="1"] .avatar{background:var(--accent) !important;color:var(--panel) !important;border:1.5px solid var(--accent-2)}
+:root[data-eco="1"] .status.on{background:var(--ok);border:1.5px solid var(--panel)}
+:root[data-eco="1"] .badge,:root[data-eco="1"] .send,:root[data-eco="1"] .new-chat{background:var(--accent);color:var(--panel)}
+:root[data-eco="1"] .mini,:root[data-eco="1"] .tool{border:1.5px solid var(--line);background:var(--panel);color:var(--text)}
+:root[data-eco="1"] .chat-item.active{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent-2)}
+:root[data-eco="1"] .chat-item.active .ci-name,:root[data-eco="1"] .chat-item.active .ci-last{color:var(--text)}
+:root[data-eco="1"] .m-at{background:var(--panel);color:var(--text);border:1.5px solid var(--line)}
+:root[data-eco="1"] .eco-hidden{border:2px dashed var(--line);opacity:1}
+/* картинки — «пиксельные», но их и так не грузим: медиа в экономе нет */
+:root[data-eco="1"] img,:root[data-eco="1"] video{image-rendering:pixelated}
 /* шахматная доска: белые поля белые, тёмные — дизеринг 50% */
 :root[data-eco="1"] .sq.light{background:#fff;}
 :root[data-eco="1"] .sq.dark{background:repeating-conic-gradient(#000 0 25%, #fff 0 50%);background-size:4px 4px;}
@@ -1915,19 +1921,22 @@ html.mus-lock,html.mus-lock body{overflow:hidden;height:100%;overscroll-behavior
   #modal.mus-modal .mus-sw{flex:0 0 auto;margin-left:0}
   #modal.mus-modal .mus-sw-t{max-width:88px;overflow:hidden;text-overflow:ellipsis}
   /* очень низкий экран (телефон боком) — обложку ужимаем, кнопки остаются */
-  /* pkg3-111: окно музыки на телефоне — чёрный плеер до краёв экрана, без
-     рамок и подложек (любая гамма: светлая, тёмная, синт) */
-  #modal.mus-modal{background:#000}
-  #modal.mus-modal .modal-box{background:#000;border:0;box-shadow:none;color:#f2f2f2}
-  #modal.mus-modal .modal-head{background:#000;border-bottom:0}
-  #modal.mus-modal .modal-head h3{color:#fff}
-  #modal.mus-modal .modal-body{background:#000}
+  /* pkg3-118: окно музыки на телефоне — ТО ЖЕ оформление, что на ПК (цвета
+     панелей, кнопки, обложка-рендер), но без рамки: рамкой служат края экрана */
+  #modal.mus-modal{background:var(--panel)}
+  #modal.mus-modal .modal-box{background:var(--panel);border:0;box-shadow:none;color:var(--text)}
+  #modal.mus-modal .modal-head{background:var(--panel);border-bottom:1px solid var(--line-2)}
+  #modal.mus-modal .modal-head h3{color:var(--text)}
+  #modal.mus-modal .modal-body{background:var(--panel)}
   /* pkg3-114: кнопки, поля, список и рамки — ровно те же, что на ПК (свои
      «телефонные» перекраски убраны); чёрный только сам фон окна и поля вокруг */
   #modal.mus-modal .mus-srow input{border-radius:12px;padding:9px 12px}
-  #modal.mus-modal .mus-coverbox{border-radius:14px;background:#000}
+  #modal.mus-modal .mus-coverbox{border-radius:calc(var(--r) - 8px);background:
+    radial-gradient(circle at 24% 26%,rgba(var(--glow-rgb),.42),transparent 58%),
+    radial-gradient(circle at 82% 78%,rgba(var(--accent),.45),transparent 60%),
+    linear-gradient(135deg,var(--panel-2),var(--panel))}
   /* pkg3-112: список обведён и с постоянной полосой прокрутки */
-  #modal.mus-modal .mus-list{background:#000;padding:4px;border-radius:12px;overflow-y:auto;
+  #modal.mus-modal .mus-list{background:var(--panel);padding:4px;border-radius:12px;overflow-y:auto;
     scrollbar-width:none;-webkit-overflow-scrolling:touch}
   #modal.mus-modal .mus-list::-webkit-scrollbar{display:none;width:0;height:0}
   #modal.mus-modal .mus-sbar{display:block;flex:0 0 6px;width:6px;border-radius:3px;background:var(--panel-2);border:1px solid var(--line);box-sizing:border-box;position:relative;overflow:hidden}
@@ -1937,7 +1946,7 @@ html.mus-lock,html.mus-lock body{overflow:hidden;height:100%;overscroll-behavior
   #modal.mus-modal .mus-nowt{font-size:13px}
   #modal.mus-modal .mus-tr{padding:7px 6px}
   #modal.mus-modal .mus-foot{border-top:1px solid var(--line);padding-top:10px;gap:10px}
-  #modal.mus-modal .mus-mwin{color:#f2f2f2}
+  #modal.mus-modal .mus-mwin{color:var(--text)}
   /* меню «+»: список чатов под ним приглушается — сразу видно, что меню открыто */
   #plus-scrim{display:block;position:absolute;inset:0;z-index:1;background:rgba(8,20,28,.42);
     opacity:0;pointer-events:none;transition:opacity .16s ease}
@@ -2055,5 +2064,227 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 /* телефон: окно музыки по-прежнему чёрное, без рамки — правило ниже по файлу
    сильнее общего, поэтому повторяем его после нового рецепта */
 @media (max-width:900px){
-  #modal.mus-modal .modal-box{background:#000;border:0;box-shadow:none;color:#f2f2f2;border-radius:0}
+  #modal.mus-modal .modal-box{background:var(--panel);border:0;box-shadow:none;color:var(--text);border-radius:0}
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   pkg3-118: ПАНЕЛИ-КАРТОЧКИ, СВЕЖИЕ СОЧЕТАНИЯ И «РЕНДЕРЫ» ВМЕСТО ЗАЛИВОК
+   По одобренному макету: левая и правая плашки — отдельные окна в своих
+   светящихся рамках, между ними воздух; вместо плоских заливок — мягкие
+   градиенты и подсветки. Раскладка и порядок кнопок не меняются.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  --shadow-soft:0 10px 30px rgba(12,35,50,.10);
+  --bg-tint-1:rgba(var(--glow-rgb),.16);
+  --bg-tint-2:rgba(147,197,253,.16);
+}
+:root[data-theme="dark"]{
+  --shadow-soft:0 14px 36px rgba(0,0,0,.42);
+  --bg-tint-1:rgba(var(--glow-rgb),.10);
+  --bg-tint-2:rgba(56,130,246,.10);
+}
+
+/* ── фон приложения: два мягких «рендера» по углам (как в макете) ─────── */
+#screen-app{
+  gap:14px;padding:14px;
+  background:
+    radial-gradient(900px 620px at 4% -8%,var(--bg-tint-1),transparent 62%),
+    radial-gradient(820px 560px at 104% 2%,var(--bg-tint-2),transparent 60%),
+    var(--bg);
+}
+
+/* ── три панели = три отдельные карточки в своих рамках ───────────────── */
+#rail,#main,#thread{border-radius:var(--r);border:1.5px solid var(--glow-line)}
+#rail{
+  border-right:1.5px solid var(--glow-line);
+  background:linear-gradient(180deg,var(--dark-2),var(--dark));
+  color:#eef5fa;overflow:hidden;
+  box-shadow:var(--glow-ring),var(--glow-halo),var(--shadow-soft),var(--glow-in);
+}
+#main,#thread{
+  background:var(--panel);overflow:hidden;
+  box-shadow:var(--glow-ring),var(--glow-halo),var(--shadow-soft),var(--glow-in);
+}
+/* шапка-плашка внутри тёмной колонки: мягкий блик сверху, как рендер */
+#rail .rail-head{
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,0) 78%),
+    linear-gradient(135deg,var(--pal-plate-a),var(--pal-plate-b));
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
+/* содержимое тёмной колонки читается: светлый текст, полупрозрачные подложки */
+#rail .rail-search{border-bottom:1px solid rgba(255,255,255,.10)}
+#rail .rail-search input{background:rgba(255,255,255,.09);border-color:rgba(var(--glow-rgb),.30);color:#eef5fa}
+#rail .rail-search input::placeholder{color:rgba(238,245,250,.55)}
+#rail .rail-search input:focus{border-color:rgba(var(--glow-rgb),.72);
+  box-shadow:0 0 0 3px rgba(var(--glow-rgb),.18),0 0 14px rgba(var(--glow-rgb),.35)}
+#rail .rail-group{color:rgba(238,245,250,.55)}
+#rail .chat-item:hover{background:rgba(255,255,255,.07)}
+#rail .chat-item.active{background:rgba(var(--glow-rgb),.16);
+  box-shadow:inset 0 0 0 1.5px rgba(var(--glow-rgb),.55),0 0 16px rgba(var(--glow-rgb),.30)}
+#rail .chat-item .ci-name{color:#eef5fa}
+#rail .chat-item.unread .ci-name{color:var(--accent-2)}
+#rail .chat-item .ci-last,#rail .chat-item .ci-seen{color:rgba(238,245,250,.62)}
+#rail .chat-item .ci-seen.on{color:#8ef0b6}
+#rail .mus-plate{color:var(--accent-2)}
+#rail .tag-admin,#rail .tag-grp,#rail .tag-new{color:rgba(238,245,250,.75);border-color:rgba(255,255,255,.35)}
+#rail .rail-bottom{border-top:1px solid rgba(255,255,255,.10)}
+#rail .memory{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#eef5fa}
+#rail .memory-top{color:rgba(238,245,250,.68)}
+#rail .gear{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.16);color:rgba(238,245,250,.85)}
+#rail .gear:hover{color:#fff;border-color:rgba(var(--glow-rgb),.75);box-shadow:0 0 16px rgba(var(--glow-rgb),.40)}
+#rail .rail-empty,#rail .muted{color:rgba(238,245,250,.6)}
+#rail .new-chat{color:#fff}
+
+/* ── «рендеры» вместо плоских заливок: кнопки, пузыри, аватары ────────── */
+.new-chat,.send,button.primary,.mini.primary,.btn.primary{
+  background-image:linear-gradient(135deg,var(--accent),var(--accent-2));
+  border-color:transparent;color:#fff;
+  box-shadow:0 6px 18px rgba(var(--glow-rgb),.28),inset 0 1px 0 rgba(255,255,255,.25);
+}
+.new-chat:hover,.send:hover,button.primary:hover,.mini.primary:hover{
+  filter:brightness(1.06);
+  box-shadow:0 8px 24px rgba(var(--glow-rgb),.45),0 0 22px rgba(var(--glow-rgb),.40),inset 0 1px 0 rgba(255,255,255,.28);
+}
+.avatar{box-shadow:0 0 0 2px rgba(var(--glow-rgb),.22)}
+.msg.mine .bubble{background-image:linear-gradient(180deg,rgba(var(--glow-rgb),.14),rgba(var(--glow-rgb),0) 72%)}
+.card{background-image:linear-gradient(180deg,var(--panel),var(--panel-2))}
+.modal-head{background-image:linear-gradient(180deg,rgba(var(--glow-rgb),.08),rgba(var(--glow-rgb),0))}
+#composer,#thread-composer{
+  background-image:linear-gradient(180deg,rgba(var(--glow-rgb),.05),rgba(var(--glow-rgb),0) 60%);
+}
+.music-fab{background-image:linear-gradient(135deg,rgba(var(--glow-rgb),.18),rgba(var(--glow-rgb),0) 70%)}
+.chat-item.active{background-image:linear-gradient(90deg,rgba(var(--glow-rgb),.16),rgba(var(--glow-rgb),0))}
+
+/* ── живая дорожка «слушает музыку» (и в свёрнутом окне «Моя музыка») ─── */
+.eq-mini{display:inline-flex;align-items:flex-end;gap:2px;height:12px;margin-right:5px;vertical-align:-2px}
+.eq-mini i{width:2.5px;height:35%;border-radius:2px;background:currentColor;
+  animation:eqBar 900ms ease-in-out infinite}
+.eq-mini i:nth-child(2){animation-delay:.15s}
+.eq-mini i:nth-child(3){animation-delay:.3s}
+.eq-mini i:nth-child(4){animation-delay:.45s}
+@keyframes eqBar{0%,100%{height:20%}25%{height:82%}50%{height:40%}75%{height:96%}}
+.music-fab .eq-mini{height:14px;margin:0 2px 0 0}
+.music-fab .eq-mini i{width:3px;background:linear-gradient(180deg,var(--accent-2),var(--accent))}
+.music-fab .fab-txt{margin-left:2px}
+@media (prefers-reduced-motion:reduce){
+  .eq-mini i{animation:none;height:55%}
+}
+:root[data-eco="1"] .eq-mini i{animation:none;height:60%}
+
+/* ── окно «Моя музыка»: обложка-«рендер», круглая кнопка, светящийся список ── */
+#modal.mus-modal .modal-box{border-radius:var(--r)}
+.mus-v105 .mus-coverbox{
+  border-radius:calc(var(--r) - 6px);
+  border:1.5px solid rgba(var(--glow-rgb),.38);
+  background:
+    radial-gradient(circle at 24% 26%,rgba(var(--glow-rgb),.42),transparent 58%),
+    radial-gradient(circle at 82% 78%,rgba(var(--accent),.45),transparent 60%),
+    linear-gradient(135deg,var(--panel-2),var(--panel));
+  box-shadow:var(--glow-ring),0 0 26px rgba(var(--glow-rgb),calc(var(--g2) * 1.2));
+}
+.mus-v105 .mus-eq{
+  border-radius:12px;border:1px solid rgba(var(--glow-rgb),.38);
+  background:#0a0e13;box-shadow:0 0 18px rgba(var(--glow-rgb),.28)
+}
+.mus-v105 .mus-playbig{
+  border-radius:50%;border:0;color:#fff;font-size:20px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  box-shadow:0 0 24px rgba(var(--glow-rgb),.55),inset 0 1px 0 rgba(255,255,255,.30);
+  transition:transform .18s,box-shadow .18s;
+}
+.mus-v105 .mus-playbig:hover{transform:scale(1.05);box-shadow:0 0 32px rgba(var(--glow-rgb),.75)}
+.mus-v105 .mus-skip{
+  border-radius:50%;border:1px solid var(--line);background:var(--panel-2);color:var(--text-2,#4a5b68);
+  transition:transform .18s,box-shadow .18s,border-color .18s,color .18s;
+}
+.mus-v105 .mus-skip:hover{color:var(--accent-2);border-color:rgba(var(--glow-rgb),.6);box-shadow:0 0 18px rgba(var(--glow-rgb),.35)}
+.mus-tr{border-radius:10px}
+.mus-tr.cur,.mus-list .mus-tr.cur,.mus-trs .mus-tr.cur{
+  outline:none;background:rgba(var(--glow-rgb),.12);
+  box-shadow:inset 3px 0 0 var(--accent-2),0 0 14px rgba(var(--glow-rgb),.20);
+}
+.mus-cov{border-radius:7px;box-shadow:0 0 0 1px rgba(var(--glow-rgb),.30)}
+.mus-pl.cur{border-color:rgba(var(--glow-rgb),.78);box-shadow:0 0 14px rgba(var(--glow-rgb),.28)}
+.mus-card,.mus-pl,.mus-disk-bar{border-radius:11px}
+
+/* ── телефон: панели во всю ширину, без рамок — рамкой служит сам экран ── */
+@media (max-width:900px){
+  #screen-app{padding:0;gap:0;
+    background:radial-gradient(620px 420px at 50% -10%,var(--bg-tint-1),transparent 70%),var(--bg)}
+  #main{border:0;border-radius:0;box-shadow:none;background:var(--panel)}
+  #rail{border:0;border-right:1px solid var(--glow-line);border-radius:0;box-shadow:none}
+  #thread{border:0;border-radius:0;box-shadow:none}
+  /* окно «Моя музыка» на телефоне — ТОТ ЖЕ вид, что на ПК, но без рамки:
+     границей служат края экрана телефона */
+  #modal.mus-modal{background:var(--panel)}
+  #modal.mus-modal .modal-box{background:var(--panel);border:0;box-shadow:none;color:var(--text);border-radius:0}
+  #modal.mus-modal .modal-head{background:var(--panel);border-bottom:1px solid var(--line-2)}
+  #modal.mus-modal .modal-head h3{color:var(--text)}
+  #modal.mus-modal.modal-body,#modal.mus-modal .modal-body{background:var(--panel)}
+  #modal.mus-modal .mus-coverbox{background:
+    radial-gradient(circle at 24% 26%,rgba(var(--glow-rgb),.42),transparent 58%),
+    radial-gradient(circle at 82% 78%,rgba(var(--accent),.45),transparent 60%),
+    linear-gradient(135deg,var(--panel-2),var(--panel));border-radius:calc(var(--r) - 8px)}
+  #modal.mus-modal .mus-list{background:var(--panel)}
+  #modal.mus-modal .mus-eq{background:#0a0e13}
+  #modal.mus-modal .mus-mwin{color:var(--text)}
+}
+
+/* экономный режим: тёмная колонка становится светлой и чёткой (pkg3-118) */
+:root[data-eco="1"] #rail{
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));
+  color:var(--text);border-color:var(--line);box-shadow:none;
+}
+:root[data-eco="1"] #main,:root[data-eco="1"] #thread{
+  border-color:var(--line);box-shadow:none;background:var(--panel);
+}
+:root[data-eco="1"] #rail .rail-head{
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border-bottom:1.5px solid var(--line);
+}
+:root[data-eco="1"] #rail .rail-search input{background:var(--panel);border-color:var(--line);color:var(--text)}
+:root[data-eco="1"] #rail .rail-search input::placeholder{color:var(--muted)}
+:root[data-eco="1"] #rail .rail-group{color:var(--muted)}
+:root[data-eco="1"] #rail .chat-item .ci-name{color:var(--text)}
+:root[data-eco="1"] #rail .chat-item .ci-last,
+:root[data-eco="1"] #rail .chat-item .ci-seen{color:var(--muted)}
+:root[data-eco="1"] #rail .memory{background:var(--panel);border-color:var(--line);color:var(--text)}
+:root[data-eco="1"] #rail .gear{background:var(--panel);border-color:var(--line);color:var(--text)}
+:root[data-eco="1"] .new-chat,:root[data-eco="1"] .send,:root[data-eco="1"] button.primary,
+:root[data-eco="1"] .mini.primary,:root[data-eco="1"] .avatar,:root[data-eco="1"] .msg.mine .bubble,
+:root[data-eco="1"] .card,:root[data-eco="1"] .music-fab,:root[data-eco="1"] #composer,
+:root[data-eco="1"] #thread-composer,:root[data-eco="1"] .modal-head{
+  background-image:none;
+}
+
+/* чтобы новый рецепт не вернул рамку телефонному окну музыки */
+@media (max-width:900px){
+  #modal.mus-modal .modal-box{background:var(--panel);border:0;box-shadow:none;border-radius:0}
+}
+
+/* pkg3-118: в экономном режиме колонка светлая — знак и подписи перекрашиваем,
+   иначе белый логотип исчезает на светлом */
+:root[data-eco="1"] .rail-brand .logo{filter:brightness(0) opacity(.86)}
+:root[data-eco="1"] .rail-brand .word,:root[data-eco="1"] .rail-brand .sep{color:var(--text);background-color:var(--text)}
+:root[data-eco="1"] .lock-box{border-color:var(--text)}
+:root[data-eco="1"] #rail .rail-top{color:var(--text)}
+:root[data-eco="1"] #rail .me-sub{color:var(--muted)}
+
+/* pkg3-118: «Синтвейв» остаётся неоновым миром — панели в розово-голубой оправе */
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #rail{
+  border-color:rgba(255,43,214,.55);
+  background:linear-gradient(180deg,#241049,#12062b);
+  box-shadow:0 0 0 1px rgba(255,43,214,.26),0 0 22px rgba(255,43,214,.34),0 0 46px rgba(0,229,255,.16),var(--shadow-soft);
+}
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #main,
+:root[data-in-app][data-pal="synth"]:not([data-eco="1"]) #thread{
+  border-color:rgba(255,43,214,.38);
+  box-shadow:0 0 0 1px rgba(0,229,255,.14),0 0 22px rgba(255,43,214,.22),0 0 40px rgba(0,229,255,.10),var(--shadow-soft);
+}
+
+/* pkg3-118: кнопки-значки внутри тёмной колонки (в т.ч. «закрыть» на телефоне) */
+#rail button.icon{color:rgba(238,245,250,.85)}
+#rail button.icon:hover{background:rgba(255,255,255,.12);color:#fff}
+:root[data-eco="1"] #rail button.icon{color:var(--text)}
+:root[data-eco="1"] #rail button.icon:hover{background:var(--panel-2);color:var(--text)}

@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-117';
+const BUILD = 'pkg3-118';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -63,6 +63,8 @@ const ICONS = {
   bell: '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.3 19a2 2 0 0 0 3.4 0"/>',
   volume: '<path d="M11 5 6.5 9H3v6h3.5L11 19V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   moon: '<path d="M20 13.5A8 8 0 0 1 10.5 4 8 8 0 1 0 20 13.5Z"/>',
+  /* pkg3-118: экономный режим — батарейка, а не месяц */
+  battery: '<rect x="2" y="7.5" width="17" height="9" rx="2.2"/><path d="M21.5 10.5v3"/><path d="M5 12h6"/>',
   rows: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   palette: '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="8.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="13" r="1.1" fill="currentColor" stroke="none"/><path d="M12 21a3 3 0 0 0 0-6h-1.5a2 2 0 0 1 0-4"/>',
   user: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.4 7-5.4s6.2 1.8 7 5.4"/>',
@@ -117,6 +119,9 @@ const PALS = [
   { id: 'graphite', name: 'Графит', c1: '#475569', c2: '#94a3b8' }
 ];
 const palById = id => PALS.find(p => p.id === id) || PALS[0];
+// pkg3-118: живая «эквалайзерная» дорожка — вместо значка 🎵 в плашках «слушает»
+// (анимация в styles.css, в экономном режиме и при «меньше движения» стоит)
+const MUS_EQ = '<span class="eq-mini" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
 // узоры фона чата: id + превью для кнопок выбора
 // pkg3-38: узоры перерисованы по пожеланиям владельца —
 //  · diag — настоящие непрерывные диагональные линии (ровный шаг, сшиваются между плитками)
@@ -5736,7 +5741,10 @@ function musicFabSync() {
   // того, как окно музыки один раз свернули шторкой (или через «слушать вместе»
   // окно открыли и свернули). Не сворачивали — никакого пузырька в сеансе.
   fab.classList.toggle('auth', !!S.token && S.musFabEarned && !S.musFabHidden && !S.musOpen);
-  fab.textContent = '🎵 Моя музыка';
+  // pkg3-118: у свёрнутого окна, пока звучит музыка, — та же живая дорожка
+  fab.innerHTML = on
+    ? MUS_EQ + '<span class="fab-txt">Моя музыка</span>'
+    : '<span class="fab-ico" aria-hidden="true">🎵</span><span class="fab-txt">Моя музыка</span>';
   musicStatusKick();   // pkg3-87: play/pause/конец трека сразу отражаются в статусе
 }
 /** pkg3-92: запомненное место пузырька (между сеансами), прижатое к краям экрана. */
@@ -6487,7 +6495,7 @@ function renderRail() {
     const mst = c.kind === 'dm' && peer ? musicStatusOf(peer.id) : null;   // pkg3-87
     const seen = c.kind === 'dm' && peer
       ? (mst
-        ? `<button class="ci-seen on mus-plate" data-mus-follow="${peer.id}" title="Слушать вместе: открыть «Мою музыку» и догнать трек с того же места">🎵 слушает</button>`
+        ? `<button class="ci-seen on mus-plate" data-mus-follow="${peer.id}" title="Слушать вместе: открыть «Мою музыку» и догнать трек с того же места">${MUS_EQ}слушает</button>`
         : `<div class="ci-seen ${isOnline(peer) ? 'on' : ''}" title="Последний визит">${isOnline(peer) ? 'в сети' : 'был(а) ' + escapeHtml(fmtAgo(peer.lastSeen))}</div>`)
       : '';
     return `<div class="chat-item ${S.view === c.id ? 'active' : ''} ${un.total ? 'unread' : ''}" data-chat="${c.id}">
@@ -6612,7 +6620,7 @@ function musicLine(c) {
     const st = musicStatusOf(id);
     const nm = escapeHtml((userById(id) || {}).name || 'Кто-то');
     // pkg3-92: плашка кликабельна — нажавший слушает синхронно (кроме самого слушателя)
-    return '<button class="mus-plate" data-mus-follow="' + id + '" title="Слушать вместе: догнать трек с того же места">🎵 ' + nm + (st.note ? ' слушает: ' + escapeHtml(st.note) : ' слушает музыку') + '</button>';
+    return '<button class="mus-plate" data-mus-follow="' + id + '" title="Слушать вместе: догнать трек с того же места">' + MUS_EQ + ' ' + nm + (st.note ? ' слушает: ' + escapeHtml(st.note) : ' слушает музыку') + '</button>';
   }).join(' · ');
 }
 
@@ -6657,7 +6665,7 @@ function renderTopbar() {
     const ms = musicStatusOf(u && u.id);   // pkg3-87: слышно, что собеседник слушает
     const act = t ? (t.kind === 'upload' ? 'загружает…' : 'пишет…') : '';
     // pkg3-92: плашка «слушает» в шапке кликабельна — режим «Слушаю с …»
-    const mus = ms ? '<button class="mus-plate" data-mus-follow="' + ((u && u.id) || '') + '" title="Слушать вместе: догнать трек с того же места">🎵 слушает' + (ms.note ? ': ' + escapeHtml(ms.note) : ' музыку') + '</button>' : '';
+    const mus = ms ? '<button class="mus-plate" data-mus-follow="' + ((u && u.id) || '') + '" title="Слушать вместе: догнать трек с того же места">' + MUS_EQ + 'слушает' + (ms.note ? ': ' + escapeHtml(ms.note) : ' музыку') + '</button>' : '';
     const actLine = [act ? '<span style="color:#5c9c1e">' + act + '</span>' : '', mus].filter(Boolean).join(' · ');
     $('#chat-sub').innerHTML = actLine
       ? actLine + ' · личная переписка'
@@ -8483,7 +8491,7 @@ $('#btn-members').addEventListener('click', () => {
     const mst = u.id !== S.me.id ? musicStatusOf(u.id) : null;   // pkg3-87
     return `<div class="mrow">${avatarHtml(u, '', true)}
       <span class="nm">${escapeHtml(u.name)}${u.id === S.me.id ? ' <span class="muted">(вы)</span>' : ''}${c.ownerId === u.id ? '<span class="tag-admin">создатель</span>' : ''}
-        <div class="tiny muted">${mst ? '<button class="mus-plate" data-mus-follow="' + u.id + '" title="Слушать вместе: догнать трек с того же места">🎵 слушает' + (mst.note ? ': ' + escapeHtml(mst.note) : ' музыку') + '</button>' : isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
+        <div class="tiny muted">${mst ? '<button class="mus-plate" data-mus-follow="' + u.id + '" title="Слушать вместе: догнать трек с того же места">' + MUS_EQ + 'слушает' + (mst.note ? ': ' + escapeHtml(mst.note) : ' музыку') + '</button>' : isOnline(u) ? 'в сети, смотрит чат' : 'был(а) ' + escapeHtml(fmtAgo(u.lastSeen))}</div></span>
       ${u.id !== S.me.id ? `<button class="mini" data-mus-of="${u.id}" title="Публичные плейлисты участника">🎵 музыка</button>` : ''}
       ${u.id !== S.me.id && c.kind === 'group' ? `<button class="mini" data-open-dm="${u.id}">лично</button>` : ''}
       ${isOwner(c) && u.id !== S.me.id ? `<button class="mini danger" data-kick="${u.id}">убрать</button>` : ''}
@@ -10599,26 +10607,13 @@ function applyGlow(mode) {
   const seg = $('#glow-seg');
   if (seg) for (const b of seg.querySelectorAll('[data-glow]')) b.classList.toggle('on', b.dataset.glow === m);
 }
-// скругление окон и панелей, 8…26 px, по умолчанию 16
-function applyRadius(px) {
-  const v = Math.max(8, Math.min(26, Math.round((Number(px) || 16) / 2) * 2));
-  document.documentElement.style.setProperty('--r', v + 'px');
-  try { localStorage.setItem('sega.radius', String(v)); } catch (e) {}
-  const range = $('#radius-range');
-  if (range) range.value = String(v);
-  const lbl = $('#radius-val');
-  if (lbl) lbl.textContent = v + ' px';
-}
+// pkg3-118: ползунок скругления убран — углы всегда максимально скруглены
+// (значение живёт в --r в styles.css), человек ничего не крутит.
 // pkg3-117: показать в окне настроек то, что человек уже выбрал
 function syncAppearanceUi() {
   const g = document.documentElement.dataset.glow || 'soft';
   const seg = $('#glow-seg');
   if (seg) for (const b of seg.querySelectorAll('[data-glow]')) b.classList.toggle('on', b.dataset.glow === g);
-  const v = parseInt(localStorage.getItem('sega.radius'), 10) || 16;
-  const range = $('#radius-range');
-  if (range) range.value = String(v);
-  const lbl = $('#radius-val');
-  if (lbl) lbl.textContent = v + ' px';
 }
 function paintPalettePickers() {
   const box = $('#pals');
@@ -11161,7 +11156,6 @@ $('#glow-seg').addEventListener('click', e => {
   toast(b.dataset.glow === 'off' ? 'Свечение выключено: осталась тонкая цветная окантовка'
     : b.dataset.glow === 'bright' ? 'Свечение: яркое' : 'Свечение: спокойное');
 });
-$('#radius-range').addEventListener('input', e => applyRadius(e.target.value));
 $('#pals').addEventListener('click', e => {
   const b = e.target.closest('[data-pal]');
   if (!b) return;
@@ -11173,7 +11167,6 @@ $('#pals').addEventListener('click', e => {
   applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   applyEco(localStorage.getItem('sega.eco') === '1', false);
   applyGlow(localStorage.getItem('sega.glow') || 'soft');
-  applyRadius(localStorage.getItem('sega.radius') || 16);
   syncAppearanceUi();
   applyPalette(currentPal(), false);
   paintIcons(document);

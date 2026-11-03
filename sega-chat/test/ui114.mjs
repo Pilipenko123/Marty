@@ -56,8 +56,9 @@ ok(!/#modal\.mus-modal \.mini\{background:#17171c/.test(mob) && !/#modal\.mus-mo
   'своих «телефонных» перекрасок кнопок, поля, строк и подписей больше нет — цвета берутся из общих правил ПК');
 ok(!/#modal\.mus-modal \.mus-list\{[^}]*border:1px solid #3a3a46/.test(mob) && !/#modal\.mus-modal \.mus-coverbox\{border:1px solid #3a3a46/.test(mob) && !/#modal\.mus-modal \.mus-eq\{[^}]*border-color:#3a3a46/.test(mob),
   'рамки списка, обложки и полосы — те же, что на ПК');
-ok(/#modal\.mus-modal\{background:#000\}/.test(mob) && /#modal\.mus-modal \.modal-box\{background:#000;border:0;box-shadow:none;color:#f2f2f2\}/.test(mob) && /#modal\.mus-modal \.modal-head\{background:#000;border-bottom:0\}/.test(mob),
-  'окно и поля вокруг чёрные, рамки и тени у окна нет — границей служит сам телефон');
+// pkg3-118: цвета как на ПК (по теме), рамки и тени нет — границей служит телефон
+ok(/#modal\.mus-modal\{background:var\(--panel\)\}/.test(mob) && /#modal\.mus-modal \.modal-box\{background:var\(--panel\);border:0;box-shadow:none;color:var\(--text\)\}/.test(mob) && /#modal\.mus-modal \.modal-head\{background:var\(--panel\)/.test(mob),
+  'цвета окна и полей — как на ПК, рамки и тени нет — границей служит сам телефон');
 
 console.log('\n  3. Удаление трека — в меню карандаша');
 ok(!app.includes('data-mus-del='), 'крестика «убрать трек» в строке списка больше нет');
