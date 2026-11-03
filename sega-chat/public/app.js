@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-116';
+const BUILD = 'pkg3-117';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -102,17 +102,19 @@ function paintIcons(root) {
   });
 }
 // гаммы оформления: личная настройка устройства (id, название, пара цветов рендера)
+// pkg3-117: палитра пересмотрена — цвета чище и различимее, пары подобраны
+// так же, как в образце «Фокус»; c2 задаёт цвет светящейся окантовки гаммы
 const PALS = [
-  { id: 'classic', name: 'Классика', c1: '#2353a2', c2: '#2fc6f6' },
+  { id: 'classic', name: 'Классика', c1: '#3b5bdb', c2: '#4dabf7' },
   { id: 'synth', name: 'Синтвейв', c1: '#ff2bd6', c2: '#00e5ff' },
-  { id: 'sea', name: 'Морская', c1: '#0f766e', c2: '#2dd4bf' },
-  { id: 'lavender', name: 'Лаванда', c1: '#6d5bd0', c2: '#a78bfa' },
-  { id: 'olive', name: 'Олива', c1: '#5f7a2e', c2: '#a3c14a' },
-  { id: 'sunset', name: 'Закат', c1: '#c05038', c2: '#f59e6b' },
-  { id: 'honey', name: 'Мёд', c1: '#a9761f', c2: '#e8b54a' },
-  { id: 'rose', name: 'Роза', c1: '#b04a68', c2: '#e58aa4' },
-  { id: 'mint', name: 'Мята', c1: '#2f9e77', c2: '#7fd6b5' },
-  { id: 'graphite', name: 'Графит', c1: '#4b5563', c2: '#9aa5b1' }
+  { id: 'sea', name: 'Морская', c1: '#0e7490', c2: '#22d3ee' },
+  { id: 'lavender', name: 'Лаванда', c1: '#6d4aff', c2: '#a78bfa' },
+  { id: 'olive', name: 'Олива', c1: '#4d7c0f', c2: '#a3e635' },
+  { id: 'sunset', name: 'Закат', c1: '#d9480f', c2: '#fb923c' },
+  { id: 'honey', name: 'Мёд', c1: '#b45309', c2: '#fbbf24' },
+  { id: 'rose', name: 'Роза', c1: '#db2777', c2: '#f9a8d4' },
+  { id: 'mint', name: 'Мята', c1: '#059669', c2: '#6ee7b7' },
+  { id: 'graphite', name: 'Графит', c1: '#475569', c2: '#94a3b8' }
 ];
 const palById = id => PALS.find(p => p.id === id) || PALS[0];
 // узоры фона чата: id + превью для кнопок выбора
@@ -8103,7 +8105,7 @@ function wallEditor(c) {
       ${c.wallRev ? '<button class="mini danger" id="w-photo-del" style="margin-top:8px">Убрать фото</button>' : ''}
     </div>
     <div class="divider"><span>Моя гамма на этом устройстве</span></div>
-    <div class="pals" id="w-pals">${PALS.map(p => `<span class="pal ${currentPal() === p.id ? 'on' : ''}" data-pal="${p.id}" title="${p.name}" style="background:linear-gradient(135deg,${p.c1},${p.c2})"></span>`).join('')}</div>
+    <div class="pals" id="w-pals">${PALS.map(p => `<span class="pal ${currentPal() === p.id ? 'on' : ''}" data-pal="${p.id}" title="${p.name}" style="background:linear-gradient(135deg,${p.c1},${p.c2});--pal-halo:${p.c2}59"></span>`).join('')}</div>
     <p class="hint">Фон видят одинаково все участники чата, менять может любой. Гамма — личная настройка устройства.</p>`);
   const state = Object.assign({}, w);
   const rerender = async () => {
@@ -10588,11 +10590,41 @@ function applyPalette(id, save) {
   lastFav = '';
   updateFavicon();
 }
+// pkg3-117: сила свечения окантовки — «мягкое» по умолчанию, как одобрено
+const GLOW_MODES = ['soft', 'bright', 'off'];
+function applyGlow(mode) {
+  const m = GLOW_MODES.includes(mode) ? mode : 'soft';
+  document.documentElement.dataset.glow = m;
+  try { localStorage.setItem('sega.glow', m); } catch (e) {}
+  const seg = $('#glow-seg');
+  if (seg) for (const b of seg.querySelectorAll('[data-glow]')) b.classList.toggle('on', b.dataset.glow === m);
+}
+// скругление окон и панелей, 8…26 px, по умолчанию 16
+function applyRadius(px) {
+  const v = Math.max(8, Math.min(26, Math.round((Number(px) || 16) / 2) * 2));
+  document.documentElement.style.setProperty('--r', v + 'px');
+  try { localStorage.setItem('sega.radius', String(v)); } catch (e) {}
+  const range = $('#radius-range');
+  if (range) range.value = String(v);
+  const lbl = $('#radius-val');
+  if (lbl) lbl.textContent = v + ' px';
+}
+// pkg3-117: показать в окне настроек то, что человек уже выбрал
+function syncAppearanceUi() {
+  const g = document.documentElement.dataset.glow || 'soft';
+  const seg = $('#glow-seg');
+  if (seg) for (const b of seg.querySelectorAll('[data-glow]')) b.classList.toggle('on', b.dataset.glow === g);
+  const v = parseInt(localStorage.getItem('sega.radius'), 10) || 16;
+  const range = $('#radius-range');
+  if (range) range.value = String(v);
+  const lbl = $('#radius-val');
+  if (lbl) lbl.textContent = v + ' px';
+}
 function paintPalettePickers() {
   const box = $('#pals');
   if (!box) return;
   box.innerHTML = PALS.map(p =>
-    `<span class="pal ${currentPal() === p.id ? 'on' : ''}" data-pal="${p.id}" title="${p.name}" role="button" tabindex="0" style="background:linear-gradient(135deg,${p.c1},${p.c2})"></span>`).join('');
+    `<span class="pal ${currentPal() === p.id ? 'on' : ''}" data-pal="${p.id}" title="${p.name}" role="button" tabindex="0" style="background:linear-gradient(135deg,${p.c1},${p.c2});--pal-halo:${p.c2}59"></span>`).join('');
 }
 
 // ─────────────────────────────────────────── окно настроек (шестерёнка)
@@ -10603,6 +10635,7 @@ function openSettings() {
   if (ar) ar.style.display = (S.me && S.me.isAdmin) ? '' : 'none';
   const swD = $('#sw-dark'); if (swD) swD.checked = document.documentElement.dataset.theme === 'dark';
   const swE = $('#sw-eco'); if (swE) swE.checked = !!S.eco;
+  syncAppearanceUi();
   renderNotifyControls();
   show($('#sheet-settings'));
   const bt = $('#build-tag');
@@ -11120,6 +11153,15 @@ $('#sw-push').addEventListener('change', e => {
   try { localStorage.setItem('sega.pushAuto37', 'manual'); } catch (err) {}   // pkg3-37: решение человека — не перекрывать
   setPush(e.target.checked);
 });
+// pkg3-117: «Свечение» и «Скругление углов» в настройках
+$('#glow-seg').addEventListener('click', e => {
+  const b = e.target.closest('[data-glow]');
+  if (!b) return;
+  applyGlow(b.dataset.glow);
+  toast(b.dataset.glow === 'off' ? 'Свечение выключено: осталась тонкая цветная окантовка'
+    : b.dataset.glow === 'bright' ? 'Свечение: яркое' : 'Свечение: спокойное');
+});
+$('#radius-range').addEventListener('input', e => applyRadius(e.target.value));
 $('#pals').addEventListener('click', e => {
   const b = e.target.closest('[data-pal]');
   if (!b) return;
@@ -11130,6 +11172,9 @@ $('#pals').addEventListener('click', e => {
 (function initAppearance() {
   applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   applyEco(localStorage.getItem('sega.eco') === '1', false);
+  applyGlow(localStorage.getItem('sega.glow') || 'soft');
+  applyRadius(localStorage.getItem('sega.radius') || 16);
+  syncAppearanceUi();
   applyPalette(currentPal(), false);
   paintIcons(document);
 })();
