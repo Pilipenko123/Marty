@@ -157,7 +157,7 @@ const css = read('public/styles.css');
 const sw = read('public/sw.js');
 const pkg = read('package.json');
 const readme = read('README.md');
-ok(appJs.includes("fab.textContent = '🎵 Моя музыка';") && appJs.includes('function musicFabBind(') && appJs.includes('sega.musFabPos.v1'),
+ok(appJs.includes("fab.innerHTML = on") && appJs.includes('function musicFabBind(') && appJs.includes('sega.musFabPos.v1'),
   'пузырёк переименован в «Моя музыку», перетаскивается и запоминает место');
 ok(appJs.includes('function musMinimize(') && appJs.includes('function musFly(') && appJs.includes('function musCloseFull('),
   'pkg3-93: окно сворачивается в пузырёк перелётом, крестик закрывает совсем (пузырёк исчезает)');
@@ -175,7 +175,7 @@ ok(apiJs.includes("'/api/music/status'") && apiJs.includes("'/api/music/follow-h
   'сервер: маршрут живого статуса и выдача временной ссылки своего круга');
 ok(appJs.includes("kind: 'music', note: musicStatusNote(), sync: musicStatusSync()"),
   'клиент шлёт якорь только при включённой видимости и делимом треке');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v110';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v111';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music92.mjs'), 'тест music92 включён в цепочку npm test');
 ok(readme.includes('| pkg3-92 |'), 'в журнале README есть строка выпуска pkg3-92');
 const deps = JSON.parse(pkg).dependencies;

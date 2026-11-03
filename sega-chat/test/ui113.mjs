@@ -76,8 +76,9 @@ const left = rule('.mus-v105 .mus-cov-left', css);
 ok(/padding:10px/.test(left) && !/border-right/.test(left) && !/background:#120b1e/.test(left), 'слева нет перегородки и своего фона, есть поля вокруг картинки');
 ok(/\.mus-v105 \.mus-cov-left img,\.mus-v105 \.mus-cov-left svg\{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain/.test(css),
   'картинка вписана целиком без обрезки');
-ok(/#modal\.mus-modal \.mus-coverbox\{border-radius:14px;background:#000\}/.test(mob) && !/#modal\.mus-modal \.mus-cov-left\{border-right/.test(mob),
-  'на телефоне — та же единая рамка (цвет как на ПК) на чёрном');
+// pkg3-118: обложка на телефоне — та же единая рамка с рендером, что на ПК
+ok(/#modal\.mus-modal \.mus-coverbox\{[^}]*border-radius:calc\(var\(--r\) - 8px\)[^}]*radial-gradient/.test(mob) && !/#modal\.mus-modal \.mus-cov-left\{border-right/.test(mob),
+  'на телефоне — та же единая рамка с рендером, что на ПК');
 ok(/if \(!covBox\.querySelector\('\.mus-cov-def'\) \|\| !covOvl\) return;/.test(app), 'выбор обложки открывается касанием по всей левой части (не только по картинке)');
 
 console.log('\n  5. iPhone не раздувает шрифт длинных названий');

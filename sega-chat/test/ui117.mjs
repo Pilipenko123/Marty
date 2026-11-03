@@ -45,7 +45,7 @@ console.log('  1. Общий рецепт свечения (один на всё
 ok(iNew > 0, 'в стилях есть отдельный раздел pkg3-117');
 ok(/--glow-rgb:\s*\d+,\s*\d+,\s*\d+/.test(root), 'цвет свечения берётся из переменной --glow-rgb (её задаёт гамма)');
 ok(/--g1:/.test(root) && /--g2:/.test(root) && /--gb:/.test(root), 'сила ореола — три общие переменные (--g1, --g2, --gb)');
-ok(/--r:\s*16px/.test(root), 'скругление по умолчанию — 16 px (--r)');
+ok(/--r:\s*26px/.test(root), 'скругление максимальное и не настраивается (--r:26px, pkg3-118)');
 ok(/--glow-ring:/.test(root) && /--glow-halo:/.test(root) && /--glow-in:/.test(root), 'готовые слои: контур, ореол и мягкая внутренняя подсветка');
 ok(/--glow-line:rgba\(var\(--glow-rgb\),calc\(/.test(root), 'цвет рамки тоже выводится из гаммы одной формулой');
 
@@ -86,16 +86,13 @@ ok(/:root\[data-eco="1"\]\{--g1:0;--g2:0/.test(css), 'экономный реж�
 ok(/:root\[data-eco="1"\][^{]*\{[^}]*box-shadow:none !important/.test(css), 'в экономном режиме тяжёлые тени тоже сняты');
 ok(app.includes("localStorage.getItem('sega.glow') || 'soft'"), 'при запуске берётся «Спокойное», если человек ничего не выбирал');
 ok(app.includes('function applyGlow'), 'есть функция применения силы свечения');
-ok(app.includes('function applyRadius') && /--r/.test(app), 'есть функция применения скругления');
-ok(app.includes("localStorage.setItem('sega.glow'") && app.includes("localStorage.setItem('sega.radius'"),
-  'выбор запоминается на устройстве');
+ok(!app.includes('function applyRadius'), 'регулировка скругления из кода убрана — значение живёт в стилях');
+ok(app.includes("localStorage.setItem('sega.glow'"), 'выбор силы свечения запоминается на устройстве');
 
 console.log('\n  4. Настройки «Окантовка» — рядом с гаммами, на своих местах');
 ok(html.includes('id="glow-seg"') && html.includes('data-glow="soft"') && html.includes('data-glow="bright"') && html.includes('data-glow="off"'),
   'три кнопки силы свечения в окне настроек');
-ok(html.includes('id="radius-range"') && /id="radius-range"[^>]*min="8"/.test(html) && /id="radius-range"[^>]*max="26"/.test(html),
-  'ползунок скругления 8…26 px');
-ok(html.includes('id="radius-val"'), 'рядом подпись с текущим значением');
+ok(!html.includes('id="radius-range"'), 'ползунка скругления больше нет (pkg3-118: углы всегда максимальные)');
 const iSettings = html.indexOf('id="sheet-settings"');
 const iGlow = html.indexOf('id="glow-seg"');
 const iPals = html.indexOf('id="pals"');
@@ -103,8 +100,7 @@ const iClose = html.indexOf('id="settings-close"');
 ok(iSettings > 0 && iGlow > iSettings, 'раздел «Окантовка» внутри окна настроек');
 ok(iPals > 0 && iGlow > iPals, 'он идёт после выбора гаммы (где и просил владелец)');
 ok(read(join(PUB, 'index.html')).includes('Окантовка'), 'раздел подписан по-русски — «Окантовка»');
-ok(app.includes("$('#glow-seg').addEventListener") && app.includes("$('#radius-range').addEventListener"),
-  'кнопки и ползунок подключены к делу');
+ok(app.includes("$('#glow-seg').addEventListener"), 'кнопки силы свечения подключены к делу');
 ok(/\.gseg\{[^}]*display:inline-flex/.test(css) && /\.range\{[^}]*accent-color/.test(css),
   'у переключателей есть свой вид (не «голые» кнопки)');
 
@@ -170,8 +166,9 @@ ok(!/position:fixed[^}]*\.pal\{/.test(css), 'квадратики гамм ни�
 ok(/\.gseg button\{[^}]*font-size:12px/.test(css), 'новые кнопки не выше строки настроек (12 px)');
 
 console.log('\n  9. Телефон — как в макете (свечение слабее, окно музыки чёрное)');
-const iMob = css.indexOf('@media (max-width:900px){\n  #modal.mus-modal .modal-box{background:#000;border:0;box-shadow:none');
-ok(iMob > iNew, 'чёрное окно музыки на телефоне объявлено ПОСЛЕ нового рецепта (иначе рамка вернулась бы)');
+// pkg3-118: телефонное правило окна музыки по-прежнему последнее в файле
+const iMob = css.lastIndexOf('@media (max-width:900px){');
+ok(iMob > css.indexOf('pkg3-118') && iMob > iNew, 'телефонное окно музыки объявлено ПОСЛЕ общего рецепта (иначе рамка вернулась бы)');
 ok(/@media \(max-width:420px\)\{[\s\S]{0,220}\.gseg\{order:3/.test(css), 'на узком экране переключатель уходит на свою строку, а не сжимает подпись');
 ok(/\.pal\{[^}]*width:32px/.test(css), 'квадратики на телефоне того же размера, что в макете');
 
@@ -182,7 +179,7 @@ ok(b2 === BUILD, `отметка выпуска в клиенте и в тест
 ok(((/const BUILD = '([^']+)'/.exec(api) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка ${BUILD}`);
 ok(cache !== 'sega-static-v109', `кэш оформления поднят (${cache}) — устройства получат новый вид`);
-ok(html.includes('sega.glow') && html.includes('sega.radius'), 'вид применяется до отрисовки — при загрузке не мигает');
+ok(html.includes('sega.glow'), 'вид применяется до отрисовки — при загрузке не мигает');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
 process.exit(bad ? 1 : 0);

@@ -219,7 +219,7 @@ ok(appJs.includes('id="mus-add-hint"') && appJs.includes('Код плеера Я
   'поле добавления подсказывает, что можно вставить');
 ok(css.includes('.mus-widget{') && css.includes('.mus-badge-y{') && css.includes('.mus-player.widget-mode #mus-seek'),
   'панель, значок и виджет-режим плеера оформлены в стилях');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v110';"), 'кэш статики поднят до v93 — друзья получат новый клиент');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v111';"), 'кэш статики поднят до v93 — друзья получат новый клиент');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 ok(pkg.scripts.test.includes('test/music88.mjs'), 'тест pkg3-88 включён в общую цепочку проверки');
 

@@ -43,8 +43,6 @@
     if (p === 'synth') d.dataset.theme = 'dark';           /* синтвейв всегда тёмный */
     /* pkg3-117: светящаяся окантовка и скругление — тоже до отрисовки */
     d.dataset.glow = localStorage.getItem('sega.glow') || 'soft';
-    var rr117 = parseInt(localStorage.getItem('sega.radius'), 10);
-    if (rr117 >= 8 && rr117 <= 26) d.style.setProperty('--r', rr117 + 'px');
   } catch (e) {}
 })();
 </script>
@@ -339,7 +337,7 @@
       <div class="set-row"><span class="ico" data-ic="moon"></span>
         <div class="t"><b>Тёмная тема</b><span>для вечера и для глаз</span></div>
         <span class="sw"><input type="checkbox" id="sw-dark"><span class="track"></span></span></div>
-      <div class="set-row"><span class="ico" data-ic="moon"></span>
+      <div class="set-row"><span class="ico" data-ic="battery"></span>
         <div class="t"><b>Экономный режим</b><span>читалка: без медиа, аватаров и фонов — минимум трафика</span></div>
         <span class="sw"><input type="checkbox" id="sw-eco"><span class="track"></span></span></div>
       <div class="divider"><span>Гамма оформления</span></div>
@@ -353,10 +351,6 @@
           <button type="button" data-glow="bright">Яркое</button>
           <button type="button" data-glow="off">Выключено</button>
         </div></div>
-      <div class="set-row"><span class="ico" data-ic="restore"></span>
-        <div class="t"><b>Скругление углов</b><span id="radius-val">16 px</span></div>
-        <input class="range" id="radius-range" type="range" min="8" max="26" step="2" value="16" aria-label="Скругление углов">
-      </div>
       <div class="hint">«Выключено» — тонкая цветная рамка без ореола: так окна выглядят и в экономном режиме (там свечение гаснет само). Выбор запоминается на этом устройстве.</div>
       <div class="divider"><span>Ещё</span></div>
       <div class="hint" id="cache-state" style="margin-bottom:8px"></div>

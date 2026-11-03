@@ -114,7 +114,7 @@ const sw = read('public/sw.js');
 const pkg = read('package.json');
 const readme = read('README.md');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v110';"), 'кэш статики поднят до v95');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v111';"), 'кэш статики поднят до v95');
 ok(apiJs.includes('MUS_TICKET_TTL') && apiJs.includes('musTicketIssue('), 'пропуски в памяти сервера, срок из env (тестам — доли секунды)');
 ok(apiJs.includes("pathname === '/api/musstream-ticket' && method === 'POST'"), 'выдача пропуска — входной маршрут');
 ok(appJs.includes('function musProxyOk(') && appJs.includes('startProxy'), 'клиент: белый список отдельно, тихий переход с пропуском отдельно');

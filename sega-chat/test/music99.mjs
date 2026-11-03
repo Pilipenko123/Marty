@@ -122,7 +122,7 @@ ok(apiJs.includes("throttle('mussearch-' + me.id, 120)"), 'потолок пои
 ok(appJs.includes('for (const id of sites) {'), 'клиент спрашивает сайты по очереди, без залпа');
 ok(ms.includes('const siteRest = new Map()') && ms.includes('REST_MS'), '«отдых» сайта после 429/403 на 5 минут');
 ok(ms.includes("id: 'ccmixter'") && appJs.includes("ccmixter: 'ccMixter CC'"), 'пятый сайт в списке и фишке');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v110';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v111';"), 'кэш статики поднят до v93');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music99.mjs'), 'тест music99 включён в цепочку npm test');
 ok(readme.includes('| pkg3-99 |'), 'в журнале README есть строка выпуска pkg3-99');
