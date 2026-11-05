@@ -1,4 +1,4 @@
-// test/ui126.mjs — pkg3-127: Google Диск как второй диск.
+// test/ui126.mjs — pkg3-128: Google Диск как второй диск.
 //
 // Проверяем по-настоящему, на живом сервере с игрушечным Google:
 //   • без ключей приложения — честное «нужны ключи», а не пустое окно;
@@ -25,7 +25,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-127: Google Диск — второй диск, только чтение');
+console.log('  pkg3-128: Google Диск — второй диск, вход и права');
 console.log('══════════════════════════════════════════════════\n');
 
 // ─────────────── игрушечный Google ───────────────
@@ -163,19 +163,20 @@ await call(B, '/api/dm', { method: 'POST', body: { peer: K.id } }, A.token);
 
 r = await call(B, '/api/gdrive/auth', {}, A.token);
 ok(r.status === 200 && String(r.d.url || '').includes('/o/oauth2/v2/auth'), 'сервер отдаёт адрес страницы согласия Google');
-ok(String(r.d.url || '').includes('drive.readonly'), 'просим ТОЛЬКО право смотреть файлы (drive.readonly)');
+// pkg3-128: право расширено до полного — сервер получил и запись (папки, загрузка)
+ok(/\/auth\/drive(\s|$)/.test(decodeURIComponent(new URL(r.d.url).searchParams.get('scope') || '')), 'просим право на Диск (auth/drive) — смотреть и менять');
 ok(String(r.d.url || '').includes('access_type=offline'), 'просим «долгий» доступ — чтобы не входить каждый час');
 const state = (new URL(r.d.url)).searchParams.get('state');
 const cb = await fetch(B + '/api/gdrive/callback?state=' + encodeURIComponent(state) + '&code=code126');
 const cbBody = await cb.text();
 ok(cb.status === 200 && /Google Диск подключён/.test(cbBody), 'токен получен и сохранён (код обменян на сервере)');
-ok(/ТОЛЬКО читать/.test(cbBody), 'пользователю прямо сказано, что доступ только на чтение');
+ok(/смотреть и менять/.test(cbBody), 'пользователю прямо сказано, какие права получил сервер');
 const again = await (await fetch(B + '/api/gdrive/callback?state=' + encodeURIComponent(state) + '&code=code126')).text();
 ok(/устарела/.test(again), 'повторный возврат по той же ссылке не подключает дважды (state одноразовый)');
 r = await call(B, '/api/drives', {}, A.token);
 const gd1 = (r.d.drives || []).find(x => x.id === 'google') || {};
 ok(gd1.connected === true, 'после входа Google Диск отмечен подключённым');
-ok(gd1.readonly === true, 'в списке дисков честно записано «только чтение»');
+ok(gd1.readonly === false && gd1.canWrite === true, 'в списке дисков видно, что сервер может менять файлы');
 r = await call(B, '/api/drives', {}, K.token);
 ok((r.d.drives || []).find(x => x.id === 'google').connected === false, 'у Клавы свой Google не подключён');
 r = await call(B, '/api/login', { method: 'POST', body: { authKey: 'что-то' } });
@@ -225,17 +226,18 @@ console.log('\n  5. «Поделиться» папкой с Google — толь
 r = await call(B, '/api/yadisk/share-file', { method: 'POST', body: { path: 'google:/' + FOLDER_ID, name: 'Фото', kind: 'folder', perm: 'write' } }, A.token);
 ok(r.status === 200, 'папку с Google можно открыть участнику чата');
 r = await call(B, '/api/yadisk/shared-list?of=' + A.id + '&path=' + encodeURIComponent('google:/' + FOLDER_ID), {}, K.token);
-ok(r.status === 200 && r.d.drive === 'google' && r.d.perm === 'read', 'Клава смотрит папку Google, право всегда «чтение»');
+ok(r.status === 200 && r.d.drive === 'google' && r.d.perm === 'write', 'Клава смотрит папку Google — с тем правом, что дал владелец');
 r = await call(B, '/api/yadisk/shared-list?of=' + A.id + '&path=' + encodeURIComponent('google:/' + FOLDER_ID), {}, G.token);
 ok(r.status === 404, 'посторонний (не из чата) папку не видит');
 r = await call(B, '/api/yadisk/file?of=' + A.id + '&path=' + encodeURIComponent('google:/' + PHOTO_ID), {}, K.token);
 ok(r.status === 200 && String(r.d.href || '').includes('/api/gdrive/stream'), 'файл внутри открытой папки тоже открывается');
 r = await call(B, '/api/yadisk/file?path=' + encodeURIComponent('google:/' + FOLDER_ID), {}, A.token);
 ok(r.status === 200 && r.d.dir === true, 'папка отдаётся как папка, а не как файл');
+// pkg3-128: запрет «в Google только чтение» снят — этим занимается test/ui128.mjs
 r = await call(B, '/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', path: 'google:/' + FOLDER_ID + '/Новая' } }, A.token);
-ok(r.status === 409 && String(r.d.error || '').includes('только чтение'), 'создать папку в Google нельзя — честный отказ');
+ok(!(r.status === 409 && /только чтение/.test(String(r.d.error || ''))), 'создание папки в Google больше не отказывается заранее (выпуск 128)');
 r = await call(B, '/api/yadisk/upload-url?path=' + encodeURIComponent('google:/' + FOLDER_ID + '/new.jpg'), {}, A.token);
-ok(r.status === 409, 'загрузить в Google нельзя — отказ, а не молчание');
+ok(r.status !== 409 || !/только чтение/.test(String(r.d.error || '')), 'и загрузка в Google тоже больше не запрещена на входе');
 r = await call(B, '/api/gdrive/disconnect', { method: 'POST', body: {} }, A.token);
 ok(r.status === 200, 'Google можно отключить одной кнопкой');
 r = await call(B, '/api/drives', {}, A.token);
@@ -247,9 +249,9 @@ const appJs = read('public/app.js');
 ok(/id="gd-login"/.test(appJs) && /\/api\/gdrive\/auth/.test(appJs), 'в окне подключения есть «Войти через Google»');
 ok(/\/api\/gdrive\/disconnect/.test(appJs) && /gd-off/.test(appJs), 'и «Отключить» для Google');
 ok(/keysHint/.test(appJs), 'если ключей нет — показываем подсказку, а не пустую кнопку');
-ok(/const writable = !g &&/.test(appJs) && /Google разрешил SEGA-CHAT только смотреть файлы/.test(appJs), 'кнопки правок в Google погашены, и это написано словами');
+ok(/const writable = mine \? gWrite : \(st\.perm === 'write'\)/.test(appJs) && /Google разрешил SEGA-CHAT только смотреть файлы/.test(appJs), 'право на правки считается по правам входа, и это написано словами');
 ok(/function dkRoot\(drive\)/.test(appJs) && /'google:\/root'/.test(appJs), 'у каждого диска свой корень пути');
-ok(/В Google Диске пока только чтение/.test(appJs), 'клиент тоже не даёт менять Google');
+ok(/gd-more/.test(appJs) && /Разрешить изменения/.test(appJs), 'если вход был «только смотреть» — есть кнопка «Разрешить изменения»');
 const normSrc = (/function dkNorm\(p\) \{[\s\S]*?\n\}/.exec(appJs) || [''])[0];
 let dkNorm = null;
 try { dkNorm = new Function(normSrc + '; return dkNorm;')(); } catch (e) { dkNorm = null; }
@@ -260,10 +262,10 @@ ok(/☁ Google Диск/.test(appJs) && /У Google путь — это иден�
 console.log('\n  7. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(b2 === BUILD && BUILD === 'pkg3-127', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
+ok(b2 === BUILD && BUILD === 'pkg3-128', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(/\| pkg3-127 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v121', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(/\| pkg3-128 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
+ok(cache === 'sega-static-v122', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui126.mjs'), 'тест ui126 включён в цепочку npm test');
 ok(!/require\('googleapis'\)/.test(read('lib/gdrive.js')), 'новых зависимостей npm нет — только встроенные модули');
 

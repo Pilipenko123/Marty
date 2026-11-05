@@ -24,7 +24,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-127';
+const BUILD = 'pkg3-128';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -421,6 +421,44 @@ function createApi(store, opts = {}) {
   // ------------------------------------------------------------- ответы
   const J = (status, json, headers) => ({ status, json, headers });
   const E = (status, msg) => ({ status, json: { error: msg } });
+
+  /** pkg3-128: токен Google, которому разрешено МЕНЯТЬ файлы. Если вход был
+   * «только смотреть» (так подключались в 126-м), сразу говорим, что нажать, —
+   * не дожидаясь английского отказа Google. */
+  async function gdWriteTok(u) {
+    const t = await gdFreshToken(u);
+    if (!t) { const e = new Error('Google Диск не подключён'); e.status = 409; throw e; }
+    if (gdrive.scopeWrite(t.scope) === 'no') {
+      const e = new Error('Google разрешил только смотреть. Нажмите «Отключить», затем «Войти через Google» — Google спросит право менять файлы');
+      e.status = 409; e.reconnect = true; throw e;
+    }
+    return t;
+  }
+  /** pkg3-128: что мне можно с этим предметом на Google.
+   * Своё — можно всё; чужая открытая папка — только если открыли с правом
+   * менять, и предмет лежит ВНУТРИ неё (у Google проверяем по родителям). */
+  async function gdScopeFor(me, owner, gp) {
+    if (owner.id === me.id) return { own: true, root: '', perm: 'write' };
+    if (owner.diskShare === false) { const e = new Error('Участник закрыл доступ к своему Диску'); e.status = 403; throw e; }
+    if (!ydCommonChat(me.id, owner.id)) { const e = new Error('Этот человек не из ваших чатов'); e.status = 404; throw e; }
+    const folders = (Array.isArray(owner.diskShared) ? owner.diskShared : [])
+      .filter(x => x && x.kind === 'folder' && gdrive.isGooglePath(x.path));
+    const t = await gdFreshToken(owner);
+    if (!t) { const e = new Error('Google Диск у владельца не подключён'); e.status = 409; throw e; }
+    for (const f of folders) {
+      if (await gdInside(t.access_token, gdrive.idOf(gp), gdrive.idOf(f.path))) {
+        return { own: false, root: String(f.path), perm: String(f.perm || 'read') };
+      }
+    }
+    const e = new Error('Участник не открывал это вам'); e.status = 404; throw e;
+  }
+  /** pkg3-128: ошибку Google — в понятный ответ чата (без английских простыней). */
+  function gdErrOut(e) {
+    if (e.status === 409) return E(409, e.message);
+    if (e.status === 401) return E(409, 'Google отозвал доступ — подключите Диск заново');
+    if (e.status === 400 || e.status === 403 || e.status === 404) return E(e.status, e.message);
+    return E(502, e.message || 'Google Диск не отвечает');
+  }
 
   // pkg3-51: где лежат принятые слепки канала «основной → запасной».
   // В облаке — приватный бакет рядом с программой (папка standby/),
@@ -1720,7 +1758,8 @@ function createApi(store, opts = {}) {
         const tok = await gdrive.exchangeCode(code);
         u.gdrive = { blob: gdrive.sealToken(gdrive.tokenKey(gkeys.clientSecret), tok), at: Date.now() };
         save();
-        return ydPage('Google Диск подключён!', 'Сервер получил право ТОЛЬКО читать файлы: менять и удалять он не может. Вернитесь в чат → «☁ Мои диски» → «Google Диск».', true);
+        // pkg3-128: право теперь полное — смотреть и менять (удаление в корзину).
+        return ydPage('Google Диск подключён!', 'Сервер получил право смотреть и менять файлы: создавать папки, загружать, переименовывать и убирать в корзину. Ваши файлы остаются у Google. Вернитесь в чат → «☁ Мои диски» → «Google Диск».', true);
       } catch (e) {
         return ydPage('Не получилось подключить', (e && e.message) || 'Неизвестная ошибка', false);
       }
@@ -3292,6 +3331,12 @@ function createApi(store, opts = {}) {
       if (me.gdrive && typeof me.gdrive.blob === 'string' && gkeys) {
         gconnected = !!gdrive.openToken(gdrive.tokenKey(gkeys.clientSecret), me.gdrive.blob);
       }
+      // pkg3-128: может ли сервер менять файлы в Google (права входа).
+      let gcan = false;
+      if (gconnected) {
+        const gtok0 = gdrive.openToken(gdrive.tokenKey(gkeys.clientSecret), me.gdrive.blob);
+        gcan = !!gtok0 && gdrive.scopeWrite(gtok0.scope) !== 'no';
+      }
       return J(200, {
         drives: [{
           id: 'yandex', title: 'Яндекс.Диск', connected,
@@ -3300,7 +3345,7 @@ function createApi(store, opts = {}) {
           needsKeys: !keys
         }, {
           id: 'google', title: 'Google Диск', connected: gconnected, manual: false,
-          readonly: true,
+          readonly: !gcan, canWrite: gcan,
           shared: (Array.isArray(me.diskShared) ? me.diskShared.filter(x => gdrive.isGooglePath(x && x.path)).length : 0),
           needsKeys: !gkeys,
           keysHint: gkeys ? '' : gdrive.KEYS_HINT
@@ -3362,9 +3407,17 @@ function createApi(store, opts = {}) {
       const name = String(b.name || path.split('/').pop() || 'файл').slice(0, 200);
       const media = ['audio', 'image', 'video', 'doc', 'other'].includes(String(b.media)) ? String(b.media) : 'other';
       // pkg3-125: можно открыть ПАПКУ — на чтение или на изменение.
-      // pkg3-126: у Google серверу дано только чтение, поэтому право там всегда «смотреть».
+      // pkg3-128: в Google право «менять» даём, только если наш вход правда
+      // может писать; иначе честно понижаем до «смотреть».
       const kind = String(b.kind) === 'folder' ? 'folder' : 'file';
-      const perm = (!isG && kind === 'folder' && String(b.perm) === 'write') ? 'write' : 'read';
+      let perm = 'read';
+      if (kind === 'folder' && String(b.perm) === 'write') {
+        if (!isG) perm = 'write';
+        else {
+          const gtS = await gdFreshToken(me);
+          perm = (gtS && gdrive.scopeWrite(gtS.scope) !== 'no') ? 'write' : 'read';
+        }
+      }
       const list = Array.isArray(me.diskShared) ? me.diskShared : (me.diskShared = []);
       const had = list.find(x => x && x.path === path);
       if (had) { had.name = name; had.media = media; had.kind = kind; had.perm = perm; had.at = Date.now(); }
@@ -3373,7 +3426,7 @@ function createApi(store, opts = {}) {
         list.push({ path, name, media, kind, perm, at: Date.now() });
       }
       save();
-      return J(200, { ok: true, shared: list.length });
+      return J(200, { ok: true, shared: list.length, perm, kind, drive: isG ? 'google' : 'yandex' });
     }
     if (pathname === '/api/yadisk/unshare-file' && method === 'POST') {
       const rawUn = String((req.body || {}).path || '');
@@ -3408,7 +3461,7 @@ function createApi(store, opts = {}) {
                 const tkG = await gdFreshToken(gOwner);
                 for (const fG of foldersG) {
                   if (tkG && await gdInside(tkG.access_token, gdrive.idOf(gp), gdrive.idOf(fG.path))) {
-                    entG = { path: fG.path, name: fG.name, kind: 'folder', perm: 'read' };
+                    entG = { path: fG.path, name: fG.name, kind: 'folder', perm: String(fG.perm || 'read') };
                     break;
                   }
                 }
@@ -3417,7 +3470,7 @@ function createApi(store, opts = {}) {
           }
           if (!entG) return E(404, 'Участник не открывал этот файл другим');
           if (entG.kind === 'folder' && gp === entG.path) {
-            return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: entG.name || 'папка', perm: 'read' });
+            return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: entG.name || 'папка', perm: String(entG.perm || 'read') });
           }
         }
         const gtok2 = await gdFreshToken(gOwner);
@@ -3426,7 +3479,7 @@ function createApi(store, opts = {}) {
           const meta2 = await gdrive.fileMeta(gtok2.access_token, gp);
           if (meta2.dir) {
             const metaG = (Array.isArray(gOwner.diskShared) ? gOwner.diskShared : []).find(x => x && x.path === gp) || {};
-            return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: metaG.name || meta2.name, perm: 'read' });
+            return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: metaG.name || meta2.name, perm: String(metaG.perm || 'read') });
           }
           const metaS = (Array.isArray(gOwner.diskShared) ? gOwner.diskShared : []).find(x => x && x.path === gp) || {};
           return J(200, {
@@ -3535,7 +3588,7 @@ function createApi(store, opts = {}) {
           return J(200, Object.assign({}, gotG, {
             of: owner.id, drive: 'google',
             root: ent ? ent.path : 'google:/root',
-            perm: 'read',
+            perm: ent ? String(ent.perm || 'read') : 'read',
             title: ent ? (ent.name || ent.path) : 'Google Диск'
           }));
         } catch (e) {
@@ -3569,8 +3622,34 @@ function createApi(store, opts = {}) {
       const of = String(b.of || '');
       const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
       if (!owner) return E(404, 'Нет такого участника');
+      // pkg3-128: в Google теперь можно и менять — своё, или чужое по праву
+      // «менять содержимое», и только внутри открытой папки.
       if (gdrive.isGooglePath(String(b.path || ''))) {
-        return E(409, 'В Google Диске пока только чтение: менять, переименовывать и удалять нельзя. Создавайте папки и загружайте файлы в Яндекс.Диске.');
+        let target = '';
+        if (op !== 'mkdir') {
+          target = gdrive.safePath(String(b.path || ''));
+          if (!target || target === 'google:/root') return E(400, 'Корень Google Диска менять нельзя');
+        }
+        const place = op === 'mkdir' ? String(b.path || '') : target;
+        const np = op === 'mkdir' ? gdrive.newItemPath(place) : null;
+        if (op === 'mkdir' && !np) return E(400, 'Введите название папки без косой черты');
+        try {
+          const sc = await gdScopeFor(me, owner, op === 'mkdir' ? np.parent : target);
+          if (!sc.own && sc.perm !== 'write') return E(403, 'Вам открыли эту папку только для чтения');
+          if (!sc.own && op === 'del' && target === sc.root) return E(403, 'Папку, которую вам открыли, удалить нельзя');
+          const gt = await gdWriteTok(owner);
+          if (op === 'mkdir') {
+            const made = await gdrive.mkdir(gt.access_token, place);
+            return J(200, { ok: true, drive: 'google', path: made.path, name: made.name });
+          }
+          if (op === 'rename') {
+            const nm = String(b.name || (b.to ? String(b.to).split('/').pop() : '') || '');
+            const res = await gdrive.renameFile(gt.access_token, target, nm);
+            return J(200, { ok: true, drive: 'google', path: res.path, name: res.name });
+          }
+          await gdrive.trashPath(gt.access_token, target);
+          return J(200, { ok: true, drive: 'google' });
+        } catch (e) { return gdErrOut(e); }
       }
       const path = yadisk.safePath(String(b.path || ''));
       const to = b.to ? yadisk.safePath(String(b.to)) : null;
@@ -3613,8 +3692,23 @@ function createApi(store, opts = {}) {
       const of = String(query.get('of') || '');
       const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
       if (!owner) return E(404, 'Нет такого участника');
+      // pkg3-128: у Google нет «временной ссылки» Яндекса, зато есть сеанс
+      // загрузки: сервер его открывает, а файл идёт с устройства ПРЯМО в Google —
+      // VPS не тратит ни память, ни трафик.
       if (gdrive.isGooglePath(String(query.get('path') || ''))) {
-        return E(409, 'Загружать файлы в Google Диск пока нельзя — серверу дано только право чтения. Выберите Яндекс.Диск.');
+        const rawUp = String(query.get('path') || '');
+        const np = gdrive.newItemPath(rawUp);
+        if (!np) return E(400, 'Неверное имя файла: название без косой черты');
+        try {
+          const sc = await gdScopeFor(me, owner, np.parent);
+          if (!sc.own && sc.perm !== 'write') return E(403, 'В этой папке вам можно только смотреть');
+          const gt = await gdWriteTok(owner);
+          const sess = await gdrive.uploadSession(gt.access_token, rawUp, { mime: query.get('mime'), size: query.get('size') });
+          return J(200, {
+            href: sess.url, method: sess.method, drive: 'google', direct: true,
+            name: sess.name, mime: sess.mime
+          });
+        } catch (e) { return gdErrOut(e); }
       }
       const path = yadisk.safePath(String(query.get('path') || ''));
       if (!path || path === 'disk:/') return E(400, 'Неверный путь файла');
