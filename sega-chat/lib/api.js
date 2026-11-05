@@ -22,7 +22,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-122';
+const BUILD = 'pkg3-123';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -173,10 +173,18 @@ function createApi(store, opts = {}) {
    * участник считается неподключённым, маршруты скажут об этом честно. */
   async function ydFreshToken(u, keys) {
     const rec = u && u.yadisk;
-    if (!keys || !rec || typeof rec.blob !== 'string') return null;
-    const tk = yadisk.tokenKey(keys.clientSecret);
+    if (!rec || typeof rec.blob !== 'string') return null;
+    // pkg3-123: токен мог быть вставлен ВРУЧНУЮ (друзья владельца, когда страница
+    // Яндекса отвечает «400 · Неизвестно приложение»). Такой токен зашифрован
+    // ключом сервера, а не паролем OAuth-приложения, и обновлять его нечем —
+    // он живёт, пока Яндекс его не отозвал.
+    const tk = rec.manual
+      ? yadisk.tokenKey(String(db.serverSecret) + ':yd-manual')
+      : (keys ? yadisk.tokenKey(keys.clientSecret) : null);
+    if (!tk) return null;
     let tok = yadisk.openToken(tk, rec.blob);
     if (!tok) return null;
+    if (rec.manual) return tok;   // у ручного токена нет ни срока, ни refresh
     if (tok.expires_at && tok.expires_at < Date.now() + 5 * 60 * 1000) {
       if (!tok.refresh_token) return null;
       try {
@@ -2886,12 +2894,41 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/yadisk/state' && method === 'GET') {
       const keys = yadisk.loadKeys();
       let connected = false;
-      if (keys && me.yadisk && typeof me.yadisk.blob === 'string') {
-        connected = !!yadisk.openToken(yadisk.tokenKey(keys.clientSecret), me.yadisk.blob);
+      if (me.yadisk && typeof me.yadisk.blob === 'string') {
+        connected = me.yadisk.manual
+          ? !!yadisk.openToken(yadisk.tokenKey(String(db.serverSecret) + ':yd-manual'), me.yadisk.blob)
+          : (keys ? !!yadisk.openToken(yadisk.tokenKey(keys.clientSecret), me.yadisk.blob) : false);
       }
       // pkg3-121: вместе с подключением говорим, открыт ли Диск другим участникам
-      return J(200, { keys: !!keys, connected, share: me.diskShare !== false });
+      // pkg3-123: и каким способом он подключён (своё приложение или ручной токен)
+      return J(200, { keys: !!keys, connected, share: me.diskShare !== false, manual: !!(me.yadisk && me.yadisk.manual) });
     }
+    // pkg3-123: подключение Яндекс.Диска ВСТАВЛЕННЫМ токеном. Зачем: пока
+    // OAuth-приложение сервера не опубликовано, страница согласия пускает только
+    // свой аккаунт, и у друзей владельца выходила ошибка «400 · Неизвестно
+    // приложение с таким client_id». Токен, который Яндекс выдаёт сам (полигон
+    // Диска), работает без всякой публикации. Токен проверяем у Яндекса, храним
+    // ТОЛЬКО зашифрованным (ключ — из серверного секрета), в журналы не пишем.
+    if (pathname === '/api/yadisk/token' && method === 'POST') {
+      if (throttle('yd-tok-' + me.id, 10)) return E(429, 'Слишком часто — подождите минуту');
+      const b = req.body || {};
+      const raw = String(b.token || '').trim().replace(/^OAuth\s+/i, '');
+      if (!raw) return E(400, 'Пустой токен: вставьте строку, которую выдал Яндекс');
+      if (raw.length < 20 || raw.length > 400 || !/^[A-Za-z0-9._-]+$/.test(raw)) {
+        return E(400, 'Это не похоже на токен Яндекса: нужна одна длинная строка без пробелов');
+      }
+      try {
+        await yadisk.listAudio(raw, { limit: 1 });   // живой токен прочитает список
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) return E(400, 'Яндекс не принял этот токен: проверьте, что скопировали его целиком и он выдан для Яндекс.Диска');
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+      const mk = yadisk.tokenKey(String(db.serverSecret) + ':yd-manual');
+      me.yadisk = { blob: yadisk.sealToken(mk, { access_token: raw, refresh_token: '', manual: true }), at: Date.now(), manual: true };
+      save();
+      return J(200, { ok: true, connected: true, manual: true });
+    }
+
     // pkg3-121: проверка приложения Яндекса. У второго (тестового) аккаунта
     // страница согласия отвечала «400 · Неизвестно приложение с таким client_id»,
     // и человек не понимал, что это не про SEGA-CHAT. Теперь сервер сам

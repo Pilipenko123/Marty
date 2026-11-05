@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-122';
+const BUILD = 'pkg3-123';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5196,6 +5196,7 @@ async function ydPaneStart() {
     const s = await api('/api/yadisk/state');
     y.keys = !!s.keys; y.connected = !!s.connected;
     y.share = s.share !== false;   // pkg3-121: открыт ли мой Диск другим участникам
+    y.manual = !!s.manual;         // pkg3-123: подключён своим приложением или токеном
   } catch (e) {
     ydBar('Сервер не отвечает: ' + escapeHtml(e.message || String(e)));
     return;
@@ -5225,6 +5226,9 @@ function ydRenderOff() {
         ? '<br><span class="tiny muted">Что делать: oauth.yandex.ru → ваше приложение → указать сайт и данные, отправить на модерацию (опубликовать). После публикации доступ получат все. Проверить — кнопкой «Проверить приложение».</span>'
         : '<br><span class="tiny muted">Свой Диск при этом не обязателен: музыка с открытых Дисков других участников уже играет — откройте «Музыку участника» (🎵 у собеседника) и нажмите ▶ у трека с Диска.</span>')
       + '<br><button class="mini primary" id="mus-disk-connect">Подключить Яндекс.Диск</button> '
+      // pkg3-123: путь без страницы согласия — для друзей, у которых приложение
+      // ещё не опубликовано (и вообще для любого, кто хочет подключить свой Диск)
+      + '<button class="mini" id="mus-disk-token" title="Подключить Диск токеном, который выдаёт сам Яндекс">Вставить токен</button> '
       + (amAdmin ? '<button class="mini" id="mus-disk-diag" title="Проверить, что приложение Яндекса на сервере живо">Проверить приложение</button>' : ''));
   }
   const box = document.getElementById('mus-disk-files');
@@ -5237,7 +5241,52 @@ function ydRenderOff() {
   if (cb) cb.addEventListener('click', () => { ydConnect(); });
   const db = document.getElementById('mus-disk-diag');
   if (db) db.addEventListener('click', () => { ydDiag(true); });
+  const tb = document.getElementById('mus-disk-token');
+  if (tb) tb.addEventListener('click', () => { ydTokenAsk(); });
 }
+/**
+ * pkg3-123: подключение Диска ВСТАВЛЕННЫМ токеном — путь, который не зависит от
+ * публикации нашего OAuth-приложения. Токен выдаёт сам Яндекс на полигоне
+ * Диска (любому аккаунту), поэтому у друзей владельца больше нет тупика
+ * «400 · Неизвестно приложение с таким client_id». Токен уходит на сервер по
+ * защищённому соединению и хранится там зашифрованным.
+ */
+function ydTokenAsk() {
+  const ovl = document.createElement('div');
+  ovl.className = 'ask-ovl';
+  ovl.innerHTML = '<div class="ask-card yd-tok-card">'
+    + '<div class="ask-t"><b>Подключить Диск по токену</b></div>'
+    + '<p class="tiny muted">Способ для случая, когда страница Яндекса отвечает «400 · Неизвестно приложение»: токен выдаёт сам Яндекс вашему аккаунту, публикация приложения не нужна.</p>'
+    + '<p class="tiny">Где взять: откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank" rel="noopener noreferrer">полигон Яндекс.Диска</a>, войдите своим аккаунтом, нажмите «Получить OAuth-токен» и скопируйте строку.</p>'
+    + '<input id="yd-tok" type="password" autocomplete="off" spellcheck="false" placeholder="вставьте токен (одна длинная строка)">'
+    + '<p class="tiny muted">Токен хранится на сервере зашифрованным и даёт только <b>чтение</b> вашего Диска. Отозвать можно на том же полигоне — или кнопкой «Отключить» здесь.</p>'
+    + '<div class="ask-b"><button class="mini" data-yd-tok="">Отмена</button><button class="mini primary" data-yd-tok="1">Подключить</button></div>'
+    + '</div>';
+  ovl.addEventListener('click', async e => {
+    const b = e.target.closest('[data-yd-tok]');
+    if (!b) return;
+    if (!b.getAttribute('data-yd-tok')) { ovl.remove(); return; }
+    const inp = ovl.querySelector('#yd-tok');
+    const token = String((inp && inp.value) || '').trim();
+    if (token.length < 20) { toast('Токен слишком короткий — скопируйте строку целиком', true); return; }
+    b.disabled = true;
+    try {
+      await api('/api/yadisk/token', { method: 'POST', body: { token } });
+      ovl.remove();
+      const y = ydState();
+      y.connected = true; y.keys = true; y.manual = true; y.files = []; y.offset = 0; y.more = false;
+      toast('Яндекс.Диск подключён по токену');
+      await ydPaneStart();
+    } catch (err) {
+      b.disabled = false;
+      toast('Не получилось: ' + (err.message || err), true);
+    }
+  });
+  document.body.appendChild(ovl);
+  const inp = ovl.querySelector('#yd-tok');
+  if (inp) setTimeout(() => inp.focus(), 30);
+}
+
 /** Загрузка списка аудиофайлов со всего Диска (страницами по 200). */
 async function ydLoadFiles(reset) {
   const y = ydState();
@@ -5267,7 +5316,7 @@ async function ydLoadFiles(reset) {
 /** Диск подключён: строка управления, выбор плейлиста для «＋», список файлов. */
 function ydRenderOn() {
   const y = ydState();
-  ydBar('✅ Яндекс.Диск подключён. <span class="tiny muted">Файлы остаются на Диске: звук идёт с серверов Яндекса прямо в браузер, место на сервере не тратится. Ссылка на трек временная и создаётся заново при каждом запуске.</span> '
+  ydBar('✅ Яндекс.Диск подключён' + (y.manual ? ' по токену' : '') + '. <span class="tiny muted">Файлы остаются на Диске: звук идёт с серверов Яндекса прямо в браузер, место на сервере не тратится. Ссылка на трек временная и создаётся заново при каждом запуске.</span> '
     + '<button class="mini" id="mus-disk-reload">Обновить список</button> '
     + '<button class="mini danger" id="mus-disk-off">Отключить</button>'
     // pkg3-121: по просьбе владельца его Диск теперь доступен другим
