@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-132';
+const BUILD = 'pkg3-133';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5448,8 +5448,11 @@ function dkParent(p) {
 /** Путь внутри папки: «disk:/Фото» + «beach.jpg» → «disk:/Фото/beach.jpg». */
 function dkJoin(dir, name) {
   const base = dkNorm(dir);
-  const tail = String(name == null ? '' : name).replace(/^\/+/, '').replace(/\/+$/, '');
-  return base + '/' + tail;
+  const tail = String(name == null ? '' : name).trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  // pkg3-133: в корне base = «disk:/», и простая склейка давала «disk://Новая
+  // папка» — Яндекс отвечал «Invalid path», папка не создавалась. Прогоняем
+  // готовый путь через dkNorm: он убирает лишние косые.
+  return dkNorm(base + '/' + tail);
 }
 
 /** Открыть диск владельца (свой). */
