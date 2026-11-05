@@ -18,7 +18,8 @@ const smtp = require('./smtp.js');   // pkg3-64: письма привязки �
 const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
 const gdrive = require('./gdrive.js');   // pkg3-126: Google Диск — второй диск
 const drives = require('./drives.js');
-const zipLib = require('./zip.js');   // pkg3-129: несколько дисков (номера в путях)
+const zipLib = require('./zip.js');
+const gdocs = require('./gdocs.js');   // pkg3-131: документы Google в окне   // pkg3-129: несколько дисков (номера в путях)
 const mussearch = require('./mussearch.js');   // pkg3-97: поиск треков с прямыми ссылками по выбранным сайтам
 const musstream = require('./musstream.js');   // pkg3-101: запасной путь звука — поток через сервер
 const emoji = require('./emoji.js');         // pkg3-108: смайлы отдаёт наш сервер (копия в памяти)
@@ -26,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-130';
+const BUILD = 'pkg3-131';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -3769,6 +3770,88 @@ function createApi(store, opts = {}) {
     // pkg3-124: свежая ссылка на файл с Диска для участника чата. Правила те же,
     // что у музыки (pkg3-121): общий чат + владелец не закрыл Диск + файл
     // открыт (плейлист или «Отправить в чат»). Своему владельцу — всегда.
+    // pkg3-131: «документ Google» (Docs, Sheets, Slides) — показать в окне.
+    // Файла у него нет, поэтому берём экспорт у Google и вычищаем до
+    // безопасного вида: HTML по белому списку, таблица — строками.
+    if (pathname === '/api/gdrive/doc' && method === 'GET') {
+      if (throttle('gd-doc-' + me.id, 120)) return E(429, 'Слишком много документов подряд — подождите минуту');
+      const rawDoc = String(query.get('path') || '');
+      if (!gdrive.isGooglePath(rawDoc)) return E(400, 'Это не документ на Google Диске');
+      const gpDoc = gdrive.safePath(rawDoc);
+      if (!gpDoc) return E(400, 'Неверный путь к документу');
+      const ofDoc = String(query.get('of') || '');
+      const ownerDoc = (!ofDoc || ofDoc === me.id) ? me : db.users.find(x => x.id === ofDoc);
+      if (!ownerDoc) return E(404, 'Нет такого участника');
+      const slotDoc = gdrive.slotOf(gpDoc);
+      let entDoc = null;
+      if (ownerDoc.id !== me.id) {
+        if (ownerDoc.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+        if (!ydCommonChat(me.id, ownerDoc.id)) return E(404, 'Этот человек не из ваших чатов');
+        entDoc = ydSharedPick(ownerDoc, gpDoc);
+        if (!entDoc) {
+          const folders = (Array.isArray(ownerDoc.diskShared) ? ownerDoc.diskShared : [])
+            .filter(x => x && x.kind === 'folder' && gdrive.isGooglePath(x.path) && gdrive.slotOf(x.path) === slotDoc);
+          if (folders.length) {
+            try {
+              const tkD = await gdFreshToken(ownerDoc, slotDoc);
+              for (const fD of folders) {
+                if (tkD && await gdInside(tkD.access_token, gdrive.idOf(gpDoc), gdrive.idOf(fD.path))) {
+                  entDoc = { path: fD.path, name: fD.name, kind: 'folder', perm: String(fD.perm || 'read') };
+                  break;
+                }
+              }
+            } catch (e) { entDoc = null; }
+          }
+        }
+        if (!entDoc) return E(404, 'Участник не открывал этот документ другим');
+      }
+      const tokDoc = await gdFreshToken(ownerDoc, slotDoc);
+      if (!tokDoc) return E(409, ownerDoc.id === me.id ? 'Google Диск не подключён' : 'У этого участника Google Диск не подключён');
+      let metaDoc;
+      try { metaDoc = await gdrive.fileMeta(tokDoc.access_token, gpDoc); }
+      catch (e) {
+        if (e.status === 404) return E(404, 'Google не нашёл этот документ');
+        if (e.status === 401 || e.status === 403) return E(403, 'Google не пустил к этому документу');
+        return E(502, e.message || 'Google Диск не отвечает');
+      }
+      const kindDoc = gdocs.kindOf(metaDoc.mime);
+      if (!kindDoc) return E(400, 'Это обычный файл — его можно скачать или открыть как всегда');
+      if (kindDoc === 'drawing') {
+        return E(400, 'Рисунок Google в окне чата не открывается — нажмите «Открыть в Google»');
+      }
+      const specDoc = gdocs.exportMime(metaDoc.mime);
+      let exDoc;
+      try { exDoc = await gdrive.exportFile(tokDoc.access_token, gpDoc, specDoc); }
+      catch (e) {
+        if (e.status === 404) return E(404, 'Google не нашёл этот документ');
+        if (e.status === 401 || e.status === 403) return E(403, 'Google не пустил к этому документу');
+        if (e.status === 400) return E(400, e.message);
+        return E(502, e.message || 'Google не отдал документ');
+      }
+      const outDoc = {
+        kind: kindDoc,
+        kindTitle: gdocs.kindTitle(metaDoc.mime),
+        name: metaDoc.name,
+        mime: metaDoc.mime,
+        bytes: exDoc.bytes,
+        truncated: !!exDoc.truncated,
+        openInGoogle: gdocs.openUrl(gdrive.idOf(gpDoc), metaDoc.mime),
+        of: ownerDoc.id,
+        perm: entDoc ? String(entDoc.perm || 'read') : 'write'
+      };
+      if (kindDoc === 'spreadsheet') {
+        const csv = gdocs.csvRows(exDoc.text, { maxRows: 400, maxCols: 40 });
+        outDoc.rows = csv.rows;
+        outDoc.cols = csv.cols;
+        if (csv.truncated) outDoc.truncated = true;
+      } else if (kindDoc === 'presentation') {
+        outDoc.text = String(exDoc.text || '').slice(0, 200000);
+      } else {
+        outDoc.html = gdocs.safeHtml(exDoc.text);
+      }
+      return J(200, outDoc);
+    }
+
     // pkg3-130: «Скачать папку» — сначала честно считаем, что в ней лежит,
     // и выдаём недолгую ссылку на архив.
     if (pathname === '/api/yadisk/folder-zip' && method === 'GET') {

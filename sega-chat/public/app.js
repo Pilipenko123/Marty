@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-130';
+const BUILD = 'pkg3-131';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5357,6 +5357,11 @@ function drvDriveId(kind, slot) { return (kind === 'google' ? 'google' : 'yandex
 const DRV_ICON = { yandex: '☁', google: '🅖' };
 const DK_MEDIA_RU = { audio: 'Музыка', image: 'Фото', video: 'Видео', doc: 'Документ', other: 'Файл', dir: 'Папка' };
 const DK_ICON = { dir: '📁', audio: '🎵', image: '🖼', video: '🎬', doc: '📄', other: '📦' };
+// pkg3-131: у «документов Google» своего файла нет — открываем их в окне
+const GDOC_RU = { document: 'Документ Google', spreadsheet: 'Таблица Google', presentation: 'Презентация Google', drawing: 'Рисунок Google' };
+const GDOC_ICON = { document: '📝', spreadsheet: '📊', presentation: '📽', drawing: '🖼' };
+const gdocLabel = it => (it && it.gdoc ? (GDOC_RU[it.gdoc] || 'Документ Google') : '');
+const gdocIcon = it => (it && it.gdoc ? (GDOC_ICON[it.gdoc] || '📝') : '');
 const dkSize = n => ydFmtSize(n);
 
 /** Строки раздела «☁ Мои диски» (раздел стоит внизу списка чатов). */
@@ -5523,14 +5528,15 @@ function diskCrumbsHtml(path, root) {
 /** Строка проводника: значок/превью, имя, тип, размер. */
 function diskRowHtml(it, i, sel) {
   const kind = it.dir ? 'dir' : (it.media || 'other');
+  const gd0 = gdocLabel(it);   // pkg3-131
   // pkg3-125: кадр фото и видео показывается СРАЗУ, без нажатий; у видео — значок ▶
   const thumb = it.preview && (it.media === 'image' || it.media === 'video')
     ? `<span class="disk-thumb-box"><img class="disk-thumb" src="${escapeHtml(it.preview)}" alt="" loading="lazy" data-disk-thumb="1">${it.media === 'video' ? '<span class="disk-thumb-play">▶</span>' : ''}</span>`
-    : `<span class="disk-thumb-ic">${DK_ICON[kind] || '📦'}</span>`;
+    : `<span class="disk-thumb-ic">${gd0 ? gdocIcon(it) : (DK_ICON[kind] || '📦')}</span>`;
   return `<div class="disk-row${sel ? ' sel' : ''}" data-dsk-i="${i}" data-disk-row="${i}" title="${escapeHtml(it.name)}">
     <div class="disk-ic">${thumb}</div>
     <div class="disk-name">${escapeHtml(it.name)}${it.dir ? '/' : ''}</div>
-    <div class="disk-type tiny muted">${DK_MEDIA_RU[kind] || 'Файл'}</div>
+    <div class="disk-type tiny muted">${gd0 || DK_MEDIA_RU[kind] || 'Файл'}</div>
     <div class="disk-size tiny muted">${it.dir ? '' : dkSize(it.size)}</div>
   </div>`;
 }
@@ -5677,6 +5683,54 @@ async function diskPlayFile(it, of) {
     toast('Играю: ' + (it.name || 'файл'));
   } catch (e) { toast('Не получилось включить: ' + (e.message || e), true); }
 }
+/** pkg3-131: «документ Google» в окне чата — текст и таблицы, без переходов
+ * наружу. Формат готовит сервер: HTML по белому списку, строки таблицы, текст. */
+function gdSheetHtml(r) {
+  const rows = Array.isArray(r.rows) ? r.rows : [];
+  if (!rows.length) return '<div class="tiny muted">Таблица пустая.</div>';
+  const cell = v => escapeHtml(String(v == null ? '' : v));
+  const body = rows.map((row, i) => {
+    const tag = i === 0 ? 'th' : 'td';
+    return '<tr>' + row.map(v => '<' + tag + '>' + cell(v) + '</' + tag + '>').join('') + '</tr>';
+  }).join('');
+  return `<div class="gd-sheet-wrap"><table class="gd-sheet"><tbody>${body}</tbody></table></div>`;
+}
+function gdDocBodyHtml(r) {
+  if (r.kind === 'spreadsheet') return gdSheetHtml(r);
+  if (r.kind === 'presentation') {
+    const t = String(r.text || '').trim();
+    return t ? `<pre class="gd-pre">${escapeHtml(t)}</pre>` : '<div class="tiny muted">В презентации нет текста для показа.</div>';
+  }
+  const html = String(r.html || '');
+  return html ? `<div class="gd-doc">${html}</div>` : '<div class="tiny muted">Документ пустой.</div>';
+}
+async function diskViewDoc(it, of) {
+  const mine = !of || (S.me && of === S.me.id);
+  const q = '?path=' + encodeURIComponent(it.path) + (mine ? '' : '&of=' + encodeURIComponent(of));
+  modal(it.name || 'Документ Google', '<div class="tiny muted disk-wait">Открываю документ…</div>');
+  try {
+    const r = await api('/api/gdrive/doc' + q);
+    const bits = [r.kindTitle || 'Документ Google'];
+    if (r.perm && r.perm !== 'write') bits.push('только смотреть');
+    if (r.truncated) bits.push('показано начало — документ большой');
+    const openBtn = r.openInGoogle
+      ? `<a class="mini" href="${escapeHtml(r.openInGoogle)}" target="_blank" rel="noopener noreferrer">Открыть в Google</a>`
+      : '';
+    modal(r.name || 'Документ Google', `<div class="gd-win">
+      <div class="gd-head tiny muted">${escapeHtml(bits.join(' · '))}</div>
+      <div class="gd-body">${gdDocBodyHtml(r)}</div>
+      <div class="gd-acts">${openBtn}<button class="mini" data-gd-close="1">Закрыть</button></div>
+      <div class="tiny muted">Документ открыт только для чтения: правки — в самом Google. Ничего не скачивается и не копируется на сервер.</div>
+    </div>`);
+    const cl = document.querySelector('[data-gd-close]');
+    if (cl) cl.addEventListener('click', () => closeModal());
+  } catch (e) {
+    modal(it.name || 'Документ Google', `<div class="disk-err">Не получилось открыть: ${escapeHtml(e.message || String(e))}</div>
+      <div class="gd-acts"><button class="mini" data-gd-close="1">Закрыть</button></div>`);
+    const cl = document.querySelector('[data-gd-close]');
+    if (cl) cl.addEventListener('click', () => closeModal());
+  }
+}
 async function diskViewFile(it, of) {
   try {
     const r = await diskFileHref(it.path, of);
@@ -5695,6 +5749,7 @@ async function diskOpenItem(it) {
   const st = diskState();
   if (!it) return;
   if (it.dir) return diskBrowse(it.path);
+  if (it.gdoc) return diskViewDoc(it, st.of);
   if (it.media === 'audio') return diskPlayFile(it, st.of);
   if (it.media === 'image' || it.media === 'video') return diskViewFile(it, st.of);
   return diskDownloadFile(it, st.of);
@@ -5999,6 +6054,8 @@ document.addEventListener('click', async e => {
     if (act === 'dl') {
       if (!it) return dkToastPick();
       if (it.dir) return diskDownloadFolder(it.path, it.name, st.of);
+      // pkg3-131: у «документа Google» файла нет — скачивать нечего, показываем в окне
+      if (it.gdoc) { toast('Документ Google не скачивается файлом — открываю его в окне'); return diskViewDoc(it, st.of); }
       return diskDownloadFile(it, st.of);
     }
     if (act === 'dlfolder') return diskDownloadFolder(st.path, diskFolderTitle(st), st.of);
@@ -10946,6 +11003,11 @@ $('#search-results').addEventListener('click', e => {
 });
 
 // ─────────────────────────────────────────── модальные окна
+/** pkg3-131: закрыть окно (у музыки — свой путь, он в обработчике #modal-close). */
+function closeModal() {
+  const m = $('#modal');
+  if (m) hide(m);
+}
 function modal(title, html, opts) {
   const mb = document.getElementById('modal-min');   // pkg3-93: «Свернуть» живёт только у окна музыки
   if (mb) mb.remove();
