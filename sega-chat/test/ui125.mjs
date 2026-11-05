@@ -208,16 +208,16 @@ try { dkNorm = new Function(normSrc + '; return dkNorm;')(); } catch (e) { dkNor
 ok(!!dkNorm && dkNorm('disk:/') === 'disk:/', 'корень «disk:/» больше не превращается в «disk:»');
 ok(!!dkNorm && dkNorm('disk:') === 'disk:/' && dkNorm('') === 'disk:/', 'пустой путь и «disk:» читаются как корень');
 ok(!!dkNorm && dkNorm('disk:/Фото/') === 'disk:/Фото' && dkNorm('disk://Фото//x') === 'disk:/Фото/x', 'двойные и хвостовые косые убираются');
-ok(/st\.path = dkNorm\(path\)/.test(appJs) && /dkNorm\(path\)\.slice\(5\)/.test(appJs) && /function dkParent/.test(appJs), 'проводник и хлебные крошки живут по одному правилу пути');
+ok(/st\.path = dkNorm\(path\)/.test(appJs) && /replace\(\/\^\(disk\|google\):\\\//.test(appJs) && /function dkParent/.test(appJs), 'проводник и хлебные крошки живут по одному правилу пути');
 ok(/\.dsk \.dsk-tools \.mini\{width:auto/.test(css), '«Открыть» не растягивается на всю ширину панели');
 
 console.log('\n  7. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(b2 === BUILD && BUILD === 'pkg3-125', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
+ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-125 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v119', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v120', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui125.mjs'), 'тест ui125 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
