@@ -209,7 +209,10 @@ async function probeAuth(keys, c) {
 }
 
 /** Путь к файлу на Диске: принимаем «disk:/Музыка/трек.mp3» и «/Музыка/трек.mp3»,
- * всё остальное (пусто, «..», чужие схемы, мусор) — отбраковываем. */
+ * всё остальное (пусто, «..», чужие схемы, мусор) — отбраковываем.
+ * pkg3-129: второй диск того же вида живёт под своим началом — «disk2:/…».
+ * Номер диска сохраняем (он нужен для токена и для прав), а к самому Яндексу
+ * ходим путём без номера — см. apiPath(). */
 function safePath(raw) {
   const p = String(raw || '');
   if (!p || p.length > 4096) return null;
@@ -217,11 +220,17 @@ function safePath(raw) {
   if (/[\r\n]/.test(p)) return null;
   let norm = p;
   if (norm.startsWith('/')) norm = 'disk:' + norm;
-  if (!/^disk:\/[^\s]/.test(norm) && norm !== 'disk:/') {
-    // допускаем только форму disk:/… — никаких http:, data: и прочего
-    return null;
-  }
-  return norm;
+  const m = /^(disk\d*):(\/.*)$/.exec(norm);
+  if (!m) return null;                      // никаких http:, data: и прочего
+  // как и раньше: либо корень «disk:/», либо путь, начинающийся с имени
+  // (пробелы ВНУТРИ имени — обычное дело: «Новая папка»)
+  if (m[2] !== '/' && !/^\/[^\s]/.test(m[2])) return null;
+  return m[1] + ':' + m[2];
+}
+
+/** Путь в том виде, в каком его понимает сам Яндекс: без номера диска. */
+function apiPath(p) {
+  return String(p || '').replace(/^disk\d*:/, 'disk:');
 }
 
 /** Плоский список аудиофайлов всего Диска (resources/files, media_type=audio). */
@@ -249,7 +258,7 @@ async function listAudio(token, o = {}, c) {
  * должны показывать весь Диск — фото, видео, документы, а не только треки. */
 async function listFolder(token, diskPath, o = {}, c) {
   const conf = c || cfg();
-  const p = safePath(diskPath) || 'disk:/';
+  const p = apiPath(safePath(diskPath) || 'disk:/');
   const limit = Math.min(200, Math.max(1, Number(o.limit) || 100));
   const offset = Math.max(0, Number(o.offset) || 0);
   // pkg3-91 (урок listAudio): параметр fields НЕ передаём — на живом Яндексе
@@ -317,7 +326,7 @@ async function diskInfo(token, c) {
 /** pkg3-125: папка на Диске (PUT /v1/disk/resources). */
 async function mkdir(token, diskPath, c) {
   const conf = c || cfg();
-  const p = safePath(diskPath);
+  const p = apiPath(safePath(diskPath));
   if (!p || p === 'disk:/') { const e = new Error('Неверный путь папки'); e.status = 400; throw e; }
   const q = new URLSearchParams({ path: p });
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
@@ -330,7 +339,7 @@ async function mkdir(token, diskPath, c) {
 /** pkg3-125: удалить файл или папку (в корзину Диска, без «навсегда»). */
 async function removePath(token, diskPath, c) {
   const conf = c || cfg();
-  const p = safePath(diskPath);
+  const p = apiPath(safePath(diskPath));
   if (!p || p === 'disk:/') { const e = new Error('Корень Диска удалить нельзя'); e.status = 400; throw e; }
   const q = new URLSearchParams({ path: p, permanently: 'false' });
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
@@ -343,7 +352,7 @@ async function removePath(token, diskPath, c) {
 /** pkg3-125: переименовать/перенести (POST /v1/disk/resources/move). */
 async function movePath(token, fromPath, toPath, c) {
   const conf = c || cfg();
-  const from = safePath(fromPath), to = safePath(toPath);
+  const from = apiPath(safePath(fromPath)), to = apiPath(safePath(toPath));
   if (!from || !to || from === 'disk:/' || to === 'disk:/') { const e = new Error('Неверный путь для переименования'); e.status = 400; throw e; }
   const q = new URLSearchParams({ from: from, path: to, overwrite: 'false' });
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources/move?' + q.toString(), {
@@ -357,7 +366,7 @@ async function movePath(token, fromPath, toPath, c) {
  * Яндекс — через VPS не течёт (память 550 МБ бережём). */
 async function uploadUrl(token, diskPath, o = {}, c) {
   const conf = c || cfg();
-  const p = safePath(diskPath);
+  const p = apiPath(safePath(diskPath));
   if (!p || p === 'disk:/') { const e = new Error('Неверный путь файла'); e.status = 400; throw e; }
   const q = new URLSearchParams({ path: p, overwrite: o.overwrite === false ? 'false' : 'true' });
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources/upload?' + q.toString(), {
@@ -372,7 +381,7 @@ async function uploadUrl(token, diskPath, o = {}, c) {
 /** Временная ссылка на скачивание/проигрывание одного файла. */
 async function downloadHref(token, diskPath, c) {
   const conf = c || cfg();
-  const p = safePath(diskPath);
+  const p = apiPath(safePath(diskPath));
   if (!p) { const e = new Error('Неверный путь к файлу на Диске'); e.status = 400; throw e; }
   const q = new URLSearchParams({ path: p });
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources/download?' + q.toString(), {

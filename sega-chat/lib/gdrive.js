@@ -247,23 +247,35 @@ function scopeWrite(scope) {
 
 /* ── пути ─────────────────────────────────────────────────────────────────── */
 const PREFIX = 'google:';
-/** `google:/<id>`; корень — `google:/root`. Чужие и опасные пути — пустая строка. */
+/** `google:/<id>`; корень — `google:/root`. Чужие и опасные пути — пустая строка.
+ * pkg3-129: второй Google-диск живёт под `google2:/<id>` — номер диска храним
+ * в начале пути (он нужен для токена), а к Google ходим по одному id. */
+const PRE_RE = /^(google\d*):/;
+/** `google:/<id>` вместе с номером диска: «google2:/<id>» остаётся собой. */
 function safePath(p) {
   let s = String(p == null ? '' : p).trim();
-  if (!s.startsWith(PREFIX)) return '';
-  s = s.slice(PREFIX.length).replace(/^\/+/, '').replace(/\/+$/, '');
-  if (s === '' || s === 'root') return 'google:/root';
+  const m = PRE_RE.exec(s);
+  if (!m) return '';
+  const head = m[1];
+  s = s.slice(m[0].length).replace(/^\/+/, '').replace(/\/+$/, '');
+  if (s === '' || s === 'root') return head + ':/root';
   if (!/^[A-Za-z0-9_-]{2,200}$/.test(s)) return '';
-  return 'google:/' + s;
+  return head + ':/' + s;
 }
 /** Идентификатор файла/папки из пути (для запросов к Google). */
 function idOf(p) {
   const s = safePath(p);
   if (!s) return '';
-  const id = s.slice(PREFIX.length + 1);
+  const id = s.replace(PRE_RE, '').replace(/^\/+/, '');
   return id === 'root' ? 'root' : id;
 }
-function isGooglePath(p) { return String(p || '').startsWith(PREFIX); }
+function isGooglePath(p) { return PRE_RE.test(String(p || '')); }
+/** Номер диска Google из пути: 1, если номера нет. */
+function slotOf(p) {
+  const m = PRE_RE.exec(String(p || ''));
+  const n = m && m[1].length > 6 ? Number(m[1].slice(6)) : 1;
+  return Number.isInteger(n) && n > 0 ? n : 1;
+}
 
 /** Ссылки Google показываем только с его раздающих доменов. */
 function safeGoogleUrl(raw) {
@@ -347,7 +359,10 @@ async function listFolder(token, googlePath, o = {}, c) {
       if (mr.status === 200 && mr.json) {
         folderName = String(mr.json.name || '');
         const par = Array.isArray(mr.json.parents) ? mr.json.parents[0] : '';
-        if (par) parent = 'google:/' + par;
+        // pkg3-129: родитель остаётся на ТОМ ЖЕ диске (google2:/…), иначе «↑»
+        // уводил бы на первый Google-диск
+        const head = (PRE_RE.exec(p) || ['google:'])[0];
+        if (par) parent = head + '/' + par;
       }
     } catch (e) { parent = ''; }
   }
@@ -447,8 +462,10 @@ function cellName(raw) {
  * это единственный вид пути с косой чертой, который принимает сервер. */
 function newItemPath(p) {
   const s = String(p || '');
-  if (!s.startsWith(PREFIX)) return null;
-  const rest = s.slice(PREFIX.length).replace(/^\/+/, '').replace(/\/+$/, '');
+  const m0 = PRE_RE.exec(s);
+  if (!m0) return null;
+  const head = m0[1];
+  const rest = s.slice(m0[0].length).replace(/^\/+/, '').replace(/\/+$/, '');
   const parts = rest.split('/');
   // ровно два куска: «родитель» и «имя». Лишняя косая черта — не имя, а ошибка:
   // иначе человек напишет «папка/внутри» и получит не то, что ждал.
@@ -457,7 +474,7 @@ function newItemPath(p) {
   if (!/^[A-Za-z0-9_-]{2,200}$/.test(parentId)) return null;
   const name = cellName(parts[1]);
   if (!name) return null;
-  return { parent: 'google:/' + parentId, parentId, name };
+  return { parent: head + ':/' + parentId, parentId, name };
 }
 
 /** Создать папку внутри `google:/<id родителя>/<имя>`. */
@@ -538,7 +555,7 @@ async function uploadSession(token, googlePath, o = {}, c) {
 module.exports = {
   cfg, loadKeys, KEYS_HINT, tokenKey, sealToken, openToken, httpJSON,
   buildAuthUrl, exchangeCode, refreshTokens,
-  safePath, idOf, isGooglePath, pathOf: p => 'google:/' + idOf(p),
+  safePath, idOf, isGooglePath, slotOf, pathOf: p => 'google:/' + idOf(p),
   aboutSpace, listFolder, listAudio, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl,
   googleErrorText, FOLDER_MIME, PREFIX,
   SCOPE, SCOPE_READONLY, scopeWrite, cellName, newItemPath,
