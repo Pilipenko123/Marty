@@ -22,7 +22,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-124';
+const BUILD = 'pkg3-125';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -155,6 +155,32 @@ function createApi(store, opts = {}) {
     return out;
   }
 
+  // pkg3-125: кто слушает ВМЕСТЕ со мной. Догоняющий присылает отметку раз в
+  // несколько секунд, пока синхрон включён; через 20 с без отметки он «ушёл».
+  // Хранится только в памяти сервера (как и статус «слушает») — в базу не
+  // попадает, после перезапуска список пуст.
+  const musicFollowers = new Map();   // ownerId -> Map(followerId -> {ts, name})
+  const FOLLOW_TTL = 20 * 1000;
+  function followTouch(ownerId, followerId, name, on) {
+    let m = musicFollowers.get(ownerId);
+    if (!on) {
+      if (m) { m.delete(followerId); if (!m.size) musicFollowers.delete(ownerId); }
+      return;
+    }
+    if (!m) { m = new Map(); musicFollowers.set(ownerId, m); }
+    m.set(followerId, { ts: Date.now(), name: String(name || '').slice(0, 32) });
+  }
+  function followList(ownerId) {
+    const m = musicFollowers.get(ownerId);
+    if (!m) return [];
+    const now = Date.now(), out = [];
+    for (const [uid, v] of m) {
+      if (!v || now - v.ts > FOLLOW_TTL) { m.delete(uid); continue; }
+      out.push({ uid, name: v.name });
+    }
+    return out;
+  }
+
   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (вариант А).
   // Файлы остаются на Диске владельца; сервер лишь держит ЗАШИФРОВАННЫЙ токен
   // (ключ выводится из пароля OAuth-приложения, пароль лежит в отдельном
@@ -205,15 +231,43 @@ function createApi(store, opts = {}) {
    * расширение белого списка: по чужому Диску по-прежнему нельзя гулять. */
   function ydPathShared(u, path) {
     if (!u) return false;
-    for (const s of (Array.isArray(u.diskShared) ? u.diskShared : [])) {
-      if (s && String(s.path || '') === path) return true;
-    }
+    // pkg3-124: файл, открытый кнопкой «Поделиться» · pkg3-125: ПАПКА, открытая
+    // целиком (её содержимое доступно на чтение, запись — по праву perm).
+    if (ydSharedPick(u, path)) return true;
     for (const pl of (Array.isArray(u.musicPub) ? u.musicPub : [])) {
       for (const t of ((pl && pl.tracks) || [])) {
         if (t && t.kind === 'disk' && String(t.path || '') === path) return true;
       }
     }
     return false;
+  }
+  /** pkg3-125: самая точная открытая запись для пути (файл, папка или её
+   * содержимое). Возвращает null, если путь не открывали. */
+  function ydSharedPick(u, path) {
+    const list = Array.isArray(u && u.diskShared) ? u.diskShared : [];
+    let best = null;
+    for (const s of list) {
+      if (!s || !s.path) continue;
+      const root = String(s.path);
+      if (path === root || path.startsWith(root.endsWith('/') ? root : root + '/')) {
+        if (!best || root.length > String(best.path).length) best = s;
+      }
+    }
+    return best;
+  }
+  /** pkg3-125: можно ли участнику МЕНЯТЬ содержимое по этому пути. */
+  function ydCanWrite(u, path) {
+    const ent = ydSharedPick(u, path);
+    return !!(ent && ent.kind === 'folder' && (ent.perm || 'read') === 'write');
+  }
+  /** Свободное место: спрашиваем у Яндекса не чаще раза в минуту на участника. */
+  const ydSpaceCache = new Map();
+  async function ydSpace(uid, token) {
+    const hit = ydSpaceCache.get(uid);
+    if (hit && Date.now() - hit.at < 60 * 1000) return hit.space;
+    const space = await yadisk.diskInfo(token);
+    ydSpaceCache.set(uid, { at: Date.now(), space });
+    return space;
   }
   /** Есть ли у двух участников общий чат (условие доступа к чужому файлу). */
   function ydCommonChat(a, b) {
@@ -1799,6 +1853,29 @@ function createApi(store, opts = {}) {
       const s = freshMusic(of, Date.now());
       return J(200, { note: s ? s.note : '', sync: s ? (s.sync || null) : null });
     }
+    // pkg3-125: «слушаю вместе с ним» — отметка от догоняющего. Нужна, чтобы
+    // в плеере владельца было видно, КТО присоединился, пока он слушает.
+    if (pathname === '/api/music/follow' && method === 'POST') {
+      const b = req.body || {};
+      const owner = String(b.owner || '');
+      if (!owner || owner === me.id) return E(400, 'Нельзя слушать вместе с самим собой');
+      const on = b.on !== false;
+      if (on) {
+        let inScope = false;
+        for (const c of db.chats) {
+          const ms = c && c.members;
+          if (Array.isArray(ms) && ms.includes(me.id) && ms.includes(owner)) { inScope = true; break; }
+        }
+        if (!inScope) return E(404, 'Этот человек не из ваших чатов');
+      }
+      followTouch(owner, me.id, me.name, on);
+      return J(200, { ok: true, on });
+    }
+    // pkg3-125: кого слышно вместе со мной прямо сейчас (владелец спрашивает
+    // раз в несколько секунд, пока играет музыка).
+    if (pathname === '/api/music/followers' && method === 'GET') {
+      return J(200, { followers: followList(me.id) });
+    }
     // pkg3-92: свежая временная ссылка на ТЕКУЩИЙ дисковый трек того, за кем
     // слушаем. Согласие — включённое «видно, что слушаю» у слушающего плюс
     // совпадение пути с тем, что он играет прямо сейчас (иначе 404).
@@ -3033,7 +3110,10 @@ function createApi(store, opts = {}) {
       const p = yadisk.safePath(String(query.get('path') || 'disk:/'));
       if (!p) return E(400, 'Неверный путь к папке на Диске');
       try {
-        return J(200, await yadisk.listFolder(tok.access_token, p, { limit: query.get('limit') }));
+        const got = await yadisk.listFolder(tok.access_token, p, { limit: query.get('limit') });
+        let space = null;
+        try { space = await ydSpace(me.id, tok.access_token); } catch (e) { space = null; }
+        return J(200, Object.assign({}, got, { space }));
       } catch (e) {
         if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
         if (e.status === 400 || e.status === 404) return E(e.status, e.message);
@@ -3051,12 +3131,15 @@ function createApi(store, opts = {}) {
       if (!path) return E(400, 'Неверный путь к файлу на Диске');
       const name = String(b.name || path.split('/').pop() || 'файл').slice(0, 200);
       const media = ['audio', 'image', 'video', 'doc', 'other'].includes(String(b.media)) ? String(b.media) : 'other';
+      // pkg3-125: можно открыть ПАПКУ — на чтение или на изменение
+      const kind = String(b.kind) === 'folder' ? 'folder' : 'file';
+      const perm = kind === 'folder' && String(b.perm) === 'write' ? 'write' : 'read';
       const list = Array.isArray(me.diskShared) ? me.diskShared : (me.diskShared = []);
       const had = list.find(x => x && x.path === path);
-      if (had) { had.name = name; had.media = media; had.at = Date.now(); }
+      if (had) { had.name = name; had.media = media; had.kind = kind; had.perm = perm; had.at = Date.now(); }
       else {
         if (list.length >= 500) list.shift();   // память VPS бережём: старые записи уходят
-        list.push({ path, name, media, at: Date.now() });
+        list.push({ path, name, media, kind, perm, at: Date.now() });
       }
       save();
       return J(200, { ok: true, shared: list.length });
@@ -3081,7 +3164,12 @@ function createApi(store, opts = {}) {
       if (owner.id !== me.id) {
         if (owner.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
         if (!ydCommonChat(me.id, owner.id)) return E(404, 'Этот человек не из ваших чатов');
-        if (!ydPathShared(owner, path)) return E(404, 'Участник не открывал этот файл другим');
+        const ent = ydSharedPick(owner, path);
+        if (!ent) return E(404, 'Участник не открывал этот файл другим');
+        // pkg3-125: сам корень открытой папки — это не файл, а дверь в неё
+        if (ent.kind === 'folder' && path === ent.path) {
+          return J(200, { dir: true, of: owner.id, path, name: ent.name || path.split('/').pop() || 'папка', perm: ent.perm || 'read' });
+        }
       }
       const keys2 = yadisk.loadKeys();
       const tok2 = await ydFreshToken(owner, keys2);
@@ -3096,6 +3184,117 @@ function createApi(store, opts = {}) {
         });
       } catch (e) {
         if (e.status === 401 || e.status === 403) return E(409, 'Диск отозвал доступ — подключите его заново');
+        if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    // pkg3-125: свободное место моего Диска (проводник показывает строку «Свободно…»)
+    if (pathname === '/api/yadisk/space' && method === 'GET') {
+      if (throttle('yd-space-' + me.id, 120)) return E(429, 'Слишком часто — подождите минуту');
+      const keysS = yadisk.loadKeys();
+      const tokS = await ydFreshToken(me, keysS);
+      if (!tokS) return E(409, keysS ? 'Яндекс.Диск не подключён' : YD_KEYS_HINT);
+      try { return J(200, await ydSpace(me.id, tokS.access_token)); }
+      catch (e) {
+        if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    // pkg3-125: папка, которой со мной ПОДЕЛИЛИСЬ. Отдаём только её содержимое:
+    // владелец открыл папку целиком (чтение) или разрешил менять (запись).
+    if (pathname === '/api/yadisk/shared-list' && method === 'GET') {
+      if (throttle('yd-shl-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
+      const of = String(query.get('of') || '');
+      const path0 = yadisk.safePath(String(query.get('path') || ''));
+      if (!path0) return E(400, 'Неверный путь к папке на Диске');
+      const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
+      if (!owner) return E(404, 'Нет такого участника');
+      let ent = null;
+      if (owner.id !== me.id) {
+        if (owner.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+        if (!ydCommonChat(me.id, owner.id)) return E(404, 'Этот человек не из ваших чатов');
+        ent = ydSharedPick(owner, path0);
+        if (!ent || ent.kind !== 'folder') return E(404, 'Эта папка вам не открыта');
+      }
+      try {
+        const tokL = await ydFreshToken(owner, yadisk.loadKeys());
+        if (!tokL) return E(409, 'Яндекс.Диск у владельца не подключён');
+        const got = await yadisk.listFolder(tokL.access_token, path0, { limit: query.get('limit') });
+        return J(200, Object.assign({}, got, {
+          of: owner.id,
+          root: ent ? ent.path : 'disk:/',
+          perm: ent ? (ent.perm || 'read') : 'write',
+          title: ent ? (ent.name || ent.path) : 'Мой Диск'
+        }));
+      } catch (e) {
+        if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    // pkg3-125: управление содержимым — создать папку, переименовать, удалить.
+    // Своё — можно всё; в чужой открытой папке — только при праве «изменение»
+    // и только ВНУТРИ неё (выйти за пределы открытого корня нельзя).
+    if (pathname === '/api/yadisk/op' && method === 'POST') {
+      if (throttle('yd-op-' + me.id, 120)) return E(429, 'Слишком много изменений — подождите минуту');
+      const b = req.body || {};
+      const op = String(b.op || '');
+      if (!['mkdir', 'rename', 'del'].includes(op)) return E(400, 'Неизвестное действие');
+      const of = String(b.of || '');
+      const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
+      if (!owner) return E(404, 'Нет такого участника');
+      const path = yadisk.safePath(String(b.path || ''));
+      const to = b.to ? yadisk.safePath(String(b.to)) : null;
+      if (!path || path === 'disk:/') return E(400, 'Неверный путь');
+      let root = '';
+      if (owner.id !== me.id) {
+        if (owner.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+        if (!ydCommonChat(me.id, owner.id)) return E(404, 'Этот человек не из ваших чатов');
+        const ent = ydSharedPick(owner, path);
+        if (!ent || ent.kind !== 'folder') return E(404, 'Эта папка вам не открыта');
+        if ((ent.perm || 'read') !== 'write') return E(403, 'Вам открыто только чтение этой папки');
+        root = String(ent.path);
+        if (op === 'del' && path === root) return E(403, 'Папку, которую вам открыли, удалить нельзя');
+        if (to && !(to === root || to.startsWith(root + '/'))) return E(403, 'Нельзя выйти за пределы открытой папки');
+      }
+      try {
+        const tokO = await ydFreshToken(owner, yadisk.loadKeys());
+        if (!tokO) return E(409, 'Яндекс.Диск у владельца не подключён');
+        if (op === 'mkdir') {
+          await yadisk.mkdir(tokO.access_token, path);
+          return J(200, { ok: true, path });
+        }
+        if (op === 'rename') {
+          if (!to) return E(400, 'Нужно новое имя');
+          await yadisk.movePath(tokO.access_token, path, to);
+          return J(200, { ok: true, path: to });
+        }
+        await yadisk.removePath(tokO.access_token, path);
+        return J(200, { ok: true });
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) return E(409, 'Диск отказал: ' + (e.message || 'нет доступа'));
+        if (e.status === 400 || e.status === 404 || e.status === 409) return E(e.status === 409 ? 409 : e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    // pkg3-125: адрес загрузки файла. Сам файл идёт с устройства ПРЯМО в
+    // Яндекс: VPS не тратит ни диск, ни трафик (память 550 МБ бережём).
+    if (pathname === '/api/yadisk/upload-url' && method === 'GET') {
+      if (throttle('yd-up-' + me.id, 60)) return E(429, 'Слишком много загрузок — подождите минуту');
+      const of = String(query.get('of') || '');
+      const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
+      if (!owner) return E(404, 'Нет такого участника');
+      const path = yadisk.safePath(String(query.get('path') || ''));
+      if (!path || path === 'disk:/') return E(400, 'Неверный путь файла');
+      if (owner.id !== me.id) {
+        if (owner.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+        if (!ydCommonChat(me.id, owner.id)) return E(404, 'Этот человек не из ваших чатов');
+        if (!ydCanWrite(owner, path)) return E(403, 'В этой папке вам можно только смотреть');
+      }
+      try {
+        const tokU = await ydFreshToken(owner, yadisk.loadKeys());
+        if (!tokU) return E(409, 'Яндекс.Диск у владельца не подключён');
+        return J(200, await yadisk.uploadUrl(tokU.access_token, path, { overwrite: true }));
+      } catch (e) {
         if (e.status === 400 || e.status === 404) return E(e.status, e.message);
         return E(502, e.message || 'Яндекс.Диск не отвечает');
       }

@@ -273,6 +273,9 @@ async function listFolder(token, diskPath, o = {}, c) {
       size: Math.max(0, Number(x.size) || 0),
       mime: String(x.mime_type || ''),
       media: mediaOf(x),
+      // pkg3-125: готовое превью Яндекса (подписанная ссылка). Берём ТОЛЬКО
+      // с раздающих доменов Яндекса — как и ссылки на скачивание.
+      preview: safeYandexUrl(x.preview),
       modified: String(x.modified || '')
     }));
   // папки — первыми, внутри — по имени (регистр не важен), как в проводнике
@@ -289,6 +292,81 @@ function mediaOf(x) {
   if (mt === 'video' || /^video\//.test(mime)) return 'video';
   if (mt === 'document' || /^(application|text)\//.test(mime)) return 'doc';
   return 'other';
+}
+
+/** Адрес Яндекса из ответа API — или пусто. Один белый список на всё:
+ * браузер получает только ссылки с доменов Яндекса (pkg3-90/124/125). */
+function safeYandexUrl(raw) {
+  const href = String(raw || '');
+  if (!href) return '';
+  return /^https:\/\/[a-z0-9.-]*\.(yandex\.net|yandex\.ru|disk\.yandex\.[a-z]+|yadi\.sk)\//i.test(href) ? href : '';
+}
+
+/** pkg3-125: сколько места на Диске занято и свободно (для строки в проводнике). */
+async function diskInfo(token, c) {
+  const conf = c || cfg();
+  const r = await httpJSON(conf.apiBase + '/v1/disk/', {
+    headers: { Authorization: 'OAuth ' + token, Accept: 'application/json' }
+  });
+  if (r.status !== 200 || !r.json) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  const total = Math.max(0, Number(r.json.total_space) || 0);
+  const used = Math.max(0, Number(r.json.used_space) || 0);
+  return { total, used, free: Math.max(0, total - used) };
+}
+
+/** pkg3-125: папка на Диске (PUT /v1/disk/resources). */
+async function mkdir(token, diskPath, c) {
+  const conf = c || cfg();
+  const p = safePath(diskPath);
+  if (!p || p === 'disk:/') { const e = new Error('Неверный путь папки'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ path: p });
+  const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
+    method: 'PUT', headers: { Authorization: 'OAuth ' + token }
+  });
+  if (r.status !== 201 && r.status !== 200) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  return { ok: true, path: p };
+}
+
+/** pkg3-125: удалить файл или папку (в корзину Диска, без «навсегда»). */
+async function removePath(token, diskPath, c) {
+  const conf = c || cfg();
+  const p = safePath(diskPath);
+  if (!p || p === 'disk:/') { const e = new Error('Корень Диска удалить нельзя'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ path: p, permanently: 'false' });
+  const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
+    method: 'DELETE', headers: { Authorization: 'OAuth ' + token }
+  });
+  if (r.status !== 204 && r.status !== 200 && r.status !== 202) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  return { ok: true, path: p };
+}
+
+/** pkg3-125: переименовать/перенести (POST /v1/disk/resources/move). */
+async function movePath(token, fromPath, toPath, c) {
+  const conf = c || cfg();
+  const from = safePath(fromPath), to = safePath(toPath);
+  if (!from || !to || from === 'disk:/' || to === 'disk:/') { const e = new Error('Неверный путь для переименования'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ from: from, path: to, overwrite: 'false' });
+  const r = await httpJSON(conf.apiBase + '/v1/disk/resources/move?' + q.toString(), {
+    method: 'POST', headers: { Authorization: 'OAuth ' + token }
+  });
+  if (r.status !== 201 && r.status !== 200 && r.status !== 202) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  return { ok: true, path: to };
+}
+
+/** pkg3-125: адрес для загрузки файла. Сам файл идёт с устройства ПРЯМО в
+ * Яндекс — через VPS не течёт (память 550 МБ бережём). */
+async function uploadUrl(token, diskPath, o = {}, c) {
+  const conf = c || cfg();
+  const p = safePath(diskPath);
+  if (!p || p === 'disk:/') { const e = new Error('Неверный путь файла'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ path: p, overwrite: o.overwrite === false ? 'false' : 'true' });
+  const r = await httpJSON(conf.apiBase + '/v1/disk/resources/upload?' + q.toString(), {
+    headers: { Authorization: 'OAuth ' + token, Accept: 'application/json' }
+  });
+  const j = r.json || {};
+  const href = safeYandexUrl(j.href);
+  if (r.status !== 200 || !href) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  return { href, method: String(j.method || 'PUT') };
 }
 
 /** Временная ссылка на скачивание/проигрывание одного файла. */
@@ -353,5 +431,6 @@ function diskResult(r, limit, offset) {
 module.exports = {
   cfg, loadKeys, tokenKey, sealToken, openToken,
   buildAuthUrl, exchangeCode, refreshTokens,
-  listAudio, listFolder, mediaOf, downloadHref, safePath, httpJSON, probeAuth
+  listAudio, listFolder, mediaOf, downloadHref, safePath, httpJSON, probeAuth,
+  diskInfo, mkdir, removePath, movePath, uploadUrl, safeYandexUrl
 };
