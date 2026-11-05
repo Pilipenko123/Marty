@@ -1,4 +1,4 @@
-// test/ui126.mjs — pkg3-126: Google Диск как второй диск.
+// test/ui126.mjs — pkg3-127: Google Диск как второй диск.
 //
 // Проверяем по-настоящему, на живом сервере с игрушечным Google:
 //   • без ключей приложения — честное «нужны ключи», а не пустое окно;
@@ -25,7 +25,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-126: Google Диск — второй диск, только чтение');
+console.log('  pkg3-127: Google Диск — второй диск, только чтение');
 console.log('══════════════════════════════════════════════════\n');
 
 // ─────────────── игрушечный Google ───────────────
@@ -260,10 +260,10 @@ ok(/☁ Google Диск/.test(appJs) && /У Google путь — это иден�
 console.log('\n  7. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(b2 === BUILD && BUILD === 'pkg3-126', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
+ok(b2 === BUILD && BUILD === 'pkg3-127', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(/\| pkg3-126 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v120', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(/\| pkg3-127 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
+ok(cache === 'sega-static-v121', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui126.mjs'), 'тест ui126 включён в цепочку npm test');
 ok(!/require\('googleapis'\)/.test(read('lib/gdrive.js')), 'новых зависимостей npm нет — только встроенные модули');
 

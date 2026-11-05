@@ -320,6 +320,35 @@ async function listFolder(token, googlePath, o = {}, c) {
   return { path: p, items, limit: pageSize, offset: 0, total: items.length, parent, name: folderName };
 }
 
+/** Все аудиофайлы Диска (для панели «🅖 Google Диск» в «Моей музыке»).
+ * pkg3-127: ищем по типу, как это делает Яндекс, — папки не обходим. */
+async function listAudio(token, o = {}, c) {
+  const conf = c || cfg();
+  const limit = Math.min(200, Math.max(1, Number(o.limit) || 200));
+  const q = new URLSearchParams({
+    q: "mimeType contains 'audio/' and trashed = false",
+    fields: 'files(id,name,mimeType,size,modifiedTime)',
+    pageSize: String(limit),
+    orderBy: 'name',
+    includeItemsFromAllDrives: 'true',
+    supportsAllDrives: 'true'
+  });
+  const r = await httpJSON(conf.apiBase + '/drive/v3/files?' + q.toString(), {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
+  });
+  if (r.status !== 200 || !r.json) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
+  const items = (Array.isArray(r.json.files) ? r.json.files : []).map(x => ({
+    path: 'google:/' + x.id,
+    name: String(x.name || 'трек').slice(0, 300),
+    size: Math.max(0, Number(x.size) || 0),
+    mime: String(x.mimeType || ''),
+    media: 'audio',
+    modified: String(x.modifiedTime || '')
+  }));
+  items.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  return { items, limit, offset: 0, more: false };
+}
+
 /** Метаданные одного файла (для карточки и проверки, что он существует). */
 async function fileMeta(token, googlePath, c) {
   const conf = c || cfg();
@@ -371,6 +400,6 @@ module.exports = {
   cfg, loadKeys, KEYS_HINT, tokenKey, sealToken, openToken, httpJSON,
   buildAuthUrl, exchangeCode, refreshTokens,
   safePath, idOf, isGooglePath, pathOf: p => 'google:/' + idOf(p),
-  aboutSpace, listFolder, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl,
+  aboutSpace, listFolder, listAudio, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl,
   googleErrorText, FOLDER_MIME, PREFIX
 };
