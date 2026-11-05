@@ -322,11 +322,15 @@ async function listFolder(token, googlePath, o = {}, c) {
     // fields обязателен: без него Google отдаёт только id и name
     fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink),nextPageToken',
     pageSize: String(pageSize),
-    pageToken: String(o.pageToken || '') || undefined,
     orderBy: 'folder,name',
     includeItemsFromAllDrives: 'true',
     supportsAllDrives: 'true'
   });
+  // pkg3-132 (поломка 130–131): раньше здесь стояло `pageToken: … || undefined`.
+  // В параметрах запроса undefined превращается в СТРОКУ «undefined», и к Google
+  // уходил pageToken=undefined — живой Google отвечал 400 «Invalid Value», и
+  // диск не открывался вовсе. Теперь параметр добавляется только когда он есть.
+  if (o.pageToken) q.set('pageToken', String(o.pageToken));
   const r = await httpJSON(conf.apiBase + '/drive/v3/files?' + q.toString(), {
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
   });

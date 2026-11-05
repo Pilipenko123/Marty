@@ -1,4 +1,4 @@
-// test/ui126.mjs — pkg3-131: Google Диск как второй диск.
+// test/ui126.mjs — pkg3-132: Google Диск как второй диск.
 //
 // Проверяем по-настоящему, на живом сервере с игрушечным Google:
 //   • без ключей приложения — честное «нужны ключи», а не пустое окно;
@@ -25,7 +25,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-131: Google Диск — второй диск, вход и права');
+console.log('  pkg3-132: Google Диск — второй диск, вход и права');
 console.log('══════════════════════════════════════════════════\n');
 
 // ─────────────── игрушечный Google ───────────────
@@ -163,7 +163,7 @@ await call(B, '/api/dm', { method: 'POST', body: { peer: K.id } }, A.token);
 
 r = await call(B, '/api/gdrive/auth', {}, A.token);
 ok(r.status === 200 && String(r.d.url || '').includes('/o/oauth2/v2/auth'), 'сервер отдаёт адрес страницы согласия Google');
-// pkg3-131: право расширено до полного — сервер получил и запись (папки, загрузка)
+// pkg3-132: право расширено до полного — сервер получил и запись (папки, загрузка)
 ok(/\/auth\/drive(\s|$)/.test(decodeURIComponent(new URL(r.d.url).searchParams.get('scope') || '')), 'просим право на Диск (auth/drive) — смотреть и менять');
 ok(String(r.d.url || '').includes('access_type=offline'), 'просим «долгий» доступ — чтобы не входить каждый час');
 const state = (new URL(r.d.url)).searchParams.get('state');
@@ -233,7 +233,7 @@ r = await call(B, '/api/yadisk/file?of=' + A.id + '&path=' + encodeURIComponent(
 ok(r.status === 200 && String(r.d.href || '').includes('/api/gdrive/stream'), 'файл внутри открытой папки тоже открывается');
 r = await call(B, '/api/yadisk/file?path=' + encodeURIComponent('google:/' + FOLDER_ID), {}, A.token);
 ok(r.status === 200 && r.d.dir === true, 'папка отдаётся как папка, а не как файл');
-// pkg3-131: запрет «в Google только чтение» снят — этим занимается test/ui128.mjs
+// pkg3-132: запрет «в Google только чтение» снят — этим занимается test/ui128.mjs
 r = await call(B, '/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', path: 'google:/' + FOLDER_ID + '/Новая' } }, A.token);
 ok(!(r.status === 409 && /только чтение/.test(String(r.d.error || ''))), 'создание папки в Google больше не отказывается заранее (выпуск 128)');
 r = await call(B, '/api/yadisk/upload-url?path=' + encodeURIComponent('google:/' + FOLDER_ID + '/new.jpg'), {}, A.token);
@@ -246,7 +246,7 @@ ok((r.d.drives || []).find(x => x.id === 'google').connected === false, 'пос�
 // ─────────── 6. Клиент: Google в проводнике и в окне подключения ───────────
 console.log('\n  6. Клиент: Google в проводнике и в окне подключения');
 const appJs = read('public/app.js');
-// pkg3-131: у дисков теперь несколько номеров — кнопки различаются data-атрибутами
+// pkg3-132: у дисков теперь несколько номеров — кнопки различаются data-атрибутами
 ok(/data-gd-login="\$\{slot\}"/.test(appJs) && /\/api\/gdrive\/auth\?slot=/.test(appJs), 'в окне подключения есть «Войти через Google»');
 ok(/\/api\/gdrive\/disconnect/.test(appJs) && /data-drv-off="\$\{escapeHtml\(x\.id\)\}"/.test(appJs), 'и «Отключить» для любого диска');
 ok(/keysHint/.test(appJs), 'если ключей нет — показываем подсказку, а не пустую кнопку');
@@ -263,10 +263,10 @@ ok(/☁ Google Диск/.test(appJs) && /У Google путь — это иден�
 console.log('\n  7. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(b2 === BUILD && BUILD === 'pkg3-131', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
+ok(b2 === BUILD && BUILD === 'pkg3-132', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(/\| pkg3-131 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v125', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(/\| pkg3-132 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
+ok(cache === 'sega-static-v126', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui126.mjs'), 'тест ui126 включён в цепочку npm test');
 ok(!/require\('googleapis'\)/.test(read('lib/gdrive.js')), 'новых зависимостей npm нет — только встроенные модули');
 
