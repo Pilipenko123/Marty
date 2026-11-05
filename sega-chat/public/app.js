@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-124';
+const BUILD = 'pkg3-125';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5289,24 +5289,23 @@ function ydTokenAsk() {
   if (inp) setTimeout(() => inp.focus(), 30);
 }
 
-// ═══════════════════════════════════════ pkg3-124: «Мои диски» (облака участников)
+// ═══════════════════════════ pkg3-124/125: «Мои диски» — облака участников
 /**
- * Просьба владельца: ЛЮБОЙ участник подключает свой диск; диск виден в области
- * чатов отдельным разделом «☁ Мои диски»; подключение — из меню «+»; с файлами
- * можно работать по-человечески: слушать музыку, смотреть фото и видео,
- * скачивать, открывать доступ участникам чата и отправлять ссылку в чат.
+ * Владелец просил: любой участник подключает свой диск; диск виден в области
+ * чатов отдельным разделом; подключение — из меню «+». В 125-м окно диска стало
+ * похоже на обычный проводник Windows: панель с кнопками, хлебные крошки,
+ * свободное место, превью фото и видео, открытие двойным кликом, «Поделиться»
+ * (файлом или ПАПКОЙ — на чтение или на изменение).
  *
- * Как устроено (и почему это не ломает сквозное шифрование):
- *   • список дисков (`S.drives`) приходит с сервера — сейчас Яндекс.Диск,
- *     формат сразу списком, чтобы Google лёг сюда же строкой (выпуск 125);
- *   • раздел «☁ Мои диски» живёт в САМОМ НИЗУ списка чатов (renderRail);
- *   • окно диска — проводник: хлебные крошки, папки, файлы любых типов;
- *   • ссылка в чат — строка `sega-disk://<uid>/<путь в base64url>`. Она едет
- *     ВНУТРИ шифрованного письма, поэтому сервер её не читает; получатель
- *     превращает строку в карточку и просит свежую временную ссылку у
- *     `/api/yadisk/file`. Чужой файл отдаётся только из общего чата и только
- *     если владелец сам открыл его кнопкой «В чат»;
- *   • сами файлы по-прежнему лежат на Диске: сервер не копирует их к себе.
+ * Как устроено:
+ *   • `S.drives` — список дисков (сейчас Яндекс; Google ляжет строкой в 126-м);
+ *   • раздел «☁ Мои диски» — внизу списка чатов (renderRail);
+ *   • окно-проводник: свой Диск ИЛИ папка, которой со мной поделились
+ *     (`state.of` — чей диск, `state.perm` — read/write);
+ *   • ссылка в чат — строка `sega-disk://<uid>/<путь в base64url>` ВНУТРИ
+ *     шифрованного письма: сервер её не читает. Получатель видит карточку и
+ *     просит свежую временную ссылку у `/api/yadisk/file`; чужое отдаётся только
+ *     из общего чата и только то, что владелец сам открыл.
  */
 function drivesState() {
   if (!S.drives) S.drives = { list: [], soon: [], loaded: false };
@@ -5320,11 +5319,11 @@ async function drivesLoad() {
     d.soon = Array.isArray(r.soon) ? r.soon : [];
     d.loaded = true;
     renderRail();
-  } catch (e) { /* нет сети — раздел просто покажет «не подключён» */ }
+  } catch (e) { /* нет сети — раздел покажет «не подключён» */ }
   return drivesState();
 }
 const DRV_ICON = { yandex: '☁', google: '🅖' };
-const DK_MEDIA_RU = { audio: 'музыка', image: 'фото', video: 'видео', doc: 'документ', other: 'файл' };
+const DK_MEDIA_RU = { audio: 'Музыка', image: 'Фото', video: 'Видео', doc: 'Документ', other: 'Файл', dir: 'Папка' };
 const DK_ICON = { dir: '📁', audio: '🎵', image: '🖼', video: '🎬', doc: '📄', other: '📦' };
 const dkSize = n => ydFmtSize(n);
 
@@ -5336,7 +5335,7 @@ function drivesRailRows() {
       <div class="drive-ic">${DRV_ICON[x.id] || '☁'}</div>
       <div class="ci-main">
         <div class="ci-name">${escapeHtml(x.title)}</div>
-        <div class="ci-last">${x.shared ? 'открыто файлов: ' + x.shared : 'файлы лежат на вашем диске'}</div>
+        <div class="ci-last">${x.shared ? 'открыто: ' + x.shared : 'файлы лежат на вашем диске'}</div>
       </div>
     </div>`).join('');
   return rows + `<div class="chat-item drive-item drive-add" data-drive-add="1" title="Подключить Яндекс.Диск или другой диск">
@@ -5348,100 +5347,168 @@ function drivesRailRows() {
     </div>`;
 }
 
-/** Состояние окна-проводника (одно на всё приложение). */
+/* ── состояние проводника ─────────────────────────────────────────────────── */
 function diskState() {
-  if (!S.disk) S.disk = { drive: 'yandex', path: 'disk:/', items: [], loading: false, err: '' };
-  return S.disk;
+  if (!S.disk) S.disk = {};
+  const st = S.disk;
+  if (st.drive === undefined) st.drive = 'yandex';
+  if (!st.of) st.of = '';
+  if (!st.perm) st.perm = 'write';
+  if (!st.path) st.path = 'disk:/';
+  if (!Array.isArray(st.items)) st.items = [];
+  if (st.sel === undefined) st.sel = -1;
+  return st;
 }
-/** Открыть диск: сразу читаем корень. */
+const dkMine = () => { const st = diskState(); return !st.of || (S.me && st.of === S.me.id); };
+const dkParent = p => {
+  const s = String(p || 'disk:/').replace(/\/+$/, '');
+  const i = s.lastIndexOf('/');
+  if (i <= 0) return 'disk:/';
+  const up = s.slice(0, i);
+  return up === 'disk' ? 'disk:/' : up;
+};
+const dkJoin = (dir, name) => String(dir || 'disk:/').replace(/\/+$/, '') + '/' + String(name || '').replace(/^\/+/, '');
+
+/** Открыть диск владельца (свой). */
 function openDriveWindow(id) {
   const d = drivesState();
   const dr = (d.list || []).find(x => x.id === id);
   if (!dr || !dr.connected) return driveConnectAsk();
   const st = diskState();
-  st.drive = id; st.path = 'disk:/'; st.items = [];
+  st.drive = id; st.of = ''; st.perm = 'write'; st.path = 'disk:/'; st.items = []; st.sel = -1;
   diskBrowse('disk:/');
 }
-/** Прочитать папку и перерисовать окно. */
-async function diskBrowse(path) {
+/** Прочитать папку и перерисовать окно (свою или открытую мне). */
+async function diskBrowse(path, of) {
   const st = diskState();
-  st.path = path || 'disk:/';
+  if (of !== undefined) { st.of = of || ''; st.sel = -1; }
+  st.path = String(path || 'disk:/').replace(/\/+$/, '') || 'disk:/';
   st.loading = true; st.err = '';
   renderDiskWindow();
   try {
-    const r = await api('/api/yadisk/list?path=' + encodeURIComponent(st.path));
+    const r = st.of && !dkMine()
+      ? await api('/api/yadisk/shared-list?of=' + encodeURIComponent(st.of) + '&path=' + encodeURIComponent(st.path))
+      : await api('/api/yadisk/list?path=' + encodeURIComponent(st.path));
     st.items = Array.isArray(r.items) ? r.items : [];
+    st.space = r.space || null;
+    if (r.perm) st.perm = r.perm;
+    if (r.root) st.root = r.root;
+    st.title = r.title || st.title || '';
   } catch (e) {
     st.items = []; st.err = e.message || String(e);
   }
-  st.loading = false;
+  st.loading = false; st.sel = -1;
   renderDiskWindow();
 }
-function diskCrumbsHtml(path) {
-  const parts = String(path || 'disk:/').replace(/^disk:/, '').split('/').filter(Boolean);
+function diskCrumbsHtml(path, root) {
+  const mine = dkMine();
+  const all = String(path || 'disk:/').replace(/^disk:\//, '').split('/').filter(Boolean);
+  const base = String(root || 'disk:/').replace(/^disk:\//, '').split('/').filter(Boolean);
+  // Чужая папка: выше открытого корня ходить нельзя — корень и есть верхняя точка.
+  if (!mine) {
+    const rp = base[base.length - 1] || 'папка';
+    let acc = 'disk:/' + base.join('/');
+    let out = `<span class="dk-crumb cur" title="Папка, которую вам открыли">☁ ${escapeHtml(rp)}</span>`;
+    all.slice(base.length).forEach(seg => {
+      acc += '/' + seg;
+      out += `<span class="dk-sep">›</span><button class="mini dk-crumb" data-disk-go="${escapeHtml(acc)}">${escapeHtml(seg)}</button>`;
+    });
+    return out;
+  }
   let acc = 'disk:/';
   let out = `<button class="mini dk-crumb" data-disk-go="disk:/" title="Корень диска">☁ Диск</button>`;
-  for (const p of parts) {
-    acc += p + '/';
-    out += `<span class="dk-sep">/</span><button class="mini dk-crumb" data-disk-go="${escapeHtml(acc)}">${escapeHtml(p)}</button>`;
-  }
+  all.forEach(seg => {
+    acc = (acc === 'disk:/' ? 'disk:/' : acc + '/') + seg;
+    out += `<span class="dk-sep">›</span><button class="mini dk-crumb" data-disk-go="${escapeHtml(acc)}">${escapeHtml(seg)}</button>`;
+  });
   return out;
 }
-function diskRowHtml(it, i) {
+/** Строка проводника: значок/превью, имя, тип, размер. */
+function diskRowHtml(it, i, sel) {
   const kind = it.dir ? 'dir' : (it.media || 'other');
-  const sub = it.dir ? 'папка' : [dkSize(it.size), DK_MEDIA_RU[it.media] || 'файл'].filter(Boolean).join(' · ');
-  const main = it.dir
-    ? `<button class="mini primary" data-disk-dir="${i}">Открыть</button>`
-    : it.media === 'audio'
-      ? `<button class="mini primary" data-disk-play="${i}" title="Слушать в плеере «Моей музыки»">▶ Слушать</button>`
-      : (it.media === 'image' || it.media === 'video')
-        ? `<button class="mini primary" data-disk-view="${i}" title="Посмотреть здесь">Смотреть</button>`
-        : `<button class="mini" data-disk-dl="${i}" title="Скачать на устройство">⬇ Скачать</button>`;
-  return `<div class="disk-row" data-disk-row="${i}">
-    <div class="disk-ic">${DK_ICON[kind] || '📦'}</div>
-    <div class="disk-meta">
-      <div class="disk-name" title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</div>
-      <div class="disk-sub tiny muted">${escapeHtml(sub)}</div>
-    </div>
-    <div class="disk-acts">${main}${(!it.dir && (it.media === 'audio' || it.media === 'image' || it.media === 'video')) ? `<button class="mini" data-disk-dl="${i}" title="Скачать на устройство">⬇</button>` : ''}${it.media === 'audio' ? `<button class="mini" data-disk-pl="${i}" title="Положить в мой плейлист">＋</button>` : ''}${it.dir ? '' : `<button class="mini" data-disk-send="${i}" title="Отправить ссылку в чат и открыть доступ участникам">В чат</button>`}</div>
+  // pkg3-125: кадр фото и видео показывается СРАЗУ, без нажатий; у видео — значок ▶
+  const thumb = it.preview && (it.media === 'image' || it.media === 'video')
+    ? `<span class="disk-thumb-box"><img class="disk-thumb" src="${escapeHtml(it.preview)}" alt="" loading="lazy" data-disk-thumb="1">${it.media === 'video' ? '<span class="disk-thumb-play">▶</span>' : ''}</span>`
+    : `<span class="disk-thumb-ic">${DK_ICON[kind] || '📦'}</span>`;
+  return `<div class="disk-row${sel ? ' sel' : ''}" data-dsk-i="${i}" data-disk-row="${i}" title="${escapeHtml(it.name)}">
+    <div class="disk-ic">${thumb}</div>
+    <div class="disk-name">${escapeHtml(it.name)}${it.dir ? '/' : ''}</div>
+    <div class="disk-type tiny muted">${DK_MEDIA_RU[kind] || 'Файл'}</div>
+    <div class="disk-size tiny muted">${it.dir ? '' : dkSize(it.size)}</div>
   </div>`;
 }
-/** Перерисовать окно диска (одна разметка, слушатели — общие, ниже). */
+/** Перерисовать окно диска. Слушатели — общие, ниже (делегирование). */
 function renderDiskWindow() {
   const st = diskState();
   const d = drivesState();
   const dr = (d.list || []).find(x => x.id === st.drive) || { title: 'Яндекс.Диск' };
-  const body = st.loading
+  const mine = dkMine();
+  const writable = mine || st.perm === 'write';
+  const rows = st.loading
     ? '<div class="tiny muted disk-wait">Читаю папку на Диске…</div>'
     : st.err
       ? `<div class="tiny disk-err">Не получилось: ${escapeHtml(st.err)}</div><button class="mini" id="disk-retry">Повторить</button>`
-      : (st.items.length ? st.items.map(diskRowHtml).join('') : '<div class="tiny muted disk-wait">В этой папке пусто.</div>');
-  modal('☁ Мои диски', `<div class="disk-win">
-    <div class="disk-top">
-      <div class="disk-drv-t"><b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span></div>
-      <div class="disk-top-a">
-        <button class="mini" id="disk-refresh" title="Перечитать папку">Обновить</button>
-        <button class="mini" data-drive-add="1" title="Подключить ещё диск">＋ Диск</button>
-      </div>
+      : (st.items.length ? st.items.map((it, i) => diskRowHtml(it, i, i === st.sel)).join('')
+        : '<div class="tiny muted disk-wait">В этой папке пусто.</div>');
+  const space = st.space && st.space.total
+    ? `<span class="dsk-space" title="Всего ${dkSize(st.space.total)}, занято ${dkSize(st.space.used)}">Свободно ${dkSize(st.space.free)} из ${dkSize(st.space.total)}</span>`
+    : '';
+  const head = mine
+    ? `<b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span>`
+    : `<b>${escapeHtml(st.title || 'Общая папка')}</b> <span class="tiny muted">папка участника · ${st.perm === 'write' ? 'можно менять' : 'только чтение'}</span>`;
+  modal('☁ Мои диски', `<div class="disk-win dsk">
+    <div class="dsk-bar">
+      <button class="mini" id="dsk-up" title="Наверх" ${st.path === 'disk:/' ? 'disabled' : ''}>↑</button>
+      <button class="mini" id="disk-refresh" title="Обновить">⟳</button>
+      <div class="dsk-crumbs disk-crumbs">${diskCrumbsHtml(st.path, mine ? 'disk:/' : (st.root || st.path))}</div>
+      ${space}
     </div>
-    <div class="disk-crumbs">${diskCrumbsHtml(st.path)}</div>
-    <div class="disk-list">${body}</div>
-    <div class="tiny muted disk-hint">Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку. Кнопка «В чат» открывает этот файл участникам и отправляет ссылку в выбранный чат.</div>
+    <div class="dsk-head">${head}<button class="mini" data-drive-add="1" title="Подключить ещё диск">＋ Диск</button></div>
+    <div class="dsk-tools">
+      <button class="mini primary" data-dsk-act="open" title="Открыть (или двойной клик по строке)">Открыть</button>
+      <button class="mini" data-dsk-act="share" title="Поделиться в чате: файлом или папкой">Поделиться</button>
+      <button class="mini" data-dsk-act="dl" title="Скачать на устройство">⬇ Скачать</button>
+      <span class="dsk-gap"></span>
+      <button class="mini" data-dsk-act="mkdir" ${writable ? '' : 'disabled'} title="Создать папку">Новая папка</button>
+      <button class="mini" data-dsk-act="upload" ${writable ? '' : 'disabled'} title="Загрузить файл со своего устройства">Загрузить</button>
+      <button class="mini" data-dsk-act="rename" ${writable ? '' : 'disabled'} title="Переименовать">Переименовать</button>
+      <button class="mini danger" data-dsk-act="del" ${writable ? '' : 'disabled'} title="Удалить (в корзину Диска)">Удалить</button>
+    </div>
+    <div class="dsk-list disk-list" id="disk-list">${rows}</div>
+    <div class="tiny muted disk-hint">${mine
+      ? 'Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку.'
+      : (writable ? 'Вам открыли эту папку с правом изменения: можно добавлять, переименовывать и удалять внутри.' : 'Вам открыли эту папку только для чтения.')} Кнопка «Поделиться» отправляет ссылку в чат и открывает доступ только его участникам.</div>
+    <input type="file" id="dsk-file" class="hidden" multiple>
   </div>`);
+  const up = document.getElementById('dsk-up');
+  if (up) up.addEventListener('click', () => diskBrowse(dkParent(diskState().path)));
   const rf = document.getElementById('disk-refresh');
   if (rf) rf.addEventListener('click', () => diskBrowse(diskState().path));
   const rt = document.getElementById('disk-retry');
   if (rt) rt.addEventListener('click', () => diskBrowse(diskState().path));
+  // превью, которое не загрузилось, тихо превращается в значок
+  for (const img of $$('#disk-list img[data-disk-thumb]')) {
+    img.addEventListener('error', () => {
+      const box = img.parentElement;
+      if (box) box.innerHTML = '<span class="disk-thumb-ic">🖼</span>';
+    });
+  }
+  const fi = document.getElementById('dsk-file');
+  if (fi) fi.addEventListener('change', () => diskUpload([...fi.files]));
 }
 
-/** Свежая ссылка на файл: свой — своим ключом, чужой — через проверку доступа. */
+/** Действия над выбранной строкой (кнопки панели и двойной клик). */
+function dkSel() {
+  const st = diskState();
+  return (st.sel >= 0 && st.items[st.sel]) ? st.items[st.sel] : null;
+}
+function dkToastPick() { toast('Сначала выберите файл или папку в списке', true); return null; }
 async function diskFileHref(diskPath, of) {
   const mine = !of || (S.me && of === S.me.id);
   const q = mine ? ('?path=' + encodeURIComponent(diskPath))
     : ('?of=' + encodeURIComponent(of) + '&path=' + encodeURIComponent(diskPath));
   return api('/api/yadisk/file' + q);
 }
-/** Сохранить файл на устройство (ссылка Яндекса временная — берём свежую). */
 function diskSaveUrl(href, name) {
   const a = document.createElement('a');
   a.href = href;
@@ -5458,41 +5525,57 @@ async function diskDownloadFile(it, of) {
     toast('Скачиваю: ' + (it.name || 'файл'));
   } catch (e) { toast('Не получилось скачать: ' + (e.message || e), true); }
 }
+/** pkg3-125: файл с Диска играет в ОКНЕ «Моя музыка» (его можно свернуть/закрыть). */
 async function diskPlayFile(it, of) {
   try {
     const r = await diskFileHref(it.path, of);
-    musicPlayOnce(r.href, it.name || it.path, 0, '', '');   // href уже готов — это обычная ссылка
+    musicPlayOnce(r.href, it.name || it.path, 0, '', '');
+    openMusic();                       // окно музыки открывается само — пункт 5 просьбы
     toast('Играю: ' + (it.name || 'файл'));
   } catch (e) { toast('Не получилось включить: ' + (e.message || e), true); }
 }
 async function diskViewFile(it, of) {
   try {
     const r = await diskFileHref(it.path, of);
-    const media = it.media || (r.media || '');
+    const media = it.media || r.media || '';
     const inner = media === 'video'
       ? `<video class="disk-prev" src="${escapeHtml(r.href)}" controls playsinline preload="metadata"></video>`
       : `<img class="disk-prev" src="${escapeHtml(r.href)}" alt="${escapeHtml(it.name || '')}">`;
     modal(it.name || 'Файл с Диска', `<div class="disk-pv">${inner}
       <div class="tiny muted">${escapeHtml(it.name || '')}${it.size ? ' · ' + dkSize(it.size) : ''}${of ? ' · Диск участника' : ''}</div>
-      <div class="disk-pv-acts"><button class="mini" data-disk-dl-url="${escapeHtml(r.href)}" data-disk-dl-name="${escapeHtml(it.name || '')}">⬇ Скачать</button></div>
+      <div class="disk-pv-acts"><button class="mini" data-disk-dl-url="${escapeHtml(r.href)}" data-disk-dl-name="${escapeHtml(it.name || '')}">⬇ Скачать</button><button class="mini" data-disk-back="1">Назад к папке</button></div>
     </div>`);
   } catch (e) { toast('Не получилось открыть файл: ' + (e.message || e), true); }
 }
-/** «＋» — положить файл с Диска в свой плейлист (тот же вопрос, что у музыки). */
+/** Двойной клик / «Открыть»: папка — внутрь, музыка — в плеер, фото/видео — на просмотр. */
+async function diskOpenItem(it) {
+  const st = diskState();
+  if (!it) return;
+  if (it.dir) return diskBrowse(it.path);
+  if (it.media === 'audio') return diskPlayFile(it, st.of);
+  if (it.media === 'image' || it.media === 'video') return diskViewFile(it, st.of);
+  return diskDownloadFile(it, st.of);
+}
 async function diskToPlaylist(it) {
-  const y = S.me && S.me.id;
-  musAskPlaylist({ kind: 'disk', path: it.path, title: it.name, diskOf: y || '', cover: '' });
+  musAskPlaylist({ kind: 'disk', path: it.path, title: it.name, diskOf: (S.me && S.me.id) || '', cover: '' });
 }
 
-/** «В чат»: выбрать чат, открыть файл участникам и отправить ссылку. */
-function diskSendAsk(it) {
-  diskState().pick = it;   // что отправляем — запоминаем до выбора чата
+/* ── «Поделиться»: файл или папка, чтение или изменение ──────────────────── */
+/** Имя с 124-го выпуска — то же действие, теперь ещё и для папок. */
+function diskSendAsk(it) { return diskShareAsk(it); }
+function diskShareAsk(it) {
   const chats = (S.chats || []).filter(c => c.kind === 'dm' || c.kind === 'group');
   if (!chats.length) return toast('Пока нет чатов, куда отправить ссылку', true);
-  modal('Отправить в чат', `<div class="disk-pick">
-    <div class="tiny muted">Файл: ${escapeHtml(it.name)}</div>
+  const isDir = !!it.dir;
+  diskState().pick = it;
+  modal('Поделиться', `<div class="disk-pick">
+    <div class="tiny muted">${isDir ? 'Папка' : 'Файл'}: ${escapeHtml(it.name)}</div>
+    ${isDir ? `<div class="disk-perm"><b>Что можно делать участникам:</b>
+      <label class="disk-perm-l"><input type="radio" name="dkperm" value="read" checked> только смотреть и скачивать</label>
+      <label class="disk-perm-l"><input type="radio" name="dkperm" value="write"> смотреть и менять содержимое (добавлять, переименовывать, удалять)</label>
+    </div>` : ''}
     <div class="disk-pick-list">${chats.map(c => `<button class="mini disk-pick-btn" data-disk-chat="${escapeHtml(c.id)}">${escapeHtml(chatTitle(c))}</button>`).join('')}</div>
-    <div class="tiny muted">Ссылку увидят только участники этого чата: свежую временную ссылку сервер выдаёт после проверки, что вы в одном чате.</div>
+    <div class="tiny muted">Ссылку увидят только участники этого чата. Файлы остаются на Диске; сервер выдаёт временную ссылку после проверки, что вы в одном чате.</div>
   </div>`);
 }
 /** Отправка письма из чужого окна: шифруем так же, как обычная отправка. */
@@ -5513,16 +5596,76 @@ async function quickSend(chatId, text) {
   return r.message;
 }
 async function diskSendToChat(chatId, it) {
-  await api('/api/yadisk/share-file', { method: 'POST', body: { path: it.path, name: it.name, media: it.media || '', size: it.size || 0 } });
-  const text = '☁ Файл с моего Диска: ' + it.name + '\n' + diskLinkMake(S.me.id, it.path);
+  const permEl = document.querySelector('input[name="dkperm"]:checked');
+  const perm = permEl ? permEl.value : 'read';
+  await api('/api/yadisk/share-file', {
+    method: 'POST',
+    body: { path: it.path, name: it.name, media: it.media || '', size: it.size || 0, kind: it.dir ? 'folder' : 'file', perm: it.dir ? perm : 'read' }
+  });
+  const text = '☁ ' + (it.dir ? 'Папка' : 'Файл') + ' с моего Диска: ' + it.name + '\n' + diskLinkMake(S.me.id, it.path);
   await quickSend(chatId, text);
   hide($('#modal'));
   drivesLoad();
-  toast('Ссылка отправлена — участники чата смогут открыть файл');
+  toast(it.dir
+    ? ('Папка открыта участникам чата — ' + (perm === 'write' ? 'можно менять содержимое' : 'только чтение'))
+    : 'Ссылка отправлена — участники чата смогут открыть файл');
   if (S.view !== chatId) openChat(chatId).catch(() => {});
 }
 
-/* ── ссылка на файл внутри письма ───────────────────────────────────────── */
+/* ── изменения содержимого: создать, переименовать, удалить, загрузить ────── */
+async function diskOp(op, path, extra) {
+  const st = diskState();
+  const body = Object.assign({ op, path, of: st.of || '' }, extra || {});
+  return api('/api/yadisk/op', { method: 'POST', body });
+}
+async function diskMkdir() {
+  const st = diskState();
+  const name = prompt('Название новой папки:', 'Новая папка');
+  if (!name || !name.trim()) return;
+  try {
+    await diskOp('mkdir', dkJoin(st.path, name.trim()));
+    toast('Папка создана');
+    diskBrowse(st.path);
+  } catch (e) { toast('Не получилось создать папку: ' + (e.message || e), true); }
+}
+async function diskRename(it) {
+  const st = diskState();
+  const name = prompt('Новое имя:', it.name);
+  if (!name || !name.trim() || name.trim() === it.name) return;
+  try {
+    await diskOp('rename', it.path, { to: dkJoin(dkParent(it.path), name.trim()) });
+    toast('Переименовано');
+    diskBrowse(st.path);
+  } catch (e) { toast('Не получилось переименовать: ' + (e.message || e), true); }
+}
+async function diskDelete(it) {
+  const st = diskState();
+  if (!confirm('Удалить «' + it.name + '»? Файл уйдёт в корзину Диска — восстановить можно там.')) return;
+  try {
+    await diskOp('del', it.path);
+    toast('Удалено');
+    diskBrowse(st.path);
+  } catch (e) { toast('Не получилось удалить: ' + (e.message || e), true); }
+}
+/** Загрузка: файл идёт с устройства ПРЯМО в Яндекс по временной ссылке. */
+async function diskUpload(files) {
+  const st = diskState();
+  if (!files || !files.length) return;
+  let done = 0, fail = 0;
+  for (const f of files) {
+    try {
+      const dest = dkJoin(st.path, f.name);
+      const r = await api('/api/yadisk/upload-url?path=' + encodeURIComponent(dest) + (st.of ? '&of=' + encodeURIComponent(st.of) : ''));
+      const put = await fetch(r.href, { method: r.method || 'PUT', body: f });
+      if (!put.ok) throw new Error('Яндекс ответил ' + put.status);
+      done++;
+    } catch (e) { fail++; }
+  }
+  if (done) { toast('Загружено файлов: ' + done + (fail ? ', не вышло: ' + fail : '')); diskBrowse(st.path); }
+  else toast('Загрузка не удалась: браузер не дал отправить файл на Диск. Попробуйте с компьютера.', true);
+}
+
+/* ── ссылка на файл или папку внутри письма ──────────────────────────────── */
 function diskLinkMake(uid, diskPath) {
   let b64 = '';
   try {
@@ -5544,16 +5687,15 @@ function diskLinkParse(text) {
     return { of: m[1], path: new TextDecoder().decode(bytes) };
   } catch (e) { return null; }
 }
-/** Карточка под текстом письма (рядом с карточкой Яндекс.Музыки pkg3-120). */
 function diskEmbedHtml(text) {
   const r = diskLinkParse(text);
   if (!r) return '';
-  if (S.eco) return '';   // в экономном режиме карточка не рисуется, текст со ссылкой остаётся
+  if (S.eco) return '';
   const mine = !!(S.me && r.of === S.me.id);
   const name = r.path.split('/').filter(Boolean).pop() || 'файл';
   return `<div class="disk-embed" data-disk-of="${escapeHtml(r.of)}" data-disk-path="${escapeHtml(r.path)}" data-disk-name="${escapeHtml(name)}">
     <div class="disk-embed-ic">☁</div>
-    <div class="disk-embed-t"><b>${escapeHtml(name)}</b><span class="tiny muted">${mine ? 'файл с вашего Диска' : 'файл с Диска участника'}</span></div>
+    <div class="disk-embed-t"><b>${escapeHtml(name)}</b><span class="tiny muted">${mine ? 'с вашего Диска' : 'с Диска участника'}</span></div>
     <div class="disk-embed-a"><button type="button" class="mini primary" data-disk-act="open">Открыть</button><button type="button" class="mini" data-disk-act="save">⬇ Скачать</button></div>
   </div>`;
 }
@@ -5576,7 +5718,6 @@ async function driveConnectAsk() {
     <div class="tiny muted">Файлы остаются на вашем Диске: сервер их не копирует и места на нём не занимает.</div>
   </div>`);
 }
-/** Окно «вставьте токен» — своё, для раздела «Мои диски» (в музыке есть своё). */
 function driveTokenAsk() {
   const ovl = document.createElement('div');
   ovl.className = 'ask-ovl';
@@ -5611,7 +5752,8 @@ function driveTokenAsk() {
   const inp = ovl.querySelector('#yd-tok2');
   if (inp) setTimeout(() => inp.focus(), 30);
 }
-/** Общий приёмник нажатий: и в окне диска, и в карточке письма. */
+
+/* ── общий приёмник нажатий: окно диска, карточка письма, раздел ─────────── */
 document.addEventListener('click', async e => {
   const card = e.target.closest('[data-disk-act]');
   if (card) {
@@ -5624,10 +5766,20 @@ document.addEventListener('click', async e => {
     if (act === 'save') { await diskDownloadFile({ path: diskPath, name }, of); return; }
     try {
       const r = await diskFileHref(diskPath, of);
+      if (r.dir) {   // pkg3-125: в письме — ПАПКА, открываем её содержимое
+        const st = diskState();
+        st.of = r.of; st.root = r.path; st.perm = r.perm || 'read'; st.title = r.name || '';
+        return diskBrowse(r.path, r.of);
+      }
       const media = r.media || (/\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(name) ? 'image'
         : /\.(mp4|mov|webm|mkv|avi)$/i.test(name) ? 'video'
           : /\.(mp3|ogg|m4a|flac|wav|aac)$/i.test(name) ? 'audio' : 'other');
-      if (media === 'audio') { musicPlayOnce(r.href, r.name || name, 0, '', ''); toast('Играю: ' + (r.name || name)); return; }
+      if (media === 'audio') {
+        musicPlayOnce(r.href, r.name || name, 0, '', '');
+        openMusic();
+        toast('Играю: ' + (r.name || name));
+        return;
+      }
       if (media === 'image' || media === 'video') {
         await diskViewFile({ path: diskPath, name: r.name || name, media: r.media || media, size: r.size || 0 }, of);
         return;
@@ -5636,20 +5788,53 @@ document.addEventListener('click', async e => {
     } catch (err) { toast('Файл не открылся: ' + (err.message || err), true); }
     return;
   }
-  const idx = (attr) => { const b = e.target.closest('[' + attr + ']'); return b ? Number(b.getAttribute(attr)) : -1; };
+
+  /* окно-проводник */
   const st = diskState();
-  const item = (i) => (i >= 0 && st.items[i]) ? st.items[i] : null;
+  const tool = e.target.closest('[data-dsk-act]');
+  if (tool) {
+    const act = tool.getAttribute('data-dsk-act');
+    const it = dkSel();
+    if (act === 'mkdir') return diskMkdir();
+    if (act === 'upload') { const fi = document.getElementById('dsk-file'); if (fi) fi.click(); return; }
+    if (act === 'open') { if (!it) return dkToastPick(); return diskOpenItem(it); }
+    if (act === 'share') { if (!it) return dkToastPick(); return diskShareAsk(it); }
+    if (act === 'dl') {
+      if (!it) return dkToastPick();
+      if (it.dir) return toast('Папку целиком скачать нельзя — откройте её и скачайте файлы', true);
+      return diskDownloadFile(it, st.of);
+    }
+    if (act === 'rename') { if (!it) return dkToastPick(); return diskRename(it); }
+    if (act === 'del') { if (!it) return dkToastPick(); return diskDelete(it); }
+    return;
+  }
+  const row = e.target.closest('[data-dsk-i]');
+  if (row) {
+    const i = Number(row.getAttribute('data-dsk-i'));
+    const prev = document.querySelector('#disk-list .disk-row.sel');
+    if (prev) prev.classList.remove('sel');
+    row.classList.add('sel');
+    diskState().sel = i;
+    return;
+  }
   const dir = e.target.closest('[data-disk-dir]');
-  if (dir) { const it = item(Number(dir.getAttribute('data-disk-dir'))); if (it) diskBrowse(it.path); return; }
+  if (dir) { const it = st.items[Number(dir.getAttribute('data-disk-dir'))]; if (it) diskBrowse(it.path); return; }
   const go = e.target.closest('[data-disk-go]');
   if (go) { diskBrowse(go.getAttribute('data-disk-go')); return; }
-  const iPlay = idx('data-disk-play'); if (iPlay >= 0) { const it = item(iPlay); if (it) diskPlayFile(it); return; }
-  const iView = idx('data-disk-view'); if (iView >= 0) { const it = item(iView); if (it) diskViewFile(it); return; }
-  const iDl = idx('data-disk-dl'); if (iDl >= 0) { const it = item(iDl); if (it) diskDownloadFile(it); return; }
-  const iPl = idx('data-disk-pl'); if (iPl >= 0) { const it = item(iPl); if (it) diskToPlaylist(it); return; }
-  const iSend = idx('data-disk-send'); if (iSend >= 0) { const it = item(iSend); if (it) diskSendAsk(it); return; }
+  const iPlay = e.target.closest('[data-disk-play]');
+  if (iPlay) { const it = st.items[Number(iPlay.getAttribute('data-disk-play'))]; if (it) diskPlayFile(it, st.of); return; }
+  const iView = e.target.closest('[data-disk-view]');
+  if (iView) { const it = st.items[Number(iView.getAttribute('data-disk-view'))]; if (it) diskViewFile(it, st.of); return; }
+  const iDl = e.target.closest('[data-disk-dl]');
+  if (iDl) { const it = st.items[Number(iDl.getAttribute('data-disk-dl'))]; if (it) diskDownloadFile(it, st.of); return; }
+  const iPl = e.target.closest('[data-disk-pl]');
+  if (iPl) { const it = st.items[Number(iPl.getAttribute('data-disk-pl'))]; if (it) diskToPlaylist(it); return; }
+  const iSend = e.target.closest('[data-disk-send]');
+  if (iSend) { const it = st.items[Number(iSend.getAttribute('data-disk-send'))]; if (it) diskShareAsk(it); return; }
   const dlUrl = e.target.closest('[data-disk-dl-url]');
   if (dlUrl) { diskSaveUrl(dlUrl.getAttribute('data-disk-dl-url'), dlUrl.getAttribute('data-disk-dl-name')); return; }
+  const back = e.target.closest('[data-disk-back]');
+  if (back) { renderDiskWindow(); return; }
   const pick = e.target.closest('[data-disk-chat]');
   if (pick) {
     const it = diskState().pick;
@@ -5675,6 +5860,15 @@ document.addEventListener('click', async e => {
     } catch (err) { toast('Не получилось: ' + (err.message || err), true); }
     return;
   }
+});
+/* Двойной клик по строке — как в проводнике Windows: папка открывается,
+   музыка играет, фото и видео показываются. */
+document.addEventListener('dblclick', e => {
+  const row = e.target.closest('[data-dsk-i]');
+  if (!row) return;
+  const st = diskState();
+  const it = st.items[Number(row.getAttribute('data-dsk-i'))];
+  if (it) diskOpenItem(it);
 });
 
 /** Загрузка списка аудиофайлов со всего Диска (страницами по 200). */
@@ -6210,18 +6404,67 @@ function musicPlayOnce(url, title, offset, kind, site) {
  * и смена трека у слушающего переносятся сюда же по якорю (позиция + время).
  * Свои стоп/перемотка/смена трека обрывают синхронизацию — дальше сам себе плеер. */
 let musFollowSilence = false;   // свои события ПОДЧИНЕНИЯ якорю — не обрыв
+/** pkg3-125: вместо плейлиста у догоняющего — «Синхронно с «Имя»» и текущий трек. */
+function musSyncPanelHtml() {
+  const f = S.musFollow || { name: 'участник' };
+  const cur = MUS.list[MUS.idx];
+  return `<div class="mus-sync" id="mus-sync">
+    <div class="mus-sync-t">🎧 Синхронно с «${escapeHtml(f.name)}»</div>
+    <div class="tiny muted">Трек и позиция повторяют то, что слушает он. Перемотайте, поставьте паузу или закройте это окно — и дальше плеер ваш.</div>
+    <div class="mus-sync-cur" id="mus-sync-cur">${escapeHtml((cur && (cur.title || cur.url)) || 'ждём трек…')}</div>
+    <div><button class="mini" id="mus-sync-off">Отключить синхрон</button></div>
+  </div>`;
+}
+/** Перерисовать окно музыки, ТОЛЬКО если оно открыто (иначе оно бы всплыло само). */
+function musRerenderIfOpen() {
+  const md = document.getElementById('modal');
+  if (!md || md.classList.contains('hidden')) return;
+  if (!document.getElementById('mus-list')) return;
+  openMusic();
+}
+/** Текущий трек в панели синхрона обновляем на месте, без перерисовки окна. */
+function musSyncPanelTick() {
+  const el = document.getElementById('mus-sync-cur');
+  if (!el) return;
+  const cur = MUS.list[MUS.idx];
+  el.textContent = (cur && (cur.title || cur.url)) || 'ждём трек…';
+}
+/** Владелец видит, кто присоединился: «🎧 Слушают вместе с вами: Вася, Клава». */
+async function musFollowersPoll() {
+  const el = document.getElementById('mus-followers');
+  if (!el || !S.token) return;
+  let r = null;
+  try { r = await api('/api/music/followers'); } catch (e) { return; }
+  const list = ((r && r.followers) || []).filter(x => x && x.uid !== ((S.me || {}).id));
+  if (!list.length) { el.textContent = ''; el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.textContent = '🎧 Слушают вместе с вами: ' + list.map(x => x.name).join(', ');
+}
+setInterval(() => {
+  const md = document.getElementById('modal');
+  if (!md || md.classList.contains('hidden')) return;
+  if (!document.getElementById('mus-now')) return;   // открыто не окно музыки
+  musFollowersPoll();
+}, 5000);   // pkg3-125: пока окно музыки открыто — обновляем список слушающих
+
 function musStartFollow(uid, name) {
   S.musFollow = { uid: uid, name: name, miss: 0, explained: false };
   MUS.followHref = null; MUS.followPath = null;
   musFollowUi();
+  api('/api/music/follow', { method: 'POST', body: { owner: uid, on: true } }).catch(() => {});
+  // pkg3-125: у догоняющего вместо плейлиста — «Синхронно с «Имя»» и текущий трек
+  musRerenderIfOpen();
   musFollowPoll();
   toast('Слушаю с «' + name + '»: трек пошёл с того же места. Свои стоп, перемотка или другой трек — и синхронизация кончится');
 }
 function musStopFollow(quiet) {
   if (!S.musFollow) return;
   const n = S.musFollow.name;
+  const was = S.musFollow;
   S.musFollow = null; MUS.followHref = null; MUS.followPath = null;
+  if (was && was.uid) api('/api/music/follow', { method: 'POST', body: { owner: was.uid, on: false } }).catch(() => {});
   musFollowUi();
+  musRerenderIfOpen();   // pkg3-125: вернуть свой плейлист (если окно ещё открыто)
   if (!quiet) toast('Синхронная остановка: дальше плеер ваш, «Слушаю с «' + n + '»» ушло');
 }
 function musBreakFollow() {
@@ -6238,6 +6481,7 @@ async function musFollowPoll() {
   let r = null;
   try { r = await api('/api/music/status?of=' + encodeURIComponent(f.uid)); } catch (e) { return; }
   if (!S.musFollow || S.musFollow.uid !== f.uid) return;   // пока летел запрос — уже отписались
+  api('/api/music/follow', { method: 'POST', body: { owner: f.uid, on: true } }).catch(() => {});   // pkg3-125: пульс
   if (!r || !r.sync) {
     if (!r || !r.note) {
       f.miss = (f.miss || 0) + 1;
@@ -6251,6 +6495,7 @@ async function musFollowPoll() {
   }
   f.miss = 0;
   await musApplySync(r.sync);
+  musSyncPanelTick();
 }
 setInterval(() => { if (S.musFollow) musFollowPoll(); }, 3000);   // pkg3-92: опрос якоря, пока слушаем вместе
 async function musApplySync(sy) {
@@ -6293,6 +6538,8 @@ async function musApplySync(sy) {
   }
 }
 document.addEventListener('click', e => {
+  // pkg3-125: «Отключить синхрон» — дальше музыка своя
+  if (e.target.closest('#mus-sync-off')) { musStopFollow(false); return; }
   const b = e.target.closest('[data-mus-follow]');
   if (!b) return;
   e.stopPropagation();
@@ -6394,6 +6641,7 @@ document.addEventListener('click', e => {
   const ts = Number(b.getAttribute('data-mus-ts')) || 0;
   const off = Math.max(0, pos + (Date.now() - ts) / 1000);   // якорь догоняет песню
   musicPlayOnce(url, b.getAttribute('data-mus-title') || url, off);
+  openMusic();   // pkg3-125: трек по чужой ссылке играет В ОКНЕ «Моя музыка»
   toast('Слушаем вместе: трек пошёл с того же места');
 });
 /** Прямая ли ссылка? Пробуем услышать файл за 6 секунд (метаданные аудио). */
@@ -6456,7 +6704,8 @@ async function openMusic(wantId) {
     : isDisk ? '☁ Яндекс.Диск'
       : pl ? (pl.name + ' · ' + (pl.vis === 'priv' ? 'только я' : 'публичный') + ' · ' + ((pl.tracks || []).length))
         : 'Плейлистов пока нет';
-  const listHtml = isSearch
+  // pkg3-125: у догоняющего вместо плейлиста — «Синхронно с «Имя»» и текущий трек
+  const listHtml = S.musFollow ? musSyncPanelHtml() : isSearch
     ? '<div class="mus-trs" id="mus-sres" data-pl="search">' + musSearchRowsHtml() + '</div>'
     : isDisk ? `<div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
         <div class="mus-disk-addline hidden" id="mus-disk-addline"></div>
@@ -6486,6 +6735,7 @@ async function openMusic(wantId) {
     <div class="mus-eq" id="mus-eq" data-st="off" aria-hidden="true"></div>
     <div class="mus-progline"><input id="mus-seek" type="range" min="0" max="100" value="0" title="Перемотка"><div class="mus-times"><span id="mus-time" class="tiny muted">0:00 / —:—</span></div></div>
     <div class="mus-plhead"><span class="mus-plname" id="mus-pl-name">${escapeHtml(plName)}</span><button class="mini" id="mus-pls-btn">Плейлисты ▾</button></div>
+    <div class="mus-followers tiny hidden" id="mus-followers"></div>
     <div class="mus-listwrap"><div class="mus-list" id="mus-list">${listHtml}</div><div class="mus-sbar none" id="mus-sbar" aria-hidden="true"><i></i></div></div>
     <div class="mus-three">
       <button class="mus-skip" id="mus-prev" title="Предыдущий трек">⏮</button>
@@ -6918,6 +7168,7 @@ async function openMusicOf(u) {
     // pkg3-88: чужой трек может быть виджетом Яндекс.Музыки — тогда он откроется
     // встроенным плеером, а не нашим звуковым элементом
     musicPlayOnce(b.getAttribute('data-musof-url'), b.getAttribute('data-musof-title'), 0, b.getAttribute('data-musof-kind'));
+    openMusic();   // pkg3-125: по чужой ссылке окно «Моя музыка» открывается само
   });
 }
 /** pkg3-121: «＋» у чужого трека — в какой плейлист положить. Дисковый трек

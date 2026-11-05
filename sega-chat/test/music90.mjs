@@ -301,8 +301,8 @@ ok(!/fields:/.test(yadiskJs) && yadiskJs.includes('pkg3-91'), 'pkg3-91: запр
 ok(yadiskJs.includes('Яндекс.Диск ответил 200, но без списка'), 'pkg3-91: человеческий текст для «200 без списка»');
 const filesCalls = calls.filter(c => c.t === 'files');
 ok(filesCalls.length > 0 && filesCalls.every(c => c.fields === null), 'pkg3-91: ни один список не запрошен с fields (игрушечный Яндекс это наказывает)');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v117';"), 'кэш статики поднят до v93');
-ok(dom42.includes('sega-static-v117') && sound80.includes('sega-static-v117') && games81.includes('sega-static-v117'), 'три набора тестов ждут именно v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v118';"), 'кэш статики поднят до v93');
+ok(dom42.includes('sega-static-v118') && sound80.includes('sega-static-v118') && games81.includes('sega-static-v118'), 'три набора тестов ждут именно v93');
 for (const s of ['MUS_DISK', 'musicIsDisk', 'musicStartDiskTrack', '/api/yadisk/files', '/api/yadisk/href', '/api/yadisk/state', 'data-mus-disk-play', 'data-mus-disk-add', 'data-mus-pl="yadisk"', '☁ Яндекс.Диск']) {
   ok(appJs.includes(s), 'клиент содержит «' + s + '»');
 }
