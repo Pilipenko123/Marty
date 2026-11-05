@@ -50,7 +50,8 @@ function send(res, out) {
   // ТРУБОЙ, без накопления в памяти (VPS с 550 МБ бережём). Потолок одного
   // потока PIPE_CAP; обрыв слушателя немедленно обрывает чтение у источника.
   if (out && out.pipe) {
-    const PIPE_CAP = 300 * 1024 * 1024;
+    // pkg3-130: у архива папки свой, более высокий потолок (out.cap)
+    const PIPE_CAP = Number(out.cap) > 0 ? Number(out.cap) : 300 * 1024 * 1024;
     const stream = out.pipe.stream;
     res.writeHead(out.status || 200, Object.assign(
       { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }, out.headers || {}));

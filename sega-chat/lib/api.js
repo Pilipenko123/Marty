@@ -12,12 +12,13 @@
  */
 
 const crypto = require('crypto');
-const { Readable } = require('stream');   // pkg3-126: файлы Google отдаём потоком
+const { Readable, PassThrough } = require('stream');   // pkg3-126/130: файлы и архив идут потоком
 const backup = require('./backup');
 const smtp = require('./smtp.js');   // pkg3-64: письма привязки почты и восстановления (без новых зависимостей)
 const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
 const gdrive = require('./gdrive.js');   // pkg3-126: Google Диск — второй диск
-const drives = require('./drives.js');   // pkg3-129: несколько дисков (номера в путях)
+const drives = require('./drives.js');
+const zipLib = require('./zip.js');   // pkg3-129: несколько дисков (номера в путях)
 const mussearch = require('./mussearch.js');   // pkg3-97: поиск треков с прямыми ссылками по выбранным сайтам
 const musstream = require('./musstream.js');   // pkg3-101: запасной путь звука — поток через сервер
 const emoji = require('./emoji.js');         // pkg3-108: смайлы отдаёт наш сервер (копия в памяти)
@@ -25,7 +26,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-129';
+const BUILD = 'pkg3-130';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -397,6 +398,141 @@ function createApi(store, opts = {}) {
     if (!tok) { const e = new Error('Яндекс.Диск не подключён'); e.status = 409; throw e; }
     return yadisk.downloadHref(tok.access_token, p);
   }
+  /* ── pkg3-130: папка с Диска одним архивом ───────────────────────────────
+   * Браузер качает по обычной ссылке («Скачать»), а заголовок входа туда не
+   * положить, поэтому ссылка — короткий подписанный пропуск на 30 минут.
+   * Архив собирается ПОТОКОМ: файл за файлом, без копии в памяти VPS. */
+  const ZIP_TICKET_TTL = 30 * 60 * 1000;
+  const ZIP_MAX_FILES = 500;      // больше — уже не «папка», а весь диск
+  const ZIP_MAX_DEPTH = 6;
+  function zipSign(raw) {
+    return crypto.createHmac('sha256', String(db.serverSecret) + ':zip-ticket').update(raw).digest('base64url');
+  }
+  function zipTicket(uid, path) {
+    const raw = String(uid) + '|' + (Date.now() + ZIP_TICKET_TTL) + '|' + String(path);
+    return Buffer.from(raw, 'utf8').toString('base64url') + '.' + zipSign(raw);
+  }
+  function zipTicketOpen(t) {
+    const str = String(t || '');
+    const i = str.indexOf('.');
+    if (i < 1) return null;
+    const body = str.slice(0, i);
+    const sig = str.slice(i + 1);
+    let raw = '';
+    try { raw = Buffer.from(body, 'base64url').toString('utf8'); } catch (e) { return null; }
+    const mine = zipSign(raw);
+    if (sig.length !== mine.length) return null;
+    try { if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(mine))) return null; } catch (e) { return null; }
+    const a = raw.indexOf('|');
+    const b = raw.indexOf('|', a + 1);
+    if (a < 1 || b < 0) return null;
+    const uid = raw.slice(0, a);
+    const exp = Number(raw.slice(a + 1, b));
+    const path0 = raw.slice(b + 1);
+    if (!uid || !path0 || !(exp > Date.now())) return null;
+    return { uid, path: path0, exp };
+  }
+  /** Кто мне открыл эту папку: своя — можно всё, чужая — только по записи
+   * «Поделиться» и только если мы в общем чате. */
+  function zipFolderAccess(me, owner, path0) {
+    if (!owner) return { err: E(404, 'Нет такого участника') };
+    if (owner.id === me.id) return { perm: 'write' };
+    if (owner.diskShare === false) return { err: E(403, 'Участник закрыл доступ к своему Диску') };
+    if (!ydCommonChat(me.id, owner.id)) return { err: E(404, 'Этот человек не из ваших чатов') };
+    const ent = ydSharedPick(owner, path0);
+    if (!ent || ent.kind !== 'folder') return { err: E(404, 'Эта папка вам не открыта') };
+    return { perm: String(ent.perm || 'read'), ent };
+  }
+  /** Весь список файлов папки с подпапками — тем же порядком, что в проводнике. */
+  async function zipWalk(owner, rootPath) {
+    const isG = gdrive.isGooglePath(rootPath);
+    const slot = drives.slotOf(rootPath);
+    const prefix = drives.prefixFor(isG ? 'google' : 'yandex', slot);
+    const tok = isG ? await gdFreshToken(owner, slot) : await ydFreshToken(owner, yadisk.loadKeys(), slot);
+    if (!tok) {
+      const e = new Error(isG ? 'Google Диск не подключён' : 'Яндекс.Диск не подключён');
+      e.status = 409;
+      throw e;
+    }
+    const files = [];
+    const dirs = [];
+    const skipped = [];
+    let truncated = false;
+    const listDir = async (dirPath) => {
+      const out = [];
+      if (isG) {
+        let pageToken = '';
+        for (let guard = 0; guard < 10; guard++) {
+          const got = await gdrive.listFolder(tok.access_token, dirPath, { limit: 200, pageToken });
+          out.push(...(got.items || []));
+          pageToken = got.nextPageToken || '';
+          if (!pageToken) break;
+        }
+      } else {
+        let offset = 0;
+        for (let guard = 0; guard < 10; guard++) {
+          const got = await yadisk.listFolder(tok.access_token, dirPath, { limit: 200, offset });
+          const items = got.items || [];
+          out.push(...items);
+          offset += items.length;
+          if (!items.length || offset >= got.total) break;
+        }
+      }
+      return out;
+    };
+    const walk = async (dirPath, rel, depth) => {
+      if (files.length >= ZIP_MAX_FILES) { truncated = true; return; }
+      if (depth > ZIP_MAX_DEPTH) { skipped.push({ name: rel || 'папка', why: 'слишком глубоко вложена' }); return; }
+      const items = await listDir(dirPath);
+      for (const it of items) {
+        if (files.length >= ZIP_MAX_FILES) { truncated = true; return; }
+        const tagged = tagPath(prefix, it.path);
+        const name = String(it.name || '');
+        if (!name) continue;
+        const relName = rel ? rel + '/' + name : name;
+        if (it.dir) {
+          dirs.push(relName);
+          await walk(tagged, relName, depth + 1);
+          continue;
+        }
+        if (isG && /^application\/vnd\.google-apps\./.test(String(it.mime || ''))) {
+          skipped.push({ name: relName, why: 'документ Google — его нельзя скачать файлом' });
+          continue;
+        }
+        files.push({ path: tagged, rel: relName, size: Math.max(0, Number(it.size) || 0), mime: String(it.mime || ''), mtime: String(it.modified || '') });
+      }
+    };
+    await walk(rootPath, '', 0);
+    return { isG, slot, files, dirs, skipped, truncated };
+  }
+  /** Поток содержимого файла с Диска: Яндекс отдаёт временную ссылку, Google — байты по токену. */
+  async function zipOpenFile(owner, file, ctx) {
+    if (ctx.isG) {
+      const tok = await gdFreshToken(owner, ctx.slot);
+      if (!tok) throw new Error('Google Диск не подключён');
+      const ac = new AbortController();
+      const r = await fetch(gdrive.mediaUrl('google:/' + gdrive.idOf(file.path)), {
+        headers: { Authorization: 'Bearer ' + tok.access_token }, signal: ac.signal
+      });
+      if (!r.ok || !r.body) { try { ac.abort(); } catch (e) {} throw new Error('Google не отдал файл (код ' + r.status + ')'); }
+      return Readable.fromWeb(r.body);
+    }
+    const tok = await ydFreshToken(owner, yadisk.loadKeys(), ctx.slot);
+    if (!tok) throw new Error('Яндекс.Диск не подключён');
+    const d = await yadisk.downloadHref(tok.access_token, file.path);
+    const r = await fetch(d.href);
+    if (!r.ok || !r.body) throw new Error('Яндекс не отдал файл (код ' + r.status + ')');
+    return Readable.fromWeb(r.body);
+  }
+  /** Имя папки для архива: последний кусок пути (Google пути не имеет — «Диск»). */
+  function zipFolderName(path0) {
+    const p = String(path0 || '');
+    if (gdrive.isGooglePath(p)) return 'Google Диск';
+    const clean = p.replace(/^disk\d*:/, '').replace(/\/+$/, '');
+    const last = clean.split('/').filter(Boolean).pop();
+    return last || 'Диск';
+  }
+
   /** pkg3-127: можно ли участнику слушать файл с Google по белому списку —
    * открытый файл или файл внутри открытой папки (проверяем у Google). */
   async function gdAllowedFor(owner, gp) {
@@ -1835,6 +1971,59 @@ function createApi(store, opts = {}) {
         if (v) head[h.replace(/(^|-)([a-z])/g, (m0, d, c) => d + c.toUpperCase())] = v;
       }
       return { status: up.status, headers: head, pipe: { stream: Readable.fromWeb(up.body), abort: () => ac.abort() } };
+    }
+
+    // pkg3-130: сам архив. Ссылка недолгая и подписанная — вход в заголовке
+    // браузер при «Скачать» не пришлёт, поэтому пропуск живёт в адресе.
+    if (pathname === '/api/yadisk/zip' && method === 'GET') {
+      const tz = zipTicketOpen(String(query.get('t') || ''));
+      if (!tz) return E(403, 'Ссылка на архив устарела — нажмите «Скачать папку» заново');
+      const zipOwner = db.users.find(x => x.id === tz.uid);
+      if (!zipOwner) return E(404, 'Нет такого участника');
+      let wz;
+      try { wz = await zipWalk(zipOwner, tz.path); }
+      catch (e) { return E(e.status === 409 ? 409 : 502, e.message || 'Диск не отвечает'); }
+      const pass = new PassThrough();
+      const zip = new zipLib.ZipWriter(pass);
+      const base = zipLib.safeEntryName(zipFolderName(tz.path)) || 'disk';
+      let fatal = null;
+      const maker = (async () => {
+        try {
+          for (const d of wz.dirs) await zip.addDir(base + '/' + d);
+          for (const f of wz.files) {
+            try {
+              await zip.addFile(base + '/' + f.rel, () => zipOpenFile(zipOwner, f, wz), { mime: f.mime, mtime: f.mtime });
+            } catch (e) {
+              if (e && e.partial) { fatal = e; break; }
+              wz.skipped.push({ name: f.rel, why: (e && e.message) || 'не удалось прочитать' });
+            }
+          }
+          if (fatal) { try { pass.destroy(fatal); } catch (e) {} return; }
+          const notes = [];
+          if (wz.truncated) notes.push('В папке больше ' + ZIP_MAX_FILES + ' файлов — в архив вошли первые ' + ZIP_MAX_FILES + '. Скачайте остальное папками поменьше.');
+          for (const sk of wz.skipped.slice(0, 200)) notes.push('не вошло: ' + sk.name + ' — ' + sk.why);
+          if (notes.length) {
+            const text = 'Что не вошло в архив\n' + '=====================\n\n' + notes.join('\n') + '\n';
+            await zip.addFile(base + '/что-не-вошло.txt', async () => Readable.from([Buffer.from(text, 'utf8')]), { mime: 'text/plain' });
+          }
+          await zip.end();
+          try { pass.end(); } catch (e) {}
+        } catch (e) {
+          try { pass.destroy(e); } catch (e2) {}
+        }
+      })();
+      maker.catch(() => {});
+      return {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': zipLib.disposition(zipFolderName(tz.path)),
+          'Cache-Control': 'private, no-store',
+          'X-Accel-Buffering': 'no'      // nginx не копит архив у себя
+        },
+        cap: zipLib.MAX_ZIP + 32 * 1024 * 1024,
+        pipe: { stream: pass, abort: () => { try { pass.destroy(); } catch (e) {} } }
+      };
     }
 
     // pkg3-126: возвращение со страницы согласия Google.
@@ -3580,6 +3769,43 @@ function createApi(store, opts = {}) {
     // pkg3-124: свежая ссылка на файл с Диска для участника чата. Правила те же,
     // что у музыки (pkg3-121): общий чат + владелец не закрыл Диск + файл
     // открыт (плейлист или «Отправить в чат»). Своему владельцу — всегда.
+    // pkg3-130: «Скачать папку» — сначала честно считаем, что в ней лежит,
+    // и выдаём недолгую ссылку на архив.
+    if (pathname === '/api/yadisk/folder-zip' && method === 'GET') {
+      if (throttle('yd-zip-' + me.id, 60)) return E(429, 'Слишком много архивов подряд — подождите минуту');
+      const rawZ = String(query.get('path') || '');
+      const isGZ = gdrive.isGooglePath(rawZ);
+      const pathZ = isGZ ? gdrive.safePath(rawZ) : yadisk.safePath(rawZ);
+      if (!pathZ) return E(400, isGZ ? 'Неверный путь к папке на Google Диске' : 'Неверный путь к папке на Диске');
+      const ofZ = String(query.get('of') || '');
+      const ownerZ = (!ofZ || ofZ === me.id) ? me : db.users.find(x => x.id === ofZ);
+      const accZ = zipFolderAccess(me, ownerZ, pathZ);
+      if (accZ.err) return accZ.err;
+      let walkZ;
+      try { walkZ = await zipWalk(ownerZ, pathZ); }
+      catch (e) {
+        if (e.status === 401) return E(409, 'Диск отозвал доступ — подключите его заново в «Моих дисках»');
+        if (e.status === 400 || e.status === 403 || e.status === 404 || e.status === 409) return E(e.status, e.message);
+        return E(502, e.message || 'Диск не отвечает');
+      }
+      if (!walkZ.files.length) {
+        return E(400, walkZ.skipped.length
+          ? 'В этой папке нет файлов, которые можно скачать (только документы Google)'
+          : 'В этой папке нет файлов — скачивать нечего');
+      }
+      const bytesZ = walkZ.files.reduce((n, f) => n + f.size, 0);
+      return J(200, {
+        url: '/api/yadisk/zip?t=' + encodeURIComponent(zipTicket(ownerZ.id, pathZ)),
+        name: zipFolderName(pathZ) + '.zip',
+        files: walkZ.files.length,
+        dirs: walkZ.dirs.length,
+        bytes: bytesZ,
+        truncated: !!walkZ.truncated,
+        skipped: walkZ.skipped.slice(0, 20),
+        perm: accZ.perm || 'read'
+      });
+    }
+
     if (pathname === '/api/yadisk/file' && method === 'GET') {
       if (throttle('yd-file-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
       // pkg3-126: файл с Google. Вместо временной ссылки Яндекса — наш короткий

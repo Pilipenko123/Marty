@@ -41,7 +41,10 @@ function cfg() {
     oauthBase: trim(process.env.YADISK_OAUTH_BASE || DEF_OAUTH_BASE),
     apiBase: trim(process.env.YADISK_API_BASE || DEF_API_BASE),
     keysPath: String(process.env.YADISK_KEYS || DEF_KEYS_PATH),
-    redirect: String(process.env.YADISK_REDIRECT || DEF_REDIRECT)
+    redirect: String(process.env.YADISK_REDIRECT || DEF_REDIRECT),
+    // pkg3-130: в тестах «раздающий» адрес Яндекса — игрушечный сервер;
+    // на живом сервере эта настройка пуста и работает только белый список.
+    cdnBase: String(process.env.YADISK_CDN_BASE || '').replace(/\/+$/, '')
   };
 }
 
@@ -305,6 +308,14 @@ function mediaOf(x) {
 
 /** Адрес Яндекса из ответа API — или пусто. Один белый список на всё:
  * браузер получает только ссылки с доменов Яндекса (pkg3-90/124/125). */
+/** pkg3-130: годится ли ссылка на файл (белый список + настройка стенда). */
+function isSafeHref(href, conf) {
+  const s = String(href || '');
+  const c = conf || cfg();
+  if (c.cdnBase && s.startsWith(c.cdnBase + '/')) return true;
+  return /^https:\/\/[a-z0-9.-]*\.(yandex\.net|yandex\.ru|disk\.yandex\.[a-z]+|yadi\.sk)\//i.test(s);
+}
+
 function safeYandexUrl(raw) {
   const href = String(raw || '');
   if (!href) return '';
@@ -396,7 +407,7 @@ async function downloadHref(token, diskPath, c) {
   const href = String(j.href);
   // Белый список: играем только с официальных раздающих доменов Яндекса —
   // если «Яндекс» вдруг ответит чужим адресом, браузер его не получит.
-  if (!/^https:\/\/[a-z0-9.-]*\.(yandex\.net|yandex\.ru|disk\.yandex\.[a-z]+|yadi\.sk)\//i.test(href)) {
+  if (!isSafeHref(href, conf)) {
     const e = new Error('Яндекс вернул подозрительную ссылку — не отдаём её браузеру');
     e.status = 502;
     throw e;

@@ -321,6 +321,7 @@ async function listFolder(token, googlePath, o = {}, c) {
     // fields обязателен: без него Google отдаёт только id и name
     fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink),nextPageToken',
     pageSize: String(pageSize),
+    pageToken: String(o.pageToken || '') || undefined,
     orderBy: 'folder,name',
     includeItemsFromAllDrives: 'true',
     supportsAllDrives: 'true'
@@ -366,7 +367,11 @@ async function listFolder(token, googlePath, o = {}, c) {
       }
     } catch (e) { parent = ''; }
   }
-  return { path: p, items, limit: pageSize, offset: 0, total: items.length, parent, name: folderName };
+  return {
+    path: p, items, limit: pageSize, offset: 0, total: items.length, parent, name: folderName,
+    // pkg3-130: «дальше» — для обхода всей папки в архив (у Google нет offset)
+    nextPageToken: String(r.json.nextPageToken || '')
+  };
 }
 
 /** Все аудиофайлы Диска (для панели «🅖 Google Диск» в «Моей музыке»).
