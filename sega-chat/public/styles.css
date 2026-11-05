@@ -2451,6 +2451,8 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 .dsk .dsk-space{margin-left:auto;font-size:12px;color:var(--muted,#9aa7b4);white-space:nowrap}
 .dsk .dsk-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .dsk .dsk-tools{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:6px 0}
+/* pkg3-125-fix: «Открыть» — обычная кнопка, а не во всю ширину (button.primary) */
+.dsk .dsk-tools .mini{width:auto;flex:0 0 auto}
 .dsk .dsk-gap{flex:0 0 10px}
 .dsk .dsk-tools .mini[disabled]{opacity:.45}
 .dsk .dsk-list{display:block;max-height:48vh;overflow:auto;border:1px solid var(--line,rgba(255,255,255,.08));border-radius:calc(var(--r,26px) / 2.4)}
