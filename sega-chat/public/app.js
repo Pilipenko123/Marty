@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-129';
+const BUILD = 'pkg3-130';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5576,6 +5576,7 @@ function renderDiskWindow() {
       <button class="mini primary" data-dsk-act="open" title="Открыть (или двойной клик по строке)">Открыть</button>
       <button class="mini" data-dsk-act="share" title="Поделиться в чате: файлом или папкой">Поделиться</button>
       <button class="mini" data-dsk-act="dl" title="Скачать на устройство">⬇ Скачать</button>
+      <button class="mini" data-dsk-act="dlfolder" title="Скачать эту папку целиком одним архивом ZIP">⬇ Папку</button>
       <span class="dsk-gap"></span>
       <button class="mini" data-dsk-act="mkdir" ${writable ? '' : 'disabled'} title="Создать папку">Новая папка</button>
       <button class="mini" data-dsk-act="upload" ${writable ? '' : 'disabled'} title="Загрузить файл со своего устройства">Загрузить</button>
@@ -5588,7 +5589,7 @@ function renderDiskWindow() {
         ? 'Google разрешил SEGA-CHAT смотреть и менять файлы: новая папка, загрузка и переименование идут прямо в ваш Google, а «Удалить» убирает в корзину Google (восстановить можно там). Файлы не копируются на сервер.'
         : 'Google разрешил SEGA-CHAT только смотреть файлы — менять, переименовывать и удалять сервер не может. Чтобы разрешить изменения: «＋ Диск» → «Разрешить изменения». Файлы остаются в вашем Google Диске.')
       : (mine
-      ? 'Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку.'
+      ? 'Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку. «⬇ Папку» собирает всю папку с подпапками в один архив ZIP: он идёт потоком, поэтому большой папке нужно время, а место на сервере не занимается.'
       : (writable ? 'Вам открыли эту папку с правом изменения: можно добавлять, переименовывать и удалять внутри.' : 'Вам открыли эту папку только для чтения.'))} Кнопка «Поделиться» отправляет ссылку в чат и открывает доступ только его участникам.</div>
     <input type="file" id="dsk-file" class="hidden" multiple>
   </div>`);
@@ -5632,6 +5633,33 @@ function diskSaveUrl(href, name) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+/** pkg3-130: папка (со всеми подпапками) одним архивом. Сервер сначала считает,
+ * что внутри, и отдаёт недолгую ссылку на готовый ZIP — он собирается потоком. */
+function diskFolderTitle(st) {
+  const p = String((st && st.path) || '');
+  const clean = p.replace(/^(disk|google)\d*:(\/root)?/, '');
+  const last = clean.split('/').filter(Boolean).pop();
+  return last || 'Диск';
+}
+async function diskDownloadFolder(path0, name, of) {
+  const p = String(path0 || '');
+  if (!p) return toast('Сначала откройте папку', true);
+  const mine = !of || (S.me && of === S.me.id);
+  const q = '?path=' + encodeURIComponent(p) + (mine ? '' : '&of=' + encodeURIComponent(of));
+  toast('Собираю архив: ' + (name || 'папка') + '…');
+  try {
+    const r = await api('/api/yadisk/folder-zip' + q);
+    diskSaveUrl(r.url, r.name || 'архив.zip');
+    const files = Number(r.files || 0);
+    const bits = [plural(files, 'файл', 'файла', 'файлов')];
+    if (r.bytes) bits.push(fmtBytes(r.bytes));
+    if (r.truncated) bits.push('в архив вошли не все — папка слишком большая');
+    if (Array.isArray(r.skipped) && r.skipped.length) bits.push('не вошло: ' + r.skipped.length);
+    toast('Скачиваю архив: ' + bits.join(' · '));
+  } catch (e) {
+    toast('Архив не собрался: ' + (e.message || e || 'неизвестная ошибка'), true);
+  }
 }
 async function diskDownloadFile(it, of) {
   try {
@@ -5970,9 +5998,10 @@ document.addEventListener('click', async e => {
     if (act === 'share') { if (!it) return dkToastPick(); return diskShareAsk(it); }
     if (act === 'dl') {
       if (!it) return dkToastPick();
-      if (it.dir) return toast('Папку целиком скачать нельзя — откройте её и скачайте файлы', true);
+      if (it.dir) return diskDownloadFolder(it.path, it.name, st.of);
       return diskDownloadFile(it, st.of);
     }
+    if (act === 'dlfolder') return diskDownloadFolder(st.path, diskFolderTitle(st), st.of);
     if (act === 'rename') { if (!it) return dkToastPick(); return diskRename(it); }
     if (act === 'del') { if (!it) return dkToastPick(); return diskDelete(it); }
     return;

@@ -195,6 +195,17 @@ server {
     listen [::]:80;
     server_name $DOMAIN;
     client_max_body_size 30m;
+    # pkg3-130: архив папки с Диска идёт ПОТОКОМ — nginx не должен копить его
+    # у себя и не должен обрывать долгую сборку.
+    location ^~ /api/yadisk/zip {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
