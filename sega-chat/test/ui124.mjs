@@ -122,10 +122,10 @@ const TOK = 'y0_AgAAAAB124token-with-dots_and-dashes';
 r = await call('/api/yadisk/token', { method: 'POST', body: { token: TOK } }, A.token);
 ok(r.status === 200 && r.d.connected === true, 'Диск подключён вставленным токеном (без модерации Яндекса)');
 r = await call('/api/drives', {}, A.token);
-ok(r.status === 200 && Array.isArray(r.d.drives) && r.d.drives.length === 1, '«Мои диски» отдают список (а не один флаг) — второй диск ляжет сюда же');
+ok(r.status === 200 && Array.isArray(r.d.drives) && r.d.drives.length >= 1, '«Мои диски» отдают список (а не один флаг) — второй диск лёг сюда же в 126-м');
 ok(r.d.drives[0].id === 'yandex' && r.d.drives[0].connected === true, 'яндекс-диск в списке и подключён');
 ok(r.d.drives[0].manual === true, 'видно, что подключён токеном');
-ok(Array.isArray(r.d.soon) && r.d.soon.some(x => x.id === 'google'), 'Google заявлен как следующий диск («скоро»)');
+ok(Array.isArray(r.d.drives) && r.d.drives.some(x => x.id === 'google'), 'Google стал вторым диском списка (в 126-м; раньше был «скоро»)');
 r = await call('/api/drives', {}, B.token);
 ok(r.d.drives[0].connected === false, 'у Клавы свой диск ещё не подключён — и это видно честно');
 
@@ -217,7 +217,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v119', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v120', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui124.mjs'), 'тест ui124 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

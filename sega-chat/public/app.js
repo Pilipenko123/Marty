@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-125';
+const BUILD = 'pkg3-126';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5368,23 +5368,30 @@ const dkMine = () => { const st = diskState(); return !st.of || (S.me && st.of =
  */
 function dkNorm(p) {
   let x = String(p == null ? '' : p).trim();
-  if (x === '' || x === 'disk:') return 'disk:/';
-  if (!x.startsWith('disk:')) x = 'disk:/' + x.replace(/^\/+/, '');
-  x = ('disk:' + x.slice(5)).replace(/\/{2,}/g, '/').replace(/\/+$/, '');
-  return (x === 'disk:' || x === 'disk') ? 'disk:/' : x;
+  // pkg3-126: два диска — у каждого свой корень («disk:/» и «google:/root»).
+  const g = x.startsWith('google:');
+  const prefix = g ? 'google:' : 'disk:';
+  let rest = g ? x.slice(7) : (x.startsWith('disk:') ? x.slice(5) : x);
+  rest = rest.replace(/\/{2,}/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!rest) return g ? 'google:/root' : 'disk:/';
+  return prefix + '/' + rest;
 }
+/** Корень диска по имени: в проводнике это первая точка пути. */
+function dkRoot(drive) { return drive === 'google' ? 'google:/root' : 'disk:/'; }
 /** Родительская папка: из «disk:/Фото/Лето» → «disk:/Фото», из корня — корень. */
 function dkParent(p) {
   const s = dkNorm(p);
-  if (s === 'disk:/') return 'disk:/';
+  if (s === 'disk:/' || s === 'google:/root') return s;
   const i = s.lastIndexOf('/');
-  return i <= 5 ? 'disk:/' : s.slice(0, i);
+  const head = s.slice(0, i);
+  if (head === 'disk:' || head === 'google:') return head === 'google:' ? 'google:/root' : 'disk:/';
+  return head;
 }
 /** Путь внутри папки: «disk:/Фото» + «beach.jpg» → «disk:/Фото/beach.jpg». */
 function dkJoin(dir, name) {
   const base = dkNorm(dir);
   const tail = String(name == null ? '' : name).replace(/^\/+/, '').replace(/\/+$/, '');
-  return base === 'disk:/' ? 'disk:/' + tail : base + '/' + tail;
+  return base + '/' + tail;
 }
 
 /** Открыть диск владельца (свой). */
@@ -5393,8 +5400,9 @@ function openDriveWindow(id) {
   const dr = (d.list || []).find(x => x.id === id);
   if (!dr || !dr.connected) return driveConnectAsk();
   const st = diskState();
-  st.drive = id; st.of = ''; st.perm = 'write'; st.path = 'disk:/'; st.items = []; st.sel = -1;
-  diskBrowse('disk:/');
+  st.drive = id; st.of = ''; st.perm = 'write'; st.path = dkRoot(id); st.items = []; st.sel = -1;
+  st.parent = ''; st.curName = '';
+  diskBrowse(dkRoot(id));
 }
 /** Прочитать папку и перерисовать окно (свою или открытую мне). */
 async function diskBrowse(path, of) {
@@ -5412,6 +5420,11 @@ async function diskBrowse(path, of) {
     if (r.perm) st.perm = r.perm;
     if (r.root) st.root = r.root;
     st.title = r.title || st.title || '';
+    // pkg3-126: у Google нет пути строкой — сервер присылает родителя и имя папки
+    st.parent = r.parent || '';
+    st.curName = r.name || '';
+    // диск определяем по самому пути: так окно не путает Яндекс и Google
+    st.drive = String(st.path).startsWith('google:') ? 'google' : (st.of && !dkMine() ? st.drive : 'yandex');
   } catch (e) {
     st.items = []; st.err = e.message || String(e);
   }
@@ -5420,8 +5433,20 @@ async function diskBrowse(path, of) {
 }
 function diskCrumbsHtml(path, root) {
   const mine = dkMine();
-  const all = dkNorm(path).slice(5).split('/').filter(Boolean);
-  const base = dkNorm(root || 'disk:/').slice(5).split('/').filter(Boolean);
+  const st = diskState();
+  const g = st.drive === 'google';
+  const rootPath = dkRoot(st.drive);
+  const rootLabel = g ? '☁ Google Диск' : (mine ? '☁ Диск' : '☁ Общая папка');
+  // У Google путь — это идентификаторы файлов, человеку их показывать нельзя:
+  // поэтому крошки там — «Google Диск › имя папки».
+  if (g) {
+    let out = `<button class="mini dk-crumb" data-disk-go="${rootPath}" title="Корень Google Диска">${rootLabel}</button>`;
+    const nm = String(st.curName || '');
+    if (dkNorm(path) !== rootPath) out += `<span class="dk-sep">›</span><span class="dk-crumb cur">${escapeHtml(nm || 'папка')}</span>`;
+    return out;
+  }
+  const all = dkNorm(path).replace(/^(disk|google):\//, '').split('/').filter(Boolean);
+  const base = dkNorm(root || 'disk:/').replace(/^(disk|google):\//, '').split('/').filter(Boolean);
   // Чужая папка: выше открытого корня ходить нельзя — корень и есть верхняя точка.
   if (!mine) {
     const rp = base[base.length - 1] || 'папка';
@@ -5434,7 +5459,7 @@ function diskCrumbsHtml(path, root) {
     return out;
   }
   let acc = 'disk:/';
-  let out = `<button class="mini dk-crumb" data-disk-go="disk:/" title="Корень диска">☁ Диск</button>`;
+  let out = `<button class="mini dk-crumb" data-disk-go="disk:/" title="Корень диска">${rootLabel}</button>`;
   all.forEach(seg => {
     acc = (acc === 'disk:/' ? 'disk:/' : acc + '/') + seg;
     out += `<span class="dk-sep">›</span><button class="mini dk-crumb" data-disk-go="${escapeHtml(acc)}">${escapeHtml(seg)}</button>`;
@@ -5461,7 +5486,11 @@ function renderDiskWindow() {
   const d = drivesState();
   const dr = (d.list || []).find(x => x.id === st.drive) || { title: 'Яндекс.Диск' };
   const mine = dkMine();
-  const writable = mine || st.perm === 'write';
+  const g = st.drive === 'google';
+  const atRoot = st.path === dkRoot(st.drive);
+  // pkg3-126: в Google серверу дано только чтение — кнопки правок честно погашены
+  const writable = !g && (mine || st.perm === 'write');
+  const canUp = g ? !!st.parent : !atRoot;
   const rows = st.loading
     ? '<div class="tiny muted disk-wait">Читаю папку на Диске…</div>'
     : st.err
@@ -5472,13 +5501,15 @@ function renderDiskWindow() {
     ? `<span class="dsk-space" title="Всего ${dkSize(st.space.total)}, занято ${dkSize(st.space.used)}">Свободно ${dkSize(st.space.free)} из ${dkSize(st.space.total)}</span>`
     : '';
   const head = mine
-    ? `<b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span>`
-    : `<b>${escapeHtml(st.title || 'Общая папка')}</b> <span class="tiny muted">папка участника · ${st.perm === 'write' ? 'можно менять' : 'только чтение'}</span>`;
+    ? (g
+      ? `<b>${escapeHtml(dr.title || 'Google Диск')}</b> <span class="tiny muted">подключён через Google · только чтение</span>`
+      : `<b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span>`)
+    : `<b>${escapeHtml(st.title || 'Общая папка')}</b> <span class="tiny muted">${g ? 'папка участника с Google · только чтение' : 'папка участника · ' + (st.perm === 'write' ? 'можно менять' : 'только чтение')}</span>`;
   modal('☁ Мои диски', `<div class="disk-win dsk">
     <div class="dsk-bar">
-      <button class="mini" id="dsk-up" title="Наверх" ${st.path === 'disk:/' ? 'disabled' : ''}>↑</button>
+      <button class="mini" id="dsk-up" title="Наверх" ${canUp ? '' : 'disabled'}>↑</button>
       <button class="mini" id="disk-refresh" title="Обновить">⟳</button>
-      <div class="dsk-crumbs disk-crumbs">${diskCrumbsHtml(st.path, mine ? 'disk:/' : (st.root || st.path))}</div>
+      <div class="dsk-crumbs disk-crumbs">${diskCrumbsHtml(st.path, g ? 'google:/root' : (mine ? 'disk:/' : (st.root || st.path)))}</div>
       ${space}
     </div>
     <div class="dsk-head">${head}<button class="mini" data-drive-add="1" title="Подключить ещё диск">＋ Диск</button></div>
@@ -5493,13 +5524,18 @@ function renderDiskWindow() {
       <button class="mini danger" data-dsk-act="del" ${writable ? '' : 'disabled'} title="Удалить (в корзину Диска)">Удалить</button>
     </div>
     <div class="dsk-list disk-list" id="disk-list">${rows}</div>
-    <div class="tiny muted disk-hint">${mine
+    <div class="tiny muted disk-hint">${g
+      ? 'Google разрешил SEGA-CHAT только смотреть файлы: менять, переименовывать и удалять сервер не может. Файлы остаются в вашем Google Диске — они не копируются, а идут к вам через сервер по короткой ссылке.'
+      : (mine
       ? 'Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку.'
-      : (writable ? 'Вам открыли эту папку с правом изменения: можно добавлять, переименовывать и удалять внутри.' : 'Вам открыли эту папку только для чтения.')} Кнопка «Поделиться» отправляет ссылку в чат и открывает доступ только его участникам.</div>
+      : (writable ? 'Вам открыли эту папку с правом изменения: можно добавлять, переименовывать и удалять внутри.' : 'Вам открыли эту папку только для чтения.'))} Кнопка «Поделиться» отправляет ссылку в чат и открывает доступ только его участникам.</div>
     <input type="file" id="dsk-file" class="hidden" multiple>
   </div>`);
   const up = document.getElementById('dsk-up');
-  if (up) up.addEventListener('click', () => diskBrowse(dkParent(diskState().path)));
+  if (up) up.addEventListener('click', () => {
+    const cur = diskState();
+    diskBrowse(cur.drive === 'google' ? (cur.parent || cur.path) : dkParent(cur.path));
+  });
   const rf = document.getElementById('disk-refresh');
   if (rf) rf.addEventListener('click', () => diskBrowse(diskState().path));
   const rt = document.getElementById('disk-retry');
@@ -5633,6 +5669,10 @@ async function diskSendToChat(chatId, it) {
 /* ── изменения содержимого: создать, переименовать, удалить, загрузить ────── */
 async function diskOp(op, path, extra) {
   const st = diskState();
+  if (st.drive === 'google' || String(path || '').startsWith('google:')) {
+    toast('В Google Диске пока только чтение — менять и удалять нельзя', true);
+    throw new Error('readonly');
+  }
   const body = Object.assign({ op, path, of: st.of || '' }, extra || {});
   return api('/api/yadisk/op', { method: 'POST', body });
 }
@@ -5723,6 +5763,7 @@ async function driveConnectAsk() {
   await drivesLoad();
   const d = drivesState();
   const yd = (d.list || []).find(x => x.id === 'yandex') || { connected: false, manual: false };
+  const gd = (d.list || []).find(x => x.id === 'google') || { connected: false, needsKeys: true };
   const soon = (d.soon || []).map(x => `<div class="disk-drv soon"><div class="disk-drv-t"><b>${DRV_ICON[x.id] || '☁'} ${escapeHtml(x.title)}</b> <span class="tiny muted">— в следующем выпуске</span></div></div>`).join('');
   modal('Подключить диск', `<div class="disk-connect">
     <div class="disk-drv">
@@ -5731,6 +5772,19 @@ async function driveConnectAsk() {
         ? `<button class="mini primary" id="drv-open">Открыть диск</button><button class="mini danger" id="drv-off">Отключить</button>`
         : `<button class="mini primary" id="drv-token">Вставить токен</button><button class="mini" id="drv-oauth">Войти через Яндекс</button>`}</div>
       <div class="tiny muted">Токен выдаёт сам Яндекс на полигоне Диска — модерация приложения не нужна, доступ только на чтение. «Войти через Яндекс» работает, когда приложение сервера опубликовано.</div>
+    </div>
+    <div class="disk-drv">
+      <div class="disk-drv-t"><b>🅖 Google Диск</b> ${gd.connected
+        ? '<span class="tiny muted">уже подключён · только чтение</span>'
+        : (gd.needsKeys ? '<span class="tiny muted">нужны ключи приложения</span>' : '<span class="tiny muted">не подключён</span>')}</div>
+      <div class="disk-drv-a">${gd.connected
+        ? `<button class="mini primary" data-drive-open="google">Открыть диск</button><button class="mini danger" id="gd-off">Отключить</button>`
+        : `<button class="mini primary" id="gd-login">Войти через Google</button>`}</div>
+      ${gd.connected
+        ? '<div class="tiny muted">Доступ дан только на чтение: сервер не может ни изменить, ни удалить файлы.</div>'
+        : (gd.needsKeys
+          ? `<div class="tiny muted">${escapeHtml(gd.keysHint || '')}</div>`
+          : '<div class="tiny muted">Нажмите «Войти через Google» — откроется страница Google, где вы разрешите только просмотр файлов.</div>')}
     </div>
     ${soon}
     <div class="tiny muted">Файлы остаются на вашем Диске: сервер их не копирует и места на нём не занимает.</div>
@@ -5867,6 +5921,25 @@ document.addEventListener('click', async e => {
   const drvAdd = e.target.closest('[data-drive-add]');
   if (drvAdd) { closeRail(); driveConnectAsk(); return; }
   if (e.target.closest('#drv-open')) { openDriveWindow('yandex'); return; }
+  if (e.target.closest('#gd-login')) {
+    try {
+      const r = await api('/api/gdrive/auth');
+      if (!r || !r.url) throw new Error('Google не прислал адрес входа');
+      location.href = r.url;      // pkg3-126: страница согласия Google
+    } catch (err) {
+      toast('Не получилось начать вход: ' + (err.message || err), true);
+    }
+    return;
+  }
+  if (e.target.closest('#gd-off')) {
+    if (!confirm('Отключить Google Диск? Файлы у Google останутся, просто чат их больше не увидит.')) return;
+    try {
+      await api('/api/gdrive/disconnect', { method: 'POST', body: {} });
+      await drivesLoad(); toast('Google Диск отключён');
+      driveConnectAsk();
+    } catch (err) { toast('Не получилось: ' + (err.message || err), true); }
+    return;
+  }
   if (e.target.closest('#drv-token')) { hide($('#modal')); driveTokenAsk(); return; }
   if (e.target.closest('#drv-oauth')) { hide($('#modal')); await ydConnect(); await drivesLoad(); return; }
   if (e.target.closest('#drv-off')) {

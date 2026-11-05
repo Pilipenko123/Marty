@@ -12,9 +12,11 @@
  */
 
 const crypto = require('crypto');
+const { Readable } = require('stream');   // pkg3-126: файлы Google отдаём потоком
 const backup = require('./backup');
 const smtp = require('./smtp.js');   // pkg3-64: письма привязки почты и восстановления (без новых зависимостей)
 const yadisk = require('./yadisk.js');   // pkg3-90: Яндекс.Диск — облачное хранилище «Моей музыки» (без новых зависимостей)
+const gdrive = require('./gdrive.js');   // pkg3-126: Google Диск — второй диск, только чтение
 const mussearch = require('./mussearch.js');   // pkg3-97: поиск треков с прямыми ссылками по выбранным сайтам
 const musstream = require('./musstream.js');   // pkg3-101: запасной путь звука — поток через сервер
 const emoji = require('./emoji.js');         // pkg3-108: смайлы отдаёт наш сервер (копия в памяти)
@@ -22,7 +24,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-125';
+const BUILD = 'pkg3-126';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -189,6 +191,8 @@ function createApi(store, opts = {}) {
   // Сам звук идёт с серверов Яндекса прямо в браузер — через VPS музыка НЕ
   // течёт и место на диске сервера не ест. lib/yadisk.js — вся механика.
   const ydStates = new Map();   // одноразовый state -> { uid, exp } (защита от подделки ответа Яндекса)
+  // pkg3-126: то же для Google Диска.
+  const gdStates = new Map();   // одноразовый state -> { uid, exp }
   const YD_STATE_TTL = 10 * 60 * 1000;
   const YD_KEYS_HINT = 'На сервере ещё нет ключей приложения Яндекса: положите файл /opt/sega/keys/yandex-oauth.json (инструкция pkg3-90)';
   function ydPrune(now) {
@@ -225,6 +229,91 @@ function createApi(store, opts = {}) {
     }
     return tok;
   }
+  /** pkg3-126: свежий токен Google. Просроченный обновляем сами по refresh_token —
+   * владельцу не надо ничего нажимать. */
+  async function gdFreshToken(u) {
+    const rec = u && u.gdrive;
+    if (!rec || typeof rec.blob !== 'string') return null;
+    const keys = gdrive.loadKeys();
+    if (!keys) return null;
+    const tk = gdrive.tokenKey(keys.clientSecret);
+    let tok = gdrive.openToken(tk, rec.blob);
+    if (!tok) return null;
+    if (tok.expires_at && tok.expires_at < Date.now() + 5 * 60 * 1000) {
+      if (!tok.refresh_token) return null;
+      try {
+        const nt = await gdrive.refreshTokens(tok.refresh_token);
+        tok = Object.assign({}, tok, nt, { refresh_token: nt.refresh_token || tok.refresh_token });
+        u.gdrive = { blob: gdrive.sealToken(tk, tok), at: Date.now() };
+        save();
+      } catch (e) { return null; }
+    }
+    return tok;
+  }
+  /** pkg3-126: у Google нет пути строкой, поэтому «внутри ли файл открытой
+   * папки» узнаём у самого Google, поднимаясь по родителям (не глубже 12 шагов).
+   * Ответ запоминаем на минуту: одни и те же файлы не дёргаем зря. */
+  const gdInsideCache = new Map();
+  async function gdInside(token, fileId, rootId) {
+    if (!fileId || !rootId) return false;
+    if (fileId === rootId) return true;
+    const key = rootId + '|' + fileId;
+    const hit = gdInsideCache.get(key);
+    if (hit && Date.now() - hit.at < 60 * 1000) return hit.ok;
+    let level = [];
+    try { level = await gdrive.parentsOf(token, fileId); } catch (e) { level = []; }
+    let found = false;
+    for (let i = 0; i < 12 && level.length; i++) {
+      if (level.includes(rootId)) { found = true; break; }
+      const next = [];
+      for (const par of level.slice(0, 3)) {
+        try { next.push(...await gdrive.parentsOf(token, par)); } catch (e) { /* папка недоступна */ }
+      }
+      level = next;
+    }
+    gdInsideCache.set(key, { at: Date.now(), ok: found });
+    return found;
+  }
+
+  /** Место на Google Диске спрашиваем не чаще раза в минуту на участника. */
+  const gdSpaceCache = new Map();
+  async function gdSpace(uid, token) {
+    const hit = gdSpaceCache.get(uid);
+    if (hit && Date.now() - hit.at < 60 * 1000) return hit.space;
+    const space = await gdrive.aboutSpace(token);
+    gdSpaceCache.set(uid, { at: Date.now(), space });
+    return space;
+  }
+  /** pkg3-126: короткий пропуск на файл Google. Подписан секретом сервера, живёт
+   * 30 минут: браузер (тег <video> и «скачать») не умеет слать заголовок входа,
+   * а токен Google в адрес класть нельзя. */
+  const GD_TICKET_TTL = 30 * 60 * 1000;
+  function gdSign(payload) {
+    return crypto.createHmac('sha256', String(db.serverSecret) + ':gd-ticket').update(payload).digest('base64url');
+  }
+  function gdTicket(uid, fileId) {
+    const raw = String(uid) + '|' + (Date.now() + GD_TICKET_TTL) + '|' + String(fileId);
+    return Buffer.from(raw, 'utf8').toString('base64url') + '.' + gdSign(raw);
+  }
+  function gdTicketOpen(t) {
+    const str = String(t || '');
+    const i = str.indexOf('.');
+    if (i < 1) return null;
+    let raw = '';
+    try { raw = Buffer.from(str.slice(0, i), 'base64url').toString('utf8'); } catch (e) { return null; }
+    const a = Buffer.from(gdSign(raw));
+    const b = Buffer.from(str.slice(i + 1));
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const parts = raw.split('|');
+    if (parts.length < 3) return null;
+    const uid = parts[0];
+    const exp = Number(parts[1]);
+    const id = parts.slice(2).join('|');
+    if (!uid || !(exp > Date.now())) return null;
+    if (!/^[A-Za-z0-9_-]{2,200}$/.test(id)) return null;
+    return { uid, id };
+  }
+
   /** pkg3-124: открыт ли путь на Диске участника другим людям. Годится и для
    * музыки из ОТКРЫТЫХ плейлистов (pkg3-121), и для файла, которым владелец
    * поделился явно кнопкой «Отправить в чат». Второй список — единственное
@@ -1533,6 +1622,72 @@ function createApi(store, opts = {}) {
         if (e.code === 'busy') return E(503, e.message);
         if (e.code === 'denied') return E(403, e.message);
         return E(502, e.message || 'Источник не отдал звук');
+      }
+    }
+
+    // pkg3-126: файл с Google Диска течёт через сервер по короткому пропуску.
+    // Пропуск подписан секретом сервера и живёт 30 минут: тег <video> и кнопка
+    // «скачать» не умеют слать заголовок входа, а токен Google в адрес класть нельзя.
+    if (pathname === '/api/gdrive/stream' && method === 'GET') {
+      const t = gdTicketOpen(String(query.get('t') || ''));
+      if (!t) return E(403, 'Ссылка на файл устарела — откройте его заново');
+      const gOwner2 = db.users.find(x => x.id === t.uid);
+      if (!gOwner2) return E(404, 'Нет такого участника');
+      const gTok3 = await gdFreshToken(gOwner2);
+      if (!gTok3) return E(409, 'Google Диск не подключён — подключите его в «Моих дисках»');
+      const range = req.headers && req.headers.range ? String(req.headers.range) : '';
+      const ac = new AbortController();
+      let up;
+      try {
+        up = await fetch(gdrive.mediaUrl('google:/' + t.id), {
+          headers: Object.assign({ Authorization: 'Bearer ' + gTok3.access_token }, range ? { Range: range } : {}),
+          signal: ac.signal
+        });
+      } catch (e) { return E(502, 'Google не отдал файл — попробуйте ещё раз'); }
+      if (up.status !== 200 && up.status !== 206) {
+        try { ac.abort(); } catch (e) {}
+        if (up.status === 404) return E(404, 'Google не нашёл этот файл');
+        if (up.status === 401 || up.status === 403) return E(403, 'Google не пустил к этому файлу');
+        return E(502, 'Google не отдал файл (код ' + up.status + ')');
+      }
+      const head = {
+        'Content-Type': up.headers.get('content-type') || 'application/octet-stream',
+        'Cache-Control': 'private, max-age=0'
+      };
+      for (const h of ['content-length', 'content-range', 'accept-ranges']) {
+        const v = up.headers.get(h);
+        if (v) head[h.replace(/(^|-)([a-z])/g, (m0, d, c) => d + c.toUpperCase())] = v;
+      }
+      return { status: up.status, headers: head, pipe: { stream: Readable.fromWeb(up.body), abort: () => ac.abort() } };
+    }
+
+    // pkg3-126: возвращение со страницы согласия Google.
+    if (pathname === '/api/gdrive/callback' && method === 'GET') {
+      const st = String(query.get('state') || '');
+      const rec = st ? gdStates.get(st) : null;
+      if (rec) gdStates.delete(st);   // одноразовый при любом исходе
+      const errQ = String(query.get('error') || '');
+      if (errQ) {
+        return ydPage('Доступ не выдан', errQ === 'access_denied'
+          ? 'На странице Google доступ к Диску отклонили. Вернитесь в чат и нажмите «Войти через Google» ещё раз, если передумали.'
+          : 'Google вернул ошибку: ' + errQ, false);
+      }
+      if (!rec || rec.exp < Date.now()) {
+        return ydPage('Ссылка устарела', 'Запрос на подключение истёк или уже использован. Вернитесь в чат и нажмите «Войти через Google» заново.', false);
+      }
+      const u = db.users.find(x => x.id === rec.uid);
+      if (!u) return ydPage('Участник не найден', 'Учётная запись, начавшая подключение, больше не существует.', false);
+      const gkeys = gdrive.loadKeys();
+      if (!gkeys) return ydPage('Сервер не готов', gdrive.KEYS_HINT, false);
+      const code = String(query.get('code') || '');
+      if (!code) return ydPage('Google не передал код', 'Вернитесь в чат и нажмите «Войти через Google» ещё раз.', false);
+      try {
+        const tok = await gdrive.exchangeCode(code);
+        u.gdrive = { blob: gdrive.sealToken(gdrive.tokenKey(gkeys.clientSecret), tok), at: Date.now() };
+        save();
+        return ydPage('Google Диск подключён!', 'Сервер получил право ТОЛЬКО читать файлы: менять и удалять он не может. Вернитесь в чат → «☁ Мои диски» → «Google Диск».', true);
+      } catch (e) {
+        return ydPage('Не получилось подключить', (e && e.message) || 'Неизвестная ошибка', false);
       }
     }
 
@@ -3089,14 +3244,27 @@ function createApi(store, opts = {}) {
           ? !!yadisk.openToken(yadisk.tokenKey(String(db.serverSecret) + ':yd-manual'), me.yadisk.blob)
           : (keys ? !!yadisk.openToken(yadisk.tokenKey(keys.clientSecret), me.yadisk.blob) : false);
       }
+      // pkg3-126: второй диск — Google. Право только на чтение, и это сказано
+      // в самой строке раздела, чтобы никто не ждал от него загрузки.
+      const gkeys = gdrive.loadKeys();
+      let gconnected = false;
+      if (me.gdrive && typeof me.gdrive.blob === 'string' && gkeys) {
+        gconnected = !!gdrive.openToken(gdrive.tokenKey(gkeys.clientSecret), me.gdrive.blob);
+      }
       return J(200, {
         drives: [{
           id: 'yandex', title: 'Яндекс.Диск', connected,
           manual: !!(me.yadisk && me.yadisk.manual),
           shared: (Array.isArray(me.diskShared) ? me.diskShared.length : 0),
           needsKeys: !keys
+        }, {
+          id: 'google', title: 'Google Диск', connected: gconnected, manual: false,
+          readonly: true,
+          shared: (Array.isArray(me.diskShared) ? me.diskShared.filter(x => gdrive.isGooglePath(x && x.path)).length : 0),
+          needsKeys: !gkeys,
+          keysHint: gkeys ? '' : gdrive.KEYS_HINT
         }],
-        soon: [{ id: 'google', title: 'Google Диск' }]
+        soon: []
       });
     }
     // pkg3-124: содержимое папки Диска — папки и файлы любых типов. Маршрут
@@ -3104,6 +3272,25 @@ function createApi(store, opts = {}) {
     // по открытым файлам (ниже, /api/yadisk/file).
     if (pathname === '/api/yadisk/list' && method === 'GET') {
       if (throttle('yd-list-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
+      // pkg3-126: путь начинается с «google:/» — читаем Google, остальное — Яндекс.
+      const rawListPath = String(query.get('path') || 'disk:/');
+      if (gdrive.isGooglePath(rawListPath)) {
+        const gkeys0 = gdrive.loadKeys();
+        const gtok = await gdFreshToken(me);
+        if (!gtok) return E(409, gkeys0 ? 'Google Диск не подключён — подключите его в «Моих дисках»' : gdrive.KEYS_HINT);
+        const gp = gdrive.safePath(rawListPath);
+        if (!gp) return E(400, 'Неверный путь к папке на Google Диске');
+        try {
+          const got = await gdrive.listFolder(gtok.access_token, gp, { limit: query.get('limit') });
+          let space = null;
+          try { space = await gdSpace(me.id, gtok.access_token); } catch (e) { space = null; }
+          return J(200, Object.assign({}, got, { space, drive: 'google' }));
+        } catch (e) {
+          if (e.status === 401) { delete me.gdrive; save(); return E(409, 'Google отозвал доступ — подключите Диск заново'); }
+          if (e.status === 400 || e.status === 403 || e.status === 404) return E(e.status, e.message);
+          return E(502, e.message || 'Google Диск не отвечает');
+        }
+      }
       const keys = yadisk.loadKeys();
       const tok = await ydFreshToken(me, keys);
       if (!tok) return E(409, keys ? 'Яндекс.Диск не подключён (или связь с ним истекла) — подключите его в «Моих дисках»' : YD_KEYS_HINT);
@@ -3127,13 +3314,16 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/yadisk/share-file' && method === 'POST') {
       if (throttle('yd-sharef-' + me.id, 120)) return E(429, 'Слишком часто — подождите минуту');
       const b = req.body || {};
-      const path = yadisk.safePath(String(b.path || ''));
-      if (!path) return E(400, 'Неверный путь к файлу на Диске');
+      // pkg3-126: открывать можно и файл/папку с Google Диска
+      const isG = gdrive.isGooglePath(String(b.path || ''));
+      const path = isG ? gdrive.safePath(String(b.path || '')) : yadisk.safePath(String(b.path || ''));
+      if (!path) return E(400, isG ? 'Неверный путь к файлу на Google Диске' : 'Неверный путь к файлу на Диске');
       const name = String(b.name || path.split('/').pop() || 'файл').slice(0, 200);
       const media = ['audio', 'image', 'video', 'doc', 'other'].includes(String(b.media)) ? String(b.media) : 'other';
-      // pkg3-125: можно открыть ПАПКУ — на чтение или на изменение
+      // pkg3-125: можно открыть ПАПКУ — на чтение или на изменение.
+      // pkg3-126: у Google серверу дано только чтение, поэтому право там всегда «смотреть».
       const kind = String(b.kind) === 'folder' ? 'folder' : 'file';
-      const perm = kind === 'folder' && String(b.perm) === 'write' ? 'write' : 'read';
+      const perm = (!isG && kind === 'folder' && String(b.perm) === 'write') ? 'write' : 'read';
       const list = Array.isArray(me.diskShared) ? me.diskShared : (me.diskShared = []);
       const had = list.find(x => x && x.path === path);
       if (had) { had.name = name; had.media = media; had.kind = kind; had.perm = perm; had.at = Date.now(); }
@@ -3145,7 +3335,8 @@ function createApi(store, opts = {}) {
       return J(200, { ok: true, shared: list.length });
     }
     if (pathname === '/api/yadisk/unshare-file' && method === 'POST') {
-      const path = yadisk.safePath(String((req.body || {}).path || ''));
+      const rawUn = String((req.body || {}).path || '');
+      const path = gdrive.isGooglePath(rawUn) ? gdrive.safePath(rawUn) : yadisk.safePath(rawUn);
       if (!path) return E(400, 'Неверный путь к файлу на Диске');
       me.diskShared = (Array.isArray(me.diskShared) ? me.diskShared : []).filter(x => !x || x.path !== path);
       save();
@@ -3156,6 +3347,60 @@ function createApi(store, opts = {}) {
     // открыт (плейлист или «Отправить в чат»). Своему владельцу — всегда.
     if (pathname === '/api/yadisk/file' && method === 'GET') {
       if (throttle('yd-file-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
+      // pkg3-126: файл с Google. Вместо временной ссылки Яндекса — наш короткий
+      // пропуск: байты идут через сервер, потому что Google иначе не отдаёт.
+      if (gdrive.isGooglePath(String(query.get('path') || ''))) {
+        const gp = gdrive.safePath(String(query.get('path') || ''));
+        if (!gp) return E(400, 'Неверный путь к файлу на Google Диске');
+        const gOf = String(query.get('of') || '');
+        const gOwner = (!gOf || gOf === me.id) ? me : db.users.find(x => x.id === gOf);
+        if (!gOwner) return E(404, 'Нет такого участника');
+        if (gOwner.id !== me.id) {
+          if (gOwner.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+          if (!ydCommonChat(me.id, gOwner.id)) return E(404, 'Этот человек не из ваших чатов');
+          let entG = ydSharedPick(gOwner, gp);
+          if (!entG) {
+            const foldersG = (Array.isArray(gOwner.diskShared) ? gOwner.diskShared : [])
+              .filter(x => x && x.kind === 'folder' && gdrive.isGooglePath(x.path));
+            if (foldersG.length) {
+              try {
+                const tkG = await gdFreshToken(gOwner);
+                for (const fG of foldersG) {
+                  if (tkG && await gdInside(tkG.access_token, gdrive.idOf(gp), gdrive.idOf(fG.path))) {
+                    entG = { path: fG.path, name: fG.name, kind: 'folder', perm: 'read' };
+                    break;
+                  }
+                }
+              } catch (e) { entG = null; }
+            }
+          }
+          if (!entG) return E(404, 'Участник не открывал этот файл другим');
+          if (entG.kind === 'folder' && gp === entG.path) {
+            return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: entG.name || 'папка', perm: 'read' });
+          }
+        }
+        const gtok2 = await gdFreshToken(gOwner);
+        if (!gtok2) return E(409, gOwner.id === me.id ? 'Google Диск не подключён' : 'У этого участника Google Диск не подключён');
+        try {
+          const meta2 = await gdrive.fileMeta(gtok2.access_token, gp);
+          if (meta2.dir) {
+            const metaG = (Array.isArray(gOwner.diskShared) ? gOwner.diskShared : []).find(x => x && x.path === gp) || {};
+            return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: metaG.name || meta2.name, perm: 'read' });
+          }
+          const metaS = (Array.isArray(gOwner.diskShared) ? gOwner.diskShared : []).find(x => x && x.path === gp) || {};
+          return J(200, {
+            href: '/api/gdrive/stream?t=' + encodeURIComponent(gdTicket(gOwner.id, gdrive.idOf(gp))),
+            ttl: Math.round(GD_TICKET_TTL / 1000),
+            of: gOwner.id, drive: 'google', path: gp,
+            name: metaS.name || meta2.name,
+            media: meta2.media,
+            size: Math.max(0, Number(meta2.size) || 0)
+          });
+        } catch (e) {
+          if (e.status === 400 || e.status === 403 || e.status === 404) return E(e.status, e.message);
+          return E(502, e.message || 'Google Диск не отвечает');
+        }
+      }
       const of = String(query.get('of') || '');
       const path = yadisk.safePath(String(query.get('path') || ''));
       if (!path) return E(400, 'Неверный путь к файлу на Диске');
@@ -3188,9 +3433,31 @@ function createApi(store, opts = {}) {
         return E(502, e.message || 'Яндекс.Диск не отвечает');
       }
     }
+    // pkg3-126: начать вход в Google (браузеру отдаём адрес страницы согласия).
+    if (pathname === '/api/gdrive/auth' && method === 'GET') {
+      if (throttle('gd-auth-' + me.id, 20)) return E(429, 'Слишком часто — подождите минуту');
+      if (!gdrive.loadKeys()) return E(409, gdrive.KEYS_HINT);
+      const st = crypto.randomBytes(16).toString('hex');
+      gdStates.set(st, { uid: me.id, exp: Date.now() + 10 * 60 * 1000 });
+      try { return J(200, { url: gdrive.buildAuthUrl(st) }); }
+      catch (e) { return E(409, (e && e.message) || 'Не удалось начать вход в Google'); }
+    }
+    // pkg3-126: отключить Google (файлы у Google остаются, доступ отзываем у нас).
+    if (pathname === '/api/gdrive/disconnect' && method === 'POST') {
+      delete me.gdrive;
+      save();
+      return J(200, { ok: true });
+    }
     // pkg3-125: свободное место моего Диска (проводник показывает строку «Свободно…»)
     if (pathname === '/api/yadisk/space' && method === 'GET') {
       if (throttle('yd-space-' + me.id, 120)) return E(429, 'Слишком часто — подождите минуту');
+      if (String(query.get('drive') || '') === 'google') {
+        const gk = gdrive.loadKeys();
+        const gt = await gdFreshToken(me);
+        if (!gt) return E(409, gk ? 'Google Диск не подключён' : gdrive.KEYS_HINT);
+        try { return J(200, await gdSpace(me.id, gt.access_token)); }
+        catch (e) { return E(502, e.message || 'Google Диск не отвечает'); }
+      }
       const keysS = yadisk.loadKeys();
       const tokS = await ydFreshToken(me, keysS);
       if (!tokS) return E(409, keysS ? 'Яндекс.Диск не подключён' : YD_KEYS_HINT);
@@ -3205,8 +3472,10 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/yadisk/shared-list' && method === 'GET') {
       if (throttle('yd-shl-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
       const of = String(query.get('of') || '');
-      const path0 = yadisk.safePath(String(query.get('path') || ''));
-      if (!path0) return E(400, 'Неверный путь к папке на Диске');
+      const rawShared = String(query.get('path') || '');
+      const isG = gdrive.isGooglePath(rawShared);
+      const path0 = isG ? gdrive.safePath(rawShared) : yadisk.safePath(rawShared);
+      if (!path0) return E(400, isG ? 'Неверный путь к папке на Google Диске' : 'Неверный путь к папке на Диске');
       const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
       if (!owner) return E(404, 'Нет такого участника');
       let ent = null;
@@ -3215,6 +3484,23 @@ function createApi(store, opts = {}) {
         if (!ydCommonChat(me.id, owner.id)) return E(404, 'Этот человек не из ваших чатов');
         ent = ydSharedPick(owner, path0);
         if (!ent || ent.kind !== 'folder') return E(404, 'Эта папка вам не открыта');
+      }
+      // pkg3-126: Google — только чтение, поэтому право всегда «смотреть»
+      if (isG) {
+        try {
+          const gtL = await gdFreshToken(owner);
+          if (!gtL) return E(409, 'Google Диск у владельца не подключён');
+          const gotG = await gdrive.listFolder(gtL.access_token, path0, { limit: query.get('limit') });
+          return J(200, Object.assign({}, gotG, {
+            of: owner.id, drive: 'google',
+            root: ent ? ent.path : 'google:/root',
+            perm: 'read',
+            title: ent ? (ent.name || ent.path) : 'Google Диск'
+          }));
+        } catch (e) {
+          if (e.status === 400 || e.status === 403 || e.status === 404) return E(e.status, e.message);
+          return E(502, e.message || 'Google Диск не отвечает');
+        }
       }
       try {
         const tokL = await ydFreshToken(owner, yadisk.loadKeys());
@@ -3242,6 +3528,9 @@ function createApi(store, opts = {}) {
       const of = String(b.of || '');
       const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
       if (!owner) return E(404, 'Нет такого участника');
+      if (gdrive.isGooglePath(String(b.path || ''))) {
+        return E(409, 'В Google Диске пока только чтение: менять, переименовывать и удалять нельзя. Создавайте папки и загружайте файлы в Яндекс.Диске.');
+      }
       const path = yadisk.safePath(String(b.path || ''));
       const to = b.to ? yadisk.safePath(String(b.to)) : null;
       if (!path || path === 'disk:/') return E(400, 'Неверный путь');
@@ -3283,6 +3572,9 @@ function createApi(store, opts = {}) {
       const of = String(query.get('of') || '');
       const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
       if (!owner) return E(404, 'Нет такого участника');
+      if (gdrive.isGooglePath(String(query.get('path') || ''))) {
+        return E(409, 'Загружать файлы в Google Диск пока нельзя — серверу дано только право чтения. Выберите Яндекс.Диск.');
+      }
       const path = yadisk.safePath(String(query.get('path') || ''));
       if (!path || path === 'disk:/') return E(400, 'Неверный путь файла');
       if (owner.id !== me.id) {
