@@ -5360,14 +5360,32 @@ function diskState() {
   return st;
 }
 const dkMine = () => { const st = diskState(); return !st.of || (S.me && st.of === S.me.id); };
-const dkParent = p => {
-  const s = String(p || 'disk:/').replace(/\/+$/, '');
+/**
+ * pkg3-125-fix: путь на Диске в одном виде — «disk:/Папка/Внутри».
+ * Беда 125-го: обрезка хвостовых косых превращала корень `disk:/` в `disk:`,
+ * сервер отвечал «Неверный путь к папке на Диске», и список был пустым
+ * (владелец видел пустое окно и «Сначала выберите файл или папку»).
+ */
+function dkNorm(p) {
+  let x = String(p == null ? '' : p).trim();
+  if (x === '' || x === 'disk:') return 'disk:/';
+  if (!x.startsWith('disk:')) x = 'disk:/' + x.replace(/^\/+/, '');
+  x = ('disk:' + x.slice(5)).replace(/\/{2,}/g, '/').replace(/\/+$/, '');
+  return (x === 'disk:' || x === 'disk') ? 'disk:/' : x;
+}
+/** Родительская папка: из «disk:/Фото/Лето» → «disk:/Фото», из корня — корень. */
+function dkParent(p) {
+  const s = dkNorm(p);
+  if (s === 'disk:/') return 'disk:/';
   const i = s.lastIndexOf('/');
-  if (i <= 0) return 'disk:/';
-  const up = s.slice(0, i);
-  return up === 'disk' ? 'disk:/' : up;
-};
-const dkJoin = (dir, name) => String(dir || 'disk:/').replace(/\/+$/, '') + '/' + String(name || '').replace(/^\/+/, '');
+  return i <= 5 ? 'disk:/' : s.slice(0, i);
+}
+/** Путь внутри папки: «disk:/Фото» + «beach.jpg» → «disk:/Фото/beach.jpg». */
+function dkJoin(dir, name) {
+  const base = dkNorm(dir);
+  const tail = String(name == null ? '' : name).replace(/^\/+/, '').replace(/\/+$/, '');
+  return base === 'disk:/' ? 'disk:/' + tail : base + '/' + tail;
+}
 
 /** Открыть диск владельца (свой). */
 function openDriveWindow(id) {
@@ -5382,7 +5400,7 @@ function openDriveWindow(id) {
 async function diskBrowse(path, of) {
   const st = diskState();
   if (of !== undefined) { st.of = of || ''; st.sel = -1; }
-  st.path = String(path || 'disk:/').replace(/\/+$/, '') || 'disk:/';
+  st.path = dkNorm(path);   // «disk:/» остаётся собой, двойные косые убираются
   st.loading = true; st.err = '';
   renderDiskWindow();
   try {
@@ -5402,8 +5420,8 @@ async function diskBrowse(path, of) {
 }
 function diskCrumbsHtml(path, root) {
   const mine = dkMine();
-  const all = String(path || 'disk:/').replace(/^disk:\//, '').split('/').filter(Boolean);
-  const base = String(root || 'disk:/').replace(/^disk:\//, '').split('/').filter(Boolean);
+  const all = dkNorm(path).slice(5).split('/').filter(Boolean);
+  const base = dkNorm(root || 'disk:/').slice(5).split('/').filter(Boolean);
   // Чужая папка: выше открытого корня ходить нельзя — корень и есть верхняя точка.
   if (!mine) {
     const rp = base[base.length - 1] || 'папка';
