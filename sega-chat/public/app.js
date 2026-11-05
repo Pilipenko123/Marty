@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-126';
+const BUILD = 'pkg3-127';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4663,6 +4663,7 @@ const musicIsWidget = t => !!(t && t.kind === 'widget');
  * у Яндекса свежую короткоживущую ссылку (href). Файл остаётся на Диске:
  * ни сервер, ни устройство музыку не скачивают и не хранят. */
 const MUS_DISK = 'yadisk';   // id «псевдоплейлиста» Яндекс.Диска в левом столбце
+const MUS_GDISK = 'gdisk';   // pkg3-127: то же для Google Диска
 const musicIsDisk = t => !!(t && t.kind === 'disk');
 /** pkg3-88: разбор вставленного текста — код плеера, ссылка Яндекса или файл.
  * Сам разбор живёт в music-paste.js: он «чистый» (без сети и DOM) и покрыт
@@ -5140,7 +5141,8 @@ function musWidgetStop() {
  * Доступ к Диску — только чтение, по токену, который владелец выдал Яндексу
  * на странице согласия; токен хранится на сервере зашифрованным. */
 function ydState() {
-  if (!S.yadisk) S.yadisk = { keys: false, connected: false, files: [], offset: 0, more: false, fetching: false };
+  if (!S.yadisk) S.yadisk = { keys: false, connected: false, files: [], offset: 0, more: false, fetching: false, drive: 'yandex' };
+  if (!S.yadisk.drive) S.yadisk.drive = 'yandex';   // pkg3-127: yandex | google
   return S.yadisk;
 }
 const ydFmtSize = n => {
@@ -5193,12 +5195,23 @@ function ydBar(html) {
 /** Панель Диска: проверка соединения, потом список файлов. */
 async function ydPaneStart() {
   const y = ydState();
-  ydBar('Проверяю соединение с Яндекс.Диском…');
+  const g = y.drive === 'google';
+  ydBar(g ? 'Проверяю соединение с Google Диском…' : 'Проверяю соединение с Яндекс.Диском…');
   try {
-    const s = await api('/api/yadisk/state');
-    y.keys = !!s.keys; y.connected = !!s.connected;
-    y.share = s.share !== false;   // pkg3-121: открыт ли мой Диск другим участникам
-    y.manual = !!s.manual;         // pkg3-123: подключён своим приложением или токеном
+    if (g) {
+      // pkg3-127: состояние Google берём из общего списка дисков
+      const d = await drivesLoad();
+      const card = (d.list || []).find(x => x.id === 'google') || {};
+      y.keys = !card.needsKeys;
+      y.connected = !!card.connected;
+      y.manual = false;
+      y.share = false;
+    } else {
+      const s = await api('/api/yadisk/state');
+      y.keys = !!s.keys; y.connected = !!s.connected;
+      y.share = s.share !== false;   // pkg3-121: открыт ли мой Диск другим участникам
+      y.manual = !!s.manual;         // pkg3-123: подключён своим приложением или токеном
+    }
   } catch (e) {
     ydBar('Сервер не отвечает: ' + escapeHtml(e.message || String(e)));
     return;
@@ -5209,6 +5222,15 @@ async function ydPaneStart() {
 /** Диск не подключён: честно показываем, чего не хватает, и что нажать. */
 function ydRenderOff() {
   const y = ydState();
+  if (y.drive === 'google') {
+    ydBar('🅖 Google Диск не подключён.'
+      + '<br><span class="tiny muted">Откройте «☁ Мои диски» → «＋ Диск» → «Войти через Google». Доступ даётся только на просмотр: изменить или удалить файлы сервер не сможет.</span>'
+      + (y.keys ? '' : '<br><span class="tiny muted">На сервере пока нет ключей Google — окно «Мои диски» покажет шаги создания приложения.</span>')
+      + '<br><button class="mini primary" id="mus-gdisk-go">Открыть «Мои диски»</button>');
+    const go = document.getElementById('mus-gdisk-go');
+    if (go) go.addEventListener('click', () => { hide($('#modal')); driveConnectAsk(); });
+    return;
+  }
   if (!y.keys) {
     ydBar('⚠️ На сервере ещё нет ключей приложения Яндекса.'
       + '<br><span class="tiny muted">Ключи один раз кладутся на сервер в файл <b>/opt/sega/keys/yandex-oauth.json</b> — это делается по инструкции, которая пришла вместе с pkg3-90. Когда положите — нажмите «Обновить».</span>'
@@ -5970,11 +5992,12 @@ async function ydLoadFiles(reset) {
   if (reset) { y.offset = 0; y.more = false; }
   ydBar(reset ? 'Загружаю список аудиофайлов с Диска…' : 'Загружаю следующую страницу…');
   try {
-    const r = await api('/api/yadisk/files?limit=200&offset=' + y.offset);
+    const gsrc = y.drive === 'google';
+    const r = await api('/api/yadisk/files?limit=200&offset=' + (gsrc ? 0 : y.offset) + (gsrc ? '&drive=google' : ''));
     const items = Array.isArray(r.items) ? r.items : [];
     y.files = reset ? items : y.files.concat(items);
-    y.offset = y.offset + items.length;
-    y.more = items.length >= 200;
+    y.offset = gsrc ? items.length : y.offset + items.length;
+    y.more = gsrc ? false : items.length >= 200;   // pkg3-127: у Google отдаём весь список сразу
     ydRenderOn();
   } catch (e) {
     if (e.status === 409 || /не подключ|отозвал|ключей/i.test(e.message || '')) {
@@ -5991,13 +6014,26 @@ async function ydLoadFiles(reset) {
 /** Диск подключён: строка управления, выбор плейлиста для «＋», список файлов. */
 function ydRenderOn() {
   const y = ydState();
+  if (y.drive === 'google') {
+    ydBar('✅ Google Диск подключён. <span class="tiny muted">Звук идёт через сервер по короткой ссылке, файлы никуда не копируются. Доступ только на просмотр.</span> '
+      + '<button class="mini" id="mus-disk-reload">Обновить список</button> '
+      + '<button class="mini" id="mus-gdisk-sw">☁ Яндекс</button>');
+    const rlG = document.getElementById('mus-disk-reload');
+    if (rlG) rlG.addEventListener('click', () => { ydLoadFiles(true).catch(() => {}); });
+    const swG = document.getElementById('mus-gdisk-sw');
+    if (swG) swG.addEventListener('click', () => openMusic(MUS_DISK));
+    return;
+  }
   ydBar('✅ Яндекс.Диск подключён' + (y.manual ? ' по токену' : '') + '. <span class="tiny muted">Файлы остаются на Диске: звук идёт с серверов Яндекса прямо в браузер, место на сервере не тратится. Ссылка на трек временная и создаётся заново при каждом запуске.</span> '
     + '<button class="mini" id="mus-disk-reload">Обновить список</button> '
     + '<button class="mini danger" id="mus-disk-off">Отключить</button>'
     // pkg3-121: по просьбе владельца его Диск теперь доступен другим
     + '<br><label class="tiny mus-disk-share"><input type="checkbox" id="mus-disk-share"' + (y.share !== false ? ' checked' : '')
     + '> другие участники могут слушать мои треки с Диска и забирать их в свои плейлисты'
-    + ' <span class="muted">(только то, что лежит в моих открытых плейлистах)</span></label>');
+    + ' <span class="muted">(только то, что лежит в моих открытых плейлистах)</span></label>'
+    + ' <button class="mini" id="mus-gdisk-sw">🅖 Google Диск</button>');
+  const swY = document.getElementById('mus-gdisk-sw');
+  if (swY) swY.addEventListener('click', () => openMusic(MUS_GDISK));
   const rl = document.getElementById('mus-disk-reload');
   if (rl) rl.addEventListener('click', () => { ydLoadFiles(true).catch(() => {}); });
   const sh = document.getElementById('mus-disk-share');
@@ -6788,11 +6824,12 @@ async function openMusic(wantId) {
   const all = musicAll();
   const plId = wantId || MUS.plId || (all[0] && all[0].id) || null;
   const pl = musicFind(plId);
-  const isDisk = plId === MUS_DISK;   // pkg3-90: «псевдоплейлист» Яндекс.Диска
+  const isGDisk = plId === MUS_GDISK;   // pkg3-127: «псевдоплейлист» Google Диска
+  const isDisk = plId === MUS_DISK || isGDisk;   // pkg3-90: «псевдоплейлист» Диска
   const isSearch = plId === MUS_SEARCH;   // pkg3-97: «псевдоплейлист» поиска музыки
   const st0 = musSearchState();
   const plName = isSearch ? ('Результаты поиска: ' + st0.results.length)
-    : isDisk ? '☁ Яндекс.Диск'
+    : isDisk ? (isGDisk ? '🅖 Google Диск' : '☁ Яндекс.Диск')
       : pl ? (pl.name + ' · ' + (pl.vis === 'priv' ? 'только я' : 'публичный') + ' · ' + ((pl.tracks || []).length))
         : 'Плейлистов пока нет';
   // pkg3-125: у догоняющего вместо плейлиста — «Синхронно с «Имя»» и текущий трек
@@ -6806,7 +6843,7 @@ async function openMusic(wantId) {
           return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
             ${musThumbHtml(t)}
-            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>' : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
+            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? (String(t.path || '').startsWith('google:') ? ' <span class="mus-badge-d" title="Файл с Google Диска: сервер только переливает звук, ничего не хранит, доступ на просмотр">🅖 диск</span>' : ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>') : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
             <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>
           </div>`;
@@ -6873,7 +6910,8 @@ async function openMusic(wantId) {
       <h3>Плейлисты и источники</h3>
       <div class="mus-plsrows">
         <div class="mus-plsrow${isSearch ? ' cur' : ''}"><button class="mini mus-plsopen" data-mus-pl="search" title="Последние результаты поиска">🔎 Поиск музыки</button></div>
-        <div class="mus-plsrow${isDisk ? ' cur' : ''}"><button class="mini mus-plsopen" data-mus-pl="yadisk" title="Аудиофайлы на вашем Яндекс.Диске: играем прямо оттуда, место на сервере не тратится">☁ Яндекс.Диск</button></div>
+        <div class="mus-plsrow${plId === MUS_DISK ? ' cur' : ''}"><button class="mini mus-plsopen" data-mus-pl="yadisk" title="Аудиофайлы на вашем Яндекс.Диске: играем прямо оттуда, место на сервере не тратится">☁ Яндекс.Диск</button></div>
+        <div class="mus-plsrow${isGDisk ? ' cur' : ''}"><button class="mini mus-plsopen" data-mus-pl="gdisk" title="Аудиофайлы на вашем Google Диске: сервер только переливает звук, ничего не хранит">🅖 Google Диск</button></div>
         ${all.map(p2 => `<div class="mus-plsrow${p2.id === plId ? ' cur' : ''}">
           <button class="mini mus-plsopen" data-mus-pl="${escapeHtml(p2.id)}">${escapeHtml(p2.name)} <span class="tiny muted">${p2.vis === 'priv' ? '· только я' : '· публичный'} · ${(p2.tracks || []).length}</span></button>
           <button class="mus-rowb" data-mus-plren="${escapeHtml(p2.id)}" title="Переименовать">✎</button>
@@ -7163,7 +7201,7 @@ async function openMusic(wantId) {
     }).catch(() => {});
   }
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
-  if (isDisk) ydPaneStart().catch(() => {});
+  if (isDisk) { ydState().drive = isGDisk ? 'google' : 'yandex'; ydPaneStart().catch(() => {}); }
 }
 /** pkg3-105: список лент подкастов в «⋯» у владельца: читает сервер из файла
  * (или ленту по умолчанию), удаление ленты — запись того же файла. */
