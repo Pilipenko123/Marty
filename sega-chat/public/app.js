@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-128';
+const BUILD = 'pkg3-129';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5143,6 +5143,7 @@ function musWidgetStop() {
 function ydState() {
   if (!S.yadisk) S.yadisk = { keys: false, connected: false, files: [], offset: 0, more: false, fetching: false, drive: 'yandex' };
   if (!S.yadisk.drive) S.yadisk.drive = 'yandex';   // pkg3-127: yandex | google
+  if (!S.yadisk.slot) S.yadisk.slot = 1;            // pkg3-129: который по счёту диск этого вида
   return S.yadisk;
 }
 const ydFmtSize = n => {
@@ -5196,18 +5197,22 @@ function ydBar(html) {
 async function ydPaneStart() {
   const y = ydState();
   const g = y.drive === 'google';
+  const kind = g ? 'google' : 'yandex';
   ydBar(g ? 'Проверяю соединение с Google Диском…' : 'Проверяю соединение с Яндекс.Диском…');
   try {
+    // pkg3-129: дисков может быть несколько. Если выбранный номер не подключён,
+    // берём первый подключённый диск того же вида — чтобы окно не пугало зря.
+    const d = await drivesLoad();
+    const mine = (d.list || []).filter(x => x.kind === kind && x.connected && !x.placeholder);
+    if (!mine.some(x => x.slot === y.slot) && mine.length) y.slot = mine[0].slot;
     if (g) {
-      // pkg3-127: состояние Google берём из общего списка дисков
-      const d = await drivesLoad();
-      const card = (d.list || []).find(x => x.id === 'google') || {};
+      const card = mine.find(x => x.slot === y.slot) || {};
       y.keys = !card.needsKeys;
       y.connected = !!card.connected;
       y.manual = false;
       y.share = false;
     } else {
-      const s = await api('/api/yadisk/state');
+      const s = await api('/api/yadisk/state?slot=' + encodeURIComponent(String(y.slot || 1)));
       y.keys = !!s.keys; y.connected = !!s.connected;
       y.share = s.share !== false;   // pkg3-121: открыт ли мой Диск другим участникам
       y.manual = !!s.manual;         // pkg3-123: подключён своим приложением или токеном
@@ -5344,6 +5349,11 @@ async function drivesLoad() {
   } catch (e) { /* нет сети — раздел покажет «не подключён» */ }
   return drivesState();
 }
+// pkg3-129: дисков может быть несколько — значок по виду, номер подписью
+function drvKindOf(id) { return String(id || '').startsWith('google') ? 'google' : 'yandex'; }
+function drvSlotOf(id) { const m = /(\d+)$/.exec(String(id || '')); return m ? Number(m[1]) : 1; }
+function drvIcon(id) { return drvKindOf(id) === 'google' ? '🅖' : '☁'; }
+function drvDriveId(kind, slot) { return (kind === 'google' ? 'google' : 'yandex') + (Number(slot) > 1 ? String(slot) : ''); }
 const DRV_ICON = { yandex: '☁', google: '🅖' };
 const DK_MEDIA_RU = { audio: 'Музыка', image: 'Фото', video: 'Видео', doc: 'Документ', other: 'Файл', dir: 'Папка' };
 const DK_ICON = { dir: '📁', audio: '🎵', image: '🖼', video: '🎬', doc: '📄', other: '📦' };
@@ -5354,7 +5364,7 @@ function drivesRailRows() {
   const d = drivesState();
   const rows = (d.list || []).filter(x => x && x.connected).map(x =>
     `<div class="chat-item drive-item" data-drive-open="${escapeHtml(x.id)}" title="Открыть «${escapeHtml(x.title)}»">
-      <div class="drive-ic">${DRV_ICON[x.id] || '☁'}</div>
+      <div class="drive-ic">${drvIcon(x.id)}</div>
       <div class="ci-main">
         <div class="ci-name">${escapeHtml(x.title)}</div>
         <div class="ci-last">${x.shared ? 'открыто: ' + x.shared : 'файлы лежат на вашем диске'}</div>
@@ -5364,7 +5374,7 @@ function drivesRailRows() {
       <div class="drive-ic plus">＋</div>
       <div class="ci-main">
         <div class="ci-name">Подключить диск</div>
-        <div class="ci-last">Яндекс.Диск${(d.soon || []).length ? ' · ' + (d.soon || []).map(x => x.title).join(' · ') + ' — скоро' : ''}</div>
+        <div class="ci-last">Яндекс.Диск или Google — до трёх каждого</div>
       </div>
     </div>`;
 }
@@ -5390,23 +5400,44 @@ const dkMine = () => { const st = diskState(); return !st.of || (S.me && st.of =
  */
 function dkNorm(p) {
   let x = String(p == null ? '' : p).trim();
-  // pkg3-126: два диска — у каждого свой корень («disk:/» и «google:/root»).
-  const g = x.startsWith('google:');
-  const prefix = g ? 'google:' : 'disk:';
-  let rest = g ? x.slice(7) : (x.startsWith('disk:') ? x.slice(5) : x);
+  // pkg3-126: два вида дисков — у каждого свой корень («disk:/» и «google:/root»).
+  // pkg3-129: у Диска может быть номер — «disk2:/…», «google2:/<id>».
+  const m = /^(disk|google)(\d*):/.exec(x);
+  const word = m ? m[1] : 'disk';
+  const num = m && m[2] ? m[2] : '';
+  const g = word === 'google';
+  const prefix = word + num + ':';
+  let rest = m ? x.slice(m[0].length) : x;
   rest = rest.replace(/\/{2,}/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-  if (!rest) return g ? 'google:/root' : 'disk:/';
+  if (!rest) return prefix + (g ? '/root' : '/');
   return prefix + '/' + rest;
 }
-/** Корень диска по имени: в проводнике это первая точка пути. */
-function dkRoot(drive) { return drive === 'google' ? 'google:/root' : 'disk:/'; }
+/** Это Google-путь (с номером диска или без). */
+function dkIsGoogle(p) { return /^google\d*:/.test(String(p == null ? '' : p)); }
+/** Номер диска из пути (1, если номера нет). */
+function dkSlotOfPath(p) { const m = /^(?:disk|google)(\d*):/.exec(String(p == null ? '' : p)); return m && m[1] ? Number(m[1]) : 1; }
+/** Имя диска (yandex, yandex2, google2) по пути. */
+function dkDriveOfPath(p) {
+  const m = /^(disk|google)(\d*):/.exec(String(p == null ? '' : p));
+  const kind = m && m[1] === 'google' ? 'google' : 'yandex';
+  return drvDriveId(kind, m && m[2] ? Number(m[2]) : 1);
+}
+/** Корень диска по его имени: в проводнике это первая точка пути. */
+function dkRoot(drive) {
+  const id = drive || 'yandex';
+  const kind = drvKindOf(id), slot = drvSlotOf(id);
+  const prefix = (kind === 'google' ? 'google' : 'disk') + (slot > 1 ? String(slot) : '') + ':';
+  return prefix + (kind === 'google' ? '/root' : '/');
+}
 /** Родительская папка: из «disk:/Фото/Лето» → «disk:/Фото», из корня — корень. */
 function dkParent(p) {
   const s = dkNorm(p);
-  if (s === 'disk:/' || s === 'google:/root') return s;
+  const m = /^(disk|google)(\d*):/.exec(s);
+  const root = m ? m[0] + (m[1] === 'google' ? '/root' : '/') : 'disk:/';
+  if (s === root) return s;
   const i = s.lastIndexOf('/');
   const head = s.slice(0, i);
-  if (head === 'disk:' || head === 'google:') return head === 'google:' ? 'google:/root' : 'disk:/';
+  if (m && head === m[0]) return root;
   return head;
 }
 /** Путь внутри папки: «disk:/Фото» + «beach.jpg» → «disk:/Фото/beach.jpg». */
@@ -5446,7 +5477,8 @@ async function diskBrowse(path, of) {
     st.parent = r.parent || '';
     st.curName = r.name || '';
     // диск определяем по самому пути: так окно не путает Яндекс и Google
-    st.drive = String(st.path).startsWith('google:') ? 'google' : (st.of && !dkMine() ? st.drive : 'yandex');
+    // pkg3-129: имя диска (yandex, yandex2, google2) — прямо из пути
+    st.drive = dkDriveOfPath(st.path);
   } catch (e) {
     st.items = []; st.err = e.message || String(e);
   }
@@ -5456,7 +5488,7 @@ async function diskBrowse(path, of) {
 function diskCrumbsHtml(path, root) {
   const mine = dkMine();
   const st = diskState();
-  const g = st.drive === 'google';
+  const g = dkIsGoogle(path);
   const rootPath = dkRoot(st.drive);
   const rootLabel = g ? '☁ Google Диск' : (mine ? '☁ Диск' : '☁ Общая папка');
   // У Google путь — это идентификаторы файлов, человеку их показывать нельзя:
@@ -5508,12 +5540,12 @@ function renderDiskWindow() {
   const d = drivesState();
   const dr = (d.list || []).find(x => x.id === st.drive) || { title: 'Яндекс.Диск' };
   const mine = dkMine();
-  const g = st.drive === 'google';
+  const g = dkIsGoogle(st.path);
   const atRoot = st.path === dkRoot(st.drive);
   // pkg3-128: в Google можно менять, если входу дано право записи (иначе кнопки
   // честно погашены, а окно объясняет, как это исправить).
   const gWrite = !g || (() => {
-    const gd0 = (d.list || []).find(x => x.id === 'google') || {};
+    const gd0 = (d.list || []).find(x => x.id === st.drive) || (d.list || []).find(x => x.kind === 'google') || {};
     return gd0.canWrite !== false;
   })();
   const writable = mine ? gWrite : (st.perm === 'write');
@@ -5563,7 +5595,7 @@ function renderDiskWindow() {
   const up = document.getElementById('dsk-up');
   if (up) up.addEventListener('click', () => {
     const cur = diskState();
-    diskBrowse(cur.drive === 'google' ? (cur.parent || cur.path) : dkParent(cur.path));
+    diskBrowse(dkIsGoogle(cur.path) ? (cur.parent || dkParent(cur.path)) : dkParent(cur.path));
   });
   const rf = document.getElementById('disk-refresh');
   if (rf) rf.addEventListener('click', () => diskBrowse(diskState().path));
@@ -5702,7 +5734,7 @@ async function diskOp(op, path, extra) {
   const st = diskState();
   // pkg3-128: Google больше не «только чтение». У него нет пути строкой, поэтому
   // новое имя едет отдельным полем, а не путём «родитель/имя».
-  if (String(path || '').startsWith('google:')) {
+  if (dkIsGoogle(path)) {
     const g = Object.assign({ op, path, of: st.of || '' }, extra || {});
     if (op === 'rename' && g.to && !g.name) { g.name = String(g.to).split('/').pop(); delete g.to; }
     return api('/api/yadisk/op', { method: 'POST', body: g });
@@ -5806,37 +5838,56 @@ function diskEmbedHtml(text) {
 async function driveConnectAsk() {
   await drivesLoad();
   const d = drivesState();
-  const yd = (d.list || []).find(x => x.id === 'yandex') || { connected: false, manual: false };
-  const gd = (d.list || []).find(x => x.id === 'google') || { connected: false, needsKeys: true };
-  const soon = (d.soon || []).map(x => `<div class="disk-drv soon"><div class="disk-drv-t"><b>${DRV_ICON[x.id] || '☁'} ${escapeHtml(x.title)}</b> <span class="tiny muted">— в следующем выпуске</span></div></div>`).join('');
+  // pkg3-129: список приходит с сервера как есть — подключённые диски и по одной
+  // строке «свободный номер» на каждый вид. Рисуем все, ничего не выдумываем.
+  const rows = (d.list || []).map(x => {
+    const kind = x.kind || drvKindOf(x.id);
+    const slot = x.slot || drvSlotOf(x.id);
+    const ic = kind === 'google' ? '🅖' : '☁';
+    const name = x.title || ((kind === 'google' ? 'Google Диск' : 'Яндекс.Диск') + (slot > 1 ? ' ' + slot : ''));
+    const state = x.connected
+      ? (kind === 'google'
+        ? 'уже подключён · ' + (x.canWrite === false ? 'только чтение' : 'можно смотреть и менять')
+        : 'уже подключён' + (x.manual ? ' (токеном)' : ''))
+      : (x.needsKeys ? 'нужны ключи приложения' : (slot > 1 ? 'можно подключить ещё один' : 'не подключён'));
+    const btns = x.connected
+      ? `<button class="mini primary" data-drive-open="${escapeHtml(x.id)}">Открыть диск</button>`
+        + (kind === 'google' && x.canWrite === false ? `<button class="mini" data-gd-more="${slot}">Разрешить изменения</button>` : '')
+        + `<button class="mini danger" data-drv-off="${escapeHtml(x.id)}">Отключить</button>`
+      : (kind === 'google'
+        ? `<button class="mini primary" data-gd-login="${slot}">Войти через Google</button>`
+        : `<button class="mini primary" data-drv-token="${slot}">Вставить токен</button><button class="mini" data-drv-oauth="${slot}">Войти через Яндекс</button>`);
+    let hint = '';
+    if (kind === 'google') {
+      hint = x.connected
+        ? (x.canWrite === false
+          ? 'Доступ дан только на чтение: сервер не может ни изменить, ни удалить файлы. Нажмите «Разрешить изменения» — Google спросит право менять файлы, заходить под другим аккаунтом не нужно.'
+          : 'Доступ дан и на просмотр, и на изменения: сервер может создавать папки, загружать, переименовывать и убирать файлы в корзину Google. Ваши файлы остаются у Google.')
+        : (x.needsKeys
+          ? escapeHtml(x.keysHint || '')
+          : (slot > 1
+            ? 'Ещё один Google-аккаунт: у него будет своё начало пути (google' + slot + ':/…) и свои права. Нажмите «Войти через Google» — откроется страница Google.'
+            : 'Нажмите «Войти через Google» — откроется страница Google, где вы разрешите смотреть файлы и менять их (создавать папки, загружать, переименовывать, убирать в корзину).'));
+    } else {
+      hint = x.connected
+        ? 'Яндекс.Диск вашего аккаунта: сервер может читать, создавать папки, загружать, переименовывать и убирать в корзину. Файлы остаются на Диске.'
+        : (slot > 1
+          ? 'Ещё один Яндекс.Диск: подключите второй аккаунт — у него будет своё начало пути (disk' + slot + ':/…) и свои права.'
+          : 'Токен выдаёт сам Яндекс на полигоне Диска — модерация приложения не нужна. «Войти через Яндекс» работает, когда приложение сервера опубликовано.');
+    }
+    return `<div class="disk-drv" data-drv-row="${escapeHtml(x.id)}">
+      <div class="disk-drv-t"><b>${ic} ${escapeHtml(name)}</b> <span class="tiny muted">${escapeHtml(state)}</span></div>
+      <div class="disk-drv-a">${btns}</div>
+      <div class="tiny muted">${hint}</div>
+    </div>`;
+  }).join('');
   modal('Подключить диск', `<div class="disk-connect">
-    <div class="disk-drv">
-      <div class="disk-drv-t"><b>☁ Яндекс.Диск</b> ${yd.connected ? '<span class="tiny muted">уже подключён' + (yd.manual ? ' (токеном)' : '') + '</span>' : ''}</div>
-      <div class="disk-drv-a">${yd.connected
-        ? `<button class="mini primary" id="drv-open">Открыть диск</button><button class="mini danger" id="drv-off">Отключить</button>`
-        : `<button class="mini primary" id="drv-token">Вставить токен</button><button class="mini" id="drv-oauth">Войти через Яндекс</button>`}</div>
-      <div class="tiny muted">Токен выдаёт сам Яндекс на полигоне Диска — модерация приложения не нужна, доступ только на чтение. «Войти через Яндекс» работает, когда приложение сервера опубликовано.</div>
-    </div>
-    <div class="disk-drv">
-      <div class="disk-drv-t"><b>🅖 Google Диск</b> ${gd.connected
-        ? `<span class="tiny muted">уже подключён · ${gd.canWrite === false ? 'только чтение' : 'можно смотреть и менять'}</span>`
-        : (gd.needsKeys ? '<span class="tiny muted">нужны ключи приложения</span>' : '<span class="tiny muted">не подключён</span>')}</div>
-      <div class="disk-drv-a">${gd.connected
-        ? `<button class="mini primary" data-drive-open="google">Открыть диск</button>${gd.canWrite === false ? '<button class="mini" id="gd-more">Разрешить изменения</button>' : ''}<button class="mini danger" id="gd-off">Отключить</button>`
-        : `<button class="mini primary" id="gd-login">Войти через Google</button>`}</div>
-      ${gd.connected
-        ? (gd.canWrite === false
-          ? '<div class="tiny muted">Доступ дан только на чтение: сервер не может ни изменить, ни удалить файлы. Нажмите «Разрешить изменения» — Google спросит право менять файлы, заходить под другим аккаунтом не нужно.</div>'
-          : '<div class="tiny muted">Доступ дан и на просмотр, и на изменения: сервер может создавать папки, загружать, переименовывать и убирать файлы в корзину Google. Ваши файлы остаются у Google.</div>')
-        : (gd.needsKeys
-          ? `<div class="tiny muted">${escapeHtml(gd.keysHint || '')}</div>`
-          : '<div class="tiny muted">Нажмите «Войти через Google» — откроется страница Google, где вы разрешите смотреть файлы и менять их (создавать папки, загружать, переименовывать, убирать в корзину).</div>')}
-    </div>
-    ${soon}
-    <div class="tiny muted">Файлы остаются на вашем Диске: сервер их не копирует и места на нём не занимает.</div>
+    ${rows}
+    <div class="tiny muted">Можно подключить до трёх дисков каждого вида — например, личный и рабочий. Файлы остаются на ваших дисках: сервер их не копирует и места на нём не занимает.</div>
   </div>`);
 }
-function driveTokenAsk() {
+function driveTokenAsk(slot) {
+  const slotT = Number(slot || 1) || 1;
   const ovl = document.createElement('div');
   ovl.className = 'ask-ovl';
   ovl.innerHTML = '<div class="ask-card yd-tok-card">'
@@ -5856,11 +5907,11 @@ function driveTokenAsk() {
     if (token.length < 20) { toast('Токен слишком короткий — скопируйте строку целиком', true); return; }
     b.disabled = true;
     try {
-      await api('/api/yadisk/token', { method: 'POST', body: { token } });
+      await api('/api/yadisk/token', { method: 'POST', body: { token, slot: slotT } });
       ovl.remove();
-      toast('Яндекс.Диск подключён по токену');
+      toast('Яндекс.Диск подключён по токену' + (slotT > 1 ? ' (диск ' + slotT + ')' : ''));
       await drivesLoad();
-      openDriveWindow('yandex');
+      openDriveWindow(drvDriveId('yandex', slotT));
     } catch (err) {
       b.disabled = false;
       toast('Не получилось: ' + (err.message || err), true);
@@ -5966,10 +6017,11 @@ document.addEventListener('click', async e => {
   if (drvOpen) { closeRail(); openDriveWindow(drvOpen.getAttribute('data-drive-open')); return; }
   const drvAdd = e.target.closest('[data-drive-add]');
   if (drvAdd) { closeRail(); driveConnectAsk(); return; }
-  if (e.target.closest('#drv-open')) { openDriveWindow('yandex'); return; }
-  if (e.target.closest('#gd-login') || e.target.closest('#gd-more')) {
+  const gdLogin = e.target.closest('[data-gd-login], [data-gd-more]');
+  if (gdLogin) {
+    const slotG = Number(gdLogin.getAttribute('data-gd-login') || gdLogin.getAttribute('data-gd-more') || 1) || 1;
     try {
-      const r = await api('/api/gdrive/auth');
+      const r = await api('/api/gdrive/auth?slot=' + encodeURIComponent(String(slotG)));
       if (!r || !r.url) throw new Error('Google не прислал адрес входа');
       location.href = r.url;      // pkg3-126: страница согласия Google
     } catch (err) {
@@ -5977,25 +6029,27 @@ document.addEventListener('click', async e => {
     }
     return;
   }
-  if (e.target.closest('#gd-off')) {
-    if (!confirm('Отключить Google Диск? Файлы у Google останутся, просто чат их больше не увидит.')) return;
+  const gdOff = e.target.closest('[data-drv-off]');
+  if (gdOff) {
+    const idOff = String(gdOff.getAttribute('data-drv-off') || '');
+    const kindOff = drvKindOf(idOff), slotOff = drvSlotOf(idOff);
+    const what = (kindOff === 'google' ? 'Google Диск' : 'Яндекс.Диск') + (slotOff > 1 ? ' ' + slotOff : '');
+    if (!confirm('Отключить ' + what + '? Файлы на диске останутся, просто чат их больше не увидит.')) return;
     try {
-      await api('/api/gdrive/disconnect', { method: 'POST', body: {} });
-      await drivesLoad(); toast('Google Диск отключён');
+      await api(kindOff === 'google' ? '/api/gdrive/disconnect' : '/api/yadisk/disconnect',
+        { method: 'POST', body: { slot: slotOff } });
+      await drivesLoad(); toast(what + ' отключён');
       driveConnectAsk();
     } catch (err) { toast('Не получилось: ' + (err.message || err), true); }
     return;
   }
-  if (e.target.closest('#drv-token')) { hide($('#modal')); driveTokenAsk(); return; }
-  if (e.target.closest('#drv-oauth')) { hide($('#modal')); await ydConnect(); await drivesLoad(); return; }
-  if (e.target.closest('#drv-off')) {
-    if (!confirm('Отключить Яндекс.Диск от этого аккаунта? Файлы на Диске останутся, просто чат их больше не увидит.')) return;
-    try {
-      await api('/api/yadisk/disconnect', { method: 'POST', body: {} });
-      await drivesLoad(); toast('Диск отключён');
-      driveConnectAsk();
-    } catch (err) { toast('Не получилось: ' + (err.message || err), true); }
-    return;
+  // pkg3-129: подключение «ещё одного» диска — номер берём из строки, на которую нажали
+  const tokBtn = e.target.closest('[data-drv-token]');
+  if (tokBtn) { hide($('#modal')); driveTokenAsk(Number(tokBtn.getAttribute('data-drv-token') || 1) || 1); return; }
+  const oauthBtn = e.target.closest('[data-drv-oauth]');
+  if (oauthBtn) {
+    const slotO = Number(oauthBtn.getAttribute('data-drv-oauth') || 1) || 1;
+    hide($('#modal')); await ydConnect(slotO); await drivesLoad(); return;
   }
 });
 /* Двойной клик по строке — как в проводнике Windows: папка открывается,
@@ -6017,7 +6071,7 @@ async function ydLoadFiles(reset) {
   ydBar(reset ? 'Загружаю список аудиофайлов с Диска…' : 'Загружаю следующую страницу…');
   try {
     const gsrc = y.drive === 'google';
-    const r = await api('/api/yadisk/files?limit=200&offset=' + (gsrc ? 0 : y.offset) + (gsrc ? '&drive=google' : ''));
+    const r = await api('/api/yadisk/files?limit=200&offset=' + (gsrc ? 0 : y.offset) + (gsrc ? '&drive=google' : '') + '&slot=' + encodeURIComponent(String(y.slot || 1)));
     const items = Array.isArray(r.items) ? r.items : [];
     y.files = reset ? items : y.files.concat(items);
     y.offset = gsrc ? items.length : y.offset + items.length;
@@ -6076,7 +6130,7 @@ function ydRenderOn() {
   const of = document.getElementById('mus-disk-off');
   if (of) of.addEventListener('click', async () => {
     if (!confirm('Отключить Яндекс.Диск? Треки, уже добавленные в плейлисты, останутся в списках, но играть не будут, пока Диск снова не подключён.')) return;
-    try { await api('/api/yadisk/disconnect', { method: 'POST' }); } catch (e) { /* состояние и так обновим */ }
+    try { await api('/api/yadisk/disconnect', { method: 'POST', body: { slot: y.slot || 1 } }); } catch (e) { /* состояние и так обновим */ }
     y.connected = false; y.files = []; y.offset = 0; y.more = false;
     ydRenderOff();
     toast('Яндекс.Диск отключён');
@@ -6182,15 +6236,16 @@ function ydDiagHelp(text) {
 }
 /** Подключение: открываем страницу Яндекса в новом окне и тихо опрашиваем
  *  сервер, пока владелец жмёт «Разрешить». Как только токен лёг — список сам. */
-async function ydConnect() {
+async function ydConnect(slot) {
   // pkg3-121: сначала проверяем, что Яндекс вообще знает наше приложение —
   // иначе человек уходит на чужую страницу с ошибкой 400 и не понимает, что это
   const chk = await ydDiag(false);
   if (!chk.ok && chk.reason === 'unknown-app') { ydDiagHelp(chk.text); return; }
   if (!chk.ok && chk.reason === 'keys') { ydDiagHelp(chk.text); return; }
   let url = '';
+  const slotC = Number(slot || 1) || 1;
   try {
-    const r = await api('/api/yadisk/auth-url');
+    const r = await api('/api/yadisk/auth-url?slot=' + encodeURIComponent(String(slotC)));
     url = r.url;
   } catch (e) { toast(String(e.message || e), true); return; }
   const w = window.open(url, '_blank');
@@ -6199,7 +6254,7 @@ async function ydConnect() {
   for (let i = 0; i < 60; i++) {          // до ~2,5 минут, проверка каждые 2,5 с
     await new Promise(res => setTimeout(res, 2500));
     let s = null;
-    try { s = await api('/api/yadisk/state'); } catch (e) { s = null; }
+    try { s = await api('/api/yadisk/state?slot=' + encodeURIComponent(String(slotC))); } catch (e) { s = null; }
     if (s && s.connected) {
       const y = ydState();
       y.connected = true; y.keys = true; y.files = []; y.offset = 0; y.more = false;
@@ -7225,7 +7280,16 @@ async function openMusic(wantId) {
     }).catch(() => {});
   }
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
-  if (isDisk) { ydState().drive = isGDisk ? 'google' : 'yandex'; ydPaneStart().catch(() => {}); }
+  if (isDisk) {
+    const y0 = ydState();
+    y0.drive = isGDisk ? 'google' : 'yandex';
+    // pkg3-129: номер диска — первый подключённый этого вида (если список ещё не
+    // загружен, останется 1 и панель сама поправит номер при старте)
+    const kind0 = y0.drive;
+    const card0 = (drivesState().list || []).find(x => x.kind === kind0 && x.connected && !x.placeholder);
+    y0.slot = card0 ? (card0.slot || 1) : 1;
+    ydPaneStart().catch(() => {});
+  }
 }
 /** pkg3-105: список лент подкастов в «⋯» у владельца: читает сервер из файла
  * (или ленту по умолчанию), удаление ленты — запись того же файла. */
