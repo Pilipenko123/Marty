@@ -169,7 +169,7 @@ const mst = read('lib/musstream.js');
 const pkg = read('package.json');
 const readme = read('README.md');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v127';"), 'кэш статики поднят до v95');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v128';"), 'кэш статики поднят до v95');
 ok(css.includes('button.mini.mus-add-sm{width:auto;min-width:34px;margin-top:0'), 'у «＋» в находках явная маленькая ширина — глобальное правило его больше не растягивает');
 ok(!/button\.mini\.mus-add-sm\{[^}]*width:100%/.test(css), 'и ширина 100% у него не осталась');
 ok(appJs.includes('MUS_PROXY_HOSTS') && appJs.includes("'/api/musstream?t='"), 'клиент знает запасной путь и адрес с пропуском');

@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-133';
+const BUILD = 'pkg3-134';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5828,15 +5828,38 @@ async function diskOp(op, path, extra) {
   const body = Object.assign({ op, path, of: st.of || '' }, extra || {});
   return api('/api/yadisk/op', { method: 'POST', body });
 }
+/**
+ * pkg3-134: если Диск отказал в правке — показываем ОКНО, а не трёхсекундный
+ * тост. У человека бывает два Яндекс-Диска, и надо видеть, какой именно диск
+ * отказал и что ответил Яндекс; текст можно прочитать и скопировать.
+ */
+function diskFail(title, what, path, err) {
+  const msg = String((err && err.message) || err || 'без объяснений');
+  const drv = dkDriveOfPath(path);
+  const slot = drvSlotOf(drv);
+  const name = (drvKindOf(drv) === 'google' ? 'Google Диск' : 'Яндекс.Диск') + (slot > 1 ? ' ' + slot : '');
+  const looksPerm = /права|прав[оа] записи|только чтение|403|отказал в доступе/i.test(msg);
+  modal('Диск не дал ' + what, `<div class="disk-fail">
+    <p class="tiny">Диск: <b>${escapeHtml(name)}</b> · путь: <code>${escapeHtml(String(path || ''))}</code></p>
+    <p class="tiny"><b>Что ответил сервер:</b></p>
+    <pre class="disk-fail-t">${escapeHtml(msg)}</pre>
+    <p class="tiny muted">${looksPerm
+      ? 'Похоже, у этого диска нет права записи: вход был выдан «только на чтение» либо аккаунт не разрешает менять файлы. Нажмите «Проверить запись» — скажем точно.'
+      : 'Можно просто повторить: иногда Яндекс отвечает так на занятое имя или на временный сбой.'}</p>
+    <div class="ask-b"><button class="mini" data-yd-wcheck="${slot}">Проверить запись</button>
+    <button class="mini primary" data-disk-fail-ok="">Понятно</button></div>
+  </div>`);
+}
 async function diskMkdir() {
   const st = diskState();
   const name = prompt('Название новой папки:', 'Новая папка');
   if (!name || !name.trim()) return;
+  const p = dkJoin(st.path, name.trim());
   try {
-    await diskOp('mkdir', dkJoin(st.path, name.trim()));
+    await diskOp('mkdir', p);
     toast('Папка создана');
     diskBrowse(st.path);
-  } catch (e) { toast('Не получилось создать папку: ' + (e.message || e), true); }
+  } catch (e) { diskFail('создать папку', 'создать папку', p, e); }
 }
 async function diskRename(it) {
   const st = diskState();
@@ -5846,7 +5869,7 @@ async function diskRename(it) {
     await diskOp('rename', it.path, { to: dkJoin(dkParent(it.path), name.trim()) });
     toast('Переименовано');
     diskBrowse(st.path);
-  } catch (e) { toast('Не получилось переименовать: ' + (e.message || e), true); }
+  } catch (e) { diskFail('переименовать', 'переименовать', it.path, e); }
 }
 async function diskDelete(it) {
   const st = diskState();
@@ -5855,7 +5878,7 @@ async function diskDelete(it) {
     await diskOp('del', it.path);
     toast('Удалено');
     diskBrowse(st.path);
-  } catch (e) { toast('Не получилось удалить: ' + (e.message || e), true); }
+  } catch (e) { diskFail('удалить', 'удалить', it.path, e); }
 }
 /** Загрузка: файл идёт с устройства ПРЯМО в Яндекс по временной ссылке. */
 async function diskUpload(files) {
@@ -5939,6 +5962,7 @@ async function driveConnectAsk() {
     const btns = x.connected
       ? `<button class="mini primary" data-drive-open="${escapeHtml(x.id)}">Открыть диск</button>`
         + (kind === 'google' && x.canWrite === false ? `<button class="mini" data-gd-more="${slot}">Разрешить изменения</button>` : '')
+        + (kind === 'yandex' ? `<button class="mini" data-yd-wcheck="${slot}">Проверить запись</button>` : '')
         + `<button class="mini danger" data-drv-off="${escapeHtml(x.id)}">Отключить</button>`
       : (kind === 'google'
         ? `<button class="mini primary" data-gd-login="${slot}">Войти через Google</button>`
@@ -5972,6 +5996,32 @@ async function driveConnectAsk() {
     <div class="tiny muted">Можно подключить до трёх дисков каждого вида — например, личный и рабочий. Файлы остаются на ваших дисках: сервер их не копирует и места на нём не занимает.</div>
   </div>`);
 }
+/**
+ * pkg3-134: «проверить запись» — сервер создаёт на ЭТОМ диске служебную папку и
+ * сразу убирает её. Ответ Яндекса показываем как есть: у двух дисков права
+ * бывают разные, и догадываться об этом больше не нужно.
+ */
+async function driveWriteCheck(slot) {
+  const n = Number(slot || 1) || 1;
+  const name = 'Яндекс.Диск' + (n > 1 ? ' ' + n : '');
+  let r = null, err = null;
+  try { r = await api('/api/yadisk/write-check', { method: 'POST', body: { slot: n } }); }
+  catch (e) { err = e; }
+  const ok = !!(r && r.canWrite);
+  const clean = !r || r.cleaned !== false;
+  modal('Проверка записи · ' + name, `<div class="disk-fail">
+    <p class="tiny"><b>${ok ? '✅ Запись разрешена' : '⛔ Запись запрещена'}</b></p>
+    ${ok
+      ? '<p class="tiny muted">Сервер создал на этом диске служебную папку и сразу убрал её — значит создавать папки, загружать и переименовывать файлы можно.</p>'
+      : '<p class="tiny muted">Яндекс не дал ничего изменить. ' +
+        'Если это второй диск — отключите его в списке и подключите заново; при входе через Яндекс согласие надо дать с правом записи, а при вставке токена — взять токен на полигоне Диска под нужным аккаунтом.</p>'}
+    ${err ? '<pre class="disk-fail-t">' + escapeHtml(String(err.message || err)) + '</pre>' : ''}
+    ${!err && !ok && r && r.error ? '<pre class="disk-fail-t">' + escapeHtml(String(r.error)) + '</pre>' : ''}
+    ${!clean ? '<p class="tiny muted">Служебную папку убрать не удалось — удалите её вручную (имя начинается с «.sega-проверка»).</p>' : ''}
+    <div class="ask-b"><button class="mini" data-yd-wcheck="${n}">Проверить ещё раз</button>
+    <button class="mini primary" data-disk-fail-ok="">Понятно</button></div>
+  </div>`);
+}
 function driveTokenAsk(slot) {
   const slotT = Number(slot || 1) || 1;
   const ovl = document.createElement('div');
@@ -5981,7 +6031,7 @@ function driveTokenAsk(slot) {
     + '<p class="tiny muted">Токен выдаёт сам Яндекс вашему аккаунту: публикация приложения и страница согласия не нужны.</p>'
     + '<p class="tiny">Откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank" rel="noopener noreferrer">полигон Яндекс.Диска</a>, войдите своим аккаунтом, нажмите «Получить OAuth-токен» и скопируйте строку.</p>'
     + '<input id="yd-tok2" type="password" autocomplete="off" spellcheck="false" placeholder="вставьте токен (одна длинная строка)">'
-    + '<p class="tiny muted">Токен хранится на сервере зашифрованным и даёт только <b>чтение</b> Диска. Отозвать можно на том же полигоне.</p>'
+    + '<p class="tiny muted">Токен хранится на сервере зашифрованным и даёт те права, что выдал Яндекс (обычно чтение <b>и запись</b> — можно создавать папки и загружать файлы). Отозвать токен можно на том же полигоне.</p>'
     + '<div class="ask-b"><button class="mini" data-yd-tok2="">Отмена</button><button class="mini primary" data-yd-tok2="1">Подключить</button></div>'
     + '</div>';
   ovl.addEventListener('click', async e => {
@@ -6133,6 +6183,10 @@ document.addEventListener('click', async e => {
     return;
   }
   // pkg3-129: подключение «ещё одного» диска — номер берём из строки, на которую нажали
+  const wcheck = e.target.closest('[data-yd-wcheck]');
+  if (wcheck) { driveWriteCheck(wcheck.getAttribute('data-yd-wcheck')); return; }
+  const failOk = e.target.closest('[data-disk-fail-ok]');
+  if (failOk) { hide($('#modal')); return; }
   const tokBtn = e.target.closest('[data-drv-token]');
   if (tokBtn) { hide($('#modal')); driveTokenAsk(Number(tokBtn.getAttribute('data-drv-token') || 1) || 1); return; }
   const oauthBtn = e.target.closest('[data-drv-oauth]');
