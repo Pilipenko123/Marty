@@ -2390,3 +2390,13 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
   border:1.5px solid var(--glow-line);border-radius:8px;background:var(--panel-2);color:var(--text);cursor:pointer}
 .mus-of-row .mus-of-add:hover{color:var(--accent-2);border-color:var(--accent-2)}
 .mus-of-tr.d{border-color:var(--glow-line)}
+
+/* pkg3-123: окно «подключить Диск по токену» — тот же ask-оверлей, но шире
+   и с полем ввода: длинную строку видно целиком, лишние буквы не «уезжают» */
+.yd-tok-card{max-width:400px}
+.yd-tok-card input{width:100%;box-sizing:border-box;margin:8px 0;padding:9px 10px;
+  font:inherit;font-size:12.5px;letter-spacing:.02em;color:var(--text);
+  border:1.5px solid var(--glow-line);border-radius:10px;background:var(--panel-2)}
+.yd-tok-card input:focus-visible{outline:none;border-color:var(--accent-2)}
+.yd-tok-card .ask-b{margin-top:10px}
+@media (max-width:560px){ .yd-tok-card{max-width:calc(100vw - 28px)} }
