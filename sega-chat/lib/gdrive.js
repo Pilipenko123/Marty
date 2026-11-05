@@ -32,7 +32,13 @@ const DEF_TOKEN_BASE = 'https://oauth2.googleapis.com';
 const DEF_API_BASE = 'https://www.googleapis.com';
 const DEF_KEYS_PATH = '/opt/sega/keys/google-oauth.json';
 const DEF_REDIRECT = 'https://segachat.pilpro.ru/api/gdrive/callback';
-const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+// pkg3-128: право на запись. Было «только смотреть» (drive.readonly) — теперь
+// полный доступ к Диску, чтобы можно было создавать папки, загружать файлы,
+// переименовывать и убирать в корзину. Старые входы остаются «только чтение»,
+// пока человек не войдёт заново.
+const SCOPE = 'https://www.googleapis.com/auth/drive';
+const SCOPE_READONLY = 'https://www.googleapis.com/auth/drive.readonly';
+const SCOPE_META_READONLY = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 
 const trim = s => String(s || '').replace(/\/+$/, '');
 
@@ -113,6 +119,14 @@ function httpJSON(urlStr, opts = {}) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
       headers['Content-Length'] = Buffer.byteLength(body);
     }
+    // pkg3-128: изменение файла (переименовать, убрать в корзину, создать папку)
+    // шлём JSON-телом; адрес загрузки Google отдаёт в заголовке Location —
+    // поэтому заголовки ответа теперь тоже возвращаются.
+    if (opts.json !== undefined) {
+      body = JSON.stringify(opts.json);
+      if (!headers['Content-Type']) headers['Content-Type'] = 'application/json; charset=UTF-8';
+      headers['Content-Length'] = Buffer.byteLength(body);
+    }
     const req = mod.request(u, { method: opts.method || (body ? 'POST' : 'GET'), headers, timeout: Number(opts.timeout || 10000) }, res => {
       const chunks = [];
       let size = 0;
@@ -125,7 +139,7 @@ function httpJSON(urlStr, opts = {}) {
         const text = Buffer.concat(chunks).toString('utf8');
         let json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
-        resolve({ status: res.statusCode || 0, json, text });
+        resolve({ status: res.statusCode || 0, json, text, headers: res.headers || {} });
       });
     });
     req.on('timeout', () => { req.destroy(new Error('Google не ответил вовремя')); });
@@ -141,7 +155,16 @@ function googleErrorText(r) {
   const err = j.error && (j.error.message || j.error.status || j.error);
   const code = (r && r.status) || 0;
   if (code === 401) return 'Google больше не пускает: доступ отозван — подключите Диск заново';
-  if (code === 403) return 'Google отказал в доступе к этому файлу (права только на чтение)';
+  if (code === 403) {
+    // pkg3-128: самая частая беда — вход был «только смотреть». Говорим прямо,
+    // что делать, вместо английского «insufficientPermissions».
+    const why = String((j.error && Array.isArray(j.error.errors) && j.error.errors[0] && j.error.errors[0].reason) || '')
+      + ' ' + String((j.error && j.error.message) || '');
+    if (/insufficient/i.test(why) || /permission/i.test(why)) {
+      return 'Google не дал право менять файлы: вход был «только смотреть». Отключите Google Диск и войдите заново';
+    }
+    return 'Google отказал в доступе к этому файлу';
+  }
   if (code === 404) return 'Google не нашёл этот файл — возможно, он удалён или лежит в корзине';
   if (typeof err === 'string' && err) return 'Google ответил: ' + err.slice(0, 160);
   return 'Google ответил кодом ' + code;
@@ -209,6 +232,17 @@ async function refreshTokens(refreshToken, c) {
     refresh_token: String(refreshToken || ''),
     expires_at: Date.now() + (Math.max(60, Number(j.expires_in) || 3600) - 60) * 1000
   };
+}
+
+/** pkg3-128: что разрешено нашему входу в Google.
+ * 'yes' — можно менять файлы, 'no' — только смотреть (старый вход), 'unknown' —
+ * права не записаны (вход 126-го выпуска): решаем по ответу Google. */
+function scopeWrite(scope) {
+  const list = String(scope || '').split(/\s+/).filter(Boolean);
+  if (!list.length) return 'unknown';
+  if (list.includes(SCOPE)) return 'yes';
+  if (list.includes(SCOPE_READONLY) || list.includes(SCOPE_META_READONLY)) return 'no';
+  return 'unknown';
 }
 
 /* ── пути ─────────────────────────────────────────────────────────────────── */
@@ -396,10 +430,117 @@ function mediaUrl(googlePath, c) {
   return conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?alt=media&supportsAllDrives=true';
 }
 
+/** pkg3-128: имя файла или папки, приведённое к безопасному виду.
+ * Косые черты и управляющие знаки не пропускаем, точку в начале убираем. */
+function cellName(raw) {
+  let s = String(raw == null ? '' : raw)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[\/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  s = s.replace(/^\.+/, '').trim().slice(0, 150).trim();
+  return s;
+}
+
+/** Путь НОВОГО файла или папки: `google:/<id родителя>/<имя>`.
+ * У Google пути строкой нет, поэтому для «создать» имя едет прямо в пути:
+ * это единственный вид пути с косой чертой, который принимает сервер. */
+function newItemPath(p) {
+  const s = String(p || '');
+  if (!s.startsWith(PREFIX)) return null;
+  const rest = s.slice(PREFIX.length).replace(/^\/+/, '').replace(/\/+$/, '');
+  const parts = rest.split('/');
+  // ровно два куска: «родитель» и «имя». Лишняя косая черта — не имя, а ошибка:
+  // иначе человек напишет «папка/внутри» и получит не то, что ждал.
+  if (parts.length !== 2) return null;
+  const parentId = parts[0];
+  if (!/^[A-Za-z0-9_-]{2,200}$/.test(parentId)) return null;
+  const name = cellName(parts[1]);
+  if (!name) return null;
+  return { parent: 'google:/' + parentId, parentId, name };
+}
+
+/** Создать папку внутри `google:/<id родителя>/<имя>`. */
+async function mkdir(token, googlePath, c) {
+  const conf = c || cfg();
+  const np = newItemPath(googlePath);
+  if (!np) { const e = new Error('Неверное имя папки: название без косой черты'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ supportsAllDrives: 'true', fields: 'id,name' });
+  const r = await httpJSON(conf.apiBase + '/drive/v3/files?' + q.toString(), {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    json: { name: np.name, mimeType: FOLDER_MIME, parents: [np.parentId] }
+  });
+  if ((r.status !== 200 && r.status !== 201) || !r.json || !r.json.id) {
+    const e = new Error(googleErrorText(r)); e.status = r.status; throw e;
+  }
+  return { path: 'google:/' + r.json.id, name: String(r.json.name || np.name), dir: true };
+}
+
+/** Переименовать файл или папку (путь существующего предмета). */
+async function renameFile(token, googlePath, newName, c) {
+  const conf = c || cfg();
+  const id = idOf(googlePath);
+  if (!id || id === 'root') { const e = new Error('Неверный путь к файлу на Google Диске'); e.status = 400; throw e; }
+  const name = cellName(newName);
+  if (!name) { const e = new Error('Неверное имя: название без косой черты'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ supportsAllDrives: 'true', fields: 'id,name' });
+  const r = await httpJSON(conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    json: { name }
+  });
+  if (r.status !== 200 || !r.json) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
+  return { path: 'google:/' + id, name: String(r.json.name || name) };
+}
+
+/** Убрать файл или папку в корзину Google (навсегда не удаляем — вернуть можно). */
+async function trashPath(token, googlePath, c) {
+  const conf = c || cfg();
+  const id = idOf(googlePath);
+  if (!id || id === 'root') { const e = new Error('Неверный путь к файлу на Google Диске'); e.status = 400; throw e; }
+  const q = new URLSearchParams({ supportsAllDrives: 'true', fields: 'id,name,trashed' });
+  const r = await httpJSON(conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    json: { trashed: true }
+  });
+  if (r.status !== 200 || !r.json) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
+  return { ok: true, path: 'google:/' + id };
+}
+
+/** Адрес загрузки: сервер ОТКРЫВАЕТ сеанс у Google, а файл идёт с устройства
+ * ПРЯМО в Google по этому адресу. VPS не тратит ни память, ни трафик — так же,
+ * как у Яндекса. Адрес живёт до окончания загрузки и привязан к одному файлу. */
+async function uploadSession(token, googlePath, o = {}, c) {
+  const conf = c || cfg();
+  const np = newItemPath(googlePath);
+  if (!np) { const e = new Error('Неверное имя файла: название без косой черты'); e.status = 400; throw e; }
+  const mime = String(o.mime || 'application/octet-stream').slice(0, 120) || 'application/octet-stream';
+  const size = Math.max(0, Number(o.size) || 0);
+  const headers = {
+    Authorization: 'Bearer ' + token,
+    Accept: 'application/json',
+    'X-Upload-Content-Type': mime
+  };
+  if (size) headers['X-Upload-Content-Length'] = String(size);
+  const q = new URLSearchParams({ uploadType: 'resumable', supportsAllDrives: 'true', fields: 'id,name,size,mimeType' });
+  const r = await httpJSON(conf.apiBase + '/upload/drive/v3/files?' + q.toString(), {
+    method: 'POST', headers,
+    json: { name: np.name, mimeType: mime, parents: [np.parentId] }
+  });
+  const loc = String((r.headers && (r.headers.location || r.headers.Location)) || '');
+  if ((r.status !== 200 && r.status !== 201) || !loc) { const e = new Error(googleErrorText(r)); e.status = r.status || 502; throw e; }
+  if (!/^https?:\/\//i.test(loc)) { const e = new Error('Google вернул неверный адрес загрузки'); e.status = 502; throw e; }
+  return { url: loc, method: 'PUT', name: np.name, mime, size };
+}
+
 module.exports = {
   cfg, loadKeys, KEYS_HINT, tokenKey, sealToken, openToken, httpJSON,
   buildAuthUrl, exchangeCode, refreshTokens,
   safePath, idOf, isGooglePath, pathOf: p => 'google:/' + idOf(p),
   aboutSpace, listFolder, listAudio, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl,
-  googleErrorText, FOLDER_MIME, PREFIX
+  googleErrorText, FOLDER_MIME, PREFIX,
+  SCOPE, SCOPE_READONLY, scopeWrite, cellName, newItemPath,
+  mkdir, renameFile, trashPath, uploadSession
 };

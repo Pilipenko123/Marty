@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-127';
+const BUILD = 'pkg3-128';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5510,8 +5510,13 @@ function renderDiskWindow() {
   const mine = dkMine();
   const g = st.drive === 'google';
   const atRoot = st.path === dkRoot(st.drive);
-  // pkg3-126: в Google серверу дано только чтение — кнопки правок честно погашены
-  const writable = !g && (mine || st.perm === 'write');
+  // pkg3-128: в Google можно менять, если входу дано право записи (иначе кнопки
+  // честно погашены, а окно объясняет, как это исправить).
+  const gWrite = !g || (() => {
+    const gd0 = (d.list || []).find(x => x.id === 'google') || {};
+    return gd0.canWrite !== false;
+  })();
+  const writable = mine ? gWrite : (st.perm === 'write');
   const canUp = g ? !!st.parent : !atRoot;
   const rows = st.loading
     ? '<div class="tiny muted disk-wait">Читаю папку на Диске…</div>'
@@ -5524,9 +5529,9 @@ function renderDiskWindow() {
     : '';
   const head = mine
     ? (g
-      ? `<b>${escapeHtml(dr.title || 'Google Диск')}</b> <span class="tiny muted">подключён через Google · только чтение</span>`
+      ? `<b>${escapeHtml(dr.title || 'Google Диск')}</b> <span class="tiny muted">подключён через Google · ${gWrite ? 'можно смотреть и менять' : 'только чтение'}</span>`
       : `<b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span>`)
-    : `<b>${escapeHtml(st.title || 'Общая папка')}</b> <span class="tiny muted">${g ? 'папка участника с Google · только чтение' : 'папка участника · ' + (st.perm === 'write' ? 'можно менять' : 'только чтение')}</span>`;
+    : `<b>${escapeHtml(st.title || 'Общая папка')}</b> <span class="tiny muted">${g ? 'папка участника с Google · ' + (st.perm === 'write' ? 'можно менять' : 'только чтение') : 'папка участника · ' + (st.perm === 'write' ? 'можно менять' : 'только чтение')}</span>`;
   modal('☁ Мои диски', `<div class="disk-win dsk">
     <div class="dsk-bar">
       <button class="mini" id="dsk-up" title="Наверх" ${canUp ? '' : 'disabled'}>↑</button>
@@ -5547,7 +5552,9 @@ function renderDiskWindow() {
     </div>
     <div class="dsk-list disk-list" id="disk-list">${rows}</div>
     <div class="tiny muted disk-hint">${g
-      ? 'Google разрешил SEGA-CHAT только смотреть файлы: менять, переименовывать и удалять сервер не может. Файлы остаются в вашем Google Диске — они не копируются, а идут к вам через сервер по короткой ссылке.'
+      ? (writable
+        ? 'Google разрешил SEGA-CHAT смотреть и менять файлы: новая папка, загрузка и переименование идут прямо в ваш Google, а «Удалить» убирает в корзину Google (восстановить можно там). Файлы не копируются на сервер.'
+        : 'Google разрешил SEGA-CHAT только смотреть файлы — менять, переименовывать и удалять сервер не может. Чтобы разрешить изменения: «＋ Диск» → «Разрешить изменения». Файлы остаются в вашем Google Диске.')
       : (mine
       ? 'Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку.'
       : (writable ? 'Вам открыли эту папку с правом изменения: можно добавлять, переименовывать и удалять внутри.' : 'Вам открыли эту папку только для чтения.'))} Кнопка «Поделиться» отправляет ссылку в чат и открывает доступ только его участникам.</div>
@@ -5674,7 +5681,7 @@ async function quickSend(chatId, text) {
 async function diskSendToChat(chatId, it) {
   const permEl = document.querySelector('input[name="dkperm"]:checked');
   const perm = permEl ? permEl.value : 'read';
-  await api('/api/yadisk/share-file', {
+  const shr = await api('/api/yadisk/share-file', {
     method: 'POST',
     body: { path: it.path, name: it.name, media: it.media || '', size: it.size || 0, kind: it.dir ? 'folder' : 'file', perm: it.dir ? perm : 'read' }
   });
@@ -5682,8 +5689,10 @@ async function diskSendToChat(chatId, it) {
   await quickSend(chatId, text);
   hide($('#modal'));
   drivesLoad();
+  // pkg3-128: право могло быть понижено до «смотреть» (у Google право записи не выдано)
+  const realPerm = (shr && shr.perm) || perm;
   toast(it.dir
-    ? ('Папка открыта участникам чата — ' + (perm === 'write' ? 'можно менять содержимое' : 'только чтение'))
+    ? ('Папка открыта участникам чата — ' + (realPerm === 'write' ? 'можно менять содержимое' : 'только чтение'))
     : 'Ссылка отправлена — участники чата смогут открыть файл');
   if (S.view !== chatId) openChat(chatId).catch(() => {});
 }
@@ -5691,9 +5700,12 @@ async function diskSendToChat(chatId, it) {
 /* ── изменения содержимого: создать, переименовать, удалить, загрузить ────── */
 async function diskOp(op, path, extra) {
   const st = diskState();
-  if (st.drive === 'google' || String(path || '').startsWith('google:')) {
-    toast('В Google Диске пока только чтение — менять и удалять нельзя', true);
-    throw new Error('readonly');
+  // pkg3-128: Google больше не «только чтение». У него нет пути строкой, поэтому
+  // новое имя едет отдельным полем, а не путём «родитель/имя».
+  if (String(path || '').startsWith('google:')) {
+    const g = Object.assign({ op, path, of: st.of || '' }, extra || {});
+    if (op === 'rename' && g.to && !g.name) { g.name = String(g.to).split('/').pop(); delete g.to; }
+    return api('/api/yadisk/op', { method: 'POST', body: g });
   }
   const body = Object.assign({ op, path, of: st.of || '' }, extra || {});
   return api('/api/yadisk/op', { method: 'POST', body });
@@ -5731,18 +5743,28 @@ async function diskDelete(it) {
 async function diskUpload(files) {
   const st = diskState();
   if (!files || !files.length) return;
-  let done = 0, fail = 0;
+  let done = 0, fail = 0, why = '';
   for (const f of files) {
     try {
       const dest = dkJoin(st.path, f.name);
-      const r = await api('/api/yadisk/upload-url?path=' + encodeURIComponent(dest) + (st.of ? '&of=' + encodeURIComponent(st.of) : ''));
-      const put = await fetch(r.href, { method: r.method || 'PUT', body: f });
-      if (!put.ok) throw new Error('Яндекс ответил ' + put.status);
+      // pkg3-128: к пути и имени добавляем тип и размер — у Google сеанс
+      // загрузки создаётся заранее и должен знать, что именно польётся.
+      const q = '/api/yadisk/upload-url?path=' + encodeURIComponent(dest)
+        + (st.of ? '&of=' + encodeURIComponent(st.of) : '')
+        + '&mime=' + encodeURIComponent(f.type || 'application/octet-stream')
+        + '&size=' + encodeURIComponent(String(f.size || 0));
+      const r = await api(q);
+      const put = await fetch(r.href, {
+        method: r.method || 'PUT',
+        body: f,
+        headers: r.drive === 'google' ? { 'Content-Type': r.mime || f.type || 'application/octet-stream' } : undefined
+      });
+      if (!put.ok) throw new Error((r.drive === 'google' ? 'Google ответил ' : 'Яндекс ответил ') + put.status);
       done++;
-    } catch (e) { fail++; }
+    } catch (e) { fail++; why = e.message || String(e); }
   }
   if (done) { toast('Загружено файлов: ' + done + (fail ? ', не вышло: ' + fail : '')); diskBrowse(st.path); }
-  else toast('Загрузка не удалась: браузер не дал отправить файл на Диск. Попробуйте с компьютера.', true);
+  else toast('Загрузка не удалась' + (why ? ': ' + why : ': браузер не дал отправить файл на Диск') + '. Попробуйте ещё раз или с компьютера.', true);
 }
 
 /* ── ссылка на файл или папку внутри письма ──────────────────────────────── */
@@ -5797,16 +5819,18 @@ async function driveConnectAsk() {
     </div>
     <div class="disk-drv">
       <div class="disk-drv-t"><b>🅖 Google Диск</b> ${gd.connected
-        ? '<span class="tiny muted">уже подключён · только чтение</span>'
+        ? `<span class="tiny muted">уже подключён · ${gd.canWrite === false ? 'только чтение' : 'можно смотреть и менять'}</span>`
         : (gd.needsKeys ? '<span class="tiny muted">нужны ключи приложения</span>' : '<span class="tiny muted">не подключён</span>')}</div>
       <div class="disk-drv-a">${gd.connected
-        ? `<button class="mini primary" data-drive-open="google">Открыть диск</button><button class="mini danger" id="gd-off">Отключить</button>`
+        ? `<button class="mini primary" data-drive-open="google">Открыть диск</button>${gd.canWrite === false ? '<button class="mini" id="gd-more">Разрешить изменения</button>' : ''}<button class="mini danger" id="gd-off">Отключить</button>`
         : `<button class="mini primary" id="gd-login">Войти через Google</button>`}</div>
       ${gd.connected
-        ? '<div class="tiny muted">Доступ дан только на чтение: сервер не может ни изменить, ни удалить файлы.</div>'
+        ? (gd.canWrite === false
+          ? '<div class="tiny muted">Доступ дан только на чтение: сервер не может ни изменить, ни удалить файлы. Нажмите «Разрешить изменения» — Google спросит право менять файлы, заходить под другим аккаунтом не нужно.</div>'
+          : '<div class="tiny muted">Доступ дан и на просмотр, и на изменения: сервер может создавать папки, загружать, переименовывать и убирать файлы в корзину Google. Ваши файлы остаются у Google.</div>')
         : (gd.needsKeys
           ? `<div class="tiny muted">${escapeHtml(gd.keysHint || '')}</div>`
-          : '<div class="tiny muted">Нажмите «Войти через Google» — откроется страница Google, где вы разрешите только просмотр файлов.</div>')}
+          : '<div class="tiny muted">Нажмите «Войти через Google» — откроется страница Google, где вы разрешите смотреть файлы и менять их (создавать папки, загружать, переименовывать, убирать в корзину).</div>')}
     </div>
     ${soon}
     <div class="tiny muted">Файлы остаются на вашем Диске: сервер их не копирует и места на нём не занимает.</div>
@@ -5943,7 +5967,7 @@ document.addEventListener('click', async e => {
   const drvAdd = e.target.closest('[data-drive-add]');
   if (drvAdd) { closeRail(); driveConnectAsk(); return; }
   if (e.target.closest('#drv-open')) { openDriveWindow('yandex'); return; }
-  if (e.target.closest('#gd-login')) {
+  if (e.target.closest('#gd-login') || e.target.closest('#gd-more')) {
     try {
       const r = await api('/api/gdrive/auth');
       if (!r || !r.url) throw new Error('Google не прислал адрес входа');
