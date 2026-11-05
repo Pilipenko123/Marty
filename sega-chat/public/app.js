@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-123';
+const BUILD = 'pkg3-124';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -1239,6 +1239,7 @@ async function startApp() {
   S.resyncHappened = false; S.warm = false; S.histReady = false; S.lastMergeGone = null;
   S.dmSaved = new Set(); S.savedSeen = {}; S.booted = false;   // pkg3-49: новый вход — счётчики «Новых» с нуля
   S.gapChecked = S.gapChecked || new Set();
+  S.drives = null; S.disk = null;   // pkg3-124: при новом входе — читаем диски заново
 
   // ── локальная память: мгновенно показать то, что уже есть на устройстве ──
   let warm = null;
@@ -1305,6 +1306,7 @@ async function startApp() {
   renderCacheState();
   wake('старт приложения');
   refreshPushReady();                  // pkg3-40: знать, можно ли доске спать спокойно
+  drivesLoad().catch(() => {});        // pkg3-124: раздел «Мои диски» внизу списка чатов
   loop();
   if (!S.priv) setTimeout(() => { if (!S.priv) openRestoreKeys(); }, 600);
 }
@@ -5287,6 +5289,394 @@ function ydTokenAsk() {
   if (inp) setTimeout(() => inp.focus(), 30);
 }
 
+// ═══════════════════════════════════════ pkg3-124: «Мои диски» (облака участников)
+/**
+ * Просьба владельца: ЛЮБОЙ участник подключает свой диск; диск виден в области
+ * чатов отдельным разделом «☁ Мои диски»; подключение — из меню «+»; с файлами
+ * можно работать по-человечески: слушать музыку, смотреть фото и видео,
+ * скачивать, открывать доступ участникам чата и отправлять ссылку в чат.
+ *
+ * Как устроено (и почему это не ломает сквозное шифрование):
+ *   • список дисков (`S.drives`) приходит с сервера — сейчас Яндекс.Диск,
+ *     формат сразу списком, чтобы Google лёг сюда же строкой (выпуск 125);
+ *   • раздел «☁ Мои диски» живёт в САМОМ НИЗУ списка чатов (renderRail);
+ *   • окно диска — проводник: хлебные крошки, папки, файлы любых типов;
+ *   • ссылка в чат — строка `sega-disk://<uid>/<путь в base64url>`. Она едет
+ *     ВНУТРИ шифрованного письма, поэтому сервер её не читает; получатель
+ *     превращает строку в карточку и просит свежую временную ссылку у
+ *     `/api/yadisk/file`. Чужой файл отдаётся только из общего чата и только
+ *     если владелец сам открыл его кнопкой «В чат»;
+ *   • сами файлы по-прежнему лежат на Диске: сервер не копирует их к себе.
+ */
+function drivesState() {
+  if (!S.drives) S.drives = { list: [], soon: [], loaded: false };
+  return S.drives;
+}
+async function drivesLoad() {
+  try {
+    const r = await api('/api/drives');
+    const d = drivesState();
+    d.list = Array.isArray(r.drives) ? r.drives : [];
+    d.soon = Array.isArray(r.soon) ? r.soon : [];
+    d.loaded = true;
+    renderRail();
+  } catch (e) { /* нет сети — раздел просто покажет «не подключён» */ }
+  return drivesState();
+}
+const DRV_ICON = { yandex: '☁', google: '🅖' };
+const DK_MEDIA_RU = { audio: 'музыка', image: 'фото', video: 'видео', doc: 'документ', other: 'файл' };
+const DK_ICON = { dir: '📁', audio: '🎵', image: '🖼', video: '🎬', doc: '📄', other: '📦' };
+const dkSize = n => ydFmtSize(n);
+
+/** Строки раздела «☁ Мои диски» (раздел стоит внизу списка чатов). */
+function drivesRailRows() {
+  const d = drivesState();
+  const rows = (d.list || []).filter(x => x && x.connected).map(x =>
+    `<div class="chat-item drive-item" data-drive-open="${escapeHtml(x.id)}" title="Открыть «${escapeHtml(x.title)}»">
+      <div class="drive-ic">${DRV_ICON[x.id] || '☁'}</div>
+      <div class="ci-main">
+        <div class="ci-name">${escapeHtml(x.title)}</div>
+        <div class="ci-last">${x.shared ? 'открыто файлов: ' + x.shared : 'файлы лежат на вашем диске'}</div>
+      </div>
+    </div>`).join('');
+  return rows + `<div class="chat-item drive-item drive-add" data-drive-add="1" title="Подключить Яндекс.Диск или другой диск">
+      <div class="drive-ic plus">＋</div>
+      <div class="ci-main">
+        <div class="ci-name">Подключить диск</div>
+        <div class="ci-last">Яндекс.Диск${(d.soon || []).length ? ' · ' + (d.soon || []).map(x => x.title).join(' · ') + ' — скоро' : ''}</div>
+      </div>
+    </div>`;
+}
+
+/** Состояние окна-проводника (одно на всё приложение). */
+function diskState() {
+  if (!S.disk) S.disk = { drive: 'yandex', path: 'disk:/', items: [], loading: false, err: '' };
+  return S.disk;
+}
+/** Открыть диск: сразу читаем корень. */
+function openDriveWindow(id) {
+  const d = drivesState();
+  const dr = (d.list || []).find(x => x.id === id);
+  if (!dr || !dr.connected) return driveConnectAsk();
+  const st = diskState();
+  st.drive = id; st.path = 'disk:/'; st.items = [];
+  diskBrowse('disk:/');
+}
+/** Прочитать папку и перерисовать окно. */
+async function diskBrowse(path) {
+  const st = diskState();
+  st.path = path || 'disk:/';
+  st.loading = true; st.err = '';
+  renderDiskWindow();
+  try {
+    const r = await api('/api/yadisk/list?path=' + encodeURIComponent(st.path));
+    st.items = Array.isArray(r.items) ? r.items : [];
+  } catch (e) {
+    st.items = []; st.err = e.message || String(e);
+  }
+  st.loading = false;
+  renderDiskWindow();
+}
+function diskCrumbsHtml(path) {
+  const parts = String(path || 'disk:/').replace(/^disk:/, '').split('/').filter(Boolean);
+  let acc = 'disk:/';
+  let out = `<button class="mini dk-crumb" data-disk-go="disk:/" title="Корень диска">☁ Диск</button>`;
+  for (const p of parts) {
+    acc += p + '/';
+    out += `<span class="dk-sep">/</span><button class="mini dk-crumb" data-disk-go="${escapeHtml(acc)}">${escapeHtml(p)}</button>`;
+  }
+  return out;
+}
+function diskRowHtml(it, i) {
+  const kind = it.dir ? 'dir' : (it.media || 'other');
+  const sub = it.dir ? 'папка' : [dkSize(it.size), DK_MEDIA_RU[it.media] || 'файл'].filter(Boolean).join(' · ');
+  const main = it.dir
+    ? `<button class="mini primary" data-disk-dir="${i}">Открыть</button>`
+    : it.media === 'audio'
+      ? `<button class="mini primary" data-disk-play="${i}" title="Слушать в плеере «Моей музыки»">▶ Слушать</button>`
+      : (it.media === 'image' || it.media === 'video')
+        ? `<button class="mini primary" data-disk-view="${i}" title="Посмотреть здесь">Смотреть</button>`
+        : `<button class="mini" data-disk-dl="${i}" title="Скачать на устройство">⬇ Скачать</button>`;
+  return `<div class="disk-row" data-disk-row="${i}">
+    <div class="disk-ic">${DK_ICON[kind] || '📦'}</div>
+    <div class="disk-meta">
+      <div class="disk-name" title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</div>
+      <div class="disk-sub tiny muted">${escapeHtml(sub)}</div>
+    </div>
+    <div class="disk-acts">${main}${(!it.dir && (it.media === 'audio' || it.media === 'image' || it.media === 'video')) ? `<button class="mini" data-disk-dl="${i}" title="Скачать на устройство">⬇</button>` : ''}${it.media === 'audio' ? `<button class="mini" data-disk-pl="${i}" title="Положить в мой плейлист">＋</button>` : ''}${it.dir ? '' : `<button class="mini" data-disk-send="${i}" title="Отправить ссылку в чат и открыть доступ участникам">В чат</button>`}</div>
+  </div>`;
+}
+/** Перерисовать окно диска (одна разметка, слушатели — общие, ниже). */
+function renderDiskWindow() {
+  const st = diskState();
+  const d = drivesState();
+  const dr = (d.list || []).find(x => x.id === st.drive) || { title: 'Яндекс.Диск' };
+  const body = st.loading
+    ? '<div class="tiny muted disk-wait">Читаю папку на Диске…</div>'
+    : st.err
+      ? `<div class="tiny disk-err">Не получилось: ${escapeHtml(st.err)}</div><button class="mini" id="disk-retry">Повторить</button>`
+      : (st.items.length ? st.items.map(diskRowHtml).join('') : '<div class="tiny muted disk-wait">В этой папке пусто.</div>');
+  modal('☁ Мои диски', `<div class="disk-win">
+    <div class="disk-top">
+      <div class="disk-drv-t"><b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span></div>
+      <div class="disk-top-a">
+        <button class="mini" id="disk-refresh" title="Перечитать папку">Обновить</button>
+        <button class="mini" data-drive-add="1" title="Подключить ещё диск">＋ Диск</button>
+      </div>
+    </div>
+    <div class="disk-crumbs">${diskCrumbsHtml(st.path)}</div>
+    <div class="disk-list">${body}</div>
+    <div class="tiny muted disk-hint">Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку. Кнопка «В чат» открывает этот файл участникам и отправляет ссылку в выбранный чат.</div>
+  </div>`);
+  const rf = document.getElementById('disk-refresh');
+  if (rf) rf.addEventListener('click', () => diskBrowse(diskState().path));
+  const rt = document.getElementById('disk-retry');
+  if (rt) rt.addEventListener('click', () => diskBrowse(diskState().path));
+}
+
+/** Свежая ссылка на файл: свой — своим ключом, чужой — через проверку доступа. */
+async function diskFileHref(diskPath, of) {
+  const mine = !of || (S.me && of === S.me.id);
+  const q = mine ? ('?path=' + encodeURIComponent(diskPath))
+    : ('?of=' + encodeURIComponent(of) + '&path=' + encodeURIComponent(diskPath));
+  return api('/api/yadisk/file' + q);
+}
+/** Сохранить файл на устройство (ссылка Яндекса временная — берём свежую). */
+function diskSaveUrl(href, name) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = String(name || '');
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+async function diskDownloadFile(it, of) {
+  try {
+    const r = await diskFileHref(it.path, of);
+    diskSaveUrl(r.href, it.name);
+    toast('Скачиваю: ' + (it.name || 'файл'));
+  } catch (e) { toast('Не получилось скачать: ' + (e.message || e), true); }
+}
+async function diskPlayFile(it, of) {
+  try {
+    const r = await diskFileHref(it.path, of);
+    musicPlayOnce(r.href, it.name || it.path, 0, '', '');   // href уже готов — это обычная ссылка
+    toast('Играю: ' + (it.name || 'файл'));
+  } catch (e) { toast('Не получилось включить: ' + (e.message || e), true); }
+}
+async function diskViewFile(it, of) {
+  try {
+    const r = await diskFileHref(it.path, of);
+    const media = it.media || (r.media || '');
+    const inner = media === 'video'
+      ? `<video class="disk-prev" src="${escapeHtml(r.href)}" controls playsinline preload="metadata"></video>`
+      : `<img class="disk-prev" src="${escapeHtml(r.href)}" alt="${escapeHtml(it.name || '')}">`;
+    modal(it.name || 'Файл с Диска', `<div class="disk-pv">${inner}
+      <div class="tiny muted">${escapeHtml(it.name || '')}${it.size ? ' · ' + dkSize(it.size) : ''}${of ? ' · Диск участника' : ''}</div>
+      <div class="disk-pv-acts"><button class="mini" data-disk-dl-url="${escapeHtml(r.href)}" data-disk-dl-name="${escapeHtml(it.name || '')}">⬇ Скачать</button></div>
+    </div>`);
+  } catch (e) { toast('Не получилось открыть файл: ' + (e.message || e), true); }
+}
+/** «＋» — положить файл с Диска в свой плейлист (тот же вопрос, что у музыки). */
+async function diskToPlaylist(it) {
+  const y = S.me && S.me.id;
+  musAskPlaylist({ kind: 'disk', path: it.path, title: it.name, diskOf: y || '', cover: '' });
+}
+
+/** «В чат»: выбрать чат, открыть файл участникам и отправить ссылку. */
+function diskSendAsk(it) {
+  diskState().pick = it;   // что отправляем — запоминаем до выбора чата
+  const chats = (S.chats || []).filter(c => c.kind === 'dm' || c.kind === 'group');
+  if (!chats.length) return toast('Пока нет чатов, куда отправить ссылку', true);
+  modal('Отправить в чат', `<div class="disk-pick">
+    <div class="tiny muted">Файл: ${escapeHtml(it.name)}</div>
+    <div class="disk-pick-list">${chats.map(c => `<button class="mini disk-pick-btn" data-disk-chat="${escapeHtml(c.id)}">${escapeHtml(chatTitle(c))}</button>`).join('')}</div>
+    <div class="tiny muted">Ссылку увидят только участники этого чата: свежую временную ссылку сервер выдаёт после проверки, что вы в одном чате.</div>
+  </div>`);
+}
+/** Отправка письма из чужого окна: шифруем так же, как обычная отправка. */
+async function quickSend(chatId, text) {
+  const c = chatById(chatId);
+  if (!c) throw new Error('Чат не найден');
+  const k = await chatKeyOf(c);
+  if (!k) throw new Error('Не удалось получить ключ шифрования для этого чата');
+  if (c.kind === 'group') pushOldKey(c.id, k, c.keyEpoch || 0);
+  const payload = { v: 1, text, author: S.me.name, mentions: findMentions(text) };
+  const blob = await encryptJSON(k.key, payload);
+  const r = await api('/api/messages', { method: 'POST', body: { blob, chat: c.id, parent: null, quote: null, notify: 1 } });
+  S.plain.set(r.message.id, payload);
+  cacheMsg(r.message);
+  S.sig = '';
+  if (S.view === c.id) { addMessages([r.message]); S.atBottom = true; renderMessages(true); }
+  renderRail();
+  return r.message;
+}
+async function diskSendToChat(chatId, it) {
+  await api('/api/yadisk/share-file', { method: 'POST', body: { path: it.path, name: it.name, media: it.media || '', size: it.size || 0 } });
+  const text = '☁ Файл с моего Диска: ' + it.name + '\n' + diskLinkMake(S.me.id, it.path);
+  await quickSend(chatId, text);
+  hide($('#modal'));
+  drivesLoad();
+  toast('Ссылка отправлена — участники чата смогут открыть файл');
+  if (S.view !== chatId) openChat(chatId).catch(() => {});
+}
+
+/* ── ссылка на файл внутри письма ───────────────────────────────────────── */
+function diskLinkMake(uid, diskPath) {
+  let b64 = '';
+  try {
+    const bytes = new TextEncoder().encode(String(diskPath));
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch (e) { return ''; }
+  return 'sega-disk://' + String(uid || '') + '/' + b64;
+}
+function diskLinkParse(text) {
+  const m = /sega-disk:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)/.exec(String(text || ''));
+  if (!m) return null;
+  try {
+    let b64 = m[2].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return { of: m[1], path: new TextDecoder().decode(bytes) };
+  } catch (e) { return null; }
+}
+/** Карточка под текстом письма (рядом с карточкой Яндекс.Музыки pkg3-120). */
+function diskEmbedHtml(text) {
+  const r = diskLinkParse(text);
+  if (!r) return '';
+  if (S.eco) return '';   // в экономном режиме карточка не рисуется, текст со ссылкой остаётся
+  const mine = !!(S.me && r.of === S.me.id);
+  const name = r.path.split('/').filter(Boolean).pop() || 'файл';
+  return `<div class="disk-embed" data-disk-of="${escapeHtml(r.of)}" data-disk-path="${escapeHtml(r.path)}" data-disk-name="${escapeHtml(name)}">
+    <div class="disk-embed-ic">☁</div>
+    <div class="disk-embed-t"><b>${escapeHtml(name)}</b><span class="tiny muted">${mine ? 'файл с вашего Диска' : 'файл с Диска участника'}</span></div>
+    <div class="disk-embed-a"><button type="button" class="mini primary" data-disk-act="open">Открыть</button><button type="button" class="mini" data-disk-act="save">⬇ Скачать</button></div>
+  </div>`;
+}
+
+/* ── подключение диска (меню «+» и раздел «Мои диски») ──────────────────── */
+async function driveConnectAsk() {
+  await drivesLoad();
+  const d = drivesState();
+  const yd = (d.list || []).find(x => x.id === 'yandex') || { connected: false, manual: false };
+  const soon = (d.soon || []).map(x => `<div class="disk-drv soon"><div class="disk-drv-t"><b>${DRV_ICON[x.id] || '☁'} ${escapeHtml(x.title)}</b> <span class="tiny muted">— в следующем выпуске</span></div></div>`).join('');
+  modal('Подключить диск', `<div class="disk-connect">
+    <div class="disk-drv">
+      <div class="disk-drv-t"><b>☁ Яндекс.Диск</b> ${yd.connected ? '<span class="tiny muted">уже подключён' + (yd.manual ? ' (токеном)' : '') + '</span>' : ''}</div>
+      <div class="disk-drv-a">${yd.connected
+        ? `<button class="mini primary" id="drv-open">Открыть диск</button><button class="mini danger" id="drv-off">Отключить</button>`
+        : `<button class="mini primary" id="drv-token">Вставить токен</button><button class="mini" id="drv-oauth">Войти через Яндекс</button>`}</div>
+      <div class="tiny muted">Токен выдаёт сам Яндекс на полигоне Диска — модерация приложения не нужна, доступ только на чтение. «Войти через Яндекс» работает, когда приложение сервера опубликовано.</div>
+    </div>
+    ${soon}
+    <div class="tiny muted">Файлы остаются на вашем Диске: сервер их не копирует и места на нём не занимает.</div>
+  </div>`);
+}
+/** Окно «вставьте токен» — своё, для раздела «Мои диски» (в музыке есть своё). */
+function driveTokenAsk() {
+  const ovl = document.createElement('div');
+  ovl.className = 'ask-ovl';
+  ovl.innerHTML = '<div class="ask-card yd-tok-card">'
+    + '<div class="ask-t"><b>Подключить Диск по токену</b></div>'
+    + '<p class="tiny muted">Токен выдаёт сам Яндекс вашему аккаунту: публикация приложения и страница согласия не нужны.</p>'
+    + '<p class="tiny">Откройте <a href="https://yandex.ru/dev/disk/poligon/" target="_blank" rel="noopener noreferrer">полигон Яндекс.Диска</a>, войдите своим аккаунтом, нажмите «Получить OAuth-токен» и скопируйте строку.</p>'
+    + '<input id="yd-tok2" type="password" autocomplete="off" spellcheck="false" placeholder="вставьте токен (одна длинная строка)">'
+    + '<p class="tiny muted">Токен хранится на сервере зашифрованным и даёт только <b>чтение</b> Диска. Отозвать можно на том же полигоне.</p>'
+    + '<div class="ask-b"><button class="mini" data-yd-tok2="">Отмена</button><button class="mini primary" data-yd-tok2="1">Подключить</button></div>'
+    + '</div>';
+  ovl.addEventListener('click', async e => {
+    const b = e.target.closest('[data-yd-tok2]');
+    if (!b) return;
+    if (!b.getAttribute('data-yd-tok2')) { ovl.remove(); return; }
+    const inp = ovl.querySelector('#yd-tok2');
+    const token = String((inp && inp.value) || '').trim();
+    if (token.length < 20) { toast('Токен слишком короткий — скопируйте строку целиком', true); return; }
+    b.disabled = true;
+    try {
+      await api('/api/yadisk/token', { method: 'POST', body: { token } });
+      ovl.remove();
+      toast('Яндекс.Диск подключён по токену');
+      await drivesLoad();
+      openDriveWindow('yandex');
+    } catch (err) {
+      b.disabled = false;
+      toast('Не получилось: ' + (err.message || err), true);
+    }
+  });
+  document.body.appendChild(ovl);
+  const inp = ovl.querySelector('#yd-tok2');
+  if (inp) setTimeout(() => inp.focus(), 30);
+}
+/** Общий приёмник нажатий: и в окне диска, и в карточке письма. */
+document.addEventListener('click', async e => {
+  const card = e.target.closest('[data-disk-act]');
+  if (card) {
+    const box = card.closest('[data-disk-of]');
+    if (!box) return;
+    const of = box.getAttribute('data-disk-of');
+    const diskPath = box.getAttribute('data-disk-path');
+    const name = box.getAttribute('data-disk-name') || diskPath.split('/').pop();
+    const act = card.getAttribute('data-disk-act');
+    if (act === 'save') { await diskDownloadFile({ path: diskPath, name }, of); return; }
+    try {
+      const r = await diskFileHref(diskPath, of);
+      const media = r.media || (/\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(name) ? 'image'
+        : /\.(mp4|mov|webm|mkv|avi)$/i.test(name) ? 'video'
+          : /\.(mp3|ogg|m4a|flac|wav|aac)$/i.test(name) ? 'audio' : 'other');
+      if (media === 'audio') { musicPlayOnce(r.href, r.name || name, 0, '', ''); toast('Играю: ' + (r.name || name)); return; }
+      if (media === 'image' || media === 'video') {
+        await diskViewFile({ path: diskPath, name: r.name || name, media: r.media || media, size: r.size || 0 }, of);
+        return;
+      }
+      window.open(r.href, '_blank', 'noopener');
+    } catch (err) { toast('Файл не открылся: ' + (err.message || err), true); }
+    return;
+  }
+  const idx = (attr) => { const b = e.target.closest('[' + attr + ']'); return b ? Number(b.getAttribute(attr)) : -1; };
+  const st = diskState();
+  const item = (i) => (i >= 0 && st.items[i]) ? st.items[i] : null;
+  const dir = e.target.closest('[data-disk-dir]');
+  if (dir) { const it = item(Number(dir.getAttribute('data-disk-dir'))); if (it) diskBrowse(it.path); return; }
+  const go = e.target.closest('[data-disk-go]');
+  if (go) { diskBrowse(go.getAttribute('data-disk-go')); return; }
+  const iPlay = idx('data-disk-play'); if (iPlay >= 0) { const it = item(iPlay); if (it) diskPlayFile(it); return; }
+  const iView = idx('data-disk-view'); if (iView >= 0) { const it = item(iView); if (it) diskViewFile(it); return; }
+  const iDl = idx('data-disk-dl'); if (iDl >= 0) { const it = item(iDl); if (it) diskDownloadFile(it); return; }
+  const iPl = idx('data-disk-pl'); if (iPl >= 0) { const it = item(iPl); if (it) diskToPlaylist(it); return; }
+  const iSend = idx('data-disk-send'); if (iSend >= 0) { const it = item(iSend); if (it) diskSendAsk(it); return; }
+  const dlUrl = e.target.closest('[data-disk-dl-url]');
+  if (dlUrl) { diskSaveUrl(dlUrl.getAttribute('data-disk-dl-url'), dlUrl.getAttribute('data-disk-dl-name')); return; }
+  const pick = e.target.closest('[data-disk-chat]');
+  if (pick) {
+    const it = diskState().pick;
+    if (!it) return;
+    pick.disabled = true;
+    try { await diskSendToChat(pick.getAttribute('data-disk-chat'), it); }
+    catch (err) { pick.disabled = false; toast('Не получилось отправить: ' + (err.message || err), true); }
+    return;
+  }
+  const drvOpen = e.target.closest('[data-drive-open]');
+  if (drvOpen) { closeRail(); openDriveWindow(drvOpen.getAttribute('data-drive-open')); return; }
+  const drvAdd = e.target.closest('[data-drive-add]');
+  if (drvAdd) { closeRail(); driveConnectAsk(); return; }
+  if (e.target.closest('#drv-open')) { openDriveWindow('yandex'); return; }
+  if (e.target.closest('#drv-token')) { hide($('#modal')); driveTokenAsk(); return; }
+  if (e.target.closest('#drv-oauth')) { hide($('#modal')); await ydConnect(); await drivesLoad(); return; }
+  if (e.target.closest('#drv-off')) {
+    if (!confirm('Отключить Яндекс.Диск от этого аккаунта? Файлы на Диске останутся, просто чат их больше не увидит.')) return;
+    try {
+      await api('/api/yadisk/disconnect', { method: 'POST', body: {} });
+      await drivesLoad(); toast('Диск отключён');
+      driveConnectAsk();
+    } catch (err) { toast('Не получилось: ' + (err.message || err), true); }
+    return;
+  }
+});
+
 /** Загрузка списка аудиофайлов со всего Диска (страницами по 200). */
 async function ydLoadFiles(reset) {
   const y = ydState();
@@ -6818,6 +7208,10 @@ function renderRail() {
     }
   }
 
+  // pkg3-124: «☁ Мои диски» — отдельным разделом В САМОМ НИЗУ, под всеми чатами
+  // и своими разделами. Здесь же строка «Подключить диск» (плюс пункт в меню «+»).
+  html += foldHead('drives', '☁ Мои диски', []) + (openSec('drives') ? drivesRailRows() : '');
+
   // pkg3-48/49: раздела «Написать лично» со всеми участниками больше нет —
   // мессенджер не показывает весь список людей каждому. Новый собеседник
   // находится поиском по нику (лупа вверху): у АВТОРА письма чат остаётся
@@ -7104,7 +7498,7 @@ function messageHtml(m, opts = {}) {
       ${continued ? '' : `<div class="head"><span class="who">${escapeHtml(author.name)}</span><span class="time">${fmtTime(m.ts)}</span></div>`}
       <div class="bubble">
         ${m.quote ? quoteCardHtml(m.quote) : ''}
-        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${ymEmbedHtml(p.text)}${gamePayloadHtml(p, chatById(m.chat))}
+        ${p.text ? `<div class="btext">${twEmo(mentionize(p.text))}</div>` : ''}${ymEmbedHtml(p.text)}${diskEmbedHtml(p.text)}${gamePayloadHtml(p, chatById(m.chat))}
         ${p.att ? attHtml(p.att) : ''}
       </div>
       ${rxHtml}
@@ -7294,7 +7688,7 @@ function renderThread() {
   box.innerHTML = `<div class="parent-card">
       <div style="display:flex;gap:9px;align-items:center">${avatarHtml(author, 'sm', true)}
         <div><div class="who">${escapeHtml(author.name)}</div><div class="tiny muted">${fmtDay(parent.ts)}, ${fmtTime(parent.ts)}</div></div></div>
-      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${ymEmbedHtml(p.text)}${gamePayloadHtml(p, chatById(parent.chat))}
+      ${p.text ? `<div class="txt">${mentionize(p.text)}</div>` : ''}${ymEmbedHtml(p.text)}${diskEmbedHtml(p.text)}${gamePayloadHtml(p, chatById(parent.chat))}
       ${p.att ? attHtml(p.att) : ''}
     </div>` + kids.map((k, i) => messageHtml(k, { noThread: true, continued: canGroup(kids[i - 1], k), continues: canGroup(k, kids[i + 1]) })).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;
@@ -8618,6 +9012,7 @@ $('#plus-menu').addEventListener('click', e => {
   if (act === 'invite') return openInviteFriend();
   if (act === 'section') return openCreateSection();
   if (act === 'music') return openMusic();   // pkg3-87: плашка прямо в первом меню
+  if (act === 'disk') return driveConnectAsk();   // pkg3-124: подключить свой диск
 });
 document.addEventListener('click', e => {
   if (!e.target.closest('#plus-menu') && !e.target.closest('#btn-plus')) plusMenu(false);
