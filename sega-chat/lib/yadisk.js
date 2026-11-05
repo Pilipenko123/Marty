@@ -347,8 +347,27 @@ async function mkdir(token, diskPath, c) {
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
     method: 'PUT', headers: { Authorization: 'OAuth ' + token }
   });
-  if (r.status !== 201 && r.status !== 200) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  if (r.status !== 201 && r.status !== 200) { const e = new Error(writeErrorText(r, 'mkdir')); e.status = r.status; throw e; }
   return { ok: true, path: p };
+}
+
+/**
+ * pkg3-134: «а можно ли вообще менять файлы на ЭТОМ диске?» Создаём служебную
+ * папку и сразу убираем её. Нужно, когда у человека два Диска и один из них
+ * почему-то не даёт создавать папки: так ответ Яндекса виден словами.
+ */
+async function writeCheck(token, c) {
+  const conf = c || cfg();
+  const name = '.sega-проверка-' + Math.random().toString(36).slice(2, 8);
+  const p = 'disk:/' + name;
+  try {
+    await mkdir(token, p, conf);
+  } catch (e) {
+    return { canWrite: false, status: Number(e.status) || 0, error: e.message || String(e), cleaned: true };
+  }
+  let cleaned = true;
+  try { await removePath(token, p, conf); } catch (e) { cleaned = false; }
+  return { canWrite: true, status: 200, error: '', cleaned };
 }
 
 /** pkg3-125: удалить файл или папку (в корзину Диска, без «навсегда»). */
@@ -360,7 +379,7 @@ async function removePath(token, diskPath, c) {
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
     method: 'DELETE', headers: { Authorization: 'OAuth ' + token }
   });
-  if (r.status !== 204 && r.status !== 200 && r.status !== 202) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  if (r.status !== 204 && r.status !== 200 && r.status !== 202) { const e = new Error(writeErrorText(r, 'del')); e.status = r.status; throw e; }
   return { ok: true, path: p };
 }
 
@@ -373,7 +392,7 @@ async function movePath(token, fromPath, toPath, c) {
   const r = await httpJSON(conf.apiBase + '/v1/disk/resources/move?' + q.toString(), {
     method: 'POST', headers: { Authorization: 'OAuth ' + token }
   });
-  if (r.status !== 201 && r.status !== 200 && r.status !== 202) { const e = new Error(diskErrorText(r)); e.status = r.status; throw e; }
+  if (r.status !== 201 && r.status !== 200 && r.status !== 202) { const e = new Error(writeErrorText(r, 'rename')); e.status = r.status; throw e; }
   return { ok: true, path: to };
 }
 
@@ -419,6 +438,33 @@ async function downloadHref(token, diskPath, c) {
   return { href, ttl: String(j.ttl || ''), path: p };
 }
 
+/**
+ * pkg3-134: ошибка ПРАВКИ (создание, переименование, удаление, загрузка).
+ * У Яндекса отказ по правам и отказ по месту приходят разными кодами, а человеку
+ * нужно не «403», а что делать дальше. Текст ошибки сервера сохраняем — по нему
+ * видно, что именно ответил Диск.
+ */
+function writeErrorText(r, what) {
+  const j = (r && r.json) || {};
+  const raw = String(j.message || j.description || j.error || '').slice(0, 200);
+  const tail = raw ? ' (Яндекс: ' + raw + ')' : '';
+  const act = what === 'del' ? 'удалять' : what === 'rename' ? 'переименовывать' : what === 'upload' ? 'загружать файлы' : 'создавать папки';
+  if (r.status === 401) return 'Вход на Диск больше не действует — отключите диск и подключите заново' + tail;
+  if (r.status === 403) {
+    if (/read.?only|insufficient|access|forbidden/i.test(raw) || !raw) {
+      return 'Яндекс не разрешает ' + act + ' на этом диске: у этого входа нет права записи. ' +
+        'Отключите диск в «Моих дисках» и подключите заново (или вставьте токен, выданный с полными правами)' + tail;
+    }
+    return 'Яндекс отказал в правке: ' + act + ' нельзя' + tail;
+  }
+  if (r.status === 409) return 'На Диске уже есть объект с таким именем или папка занята' + tail;
+  if (r.status === 423) return 'Файл сейчас занят другой программой — попробуйте позже' + tail;
+  if (r.status === 507 || /quota|space/i.test(raw)) return 'На этом Диске не осталось свободного места' + tail;
+  if (r.status === 404) return 'Яндекс не нашёл эту папку — возможно, её переместили или удалили' + tail;
+  if (r.status === 400) return 'Яндекс не принял имя или путь' + tail;
+  return 'Яндекс.Диск ответил ошибкой ' + r.status + tail;
+}
+
 function diskErrorText(r) {
   const j = r.json || {};
   if (r.status === 401 || r.status === 403) return 'Диск отказал в доступе (401/403): подключите его заново';
@@ -455,6 +501,6 @@ function diskResult(r, limit, offset) {
 module.exports = {
   cfg, loadKeys, tokenKey, sealToken, openToken,
   buildAuthUrl, exchangeCode, refreshTokens,
-  listAudio, listFolder, mediaOf, downloadHref, safePath, httpJSON, probeAuth,
+  listAudio, listFolder, mediaOf, downloadHref, safePath, httpJSON, probeAuth, writeCheck, writeErrorText,
   diskInfo, mkdir, removePath, movePath, uploadUrl, safeYandexUrl
 };

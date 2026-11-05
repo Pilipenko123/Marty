@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-133';
+const BUILD = 'pkg3-134';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -4121,24 +4121,45 @@ function createApi(store, opts = {}) {
         if (op === 'del' && path === root) return E(403, 'Папку, которую вам открыли, удалить нельзя');
         if (to && !(to === root || to.startsWith(root + '/'))) return E(403, 'Нельзя выйти за пределы открытой папки');
       }
+      const slotOp = drives.slotOf(path);   // pkg3-134: в ответе видно, какой Диск
       try {
-        const tokO = await ydFreshToken(owner, yadisk.loadKeys(), drives.slotOf(path));
+        const tokO = await ydFreshToken(owner, yadisk.loadKeys(), slotOp);
         if (!tokO) return E(409, 'Яндекс.Диск у владельца не подключён');
         if (op === 'mkdir') {
-          const yPrefixO = drives.prefixFor('yandex', drives.slotOf(path));
+          const yPrefixO = drives.prefixFor('yandex', slotOp);
           await yadisk.mkdir(tokO.access_token, path);
-          return J(200, { ok: true, path: tagPath(yPrefixO, path) });
+          return J(200, { ok: true, drive: 'yandex', slot: slotOp, path: tagPath(yPrefixO, path) });
         }
         if (op === 'rename') {
           if (!to) return E(400, 'Нужно новое имя');
           await yadisk.movePath(tokO.access_token, path, to);
-          return J(200, { ok: true, path: tagPath(drives.prefixFor('yandex', drives.slotOf(to)), to) });
+          return J(200, { ok: true, drive: 'yandex', slot: slotOp, path: tagPath(drives.prefixFor('yandex', drives.slotOf(to)), to) });
         }
         await yadisk.removePath(tokO.access_token, path);
-        return J(200, { ok: true });
+        return J(200, { ok: true, drive: 'yandex', slot: slotOp });
       } catch (e) {
-        if (e.status === 401 || e.status === 403) return E(409, 'Диск отказал: ' + (e.message || 'нет доступа'));
-        if (e.status === 400 || e.status === 404 || e.status === 409) return E(e.status === 409 ? 409 : e.status, e.message);
+        // pkg3-134: Яндекс мог отказать именно по правам на ЭТОТ Диск. Прежде такой
+        // отказ прятался за кодом 409 «Диск отказал», и понять, что происходит,
+        // было нельзя. Теперь код и текст — как есть, плюс номер диска.
+        const st = Number(e.status) || 502;
+        if (st === 401 || st === 403) return E(403, (e.message || 'нет доступа к этому диску') + ' [Диск ' + slotOp + ']');
+        if (st === 400 || st === 404 || st === 409 || st === 423 || st === 507) return E(st, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    // pkg3-134: проверка права записи на конкретном Яндекс-Диске. Создаём
+    // служебную папку и сразу убираем её — человек узнаёт правду словами
+    // Яндекса, а не «не получилось».
+    if (pathname === '/api/yadisk/write-check' && method === 'POST') {
+      if (throttle('yd-wc-' + me.id, 20)) return E(429, 'Проверки слишком часто — подождите минуту');
+      const b = req.body || {};
+      const slot = Math.min(Math.max(Number(b.slot) || 1, 1), drives.MAX_SLOTS);
+      const tok = await ydFreshToken(me, yadisk.loadKeys(), slot);
+      if (!tok) return E(409, 'Диск ' + slot + ' не подключён');
+      try {
+        const res = await yadisk.writeCheck(tok.access_token);
+        return J(200, Object.assign({ ok: true, drive: 'yandex', slot, manual: !!tok.manual }, res));
+      } catch (e) {
         return E(502, e.message || 'Яндекс.Диск не отвечает');
       }
     }
