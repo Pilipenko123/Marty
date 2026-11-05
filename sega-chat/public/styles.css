@@ -2481,3 +2481,32 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
   .dsk .disk-type{display:none}
   .dsk .dsk-space{width:100%;margin-left:0}
 }
+
+/* pkg3-131: документы Google (Docs, Sheets, Slides) в окне чата — только чтение */
+.gd-win{display:flex;flex-direction:column;gap:8px;min-width:0}
+.gd-head{font-size:12px}
+.gd-body{max-height:62vh;overflow:auto;border:1px solid var(--line,rgba(255,255,255,.1));border-radius:calc(var(--r,26px) / 2);background:var(--panel-2,rgba(255,255,255,.04));padding:10px 12px}
+.gd-acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.gd-acts .mini{width:auto;flex:0 0 auto;text-decoration:none;display:inline-flex;align-items:center}
+.gd-doc{font-size:14px;line-height:1.5;color:var(--text,#e9edf5);word-break:break-word}
+.gd-doc h1,.gd-doc h2,.gd-doc h3,.gd-doc h4{margin:.6em 0 .35em;line-height:1.25}
+.gd-doc h1{font-size:19px}
+.gd-doc h2{font-size:17px}
+.gd-doc h3{font-size:15.5px}
+.gd-doc p{margin:.45em 0}
+.gd-doc ul,.gd-doc ol{margin:.4em 0 .4em 1.3em;padding:0}
+.gd-doc li{margin:.15em 0}
+.gd-doc a{color:var(--accent,#6aa9ff)}
+.gd-doc img{max-width:100%;height:auto;border-radius:8px}
+.gd-doc table{border-collapse:collapse;margin:.5em 0;max-width:100%}
+.gd-doc td,.gd-doc th{border:1px solid var(--line,rgba(255,255,255,.14));padding:4px 8px;font-size:13px;vertical-align:top}
+.gd-doc blockquote{margin:.5em 0;padding-left:10px;border-left:3px solid var(--line,rgba(255,255,255,.18));opacity:.92}
+.gd-sheet-wrap{overflow:auto;max-width:100%}
+.gd-sheet{border-collapse:collapse;font-size:13px}
+.gd-sheet th,.gd-sheet td{border:1px solid var(--line,rgba(255,255,255,.14));padding:4px 8px;text-align:left;vertical-align:top;white-space:pre-wrap}
+.gd-sheet th{background:var(--panel,rgba(0,0,0,.25));font-weight:600;position:sticky;top:0}
+.gd-pre{margin:0;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word;font-family:inherit}
+@media (max-width:900px){
+  .gd-body{max-height:56vh;padding:8px 10px}
+  .gd-doc{font-size:13.5px}
+}

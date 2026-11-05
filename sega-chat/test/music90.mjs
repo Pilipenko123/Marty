@@ -229,7 +229,7 @@ ok(tokCall && tokCall.cid === 'TESTID' && tokCall.csec === 'TESTSECRET', 'код
 // в базе лежит печать, а не открытый токен
 let dbTxt = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
 ok(!/AT-\d/.test(dbTxt) && !/RT-\d/.test(dbTxt), 'в db.json НЕТ открытых токенов Яндекса');
-// pkg3-130: диски лежат в u.drives — печать та же, поле другое (старое u.yadisk переносится само)
+// pkg3-131: диски лежат в u.drives — печать та же, поле другое (старое u.yadisk переносится само)
 ok(/"blob":"v1\./.test(dbTxt) && (/"yadisk":\{"blob":"v1\./.test(dbTxt) || /"kind":"yandex"/.test(dbTxt)), 'в db.json токен лежит запечатанным (blob «v1.…»)');
 
 r = await call('/api/yadisk/files?limit=200&offset=0', {}, admin);
@@ -302,8 +302,8 @@ ok(!/fields:/.test(yadiskJs) && yadiskJs.includes('pkg3-91'), 'pkg3-91: запр
 ok(yadiskJs.includes('Яндекс.Диск ответил 200, но без списка'), 'pkg3-91: человеческий текст для «200 без списка»');
 const filesCalls = calls.filter(c => c.t === 'files');
 ok(filesCalls.length > 0 && filesCalls.every(c => c.fields === null), 'pkg3-91: ни один список не запрошен с fields (игрушечный Яндекс это наказывает)');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v124';"), 'кэш статики поднят до v93');
-ok(dom42.includes('sega-static-v124') && sound80.includes('sega-static-v124') && games81.includes('sega-static-v124'), 'три набора тестов ждут именно v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v125';"), 'кэш статики поднят до v93');
+ok(dom42.includes('sega-static-v125') && sound80.includes('sega-static-v125') && games81.includes('sega-static-v125'), 'три набора тестов ждут именно v93');
 for (const s of ['MUS_DISK', 'musicIsDisk', 'musicStartDiskTrack', '/api/yadisk/files', '/api/yadisk/href', '/api/yadisk/state', 'data-mus-disk-play', 'data-mus-disk-add', 'data-mus-pl="yadisk"', '☁ Яндекс.Диск']) {
   ok(appJs.includes(s), 'клиент содержит «' + s + '»');
 }

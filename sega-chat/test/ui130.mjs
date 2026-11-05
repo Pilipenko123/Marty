@@ -1,4 +1,4 @@
-// test/ui130.mjs — pkg3-130: папка с Диска скачивается одним архивом ZIP.
+// test/ui130.mjs — pkg3-131: папка с Диска скачивается одним архивом ZIP.
 //
 // Проверяем не «на слово», а по-настоящему: скачиваем архив с живого сервера,
 // сами разбираем ZIP (центральный каталог → куски → распаковка) и сверяем байты
@@ -25,7 +25,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-130: папка одним архивом (ZIP)');
+console.log('  pkg3-131: папка одним архивом (ZIP)');
 console.log('══════════════════════════════════════════════════\n');
 
 /* ── 1. Сам писатель архива: без сервера, мелкие правила ────────────────── */
@@ -326,10 +326,10 @@ ok(/data-dsk-act="dlfolder"/.test(appJs), 'в проводнике есть кн
 ok(/async function diskDownloadFolder\(/.test(appJs) && /\/api\/yadisk\/folder-zip/.test(appJs), 'клиент спрашивает у сервера архив папки');
 ok(/if \(it\.dir\) return diskDownloadFolder\(it\.path/.test(appJs), '«Скачать» на папке больше не отговаривается, а собирает архив');
 ok(/diskSaveUrl\(r\.url, r\.name/.test(appJs), 'скачивание идёт обычной ссылкой (вход в заголовке тут не нужен)');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-130', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-131', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v124', 'кэш оформления поднят до v124');
-ok(/\| pkg3-130 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-130');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v125', 'кэш оформления поднят до v124');
+ok(/\| pkg3-131 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-131');
 ok(read('package.json').includes('node test/ui130.mjs'), 'тест ui130 включён в цепочку npm test');
 ok(!/require\('(archiver|jszip|adm-zip|yazl)'\)/.test(read('lib/zip.js')), 'архив собирается без новых зависимостей');
 ok(/cap: zipLib\.MAX_ZIP/.test(read('lib/api.js')), 'у потока архива свой потолок — сервер не оборвёт его на 300 МБ');

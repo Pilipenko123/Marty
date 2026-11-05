@@ -296,6 +296,7 @@ function mediaOf(mime) {
 }
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const gdocs = require('./gdocs.js');   // pkg3-131: документы Google
 
 /** Сколько места занято и свободно (у Google может быть «без ограничений»). */
 async function aboutSpace(token, c) {
@@ -344,6 +345,8 @@ async function listFolder(token, googlePath, o = {}, c) {
         size: Math.max(0, Number(x.size) || 0),
         mime,
         media: dir ? 'dir' : mediaOf(mime),
+        // pkg3-131: у «документов Google» файла нет — их открывают в окне экспортом
+        gdoc: dir ? '' : gdocs.kindOf(mime),
         preview: safeGoogleUrl(x.thumbnailLink),
         modified: String(x.modifiedTime || '')
       };
@@ -422,6 +425,7 @@ async function fileMeta(token, googlePath, c) {
     size: Math.max(0, Number(x.size) || 0),
     mime: String(x.mimeType || ''),
     media: dir ? 'dir' : mediaOf(x.mimeType),
+    gdoc: dir ? '' : gdocs.kindOf(x.mimeType),
     preview: safeGoogleUrl(x.thumbnailLink),
     modified: String(x.modifiedTime || '')
   };
@@ -443,6 +447,66 @@ async function parentsOf(token, fileId, c) {
 
 /** Адрес, по которому сервер сам забирает байты файла (нужен заголовок входа —
  * поэтому браузеру отдаём не его, а свой пропуск /api/gdrive/stream). */
+/**
+ * pkg3-131: экспорт «документа Google» (Docs → HTML, Sheets → CSV, Slides → текст).
+ * Файла у таких документов нет, поэтому единственный способ показать их —
+ * попросить у Google готовый вид. Читаем потоком и обрываем на потолке, чтобы
+ * огромный документ не съел память VPS.
+ */
+const EXPORT_CAP = 4 * 1024 * 1024;
+async function exportFile(token, googlePath, mimeType, c) {
+  const conf = c || cfg();
+  const id = idOf(googlePath);
+  if (!id || id === 'root') { const e = new Error('Неверный путь к документу Google'); e.status = 400; throw e; }
+  const url = conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '/export?mimeType=' + encodeURIComponent(mimeType);
+  let r;
+  try {
+    r = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(25000) });
+  } catch (e) {
+    const err = new Error('Google не ответил на экспорт документа — попробуйте ещё раз');
+    err.status = 502;
+    throw err;
+  }
+  if (r.status !== 200) {
+    let j = null;
+    try { j = await r.json(); } catch (e) { j = null; }
+    const err = new Error(googleErrorText({ status: r.status, json: j }));
+    err.status = r.status;
+    throw err;
+  }
+  const chunks = [];
+  let total = 0;
+  let truncated = false;
+  try {
+    const reader = r.body && r.body.getReader ? r.body.getReader() : null;
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > EXPORT_CAP) {
+          truncated = true;
+          const over = total - EXPORT_CAP;
+          chunks.push(Buffer.from(value).slice(0, Math.max(0, value.length - over)));
+          try { await reader.cancel(); } catch (e) { /* уже закрыт */ }
+          break;
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } else {
+      const buf = Buffer.from(await r.arrayBuffer());
+      total = buf.length;
+      truncated = total > EXPORT_CAP;
+      chunks.push(buf.slice(0, EXPORT_CAP));
+    }
+  } catch (e) {
+    const err = new Error('Документ оборвался при чтении — попробуйте ещё раз');
+    err.status = 502;
+    throw err;
+  }
+  return { text: Buffer.concat(chunks).toString('utf8'), bytes: total, truncated, mime: mimeType };
+}
+
 function mediaUrl(googlePath, c) {
   const conf = c || cfg();
   const id = idOf(googlePath);
@@ -561,7 +625,7 @@ module.exports = {
   cfg, loadKeys, KEYS_HINT, tokenKey, sealToken, openToken, httpJSON,
   buildAuthUrl, exchangeCode, refreshTokens,
   safePath, idOf, isGooglePath, slotOf, pathOf: p => 'google:/' + idOf(p),
-  aboutSpace, listFolder, listAudio, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl,
+  aboutSpace, listFolder, listAudio, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl, exportFile, EXPORT_CAP,
   googleErrorText, FOLDER_MIME, PREFIX,
   SCOPE, SCOPE_READONLY, scopeWrite, cellName, newItemPath,
   mkdir, renameFile, trashPath, uploadSession
