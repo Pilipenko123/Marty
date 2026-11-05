@@ -22,7 +22,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-123';
+const BUILD = 'pkg3-124';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -198,6 +198,30 @@ function createApi(store, opts = {}) {
       }
     }
     return tok;
+  }
+  /** pkg3-124: открыт ли путь на Диске участника другим людям. Годится и для
+   * музыки из ОТКРЫТЫХ плейлистов (pkg3-121), и для файла, которым владелец
+   * поделился явно кнопкой «Отправить в чат». Второй список — единственное
+   * расширение белого списка: по чужому Диску по-прежнему нельзя гулять. */
+  function ydPathShared(u, path) {
+    if (!u) return false;
+    for (const s of (Array.isArray(u.diskShared) ? u.diskShared : [])) {
+      if (s && String(s.path || '') === path) return true;
+    }
+    for (const pl of (Array.isArray(u.musicPub) ? u.musicPub : [])) {
+      for (const t of ((pl && pl.tracks) || [])) {
+        if (t && t.kind === 'disk' && String(t.path || '') === path) return true;
+      }
+    }
+    return false;
+  }
+  /** Есть ли у двух участников общий чат (условие доступа к чужому файлу). */
+  function ydCommonChat(a, b) {
+    for (const c of db.chats) {
+      const ms = c && c.members;
+      if (Array.isArray(ms) && ms.includes(a) && ms.includes(b)) return true;
+    }
+    return false;
   }
   /** Человеческая страница для браузера: её открывает Яндекс на обратном
    * адресе, поэтому текст — словами, без JSON. Всё экранируется. */
@@ -2977,6 +3001,105 @@ function createApi(store, opts = {}) {
         return E(502, e.message || 'Яндекс.Диск не отвечает');
       }
     }
+    // pkg3-124: «Мои диски» — какие диски подключены у МЕНЯ. Сейчас это один
+    // Яндекс.Диск, но ответ сразу в виде списка: следующий (Google) ляжет сюда
+    // же строкой, не ломая клиент.
+    if (pathname === '/api/drives' && method === 'GET') {
+      const keys = yadisk.loadKeys();
+      let connected = false;
+      if (me.yadisk && typeof me.yadisk.blob === 'string') {
+        connected = me.yadisk.manual
+          ? !!yadisk.openToken(yadisk.tokenKey(String(db.serverSecret) + ':yd-manual'), me.yadisk.blob)
+          : (keys ? !!yadisk.openToken(yadisk.tokenKey(keys.clientSecret), me.yadisk.blob) : false);
+      }
+      return J(200, {
+        drives: [{
+          id: 'yandex', title: 'Яндекс.Диск', connected,
+          manual: !!(me.yadisk && me.yadisk.manual),
+          shared: (Array.isArray(me.diskShared) ? me.diskShared.length : 0),
+          needsKeys: !keys
+        }],
+        soon: [{ id: 'google', title: 'Google Диск' }]
+      });
+    }
+    // pkg3-124: содержимое папки Диска — папки и файлы любых типов. Маршрут
+    // работает ТОЛЬКО со своим Диском: чужой Диск отдаётся поштучно и только
+    // по открытым файлам (ниже, /api/yadisk/file).
+    if (pathname === '/api/yadisk/list' && method === 'GET') {
+      if (throttle('yd-list-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
+      const keys = yadisk.loadKeys();
+      const tok = await ydFreshToken(me, keys);
+      if (!tok) return E(409, keys ? 'Яндекс.Диск не подключён (или связь с ним истекла) — подключите его в «Моих дисках»' : YD_KEYS_HINT);
+      const p = yadisk.safePath(String(query.get('path') || 'disk:/'));
+      if (!p) return E(400, 'Неверный путь к папке на Диске');
+      try {
+        return J(200, await yadisk.listFolder(tok.access_token, p, { limit: query.get('limit') }));
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) { delete me.yadisk; save(); return E(409, 'Диск отозвал доступ — подключите его заново'); }
+        if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
+    // pkg3-124: открыть ОДИН файл другим участникам («Отправить в чат»).
+    // Ссылка на файл при этом в базу не кладётся: в переписке едет пометка
+    // «чей Диск + путь», а свежую временную ссылку сервер выдаёт по запросу и
+    // только тому, кто состоит с владельцем в общем чате.
+    if (pathname === '/api/yadisk/share-file' && method === 'POST') {
+      if (throttle('yd-sharef-' + me.id, 120)) return E(429, 'Слишком часто — подождите минуту');
+      const b = req.body || {};
+      const path = yadisk.safePath(String(b.path || ''));
+      if (!path) return E(400, 'Неверный путь к файлу на Диске');
+      const name = String(b.name || path.split('/').pop() || 'файл').slice(0, 200);
+      const media = ['audio', 'image', 'video', 'doc', 'other'].includes(String(b.media)) ? String(b.media) : 'other';
+      const list = Array.isArray(me.diskShared) ? me.diskShared : (me.diskShared = []);
+      const had = list.find(x => x && x.path === path);
+      if (had) { had.name = name; had.media = media; had.at = Date.now(); }
+      else {
+        if (list.length >= 500) list.shift();   // память VPS бережём: старые записи уходят
+        list.push({ path, name, media, at: Date.now() });
+      }
+      save();
+      return J(200, { ok: true, shared: list.length });
+    }
+    if (pathname === '/api/yadisk/unshare-file' && method === 'POST') {
+      const path = yadisk.safePath(String((req.body || {}).path || ''));
+      if (!path) return E(400, 'Неверный путь к файлу на Диске');
+      me.diskShared = (Array.isArray(me.diskShared) ? me.diskShared : []).filter(x => !x || x.path !== path);
+      save();
+      return J(200, { ok: true, shared: me.diskShared.length });
+    }
+    // pkg3-124: свежая ссылка на файл с Диска для участника чата. Правила те же,
+    // что у музыки (pkg3-121): общий чат + владелец не закрыл Диск + файл
+    // открыт (плейлист или «Отправить в чат»). Своему владельцу — всегда.
+    if (pathname === '/api/yadisk/file' && method === 'GET') {
+      if (throttle('yd-file-' + me.id, 240)) return E(429, 'Слишком много запросов к Диску — подождите минуту');
+      const of = String(query.get('of') || '');
+      const path = yadisk.safePath(String(query.get('path') || ''));
+      if (!path) return E(400, 'Неверный путь к файлу на Диске');
+      const owner = (!of || of === me.id) ? me : db.users.find(x => x.id === of);
+      if (!owner) return E(404, 'Нет такого участника');
+      if (owner.id !== me.id) {
+        if (owner.diskShare === false) return E(403, 'Участник закрыл доступ к своему Диску');
+        if (!ydCommonChat(me.id, owner.id)) return E(404, 'Этот человек не из ваших чатов');
+        if (!ydPathShared(owner, path)) return E(404, 'Участник не открывал этот файл другим');
+      }
+      const keys2 = yadisk.loadKeys();
+      const tok2 = await ydFreshToken(owner, keys2);
+      if (!tok2) return E(409, owner.id === me.id ? 'Яндекс.Диск не подключён' : 'У этого участника Яндекс.Диск не подключён');
+      try {
+        const href = await yadisk.downloadHref(tok2.access_token, path);
+        const meta = (Array.isArray(owner.diskShared) ? owner.diskShared : []).find(x => x && x.path === path) || {};
+        return J(200, {
+          href: href.href, ttl: href.ttl, of: owner.id, path,
+          name: meta.name || path.split('/').pop() || 'файл',
+          media: meta.media || '', size: Math.max(0, Number(meta.size) || 0)
+        });
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) return E(409, 'Диск отозвал доступ — подключите его заново');
+        if (e.status === 400 || e.status === 404) return E(e.status, e.message);
+        return E(502, e.message || 'Яндекс.Диск не отвечает');
+      }
+    }
     if (pathname === '/api/yadisk/href' && method === 'GET') {
       if (throttle('yd-href-' + me.id, 120)) return E(429, 'Слишком много запусков треков — подождите немного');
       const keys = yadisk.loadKeys();
@@ -3025,15 +3148,9 @@ function createApi(store, opts = {}) {
         if (Array.isArray(ms) && ms.includes(me.id) && ms.includes(of)) { inScope = true; break; }
       }
       if (!inScope) return E(404, 'Этот человек не из ваших чатов');
-      // белый список: путь должен лежать в ОТКРЫТЫХ плейлистах владельца
-      let published = false;
-      for (const pl of (Array.isArray(ou.musicPub) ? ou.musicPub : [])) {
-        for (const t of ((pl && pl.tracks) || [])) {
-          if (t && t.kind === 'disk' && String(t.path || '') === path) { published = true; break; }
-        }
-        if (published) break;
-      }
-      if (!published) return E(404, 'Участник убрал этот трек из своих открытых плейлистов');
+      // белый список: путь лежит в ОТКРЫТЫХ плейлистах владельца (pkg3-121)
+      // или владелец сам открыл этот файл кнопкой «Отправить в чат» (pkg3-124)
+      if (!ydPathShared(ou, path)) return E(404, 'Участник не открывал этот файл другим');
       const keys = yadisk.loadKeys();
       if (!keys) return E(409, YD_KEYS_HINT);
       try {

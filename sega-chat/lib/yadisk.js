@@ -243,6 +243,54 @@ async function listAudio(token, o = {}, c) {
   return diskResult(r, limit, offset);
 }
 
+
+/** pkg3-124: содержимое ОДНОЙ папки Диска — и папки, и файлы ЛЮБЫХ типов.
+ * До этого сервер умел только плоский список музыки (listAudio): «Мои диски»
+ * должны показывать весь Диск — фото, видео, документы, а не только треки. */
+async function listFolder(token, diskPath, o = {}, c) {
+  const conf = c || cfg();
+  const p = safePath(diskPath) || 'disk:/';
+  const limit = Math.min(200, Math.max(1, Number(o.limit) || 100));
+  const offset = Math.max(0, Number(o.offset) || 0);
+  // pkg3-91 (урок listAudio): параметр fields НЕ передаём — на живом Яндексе
+  // ответ с fields приходил кодом 200 и без списка. Без него items на месте.
+  const q = new URLSearchParams({ path: p, limit: String(limit), offset: String(offset) });
+  const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
+    headers: { Authorization: 'OAuth ' + token, Accept: 'application/json' }
+  });
+  const emb = (r.json || {})._embedded;
+  if (r.status !== 200 || !emb || !Array.isArray(emb.items)) {
+    const e = new Error(diskErrorText(r));
+    e.status = r.status;
+    throw e;
+  }
+  const items = emb.items
+    .filter(x => x && typeof x.path === 'string')
+    .map(x => ({
+      path: x.path,
+      name: String(x.name || x.path.split('/').pop() || '').slice(0, 300),
+      dir: x.type === 'dir',
+      size: Math.max(0, Number(x.size) || 0),
+      mime: String(x.mime_type || ''),
+      media: mediaOf(x),
+      modified: String(x.modified || '')
+    }));
+  // папки — первыми, внутри — по имени (регистр не важен), как в проводнике
+  items.sort((a, b) => (b.dir ? 1 : 0) - (a.dir ? 1 : 0) || a.name.localeCompare(b.name, 'ru'));
+  return { path: p, items, limit, offset, total: Math.max(0, Number(emb.total) || items.length) };
+}
+
+/** Тип файла для интерфейса: audio / image / video / doc / other. */
+function mediaOf(x) {
+  const mt = String(x.media_type || '');
+  const mime = String(x.mime_type || '');
+  if (mt === 'audio' || /^audio\//.test(mime)) return 'audio';
+  if (mt === 'image' || /^image\//.test(mime)) return 'image';
+  if (mt === 'video' || /^video\//.test(mime)) return 'video';
+  if (mt === 'document' || /^(application|text)\//.test(mime)) return 'doc';
+  return 'other';
+}
+
 /** Временная ссылка на скачивание/проигрывание одного файла. */
 async function downloadHref(token, diskPath, c) {
   const conf = c || cfg();
@@ -305,5 +353,5 @@ function diskResult(r, limit, offset) {
 module.exports = {
   cfg, loadKeys, tokenKey, sealToken, openToken,
   buildAuthUrl, exchangeCode, refreshTokens,
-  listAudio, downloadHref, safePath, httpJSON, probeAuth
+  listAudio, listFolder, mediaOf, downloadHref, safePath, httpJSON, probeAuth
 };

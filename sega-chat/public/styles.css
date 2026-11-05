@@ -2400,3 +2400,47 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 .yd-tok-card input:focus-visible{outline:none;border-color:var(--accent-2)}
 .yd-tok-card .ask-b{margin-top:10px}
 @media (max-width:560px){ .yd-tok-card{max-width:calc(100vw - 28px)} }
+
+/* ════════════════════ pkg3-124: «Мои диски» — раздел, проводник, карточка в чате */
+.drive-item{align-items:center}
+.drive-ic{width:34px;height:34px;flex:0 0 34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;background:var(--panel-2,rgba(255,255,255,.05));border:1px solid var(--glow-line,rgba(120,170,255,.35));box-shadow:0 0 10px rgba(120,170,255,.12)}
+.drive-ic.plus{color:var(--accent,#6aa9ff)}
+.drive-add .ci-name{color:var(--accent,#6aa9ff)}
+.disk-win{display:flex;flex-direction:column;gap:10px;min-height:0}
+.disk-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.disk-top-a{display:flex;gap:6px;flex-wrap:wrap}
+.disk-crumbs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--line,rgba(255,255,255,.08))}
+.dk-sep{opacity:.5}
+.dk-crumb{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.disk-list{display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow:auto;padding:2px}
+.disk-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line,rgba(255,255,255,.08));border-radius:calc(var(--r,26px) / 1.9);background:var(--panel-2,rgba(255,255,255,.03))}
+.disk-row:hover{border-color:var(--glow-line,rgba(120,170,255,.4))}
+.disk-ic{font-size:20px;flex:0 0 26px;text-align:center}
+.disk-meta{flex:1 1 auto;min-width:0}
+.disk-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.disk-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.disk-acts{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.disk-wait{padding:14px 4px}
+.disk-hint{margin-top:6px;line-height:1.35}
+.disk-prev{max-width:100%;max-height:64vh;display:block;margin:0 auto;border-radius:calc(var(--r,26px) / 2)}
+.disk-pv{display:flex;flex-direction:column;gap:10px}
+.disk-pv-acts{display:flex;gap:6px}
+.disk-pick{display:flex;flex-direction:column;gap:8px}
+.disk-pick-list{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto}
+.disk-pick-btn{text-align:left}
+.disk-drv{padding:10px 12px;border:1px solid var(--line,rgba(255,255,255,.1));border-radius:calc(var(--r,26px) / 2);background:var(--panel-2,rgba(255,255,255,.03));margin-bottom:8px}
+.disk-drv.soon{opacity:.6}
+.disk-drv-t{margin-bottom:6px}
+.disk-drv-a{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.disk-connect{display:flex;flex-direction:column;gap:6px}
+.disk-embed{display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px 10px;border:1px solid var(--glow-line,rgba(120,170,255,.4));border-radius:calc(var(--r,26px) - 8px);background:var(--panel-2,rgba(255,255,255,.04))}
+.disk-embed-ic{font-size:20px}
+.disk-embed-t{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.disk-embed-t b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.disk-embed-a{display:flex;gap:5px;flex-wrap:wrap}
+[data-eco="1"] .disk-embed{display:none}
+@media (max-width:900px){
+  .disk-list{max-height:44vh}
+  .disk-acts .mini{padding:4px 7px}
+  .disk-row{padding:7px 8px;gap:8px}
+}
