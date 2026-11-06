@@ -98,9 +98,9 @@ ok(/localStorage\.getItem\('sega\.musCover'\)/.test(app) && /localStorage\.setIt
 ok(/class="mus-cov-def"/.test(app) && /if \(!covBox\.querySelector\('\.mus-cov-def'\) \|\| !covOvl\) return;/.test(app), 'выбор открывается только когда показана стандартная обложка (не своя обложка трека)');
 ok(app.includes('id="mus-cov-ovl"') && app.includes('<h3>Стандартная обложка</h3>') && app.includes('${musCoverPickHtml()}'), 'окошко выбора с четырьмя картинками');
 ok(/\.mus-v105 \.mus-covgrid\{display:grid;grid-template-columns:1fr 1fr/.test(css) && /\.mus-v105 \.mus-covpick\.cur\{border-color:var\(--accent-2\)/.test(css), 'картинки в две колонки, выбранная подсвечена');
-// pkg3-135: запасная обложка теперь в data-fb-src (строгий CSP), смысл прежний
+// pkg3-136: запасная обложка теперь в data-fb-src (строгий CSP), смысл прежний
 ok(/data-fb-src="\$\{escapeHtml\(def\)\}"/.test(app) && /img\.dataset\.fbSrc/.test(app),
-  'своя обложка трека важнее; при её сбое — выбранная стандартная (pkg3-135: без onerror=)');
+  'своя обложка трека важнее; при её сбое — выбранная стандартная (pkg3-136: без onerror=)');
 ok(/musicNowUi\(\);\s+covOvl\.classList\.remove\('show'\);/.test(app), 'после выбора обложка меняется сразу, окошко закрывается');
 
 console.log('\n  7. Отметки выпуска');

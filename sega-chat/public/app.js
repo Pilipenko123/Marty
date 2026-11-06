@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-135';
+const BUILD = 'pkg3-136';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12572,11 +12572,23 @@ async function mailDiag() {
   const steps = (r && r.steps) || [];
   const rows = steps.map(x => `<div class="tiny">${x.ok ? '✅' : '⛔'} <b>${escapeHtml(x.step)}</b>: ${escapeHtml(x.detail)}</div>`).join('');
   const conf = r && r.config ? `<p class="tiny muted">Сервер: ${escapeHtml(r.config.host || '—')}:${escapeHtml(String(r.config.port || ''))}, ящик ${escapeHtml(r.config.user || '—')}, отправитель ${escapeHtml(r.config.from || '—')}</p>` : '';
+  // pkg3-136: имя и порты — чтобы «соединение не установилось» стало понятным
+  const dns = r && r.dns
+    ? `<div class="tiny">${r.dns.ok ? '✅' : '⛔'} <b>имя сервера</b>: ${r.dns.ok
+        ? escapeHtml((r.dns.addresses || []).map(a => a.address).join(', ') || 'найдено')
+        : 'не находится (' + escapeHtml(r.dns.error || '') + ')'}</div>`
+    : '';
+  const ports = (r && r.ports && r.ports.length)
+    ? `<div class="tiny" style="margin-top:4px"><b>порты этого сервера:</b> ${r.ports.map(p =>
+        `${p.ok ? '✅' : '⛔'} ${p.port} (${p.mode})${p.ok ? ' — ' + escapeHtml(p.detail) : ''}`).join(' · ')}</div>`
+    : '';
   box.innerHTML = `<div class="card" style="padding:10px;margin-top:8px">
     <b>${r && r.ok ? 'Почта работает' : 'Почта не работает'}</b>
-    ${conf}${rows}
+    ${conf}${dns}${ports}
+    ${r && r.advice ? `<div class="tiny" style="margin-top:6px"><b>Что делать:</b> ${escapeHtml(r.advice)}</div>` : ''}
+    ${rows ? '<div style="margin-top:6px">' + rows + '</div>' : ''}
     ${r && r.error ? `<div class="tiny" style="margin-top:6px"><b>Что ответил сервер:</b> <code>${escapeHtml(r.error)}</code></div>` : ''}
-    ${r && r.hint ? `<div class="tiny" style="margin-top:6px"><b>Что делать:</b> ${escapeHtml(r.hint)}</div>` : ''}
+    ${r && r.hint ? `<div class="tiny" style="margin-top:6px"><b>Подсказка:</b> ${escapeHtml(r.hint)}</div>` : ''}
     ${err ? `<div class="tiny">Не удалось проверить: ${escapeHtml(err.message || String(err))}</div>` : ''}
     <div class="tiny muted" style="margin-top:6px">Настройка — переменные SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env сервера.</div>
   </div>`;

@@ -58,8 +58,10 @@ function hintFor(text) {
   }
   if (/ENOTFOUND|EAI_AGAIN/i.test(s)) return 'Такого адреса сервера нет: проверьте SEGA_SMTP_HOST (например, smtp.yandex.ru).';
   if (/ECONNREFUSED/i.test(s)) return 'Сервер отказал в соединении: скорее всего неверный порт (465 — SSL, 587 — STARTTLS) или сервер закрыт для этого адреса.';
-  if (/ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|не ответил/i.test(s)) {
-    return 'Соединение не установилось. Провайдеры часто закрывают порты 25 и 587 — попробуйте 465 (SSL).';
+  if (/ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EADDRNOTAVAIL|не ответил|не установилось/i.test(s)) {
+    return 'Соединение не установилось. Провайдеры часто закрывают исходящие порты 25 и 587 — попробуйте 465 (SSL). '
+      + 'Нажмите «Проверить почтовый сервер»: покажем, какие порты у этого сервера вообще отвечают. '
+      + 'Если не отвечает ни один — это закрытые порты у хостера: напишите в поддержку сервера, где живёт чат.';
   }
   if (/CERT|self.signed|SSL|TLS/i.test(s) && !/STARTTLS/i.test(s)) {
     return 'Не удалось установить защищённое соединение: проверьте, что порт соответствует режиму (465 — сразу SSL, 587 — STARTTLS).';
@@ -85,11 +87,11 @@ function session(opts) {
   const step = (name, ok, detail) => steps.push({ step: name, ok: !!ok, detail: String(detail || '') });
   return new Promise((resolve, reject) => {
     if (!enabled()) return reject(fail('почта не настроена'));
-    const timeout = Number(o.timeoutMs || 20000);
+    const timeout = Number(o.timeoutMs || 12000);   // pkg3-136: 12 с вместо 20 — понятнее и быстрее
     let finished = false;
     let sock = null, buf = '', tlsReady = false, sawStarttls = false, upgraded = false;
     const queue = [];
-    const timer = setTimeout(() => finish(fail('почтовый сервер не ответил за ' + Math.round(timeout / 1000) + ' с')), timeout);
+    const timer = setTimeout(() => finish(fail(c.host + ':' + c.port + ' не ответил за ' + Math.round(timeout / 1000) + ' с')), timeout);
 
     function finish(err) {
       if (finished) return;
@@ -121,8 +123,8 @@ function session(opts) {
           try { item.next(code, ln.slice(4).trim()); } catch (e) { finish(fail(e.message)); }
         }
       });
-      sock.on('error', e => finish(fail(e.code ? e.code + (e.message ? ' · ' + e.message : '') : e.message)));
-      sock.on('close', () => { if (!finished && !upgraded) finish(fail('почтовый сервер закрыл соединение')); });
+      sock.on('error', e => finish(fail(c.host + ':' + c.port + ' — ' + (e.code ? e.code + (e.message ? ' · ' + e.message : '') : e.message))));
+      sock.on('close', () => { if (!finished && !upgraded) finish(fail(c.host + ':' + c.port + ' закрыл соединение')); });
     }
 
     /** EHLO → (STARTTLS) → AUTH. greeted=false сразу после TLS: приветствия не будет. */
@@ -140,7 +142,8 @@ function session(opts) {
               plain.removeAllListeners('close');
               upgraded = true;
               const t = tls.connect({
-                socket: plain, servername: c.host,
+                socket: plain,
+                servername: /^\d+\.\d+\.\d+\.\d+$/.test(c.host) ? undefined : c.host,
                 rejectUnauthorized: c.insecure ? false : true
               }, () => {
                 tlsReady = true;
@@ -211,6 +214,58 @@ function session(opts) {
   });
 }
 
+/**
+ * pkg3-136: «а сервер вообще слышно?» — быстрая проверка одного порта.
+ * Нужна, когда в ответ на письмо приходит «соединение не установилось»:
+ * без этого человек не понимает, ошибочный это адрес, закрытый порт или
+ * что-то ещё. Учётные данные здесь не отправляются — только приветствие.
+ * Сертификат не проверяем: мы не передаём ничего секретного.
+ */
+function probePort(host, port, timeoutMs) {
+  const limit = Math.max(1200, Math.min(6000, Number(timeoutMs) || 3500));
+  const mode = Number(port) === 465 ? 'SSL' : 'STARTTLS';
+  return new Promise(resolve => {
+    const started = Date.now();
+    let done = false, buf = '';
+    let sock = null;
+    const finish = (ok, detail) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { sock && sock.destroy(); } catch (e) {}
+      resolve({ port: Number(port), mode, ok: !!ok, detail: String(detail || ''), ms: Date.now() - started });
+    };
+    const timer = setTimeout(() => finish(false, 'нет ответа за ' + (limit / 1000).toFixed(1) + ' с'), limit);
+    try {
+      sock = Number(port) === 465
+        ? tls.connect({
+            host, port: Number(port), rejectUnauthorized: false,
+            servername: /^\d+\.\d+\.\d+\.\d+$/.test(host) ? undefined : host
+          })
+        : net.connect(Number(port), host);
+    } catch (e) { return finish(false, e.message); }
+    sock.setEncoding('utf8');
+    sock.on('data', chunk => {
+      buf += chunk;
+      const m = /^(\d{3})([^\r\n]*)/m.exec(buf);
+      if (m) finish(true, 'сервер ответил ' + m[1] + (m[2] ? ' · ' + m[2].trim() : ''));
+    });
+    sock.on('error', e => finish(false, (e.code || '') + (e.code && e.message ? ' · ' : '') + (e.message || 'сбой соединения')));
+    sock.on('timeout', () => finish(false, 'молчит'));
+  });
+}
+
+/** Имя сервера → адреса (A/AAAA). Без этого «не отвечает» ничего не объясняет. */
+async function resolveHost(host) {
+  const dns = require('dns').promises;
+  try {
+    const list = await dns.lookup(String(host), { all: true });
+    return { ok: true, addresses: list.map(x => ({ address: x.address, family: x.family })) };
+  } catch (e) {
+    return { ok: false, error: e.code || e.message, addresses: [] };
+  }
+}
+
 /** Отправить одно письмо. resolve(true) — принято, reject(Error) — сбой. */
 async function sendMail(to, subject, text, timeoutMs) {
   if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw fail('непохоже на адрес почты');
@@ -238,4 +293,59 @@ async function check(timeoutMs) {
   }
 }
 
-module.exports = { sendMail, enabled, check, hintFor };
+/**
+ * pkg3-136: полная проверка почты — то, что видит владелец по кнопке
+ * «Проверить почтовый сервер». Отвечает на вопрос «что именно не так»:
+ *   • находит ли имя сервера (DNS);
+ *   • отвечает ли вообще 465 (SSL), 587 (STARTTLS), 25 — параллельно и быстро;
+ *   • проходит ли вход с текущими логином и паролем (check()).
+ * Возвращает { ok, config, dns, ports, steps, error, hint, advice }.
+ */
+async function checkAll(timeoutMs) {
+  const c = cfg();
+  const conf = {
+    host: c.host, port: c.port, configured: enabled(),
+    from: c.from, user: c.user ? c.user.replace(/^(.)[^@]*/, '$1***') : ''
+  };
+  if (!enabled()) {
+    return {
+      ok: false, config: conf, dns: null, ports: [], steps: [],
+      error: 'почта не настроена',
+      hint: 'Задайте SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env и перезапустите службу.',
+      advice: 'Без этих переменных кнопка привязки почты честно отвечает «почта не настроена».'
+    };
+  }
+  const dns = await resolveHost(c.host);
+  const probeMs = Math.min(Number(timeoutMs) || 3500, 4000);
+  // проверяем и общепринятые порты, и тот, что задан в .env (бывает 2525 и другие)
+  const candidates = Array.from(new Set([465, 587, 25, Number(c.port) || 587]));
+  const ports = dns.ok
+    ? await Promise.all(candidates.map(p => probePort(c.host, p, probeMs)))
+    : [];
+  const full = dns.ok ? await check(timeoutMs) : { ok: false, steps: [], error: 'имя сервера не найдено', hint: '' };
+  const open = ports.filter(p => p.ok).map(p => p.port);
+  let advice = '';
+  let hint = full.hint || '';
+  if (!dns.ok) {
+    advice = 'Имя «' + c.host + '» не находится (' + (dns.error || '') + '). Проверьте SEGA_SMTP_HOST — например, smtp.yandex.ru.';
+  } else if (!open.length) {
+    advice = 'Ни 465, ни 587, ни 25 не отвечают — сервер почты недоступен с этого сервера. '
+      + 'Чаще всего так бывает, когда хостер закрывает исходящую почту: напишите в поддержку (Sprintbox и подобные) '
+      + 'или возьмите почтовый сервис, у которого открыт 465. Проверить руками: '
+      + '`for p in 465 587 25; do timeout 5 bash -c "echo > /dev/tcp/' + c.host + '/$p" 2>/dev/null && echo "$p открыт" || echo "$p закрыт"; done`';
+    hint = hint || 'Порты закрыты — это не ошибка настроек в чате, а сеть хостера.';
+  } else if (!open.includes(c.port)) {
+    advice = 'На порту ' + c.port + ' сервер молчит, а отвечает на ' + open.join(' и ') + '. '
+      + 'Поставьте в .env SEGA_SMTP_PORT=' + open[0] + (open[0] === 465 ? ' (это SSL, порт 587 — STARTTLS)' : '') + ' и перезапустите службу.';
+  } else if (!full.ok) {
+    advice = 'Порты открыты, значит дело не в сети. Смотрите шаги ниже и ответ сервера: ' + (full.error || '');
+  } else {
+    advice = 'Всё в порядке: сервер отвечает и вход принят — письма должны уходить.';
+  }
+  return {
+    ok: !!full.ok, config: conf, dns, ports, steps: full.steps || [],
+    error: full.error || '', hint, advice
+  };
+}
+
+module.exports = { sendMail, enabled, check, checkAll, probePort, resolveHost, hintFor };
