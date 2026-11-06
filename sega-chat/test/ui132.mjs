@@ -1,4 +1,4 @@
-// test/ui132.mjs — pkg3-143: починка Google-Диска (400 «Invalid Value»).
+// test/ui132.mjs — pkg3-144: починка Google-Диска (400 «Invalid Value»).
 //
 // Что случилось в 130–131: при постраничности в адрес списка файлов попадало
 // `pageToken=undefined` (в параметрах запроса undefined превращается в строку),
@@ -29,7 +29,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-143: Google-Диск снова открывается');
+console.log('  pkg3-144: Google-Диск снова открывается');
 console.log('══════════════════════════════════════════════════\n');
 
 /* ── Придирчивый игрушечный Google ─────────────────────────────────────── */
@@ -219,10 +219,10 @@ ok(!/pageToken:[^\n]*\|\|\s*undefined/.test(code), 'в коде больше н�
 ok(/if \(o\.pageToken\) q\.set\('pageToken'/.test(src), 'параметр добавляется только когда он есть');
 ok(seen.every(x => !/pageToken=(undefined|null|)(&|$)/.test(x.raw)), 'за весь тест ни одного пустого pageToken');
 const appJs = read('public/app.js');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-143', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-144', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v137', 'кэш оформления поднят до v126');
-ok(/\| pkg3-143 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-143');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v138', 'кэш оформления поднят до v126');
+ok(/\| pkg3-144 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-144');
 ok(read('package.json').includes('node test/ui132.mjs'), 'тест ui132 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

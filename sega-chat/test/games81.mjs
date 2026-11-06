@@ -265,7 +265,7 @@ ok(apiJs.includes('if (skipWatchers && isWatchingGame(u.id, chat.id)) continue;'
 // инварианты выпуска
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"),
   'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v137';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v138';"), 'кэш статики поднят до v93');
 ok(gs.includes("version: 'pkg3-85'"), 'звуковой движок помечен pkg3-85');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');

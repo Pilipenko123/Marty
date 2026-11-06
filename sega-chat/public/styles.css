@@ -2511,3 +2511,82 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
   .gd-body{max-height:56vh;padding:8px 10px}
   .gd-doc{font-size:13.5px}
 }
+
+/* ══ pkg3-144: «Мои диски» — как папка в проводнике Windows ══════════════════
+   Владелец попросил, чтобы диски открывались как папки Windows: та же
+   структура (адресная строка, лента, столбцы), те же цвета и тот же шрифт
+   Segoe UI на компьютере. На телефоне подхватывается родной шрифт системы
+   (Roboto / San Francisco), а лишние столбцы убираются — но окно то же. */
+.dsk.wxp{
+  --wxp-fg:#1b1b1b; --wxp-muted:#605e5c; --wxp-line:#e4e4e4; --wxp-band:#f7f7f7;
+  --wxp-sel:#cce8ff; --wxp-hover:#f1f7ff;
+  background:#fff; color:var(--wxp-fg);
+  border:1px solid #d9d9d9; border-radius:8px; overflow:hidden; padding:0;
+  font-family:"Segoe UI Variable Text","Segoe UI","Segoe UI Web (West European)",system-ui,-apple-system,"Roboto","Helvetica Neue",Arial,sans-serif;
+  font-size:13px; line-height:1.35;
+}
+.dsk.wxp b{font-weight:600}
+.dsk.wxp .wxp-nav{display:flex;align-items:center;gap:4px;padding:6px 8px;background:#fff;border-bottom:1px solid var(--wxp-line)}
+.dsk.wxp .wxp-btn{width:28px;height:28px;flex:0 0 28px;border:1px solid transparent;border-radius:4px;background:none;color:var(--wxp-fg);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.dsk.wxp .wxp-btn:hover:not([disabled]){background:#ececec;border-color:#dcdcdc}
+.dsk.wxp .wxp-btn[disabled]{opacity:.35;cursor:default}
+.dsk.wxp .wxp-addr{flex:1 1 auto;display:flex;align-items:center;gap:2px;min-width:0;height:30px;padding:0 8px;border:1px solid #cfcfcf;border-radius:4px;background:#fff;overflow:hidden;white-space:nowrap}
+.dsk.wxp .dk-crumb{min-width:0;height:22px;padding:0 5px;border:0;border-radius:3px;background:none;color:var(--wxp-fg);font:inherit;font-size:12.5px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsk.wxp .dk-crumb:hover{background:#e8f1fb}
+.dsk.wxp .dk-crumb.cur{font-weight:600;cursor:default}
+.dsk.wxp .dk-sep{color:#8a8a8a;font-size:12px}
+.dsk.wxp .wxp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:6px 10px;background:#fbfbfb;border-bottom:1px solid var(--wxp-line);color:var(--wxp-fg)}
+.dsk.wxp .wxp-head .tiny.muted{color:var(--wxp-muted);font-size:12px}
+.dsk.wxp .wxp-headright{display:flex;align-items:center;gap:8px;margin-left:auto}
+.dsk.wxp .dsk-space{font-size:12px;color:var(--wxp-muted);white-space:nowrap}
+.dsk.wxp .wxp-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:6px 8px;background:var(--wxp-band);border-bottom:1px solid var(--wxp-line)}
+.dsk.wxp .wxp-tool{width:auto;flex:0 0 auto;height:28px;padding:0 10px;border:1px solid transparent;border-radius:4px;background:none;color:var(--wxp-fg);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.dsk.wxp .wxp-tool:hover:not([disabled]){background:#e8f1fb;border-color:#cfe3f7}
+.dsk.wxp .wxp-tool.primary{background:#eaf4ff;border-color:#c9e0fb;font-weight:600}
+.dsk.wxp .wxp-tool.danger{color:#b3251b}
+.dsk.wxp .wxp-tool.danger:hover:not([disabled]){background:#fdecea;border-color:#f3c9c4}
+.dsk.wxp .wxp-tool[disabled]{opacity:.4;cursor:default}
+.dsk.wxp .dsk-gap{width:1px;height:18px;background:#dcdcdc;margin:0 4px}
+.dsk.wxp .wxp-cols{display:grid;grid-template-columns:44px minmax(0,1fr) 152px 168px 92px;align-items:center;background:#fff;border-bottom:1px solid var(--wxp-line);color:var(--wxp-muted);font-size:12px}
+.dsk.wxp .wxp-col{min-width:0;height:28px;padding:0 8px;border:0;border-right:1px solid var(--wxp-line);background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsk.wxp .wxp-col:last-child{border-right:0}
+.dsk.wxp .wxp-col:hover{background:#f3f8ff}
+.dsk.wxp .wxp-col.on{color:#1b1b1b;font-weight:600}
+.dsk.wxp .wxp-col.num{text-align:right}
+.dsk.wxp .wxp-arrow{font-size:10px;opacity:.85;margin-left:4px}
+.dsk.wxp .wxp-list{max-height:52vh;overflow:auto;padding:2px 0;border:0;border-radius:0;background:#fff}
+.dsk.wxp .disk-row{display:grid;grid-template-columns:44px minmax(0,1fr) 152px 168px 92px;align-items:center;gap:0;height:30px;padding:0;border:0;border-radius:0;background:transparent;color:var(--wxp-fg);cursor:default;user-select:none}
+.dsk.wxp .disk-row:hover{background:var(--wxp-hover)}
+.dsk.wxp .disk-row.sel{background:var(--wxp-sel);box-shadow:inset 0 0 0 1px #a8d6ff}
+.dsk.wxp .wxp-ic{display:flex;align-items:center;justify-content:center;width:44px;height:30px;flex:0 0 44px}
+.dsk.wxp .wxp-svg{display:block}
+.dsk.wxp .disk-thumb-box{position:relative;display:block;width:34px;height:26px}
+.dsk.wxp .disk-thumb{width:34px;height:26px;object-fit:cover;border:1px solid #dcdcdc;border-radius:3px;display:block}
+.dsk.wxp .disk-thumb-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+.dsk.wxp .wxp-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px;font-size:13px}
+.dsk.wxp .wxp-date,.dsk.wxp .wxp-type,.dsk.wxp .wxp-size{padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:var(--wxp-muted)}
+.dsk.wxp .wxp-type{color:#3b3a39}
+.dsk.wxp .wxp-size{text-align:right}
+.dsk.wxp .wxp-empty{padding:14px 12px;color:var(--wxp-muted);font-size:12.5px}
+.dsk.wxp .wxp-err{color:#b3251b}
+.dsk.wxp .wxp-status{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px;background:#fafafa;border-top:1px solid var(--wxp-line);color:var(--wxp-muted);font-size:12px}
+.dsk.wxp .wxp-hint{margin:0;padding:6px 10px;border-top:1px solid var(--wxp-line);background:#fff;color:var(--wxp-muted);font-size:12px;line-height:1.4}
+@media (max-width:700px){
+  .dsk.wxp{border-radius:6px;font-size:13.5px}
+  .dsk.wxp .wxp-nav{flex-wrap:wrap}
+  .dsk.wxp .wxp-addr{order:3;flex:1 0 100%;margin-top:4px}
+  .dsk.wxp .wxp-tools{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .dsk.wxp .wxp-cols{grid-template-columns:40px minmax(0,1fr) 78px}
+  .dsk.wxp .wxp-col[data-dsk-sort="date"],.dsk.wxp .wxp-col[data-dsk-sort="type"]{display:none}
+  .dsk.wxp .disk-row{grid-template-columns:40px minmax(0,1fr) 78px;height:44px}
+  .dsk.wxp .wxp-ic{width:40px;height:44px}
+  .dsk.wxp .wxp-date,.dsk.wxp .wxp-type{display:none}
+  .dsk.wxp .wxp-name{font-size:14px}
+  .dsk.wxp .wxp-list{max-height:56vh}
+  .dsk.wxp .wxp-status-r{display:none}
+}
+
+/* pkg3-144: окно Диска шире обычных — в нём четыре столбца, как в проводнике.
+   На телефоне оно по-прежнему во всю ширину экрана. */
+#modal.dsk-modal .modal-box{max-width:min(980px,96vw)}
+@media (max-width:760px){ #modal.dsk-modal .modal-box{max-width:100%} }
