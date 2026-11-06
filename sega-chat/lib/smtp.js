@@ -40,7 +40,7 @@ const enabled = () => !!cfg().host && !!cfg().from;
 const b64 = s => Buffer.from(s, 'utf8').toString('base64');
 
 /** Понятная человеку подсказка к коду ошибки SMTP или к сетевому сбою. */
-function hintFor(text) {
+function hintFor(text, port) {
   const s = String(text || '');
   const num = Number((s.match(/(?:^|\s)([245]\d{2})(?:\s|:|$)/) || [])[1] || 0);
   if (num === 535 || num === 534 || num === 530) {
@@ -59,9 +59,13 @@ function hintFor(text) {
   if (/ENOTFOUND|EAI_AGAIN/i.test(s)) return 'Такого адреса сервера нет: проверьте SEGA_SMTP_HOST (например, smtp.yandex.ru).';
   if (/ECONNREFUSED/i.test(s)) return 'Сервер отказал в соединении: скорее всего неверный порт (465 — SSL, 587 — STARTTLS) или сервер закрыт для этого адреса.';
   if (/ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EADDRNOTAVAIL|не ответил|не установилось/i.test(s)) {
-    return 'Соединение не установилось. Провайдеры часто закрывают исходящие порты 25 и 587 — попробуйте 465 (SSL). '
-      + 'Нажмите «Проверить почтовый сервер»: покажем, какие порты у этого сервера вообще отвечают. '
-      + 'Если не отвечает ни один — это закрытые порты у хостера: напишите в поддержку сервера, где живёт чат.';
+    // pkg3-137: если человек уже на 465, совет «попробуйте 465» звучит издевательски
+    const head = Number(port || 0) === 465
+      ? 'Соединение не установилось на порту 465 (SSL) — значит дело не в выборе порта и не в пароле.'
+      : 'Соединение не установилось. Провайдеры часто закрывают исходящие порты 25 и 587 — попробуйте 465 (SSL).';
+    return head + ' Нажмите «Проверить почтовый сервер»: покажем, какие порты у этого сервера отвечают '
+      + 'и есть ли у сервера интернет. Если не отвечает ни один — это закрытые порты у хостера: '
+      + 'напишите в поддержку сервера, где живёт чат (готовый текст — там же).';
   }
   if (/CERT|self.signed|SSL|TLS/i.test(s) && !/STARTTLS/i.test(s)) {
     return 'Не удалось установить защищённое соединение: проверьте, что порт соответствует режиму (465 — сразу SSL, 587 — STARTTLS).';
@@ -70,28 +74,119 @@ function hintFor(text) {
 }
 
 /** Ошибка с подсказкой: message остаётся прежним, hint — рядом для интерфейса. */
-function fail(text) {
+function fail(text, port) {
   const e = new Error(text);
-  e.hint = hintFor(text);
+  e.hint = hintFor(text, port);
   return e;
+}
+
+/**
+ * pkg3-137: адрес за адресом, а не «как получится».
+ * У VPS часто есть IPv6-адрес без рабочего маршрута: тогда соединение молча
+ * висит до таймаута, хотя IPv4 у того же сервера открыт. Поэтому: сначала
+ * IPv4, потом IPv6, и каждый адрес получает свою долю срока. В отчёте видно,
+ * какой именно адрес ответил, а какой промолчал.
+ */
+function isIpAddress(h) {
+  const x = String(h || '').trim();
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(x) || x.includes(':');
+}
+function fmtAddr(a) { return a.address + (a.family === 6 ? ' (IPv6)' : ' (IPv4)'); }
+function sortAddresses(list) {
+  return (list || []).slice().sort((a, b) => (a.family === 6 ? 1 : 0) - (b.family === 6 ? 1 : 0));
+}
+/** Имя → список адресов (IPv4 первыми). Для числового адреса — он сам. */
+async function addresses(host) {
+  const h = String(host || '').trim();
+  if (!h) return [];
+  if (isIpAddress(h)) return [{ address: h, family: h.includes(':') ? 6 : 4 }];
+  try {
+    const list = await require('dns').promises.lookup(h, { all: true });
+    const seen = new Set(), out = [];
+    for (const x of list) {
+      if (seen.has(x.address)) continue;
+      seen.add(x.address);
+      out.push({ address: x.address, family: x.family });
+    }
+    return sortAddresses(out);
+  } catch (e) { return []; }
+}
+
+/** Соединение с конкретным адресом — без повторного DNS, чтобы адрес был виден. */
+function connectTo(addr, port, ms, o) {
+  const opts = o || {};
+  return new Promise(resolve => {
+    let sock = null, done = false;
+    const finish = r => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (!r.ok && sock) { try { sock.destroy(); } catch (e) {} }
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish({ ok: false, error: 'нет ответа за ' + (ms / 1000).toFixed(1) + ' с' }), ms);
+    try {
+      if (opts.tls) {
+        sock = tls.connect({
+          host: addr.address, port: Number(port),
+          servername: opts.servername,
+          rejectUnauthorized: !!opts.strict
+        });
+        sock.once('secureConnect', () => finish({ ok: true, sock }));
+      } else {
+        sock = net.connect(Number(port), addr.address);
+        sock.once('connect', () => finish({ ok: true, sock }));
+      }
+    } catch (e) { return finish({ ok: false, error: e.code || e.message }); }
+    // pkg3-137: код ошибки достаточно — адрес и так виден в отчёте
+    sock.on('error', e => finish({ ok: false, error: e.code || e.message || 'сбой соединения' }));
+  });
 }
 
 /**
  * Один сеанс SMTP. opts.steps — куда складывать пройденные шаги (для check()).
  * Возвращает обещание: resolve({steps}) после QUIT, reject(Error с .hint).
  */
-function session(opts) {
+async function session(opts) {
   const o = opts || {};
   const c = cfg();
   const steps = o.steps || [];
   const step = (name, ok, detail) => steps.push({ step: name, ok: !!ok, detail: String(detail || '') });
+  if (!enabled()) throw fail('почта не настроена');
+  const timeout = Number(o.timeoutMs || 12000);   // pkg3-136: 12 с вместо 20 — понятнее и быстрее
+  const mode = c.port === 465 ? 'SSL' : 'STARTTLS';
+  const sni = isIpAddress(c.host) ? undefined : c.host;
+
+  // pkg3-137: подключаемся по адресам, IPv4 первым (см. addresses()).
+  // pkg3-137: хватит двух адресов IPv4 и двух IPv6 — не надо перебирать все
+  const list = (await addresses(c.host)).slice(0, 4);
+  if (!list.length) throw fail(c.host + ' — имя сервера не находится');
+  const per = Math.max(2000, Math.floor(timeout / list.length));
+  const startedAt = Date.now();
+  const tried = [];
+  let sock = null, via = null;
+  for (const a of list) {
+    const r = await connectTo(a, c.port, per, { tls: c.port === 465, servername: sni, strict: !c.insecure });
+    if (r.ok) { sock = r.sock; via = a; break; }
+    tried.push({ address: a.address, family: a.family, detail: r.error });
+  }
+  if (!sock) {
+    const refused = tried.length > 0 && tried.every(t => /ECONNREFUSED/.test(t.detail));
+    const e = fail(refused
+      ? c.host + ':' + c.port + ' — ECONNREFUSED · сервер не слушает этот порт'
+      : c.host + ':' + c.port + ' не ответил за ' + Math.max(1, Math.round((Date.now() - startedAt) / 1000)) + ' с'
+        + (tried.length > 1 ? ' (пробовали ' + tried.map(t => fmtAddr(t) + ' — ' + t.detail).join('; ') + ')' : ''), c.port);
+    e.tried = tried;
+    throw e;
+  }
+  step('связь', true, 'подключились к ' + c.host + ':' + c.port + ' (' + mode + ') · ' + fmtAddr(via));
+
   return new Promise((resolve, reject) => {
-    if (!enabled()) return reject(fail('почта не настроена'));
-    const timeout = Number(o.timeoutMs || 12000);   // pkg3-136: 12 с вместо 20 — понятнее и быстрее
     let finished = false;
-    let sock = null, buf = '', tlsReady = false, sawStarttls = false, upgraded = false;
+    let buf = '', tlsReady = false, sawStarttls = false, upgraded = false;
+    // sock — уже подключённый сокет (см. выше: адрес за адресом)
     const queue = [];
-    const timer = setTimeout(() => finish(fail(c.host + ':' + c.port + ' не ответил за ' + Math.round(timeout / 1000) + ' с')), timeout);
+    const timer = setTimeout(() => finish(fail(c.host + ':' + c.port + ' не ответил за ' + Math.round(timeout / 1000) + ' с', c.port)), timeout);
 
     function finish(err) {
       if (finished) return;
@@ -123,7 +218,7 @@ function session(opts) {
           try { item.next(code, ln.slice(4).trim()); } catch (e) { finish(fail(e.message)); }
         }
       });
-      sock.on('error', e => finish(fail(c.host + ':' + c.port + ' — ' + (e.code ? e.code + (e.message ? ' · ' + e.message : '') : e.message))));
+      sock.on('error', e => finish(fail(c.host + ':' + c.port + ' — ' + (e.code ? e.code + (e.message ? ' · ' + e.message : '') : e.message), c.port)));
       sock.on('close', () => { if (!finished && !upgraded) finish(fail(c.host + ':' + c.port + ' закрыл соединение')); });
     }
 
@@ -202,15 +297,9 @@ function session(opts) {
       });
     }
 
-    step('связь', true, 'подключаемся к ' + c.host + ':' + c.port + (c.port === 465 ? ' (SSL)' : ' (STARTTLS)'));
-    if (c.port === 465) {
-      attach(tls.connect({
-        host: c.host, port: c.port, servername: c.host,
-        rejectUnauthorized: c.insecure ? false : true
-      }, () => { tlsReady = true; handshake(true); }));
-    } else {
-      attach(net.connect(c.port, c.host, () => handshake(true)));
-    }
+    attach(sock);
+    if (c.port === 465) tlsReady = true;   // сертификат уже проверен в connectTo()
+    handshake(true);
   });
 }
 
@@ -221,38 +310,144 @@ function session(opts) {
  * что-то ещё. Учётные данные здесь не отправляются — только приветствие.
  * Сертификат не проверяем: мы не передаём ничего секретного.
  */
-function probePort(host, port, timeoutMs) {
-  const limit = Math.max(1200, Math.min(6000, Number(timeoutMs) || 3500));
-  const mode = Number(port) === 465 ? 'SSL' : 'STARTTLS';
+/** Один адрес: молчит ли порт и что он отвечает. Секретов здесь нет — только приветствие. */
+function greetProbe(addr, port, ms, host) {
   return new Promise(resolve => {
     const started = Date.now();
-    let done = false, buf = '';
-    let sock = null;
+    let sock = null, done = false, buf = '';
     const finish = (ok, detail) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      try { sock && sock.destroy(); } catch (e) {}
-      resolve({ port: Number(port), mode, ok: !!ok, detail: String(detail || ''), ms: Date.now() - started });
+      if (sock) { try { sock.destroy(); } catch (e) {} }
+      resolve({ ok: !!ok, detail: String(detail || ''), ms: Date.now() - started });
     };
-    const timer = setTimeout(() => finish(false, 'нет ответа за ' + (limit / 1000).toFixed(1) + ' с'), limit);
+    const timer = setTimeout(() => finish(false, 'нет ответа за ' + (ms / 1000).toFixed(1) + ' с'), ms);
     try {
       sock = Number(port) === 465
         ? tls.connect({
-            host, port: Number(port), rejectUnauthorized: false,
-            servername: /^\d+\.\d+\.\d+\.\d+$/.test(host) ? undefined : host
+            host: addr.address, port: Number(port), rejectUnauthorized: false,
+            servername: isIpAddress(host) ? undefined : host
           })
-        : net.connect(Number(port), host);
-    } catch (e) { return finish(false, e.message); }
+        : net.connect(Number(port), addr.address);
+    } catch (e) { return finish(false, e.code || e.message); }
     sock.setEncoding('utf8');
     sock.on('data', chunk => {
       buf += chunk;
       const m = /^(\d{3})([^\r\n]*)/m.exec(buf);
       if (m) finish(true, 'сервер ответил ' + m[1] + (m[2] ? ' · ' + m[2].trim() : ''));
     });
-    sock.on('error', e => finish(false, (e.code || '') + (e.code && e.message ? ' · ' : '') + (e.message || 'сбой соединения')));
+    sock.on('error', e => finish(false, e.code || e.message || 'сбой соединения'));
     sock.on('timeout', () => finish(false, 'молчит'));
   });
+}
+
+/**
+ * pkg3-137: проверка порта по КАЖДОМУ адресу сервера (IPv4 первым).
+ * Раньше «не ответил» был один на всех — и нельзя было понять, это сеть
+ * хостера, неверное имя или сломанный IPv6 на самом сервере.
+ */
+async function probePort(host, port, timeoutMs) {
+  const started = Date.now();
+  const limit = Math.max(1200, Math.min(6000, Number(timeoutMs) || 3500));
+  const mode = Number(port) === 465 ? 'SSL' : 'STARTTLS';
+  const list = (await addresses(host)).slice(0, 4);
+  const tried = [];
+  if (!list.length) {
+    return { port: Number(port), mode, ok: false, detail: 'имя не находится', ms: Date.now() - started, via: '', tried: [] };
+  }
+  const per = Math.max(1200, Math.floor(limit / list.length));
+  for (const a of list) {
+    const r = await greetProbe(a, Number(port), per, host);
+    tried.push({ address: a.address, family: a.family, ok: r.ok, detail: r.detail, ms: r.ms });
+    if (r.ok) {
+      return { port: Number(port), mode, ok: true, detail: r.detail, ms: Date.now() - started, via: fmtAddr(a), tried };
+    }
+  }
+  const detail = tried.length > 1
+    ? tried.map(t => fmtAddr(t) + ': ' + t.detail).join('; ')
+    : tried[0].detail;
+  return { port: Number(port), mode, ok: false, detail, ms: Date.now() - started, via: '', tried };
+}
+
+/** «А интернет у сервера вообще есть?» — 443 до двух посторонних хостов. */
+function tcpOpen(addr, port, ms) {
+  return new Promise(resolve => {
+    const started = Date.now();
+    let sock = null, done = false;
+    const finish = (ok, detail) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (sock) { try { sock.destroy(); } catch (e) {} }
+      resolve({ ok: !!ok, detail: String(detail || ''), ms: Date.now() - started });
+    };
+    const timer = setTimeout(() => finish(false, 'нет ответа за ' + (ms / 1000).toFixed(1) + ' с'), ms);
+    try { sock = net.connect(Number(port), addr.address); } catch (e) { return finish(false, e.code || e.message); }
+    sock.once('connect', () => finish(true, 'отвечает'));
+    sock.on('error', e => finish(false, e.code || e.message || 'сбой'));
+  });
+}
+
+/**
+ * pkg3-137: контрольная проверка сети — по HTTPS-порту 443 до посторонних
+ * хостов. Если 443 открывается, а почтовые порты нет, то виноват не чат и не
+ * пароль: закрыты именно почтовые порты. Это и есть аргумент для поддержки.
+ */
+async function probeNet(timeoutMs, targets) {
+  const limit = Math.max(1000, Math.min(4000, Number(timeoutMs) || 2500));
+  const list = targets && targets.length ? targets : [
+    { target: '1.1.1.1:443', host: '1.1.1.1', port: 443 },
+    { target: 'api.github.com:443', host: 'api.github.com', port: 443 }
+  ];
+  const items = await Promise.all(list.map(async t => {
+    const started = Date.now();
+    const name = t.target || (t.host + ':' + (t.port || 443));
+    const addrs = await addresses(t.host);
+    if (!addrs.length) return { target: name, ok: false, detail: 'имя не находится', ms: Date.now() - started };
+    const r = await tcpOpen(addrs[0], t.port || 443, limit);
+    return {
+      target: name, ok: r.ok,
+      detail: r.ok ? 'отвечает · ' + fmtAddr(addrs[0]) : r.detail,
+      ms: Date.now() - started
+    };
+  }));
+  return { ok: items.some(x => x.ok), items };
+}
+
+/**
+ * pkg3-137: готовый текст в поддержку хостера. Владелец не должен сам
+ * сочинять «у меня не работает почта»: в письме уже есть имя сервера, адреса,
+ * порты, время ответа и что при этом работает.
+ */
+function supportTicket(c, dns, ports, net) {
+  const L = [];
+  L.push('Здравствуйте!');
+  L.push('');
+  L.push('С сервера (VPS ' + (require('os').hostname() || '') + ') не уходят письма: не открываются исходящие порты почтовых серверов.');
+  L.push('Проверка из самого чата SEGA-CHAT, сервер почты ' + c.host + ':' + c.port + ':');
+  L.push('');
+  if (dns && dns.ok) {
+    L.push('  имя ' + c.host + ' находится: ' + (dns.addresses || []).map(fmtAddr).join(', '));
+  } else {
+    L.push('  имя ' + c.host + ' не находится (' + ((dns && dns.error) || '') + ')');
+  }
+  (ports || []).forEach(p => {
+    const extra = (p.tried && p.tried.length > 1)
+      ? '  [' + p.tried.map(t => fmtAddr(t) + ': ' + t.detail).join('; ') + ']'
+      : '';
+    L.push('  ' + String(p.port) + ' (' + p.mode + ') — ' + p.detail + extra);
+  });
+  const netItems = (net && net.items) || [];
+  if (net && net.ok) {
+    L.push('');
+    L.push('Интернет при этом работает:');
+    netItems.forEach(i => L.push('  ' + i.target + ' — ' + (i.ok ? 'отвечает' : i.detail)));
+  }
+  L.push('');
+  L.push('Пожалуйста, откройте исходящие TCP-порты 465 и 587 (если можно — и 25) к внешним серверам.');
+  L.push('Если так нельзя, подскажите, пожалуйста, ваш SMTP-релей: адрес, порт и нужен ли отдельный логин.');
+  return L.join('\n');
 }
 
 /** Имя сервера → адреса (A/AAAA). Без этого «не отвечает» ничего не объясняет. */
@@ -294,14 +489,19 @@ async function check(timeoutMs) {
 }
 
 /**
- * pkg3-136: полная проверка почты — то, что видит владелец по кнопке
+ * pkg3-136/137: полная проверка почты — то, что видит владелец по кнопке
  * «Проверить почтовый сервер». Отвечает на вопрос «что именно не так»:
- *   • находит ли имя сервера (DNS);
- *   • отвечает ли вообще 465 (SSL), 587 (STARTTLS), 25 — параллельно и быстро;
- *   • проходит ли вход с текущими логином и паролем (check()).
- * Возвращает { ok, config, dns, ports, steps, error, hint, advice }.
+ *   • находит ли имя сервера (DNS) и по каким адресам;
+ *   • отвечает ли вообще 465 (SSL), 587 (STARTTLS), 25 и порт из .env —
+ *     отдельно по IPv4 и IPv6;
+ *   • есть ли у сервера интернет (443 до посторонних хостов);
+ *   • проходит ли вход с текущими логином и паролем (check());
+ *   • готовый текст в поддержку хостера (ticket), если порты закрыты.
+ * Возвращает { ok, config, dns, ports, net, steps, error, hint, advice, ticket }.
+ * opts.netTargets — только для проверок: подменить внешние хосты на свои.
  */
-async function checkAll(timeoutMs) {
+async function checkAll(timeoutMs, opts) {
+  const o = opts || {};
   const c = cfg();
   const conf = {
     host: c.host, port: c.port, configured: enabled(),
@@ -309,31 +509,41 @@ async function checkAll(timeoutMs) {
   };
   if (!enabled()) {
     return {
-      ok: false, config: conf, dns: null, ports: [], steps: [],
+      ok: false, config: conf, dns: null, ports: [], net: { ok: false, items: [] }, steps: [],
       error: 'почта не настроена',
       hint: 'Задайте SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env и перезапустите службу.',
-      advice: 'Без этих переменных кнопка привязки почты честно отвечает «почта не настроена».'
+      advice: 'Без этих переменных кнопка привязки почты честно отвечает «почта не настроена».',
+      ticket: ''
     };
   }
   const dns = await resolveHost(c.host);
   const probeMs = Math.min(Number(timeoutMs) || 3500, 4000);
   // проверяем и общепринятые порты, и тот, что задан в .env (бывает 2525 и другие)
   const candidates = Array.from(new Set([465, 587, 25, Number(c.port) || 587]));
-  const ports = dns.ok
-    ? await Promise.all(candidates.map(p => probePort(c.host, p, probeMs)))
-    : [];
+  // pkg3-137: порты и «есть ли интернет» — параллельно, чтобы кнопка не думала дольше
+  const [ports, net] = await Promise.all([
+    dns.ok ? Promise.all(candidates.map(p => probePort(c.host, p, probeMs))) : Promise.resolve([]),
+    probeNet(Math.min(probeMs, 2500), o.netTargets)
+  ]);
   const full = dns.ok ? await check(timeoutMs) : { ok: false, steps: [], error: 'имя сервера не найдено', hint: '' };
   const open = ports.filter(p => p.ok).map(p => p.port);
+  const netOk = !!(net && net.ok);
   let advice = '';
   let hint = full.hint || '';
+  let ticket = '';
   if (!dns.ok) {
     advice = 'Имя «' + c.host + '» не находится (' + (dns.error || '') + '). Проверьте SEGA_SMTP_HOST — например, smtp.yandex.ru.';
   } else if (!open.length) {
+    // pkg3-137: раньше здесь был один и тот же совет. Теперь он зависит от того,
+    // есть ли у сервера интернет вообще: это два разных разговора с хостером.
     advice = 'Ни 465, ни 587, ни 25 не отвечают — сервер почты недоступен с этого сервера. '
-      + 'Чаще всего так бывает, когда хостер закрывает исходящую почту: напишите в поддержку (Sprintbox и подобные) '
-      + 'или возьмите почтовый сервис, у которого открыт 465. Проверить руками: '
-      + '`for p in 465 587 25; do timeout 5 bash -c "echo > /dev/tcp/' + c.host + '/$p" 2>/dev/null && echo "$p открыт" || echo "$p закрыт"; done`';
+      + 'Чаще всего так бывает, когда хостер закрывает исходящую почту: напишите в поддержку '
+      + '(Sprintbox и подобные) — готовый текст ниже, кнопка «Скопировать для поддержки».'
+      + (netOk
+          ? ' Сеть при этом жива (443 открывается), значит закрыты именно почтовые порты — дело не в пароле и не в настройках чата.'
+          : ' Причём 443 не открывается тоже — тогда проверьте сеть и фаервол самого сервера.');
     hint = hint || 'Порты закрыты — это не ошибка настроек в чате, а сеть хостера.';
+    ticket = supportTicket(c, dns, ports, net);
   } else if (!open.includes(c.port)) {
     advice = 'На порту ' + c.port + ' сервер молчит, а отвечает на ' + open.join(' и ') + '. '
       + 'Поставьте в .env SEGA_SMTP_PORT=' + open[0] + (open[0] === 465 ? ' (это SSL, порт 587 — STARTTLS)' : '') + ' и перезапустите службу.';
@@ -343,9 +553,9 @@ async function checkAll(timeoutMs) {
     advice = 'Всё в порядке: сервер отвечает и вход принят — письма должны уходить.';
   }
   return {
-    ok: !!full.ok, config: conf, dns, ports, steps: full.steps || [],
-    error: full.error || '', hint, advice
+    ok: !!full.ok, config: conf, dns, ports, net, steps: full.steps || [],
+    error: full.error || '', hint, advice, ticket
   };
 }
 
-module.exports = { sendMail, enabled, check, checkAll, probePort, resolveHost, hintFor };
+module.exports = { sendMail, enabled, check, checkAll, probePort, probeNet, resolveHost, hintFor, addresses, sortAddresses };

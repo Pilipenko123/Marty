@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-136';
+const BUILD = 'pkg3-137';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12568,7 +12568,7 @@ async function mailDiag() {
   const box = $('#pf-mail-diagbox') || (() => { const d = document.createElement('div'); document.body.appendChild(d); return d; })();
   box.innerHTML = '<div class="tiny muted">Проверяем почтовый сервер…</div>';
   let r = null, err = null;
-  try { r = await api('/api/admin/mail', { timeout: 30000 }); } catch (e) { err = e; }
+  try { r = await api('/api/admin/mail', { timeout: 40000 }); } catch (e) { err = e; }
   const steps = (r && r.steps) || [];
   const rows = steps.map(x => `<div class="tiny">${x.ok ? '✅' : '⛔'} <b>${escapeHtml(x.step)}</b>: ${escapeHtml(x.detail)}</div>`).join('');
   const conf = r && r.config ? `<p class="tiny muted">Сервер: ${escapeHtml(r.config.host || '—')}:${escapeHtml(String(r.config.port || ''))}, ящик ${escapeHtml(r.config.user || '—')}, отправитель ${escapeHtml(r.config.from || '—')}</p>` : '';
@@ -12578,20 +12578,49 @@ async function mailDiag() {
         ? escapeHtml((r.dns.addresses || []).map(a => a.address).join(', ') || 'найдено')
         : 'не находится (' + escapeHtml(r.dns.error || '') + ')'}</div>`
     : '';
+  // pkg3-137: каждый порт — по адресам (сначала IPv4, потом IPv6). Бывает, что
+  // IPv4 открыт, а IPv6 у сервера «висит» — тогда видно, чей это адрес.
   const ports = (r && r.ports && r.ports.length)
-    ? `<div class="tiny" style="margin-top:4px"><b>порты этого сервера:</b> ${r.ports.map(p =>
-        `${p.ok ? '✅' : '⛔'} ${p.port} (${p.mode})${p.ok ? ' — ' + escapeHtml(p.detail) : ''}`).join(' · ')}</div>`
+    ? `<div class="tiny" style="margin-top:4px"><b>порты этого сервера:</b></div>` + r.ports.map(p =>
+        `<div class="tiny">${p.ok ? '✅' : '⛔'} <b>${escapeHtml(String(p.port))}</b> (${escapeHtml(p.mode)}) — ${escapeHtml(p.detail)}${p.ok && p.via ? ' · ' + escapeHtml(p.via) : ''}</div>`
+      ).join('')
+    : '';
+  const addrRows = ((r && r.ports) || []).filter(p => p.tried && p.tried.length > 1).map(p =>
+    `<div class="tiny muted" style="margin-left:12px">${escapeHtml(String(p.port))}: ` +
+      p.tried.map(t => `${escapeHtml(t.address)} ${t.family === 6 ? '(IPv6)' : '(IPv4)'} — ${escapeHtml(t.detail)}`).join('; ') +
+    `</div>`
+  ).join('');
+  // pkg3-137: «есть ли у сервера интернет вообще» — 443 до посторонних хостов
+  const net = (r && r.net && r.net.items && r.net.items.length)
+    ? `<div class="tiny" style="margin-top:4px">${r.net.ok ? '✅' : '⛔'} <b>интернет у сервера</b>: ` +
+      r.net.items.map(i => `${i.ok ? '✅' : '⛔'} ${escapeHtml(i.target)}${i.ok ? '' : ' — ' + escapeHtml(i.detail)}`).join(' · ') +
+      `</div>`
+    : '';
+  // pkg3-137: если порты закрыты — готовое письмо в поддержку, чтобы не сочинять
+  const ticket = (r && r.ticket)
+    ? `<div style="margin-top:8px"><b class="tiny">Письмо в поддержку хостера</b>
+        <div class="tiny muted">Если все почтовые порты закрыты — это не настройка чата. Скопируйте текст и отправьте в поддержку Sprintbox (или того, у кого живёт сервер).</div>
+        <button class="mini primary" id="pf-mail-copy" type="button" style="margin-top:4px">Скопировать для поддержки</button>
+        <pre class="tiny" id="pf-mail-ticket" style="white-space:pre-wrap;margin-top:6px">${escapeHtml(r.ticket)}</pre></div>`
     : '';
   box.innerHTML = `<div class="card" style="padding:10px;margin-top:8px">
     <b>${r && r.ok ? 'Почта работает' : 'Почта не работает'}</b>
-    ${conf}${dns}${ports}
+    ${conf}${dns}${ports}${addrRows}${net}
     ${r && r.advice ? `<div class="tiny" style="margin-top:6px"><b>Что делать:</b> ${escapeHtml(r.advice)}</div>` : ''}
     ${rows ? '<div style="margin-top:6px">' + rows + '</div>' : ''}
     ${r && r.error ? `<div class="tiny" style="margin-top:6px"><b>Что ответил сервер:</b> <code>${escapeHtml(r.error)}</code></div>` : ''}
     ${r && r.hint ? `<div class="tiny" style="margin-top:6px"><b>Подсказка:</b> ${escapeHtml(r.hint)}</div>` : ''}
+    ${ticket}
     ${err ? `<div class="tiny">Не удалось проверить: ${escapeHtml(err.message || String(err))}</div>` : ''}
     <div class="tiny muted" style="margin-top:6px">Настройка — переменные SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env сервера.</div>
   </div>`;
+  const copyBtn = $('#pf-mail-copy');
+  if (copyBtn && r && r.ticket) {
+    copyBtn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(r.ticket); toast('Текст для поддержки скопирован'); }
+      catch (e) { toast('Скопируйте текст ниже вручную', true); }
+    });
+  }
 }
 async function paintPfMail() {
   const box = $('#pf-mail');
