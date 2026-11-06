@@ -155,7 +155,7 @@ ok(appJs.includes('musicPlay(musSearchPl(), i)') && appJs.includes("site: r.site
 ok(appJs.includes('data-mus-s-add=') && appJs.includes('data-mus-pick=') && appJs.includes('Добавить трек в плейлист:'),
   '＋ даёт список плейлистов; после выбора трек ложится в выбранный');
 ok(appJs.includes('Такой трек уже есть в плейлисте'), 'повторная добавка того же url честно отклоняется');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v133';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v134';"), 'кэш статики поднят до v93');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music97.mjs'), 'тест music97 включён в цепочку npm test');
 ok(readme.includes('| pkg3-97 |'), 'в журнале README есть строка выпуска pkg3-97');
