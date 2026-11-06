@@ -165,11 +165,15 @@ NGCONF="/etc/nginx/sites-available/sega-chat"
 [ -f "$NGCONF" ] && cp -f "$NGCONF" "$NGCONF.bak-setup"
 # pkg3-135: зона ограничения частоты для входа. Живёт в http-контексте (conf.d),
 # поэтому не мешает ни одному варианту server-блока ниже.
+# pkg3-138: здесь НЕЛЬЗЯ держать server_tokens — этот файл попадает в http-контекст,
+# где директива часто уже задана (провайдерский конфиг), и nginx отказывается
+# стартовать: «"server_tokens" directive is duplicate». Из-за этого ломался
+# certbot с плагином nginx, а вместе с ним — выпуск и продление сертификата.
+# Теперь версия сервера скрывается в наших же server-блоках (ниже).
 cat > /etc/nginx/conf.d/sega-limits.conf <<'LIM'
 # SEGA-CHAT pkg3-135: не чаще 20 запросов в минуту с адреса на вход/регистрацию
 limit_req_zone $binary_remote_addr zone=segalogin:10m rate=20r/m;
 limit_req_status 429;
-server_tokens off;
 LIM
 if [ -f "$LIVE/fullchain.pem" ] && [ -f "$LIVE/privkey.pem" ]; then
 cat > "$NGCONF" <<NGX
@@ -177,12 +181,14 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
+    server_tokens off;
     location / { return 301 https://\$host\$request_uri; }
 }
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     server_name $DOMAIN;
+    server_tokens off;
     ssl_certificate $LIVE/fullchain.pem;
     ssl_certificate_key $LIVE/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -217,6 +223,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
+    server_tokens off;
     client_max_body_size 30m;
     # pkg3-130: архив папки с Диска идёт ПОТОКОМ — nginx не должен копить его
     # у себя и не должен обрывать долгую сборку.
@@ -253,14 +260,27 @@ server {
 NGX
 fi
 ln -sf "$NGCONF" /etc/nginx/sites-enabled/sega-chat
-if nginx -t >/dev/null 2>&1; then
+# pkg3-138: ошибку проверки больше не прячем — раньше в логе была тишина,
+# а certbot потом падал с «MisconfigurationError» без объяснений
+if nginx -t >/tmp/sega-nginx-test.log 2>&1; then
   systemctl reload nginx
   echo "  nginx настроен"
 else
-  echo "  новая настройка nginx не прошла проверку — возвращаю прежнюю"
+  echo "  новая настройка nginx не прошла проверку:"
+  sed -n '1,6p' /tmp/sega-nginx-test.log | sed 's/^/    /'
+  echo "  возвращаю прежнюю настройку сайта"
   if [ -f "$NGCONF.bak-setup" ]; then
     cp -f "$NGCONF.bak-setup" "$NGCONF"
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx
+  fi
+  if nginx -t >/tmp/sega-nginx-test.log 2>&1; then
+    systemctl reload nginx
+    echo "  прежняя настройка в порядке, nginx перезапущен"
+  else
+    echo "  nginx всё ещё ругается (это не наша настройка сайта):"
+    sed -n '1,6p' /tmp/sega-nginx-test.log | sed 's/^/    /'
+    echo "  чаще всего это задвоенная директива в /etc/nginx — проверьте:"
+    echo "    grep -rn \"server_tokens\" /etc/nginx/ 2>/dev/null"
+    echo "  после правки: bash $APP/code/cloud-vps/cert.sh"
   fi
 fi
 
