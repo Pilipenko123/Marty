@@ -150,7 +150,7 @@ const B = up(await freePort(), {
   NEW_INVITE_DELAY: '0', INVITE_COOLDOWN_MS: '0',
   SEGA_SMTP_HOST: '127.0.0.1', SEGA_SMTP_PORT: String(smtpPort),
   SEGA_SMTP_USER: 'bot', SEGA_SMTP_PASS: 'secret', SEGA_SMTP_FROM: 'chat@test.local',
-  // pkg3-135: по умолчанию клиент требует TLS. Подставной сервер в этом тесте
+  // pkg3-136: по умолчанию клиент требует TLS. Подставной сервер в этом тесте
   // говорит открытым текстом, поэтому разрешаем явно — как для локальной пересылки.
   SEGA_SMTP_PLAIN: '1'
 });
@@ -267,7 +267,7 @@ await wait(300);
 const tokenK = ((mails[0] || '').match(/\/\?recover=([0-9a-f]{48})/) || [])[1];
 ok(!!tokenK, 'ссылка Клаве ушла');
 const fresh = { saltAuth: hex(), authKey: hex(32), saltWrap: hex(), wrappedKeyByPass: null, wrappedPriv: null };
-// pkg3-135: без кода восстановления сброс ПО ПОЧТЕ не проходит — иначе доступ
+// pkg3-136: без кода восстановления сброс ПО ПОЧТЕ не проходит — иначе доступ
 // к почте означал бы захват учётки (новые сообщения, чаты и диски чужим людям).
 r = await call(B.base, '/api/recover/commit', { method: 'POST', body: Object.assign({ token: tokenK }, fresh) });
 ok(r.status === 400 && /код восстановления/.test(r.d.error || ''),

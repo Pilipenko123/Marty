@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-135';
+const BUILD = 'pkg3-136';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -4640,7 +4640,10 @@ function createApi(store, opts = {}) {
       // Раньше человек видел одно «не удалось отправить письмо» и не знал, что чинить.
       if (pathname === '/api/admin/mail' && method === 'GET') {
         if (throttle('mail-diag-' + me.id, 20)) return E(429, 'Слишком часто — подождите минуту');
-        const res = await smtp.check(12000);
+        // pkg3-136: проверяем не только вход, но и «слышно ли сервер вообще»:
+        // имя (DNS), порты 465/587/25 и уже потом AUTH. Иначе «соединение не
+        // установилось» ничего не объясняет — а так видно, чей это порт.
+        const res = await smtp.checkAll(4000);
         return J(200, Object.assign({ ok: res.ok }, res));
       }
       if (pathname === '/api/admin/archives' && method === 'GET') {
