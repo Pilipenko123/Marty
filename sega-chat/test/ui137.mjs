@@ -1,4 +1,4 @@
-// test/ui137.mjs — pkg3-138: почта — «есть ли интернет» и письмо в поддержку.
+// test/ui137.mjs — pkg3-139: почта — «есть ли интернет» и письмо в поддержку.
 //
 // Владелец поставил 136-й и прислал новый снимок: «smtp.gmail.com:465 не
 // ответил за 12 с · Соединение не установилось». То есть дело не в выборе
@@ -31,7 +31,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(r => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-138: почта — сеть, адреса и письмо в поддержку');
+console.log('  pkg3-139: почта — сеть, адреса и письмо в поддержку');
 console.log('══════════════════════════════════════════════════\n');
 
 const smtp = await import('../lib/smtp.js').then(m => m.default || m);
@@ -219,13 +219,13 @@ ok(/navigator\.clipboard\.writeText\(r\.ticket\)/.test(appJs), 'она дейс�
 const smtpSrc = read('lib/smtp.js');
 ok(/function supportTicket/.test(smtpSrc) && /465 и 587/.test(smtpSrc), 'текст в поддержку собирается на сервере');
 ok(/sortAddresses/.test(smtpSrc) && /IPv4/.test(smtpSrc), 'адреса сортируются, IPv4 первым');
-ok(/checkAll\(4000\)/.test(read('lib/api.js')), 'кнопка зовёт полную проверку');
+ok(/checkAll\(5000\)/.test(read('lib/api.js')), 'кнопка зовёт полную проверку');
 
 console.log('\n  8. Отметки выпуска');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-138', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-139', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v132', 'кэш оформления поднят до v131');
-ok(/\| pkg3-138 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-138');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v133', 'кэш оформления поднят до v131');
+ok(/\| pkg3-139 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-139');
 ok(read('package.json').includes('node test/ui137.mjs'), 'тест ui137 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

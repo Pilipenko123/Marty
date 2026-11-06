@@ -60,7 +60,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(sw) || [])[1];
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(api) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v132', `кэш оформления поднят (${cache}) — устройства получат правки`);
+ok(cache === 'sega-static-v133', `кэш оформления поднят (${cache}) — устройства получат правки`);
 ok(pkg.includes('node test/ui122.mjs'), 'тест ui122 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
