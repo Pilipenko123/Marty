@@ -1,4 +1,4 @@
-// test/ui139.mjs — pkg3-140: письмо в поддержку стало письмом, по которому
+// test/ui139.mjs — pkg3-141: письмо в поддержку стало письмом, по которому
 //                 можно открыть порты, а не отчётом о сбое программы.
 //
 // Владелец прислал текст, который собрал 138-й. Диагноз в нём уже правильный
@@ -29,7 +29,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(r => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-140: письмо в поддержку — по делу и без повторов');
+console.log('  pkg3-141: письмо в поддержку — по делу и без повторов');
 console.log('══════════════════════════════════════════════════\n');
 
 const smtp = await import('../lib/smtp.js').then(m => m.default || m);
@@ -140,10 +140,10 @@ ok(!/\[[^\]]*(нет ответа|ECONNREFUSED)[^\]]*\]/.test(r.d.ticket), 'в �
 
 /* ── 6. Отметки выпуска ─────────────────────────────────────────────────── */
 console.log('\n  6. Отметки выпуска');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-140', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-141', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v134', 'кэш оформления поднят до v133');
-ok(/\| pkg3-140 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-140');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v135', 'кэш оформления поднят до v133');
+ok(/\| pkg3-141 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-141');
 ok(read('package.json').includes('node test/ui139.mjs'), 'тест ui139 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
