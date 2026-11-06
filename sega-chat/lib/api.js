@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-142';
+const BUILD = 'pkg3-143';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1320,7 +1320,33 @@ function createApi(store, opts = {}) {
       ua: String(h['user-agent'] || '').slice(0, 200),
       sid: crypto.randomBytes(4).toString('hex')
     };
+    pruneSessions(u.id);   // pkg3-143: больше SESSION_MAX входов не копим
     return token;
+  }
+
+  /**
+   * pkg3-143: «Мои устройства» не должны превращаться в простыню. Каждый вход —
+   * отдельная запись, даже если это тот же компьютер: после десятка заходов
+   * список становился нечитаемым, и владелец справедливо спросил «почему их
+   * столько». Теперь у человека не больше SESSION_MAX живых входов: при новом
+   * входе самый давний закрывается сам, а просроченные вычищаются при каждом
+   * просмотре списка.
+   */
+  const SESSION_MAX = Math.max(3, Number(process.env.SESSION_MAX || 12));
+  function pruneSessions(uid) {
+    const nowT = Date.now();
+    let changed = false;
+    const mine = Object.entries(db.sessions)
+      .filter(([, s]) => s && s.uid === uid)
+      .sort((a, b) => ((b[1].seen || b[1].at || 0) - (a[1].seen || a[1].at || 0)));
+    mine.forEach(([sid, s], n) => {
+      if (n < SESSION_MAX && s.exp > nowT) return;
+      delete db.sessions[sid];
+      try { store.dropSession(sid); } catch (e) {}
+      changed = true;
+    });
+    if (changed) save();
+    return changed;
   }
 
   /**
@@ -1942,7 +1968,10 @@ function createApi(store, opts = {}) {
       // pkg3-135: после сброса пароля все прежние входы закрываются — иначе
       // тот, кто залез в учётку, остался бы в чате со своей сессией
       await store.loadSessions();
-      for (const t of Object.keys(db.sessions)) if (db.sessions[t].uid === u.id) delete db.sessions[t];
+      for (const t of Object.keys(db.sessions)) if (db.sessions[t].uid === u.id) {
+        delete db.sessions[t];
+        try { store.dropSession(t); } catch (e) {}
+      }
       adminLogAdd(rec.by || 'система', 'пароль «' + u.name + '» восстановлен'
         + (resetTok ? ' по ссылке владельца' : ' кодом восстановления') + '; прежние входы закрыты');
       save();
@@ -2336,7 +2365,11 @@ function createApi(store, opts = {}) {
     }
 
     if (pathname === '/api/logout' && method === 'POST') {
-      delete db.sessions[session.token]; save();
+      // pkg3-143: вход убираем и из хранилища, а не только из памяти —
+      // иначе «стёртая» запись возвращалась после перезапуска службы
+      delete db.sessions[session.token];
+      try { store.dropSession(session.token); } catch (e) {}
+      save();
       return J(200, { ok: true });
     }
 
@@ -2344,19 +2377,36 @@ function createApi(store, opts = {}) {
     // лежат в базе с 135-го; теперь их видно человеку, и он может закрыть чужие.
     if (pathname === '/api/sessions' && method === 'GET') {
       await store.loadSessions();
+      pruneSessions(me.id);   // pkg3-143: просроченные и лишние записи уходят сами
       const nowAt = Date.now();
-      const list = Object.entries(db.sessions)
-        .filter(([, s]) => s && s.uid === me.id && s.exp > nowAt)
-        .map(([sid, s]) => ({
-          id: s.sid || sid.slice(0, 8),
-          at: s.at || (s.exp - SESSION_TTL),
-          seen: s.seen || s.at || 0,
-          ip: s.ip || '',
-          device: deviceOf(s.ua),
-          current: sid === session.token
-        }))
+      // pkg3-143: одна строка на УСТРОЙСТВО, а не на каждый вход. «Заходил
+      // десять раз с этого ноутбука» — это один пункт «Windows · Chrome,
+      // входов 10», а не десять одинаковых строк.
+      const byDevice = new Map();
+      for (const [sid, s] of Object.entries(db.sessions)) {
+        if (!s || s.uid !== me.id || !(s.exp > nowAt)) continue;
+        const device = deviceOf(s.ua);
+        const id = String(s.sid || sid.slice(0, 12));
+        const at = s.at || (s.exp - SESSION_TTL);
+        const seen = s.seen || at;
+        let g = byDevice.get(device);
+        if (!g) {
+          g = { id, ids: [], device, at, seen, ip: String(s.ip || ''), count: 0, current: false, currentId: '' };
+          byDevice.set(device, g);
+        }
+        g.count++;
+        g.ids.push(id);
+        if (at && (!g.at || at < g.at)) g.at = at;                 // самый первый вход с него
+        if (seen >= g.seen) {                                      // свежайший вход задаёт лицо строки
+          g.seen = seen; g.id = id;
+          if (s.ip) g.ip = String(s.ip);
+        }
+        if (sid === session.token) { g.current = true; g.currentId = id; }
+      }
+      const list = [...byDevice.values()]
         .sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.seen - a.seen);
-      return J(200, { ok: true, list, ttlDays: Math.round(SESSION_TTL / (24 * 60 * 60 * 1000)) });
+      const total = list.reduce((n, g) => n + g.count, 0);
+      return J(200, { ok: true, list, total, ttlDays: Math.round(SESSION_TTL / (24 * 60 * 60 * 1000)) });
     }
 
     // «Выйти на всех остальных» (или на одном: body {id}). Текущая сессия
@@ -2365,13 +2415,20 @@ function createApi(store, opts = {}) {
       if (throttle('revoke:' + me.id, 20)) return E(429, 'Слишком часто — подождите минуту');
       await store.loadSessions();
       const b = req.body || {};
+      // pkg3-143: можно назвать один вход ({id}) или сразу целое устройство
+      // ({ids:[…]}) — тогда закрываются все входы с него, кроме текущего.
       const want = String(b.id || '');
+      const ids = (Array.isArray(b.ids) ? b.ids : want ? [want] : [])
+        .map(x => String(x || '')).filter(Boolean);
+      const same = (ses, sid) => !!ids.find(w =>
+        ses.sid === w || sid.slice(0, 12) === w || sid.slice(0, 8) === w || sid === w);
       let closed = 0;
       for (const [sid, ses] of Object.entries(db.sessions)) {
         if (!ses || ses.uid !== me.id) continue;
-        const mine = want ? (ses.sid === want || sid.slice(0, 8) === want) : sid !== session.token;
+        const mine = ids.length ? same(ses, sid) : sid !== session.token;
         if (!mine) continue;
         delete db.sessions[sid];
+        try { store.dropSession(sid); } catch (e) {}
         if (sid !== session.token) closed++;
       }
       save();
@@ -4554,7 +4611,10 @@ function createApi(store, opts = {}) {
         if (p.wrappedPriv) me.wrappedPriv = p.wrappedPriv;
         // прочие сессии этого пользователя закрываем
         await store.loadSessions();
-        for (const [t, s] of Object.entries(db.sessions)) if (s.uid === me.id && t !== session.token) delete db.sessions[t];
+        for (const [t, s] of Object.entries(db.sessions)) if (s.uid === me.id && t !== session.token) {
+          delete db.sessions[t];
+          try { store.dropSession(t); } catch (e) {}
+        }
       }
       // ── pkg3-64: привязка почты (необязательно, один раз) для восстановления ──
       if (b.email !== undefined) {
@@ -4686,7 +4746,10 @@ function createApi(store, opts = {}) {
           db.users = db.users.filter(x => x.id !== id);
           store.dropUser(id);
           await store.loadSessions();
-          for (const [t, s] of Object.entries(db.sessions)) if (s.uid === id) delete db.sessions[t];
+          for (const [t, s] of Object.entries(db.sessions)) if (s.uid === id) {
+            delete db.sessions[t];
+            try { store.dropSession(t); } catch (e) {}
+          }
           // выводим из всех чатов; чаты, где он был единственным, удаляем вместе с историей
           for (const c of db.chats) {
             c.members = c.members.filter(x => x !== id);
