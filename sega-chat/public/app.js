@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-140';
+const BUILD = 'pkg3-142';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -11304,8 +11304,11 @@ $('#btn-profile').addEventListener('click', () => {
     <div class="err" id="pf-err"></div>
     <button class="primary" id="pf-save-pass">Сменить пароль</button>
     <div class="divider"><span>Почта для восстановления</span></div>
-    <div id="pf-mail"><div class="tiny muted">Загружаем…</div></div>`);
+    <div id="pf-mail"><div class="tiny muted">Загружаем…</div></div>
+    <div class="divider"><span>Мои устройства</span></div>
+    <div id="pf-devices"><div class="tiny muted">Загружаем…</div></div>`);
   paintPfMail();   // pkg3-64: привязка почты и код восстановления
+  paintPfDevices();   // pkg3-141: где и когда входили
 
   $('#pf-file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
@@ -12543,10 +12546,17 @@ async function makeRecoveryCode() {
   }
   try {
     const K = rnd(32);
-    const blob = await aesEncryptBytes(K, enc.encode(JSON.stringify({ pkcs8: toB64(S.privRaw), room: toB64(S.roomKeyRaw) })));
+    // pkg3-142: ВОТ ЗДЕСЬ БЫЛА ПОЛОМКА. aesEncryptBytes ждёт CryptoKey, а ему
+    // совали сырые 32 байта — браузер отвечал «parameter 2 is not of type
+    // 'CryptoKey'», и код восстановления нельзя было создать вообще никогда.
+    const blob = await aesEncryptBytes(await importAes(K), enc.encode(JSON.stringify({ pkcs8: toB64(S.privRaw), room: toB64(S.roomKeyRaw) })));
     await api('/api/profile', { method: 'POST', body: { recoveryBlob: blob } });
     return fmtRecoveryCode(K);
-  } catch (e) { toast(e.message, true); return null; }
+  } catch (e) {
+    // человеку — по-русски, а не «Failed to execute 'encrypt'…»
+    toast('Не удалось собрать код восстановления. Почта уже привязана — войдите заново по паролю и попробуйте ещё раз', true);
+    return null;
+  }
 }
 const recoveryCodeHtml = code => `<div class="card" style="padding:10px;margin-top:10px">
   <b>Код восстановления</b>
@@ -12608,6 +12618,7 @@ async function mailDiag() {
     ${conf}${dns}${ports}${addrRows}${net}
     ${r && r.advice ? `<div class="tiny" style="margin-top:6px"><b>Что делать:</b> ${escapeHtml(r.advice)}</div>` : ''}
     ${rows ? '<div style="margin-top:6px">' + rows + '</div>' : ''}
+    ${r && r.config && r.config.configured ? '<div style="margin-top:6px"><button class="mini" id="pf-mail-test" type="button">Отправить тестовое письмо</button><div id="pf-mail-testbox"></div></div>' : ''}
     ${r && r.error ? `<div class="tiny" style="margin-top:6px"><b>Что ответил сервер:</b> <code>${escapeHtml(r.error)}</code></div>` : ''}
     ${r && r.hint ? `<div class="tiny" style="margin-top:6px"><b>Подсказка:</b> ${escapeHtml(r.hint)}</div>` : ''}
     ${ticket}
@@ -12617,6 +12628,20 @@ async function mailDiag() {
       «Участники» → нужный человек → «Сбросить пароль».</div>` : ''}
     <div class="tiny muted" style="margin-top:6px">Настройка — переменные SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env сервера.</div>
   </div>`;
+  // pkg3-141: «сервер принял» и «письмо дошло» — разные вещи. Пусть владелец
+  // увидит письмо своими глазами, не привязывая почту заново.
+  const testBtn = $('#pf-mail-test');
+  if (testBtn) testBtn.addEventListener('click', async () => {
+    const out = $('#pf-mail-testbox');
+    testBtn.disabled = true;
+    out.innerHTML = '<div class="tiny muted">Отправляем…</div>';
+    try {
+      const res = await api('/api/admin/mail/test', { method: 'POST', body: {} });
+      out.innerHTML = `<div class="tiny">✅ Письмо отправлено на <b>${escapeHtml(res.to || '')}</b>. Проверьте ящик — и «Спам» на всякий случай.</div>`;
+    } catch (e) {
+      out.innerHTML = `<div class="tiny">⛔ ${escapeHtml(e.message || String(e))}</div>`;
+    } finally { testBtn.disabled = false; }
+  });
   const copyBtn = $('#pf-mail-copy');
   if (copyBtn && r && r.ticket) {
     copyBtn.addEventListener('click', async () => {
@@ -12625,6 +12650,51 @@ async function mailDiag() {
     });
   }
 }
+/**
+ * pkg3-141: «Мои устройства» — список входов. Раньше отпечатки сессий лежали в
+ * базе, но человек их не видел: украденный вход можно было заметить только по
+ * странным сообщениям. Теперь видно «когда, откуда, с чего», и есть кнопка,
+ * которая закрывает все остальные входы одной кнопкой.
+ */
+function whenText(ms) {
+  if (!ms) return 'неизвестно';
+  try { return new Date(ms).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  catch (e) { return 'неизвестно'; }
+}
+async function paintPfDevices() {
+  const box = $('#pf-devices');
+  if (!box) return;
+  let d = null;
+  try { d = await api('/api/sessions'); }
+  catch (e) { box.innerHTML = '<div class="tiny muted">' + escapeHtml(e.message || String(e)) + '</div>'; return; }
+  const list = (d && d.list) || [];
+  const rows = list.map(x => `
+    <div class="tiny" style="margin-top:8px">${x.current ? '🟢' : '⚪'} <b>${escapeHtml(x.device || 'устройство')}</b>${x.current ? ' — это устройство' : ''}
+      <div class="muted">вход ${escapeHtml(whenText(x.at))}${x.seen ? ' · был(а) ' + escapeHtml(whenText(x.seen)) : ''}${x.ip ? ' · ' + escapeHtml(x.ip) : ''}</div>
+      ${x.current ? '' : `<button class="mini danger" data-close-session="${escapeHtml(x.id)}" type="button" style="margin-top:4px">Выйти здесь</button>`}
+    </div>`).join('');
+  box.innerHTML = `<p class="hint">Вход живёт ${Number(d && d.ttlDays) || 30} дней. Если видите незнакомое устройство —
+    закройте его и смените пароль.</p>${rows}` +
+    `<button class="mini danger" id="pf-devices-out" type="button" style="margin-top:10px">Выйти на всех остальных</button>`;
+  box.querySelectorAll('[data-close-session]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-close-session');
+      if (!confirm('Закрыть этот вход? На этом устройстве попросят пароль заново.')) return;
+      try { await api('/api/sessions/revoke', { method: 'POST', body: { id } }); toast('Вход закрыт'); paintPfDevices(); }
+      catch (e) { toast(e.message, true); }
+    });
+  });
+  const out = $('#pf-devices-out');
+  if (out) out.addEventListener('click', async () => {
+    if (!confirm('Выйти на всех остальных устройствах? Им придётся войти заново.')) return;
+    try {
+      const r = await api('/api/sessions/revoke', { method: 'POST', body: {} });
+      toast(r && r.closed ? 'Закрыто входов: ' + r.closed : 'Других входов нет');
+      paintPfDevices();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
 async function paintPfMail() {
   const box = $('#pf-mail');
   if (!box) return;
@@ -12784,7 +12854,9 @@ function openRecover(token, resetTok) {
           const K = parseRecoveryCode(codeEl.value);
           if (!K) { err.textContent = 'Код восстановления похоже не тот: проверьте строку'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
           let sec;
-          try { sec = JSON.parse(dec.decode(await aesDecryptBytes(K, st.blob))); }
+          // pkg3-142: здесь была та же ошибка, что и при создании кода —
+          // в decrypt уходили сырые байты вместо CryptoKey
+          try { sec = JSON.parse(dec.decode(await aesDecryptBytes(await importAes(K), st.blob))); }
           catch (e) { err.textContent = 'Код не подошёл: копия восстановления не открылась'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
           body.wrappedKeyByPass = await aesEncryptBytes(wrapKey, fromB64(sec.room));
           body.wrappedPriv = await aesEncryptBytes(wrapKey, fromB64(sec.pkcs8));

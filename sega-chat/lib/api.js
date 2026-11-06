@@ -27,13 +27,15 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-140';
+const BUILD = 'pkg3-142';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
 function createApi(store, opts = {}) {
   const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 250 * MB);
-  const SESSION_TTL = Number(opts.sessionTtl || 60 * 24 * 60 * 60 * 1000); // 60 дней
+  // pkg3-141: 30 дней вместо 60. Украденная сессия не должна жить два месяца,
+  // а человек, который заходит раз в отпуск, всё равно продлевает её входом.
+  const SESSION_TTL = Number(opts.sessionTtl || 30 * 24 * 60 * 60 * 1000); // 30 дней
   const MAX_MEMBERS = Number(opts.maxMembers || process.env.MAX_MEMBERS || 200);
   const MAX_UPLOAD = Number(opts.maxUpload || process.env.MAX_UPLOAD || 3.1 * MB);
   const SYNC_MAX_COUNT = Number(opts.syncMaxCount || 400);
@@ -1306,10 +1308,44 @@ function createApi(store, opts = {}) {
    * записанные самим токеном, пускаются один раз и тут же переносятся (см. auth).
    */
   const sidOf = (token) => crypto.createHash('sha256').update('sega-session:' + String(token)).digest('hex');
-  function newSession(u) {
+  function newSession(u, req) {
     const token = crypto.randomBytes(24).toString('hex');
-    db.sessions[sidOf(token)] = { uid: u.id, exp: Date.now() + SESSION_TTL };
+    const now = Date.now();
+    const h = (req && req.headers) || {};
+    db.sessions[sidOf(token)] = {
+      uid: u.id, exp: now + SESSION_TTL,
+      // pkg3-141: «Мои устройства» — когда вошли, откуда и с чего
+      at: now, seen: now,
+      ip: String((req && req.ip) || ''),
+      ua: String(h['user-agent'] || '').slice(0, 200),
+      sid: crypto.randomBytes(4).toString('hex')
+    };
     return token;
+  }
+
+  /**
+   * pkg3-141: «Мои устройства» — по строке браузера понятное имя. Полный
+   * разбор не нужен: важно отличить «мой телефон» от «чужой компьютер».
+   */
+  function deviceOf(ua) {
+    const s = String(ua || '');
+    if (!s) return 'неизвестное устройство';
+    const os = /iPhone/i.test(s) ? 'iPhone'
+      : /iPad/i.test(s) ? 'iPad'
+      : /Android/i.test(s) ? 'Android'
+      : /Windows/i.test(s) ? 'Windows'
+      : /Mac OS X|Macintosh/i.test(s) ? 'Mac'
+      : /Linux/i.test(s) ? 'Linux'
+      : 'другое устройство';
+    const br = /YaBrowser/i.test(s) ? 'Яндекс.Браузер'
+      : /Edg\//i.test(s) ? 'Edge'
+      : /OPR\//i.test(s) ? 'Opera'
+      : /Firefox\//i.test(s) ? 'Firefox'
+      : /Chrome\//i.test(s) ? 'Chrome'
+      : /Safari\//i.test(s) ? 'Safari'
+      : /node|curl|python|http/i.test(s) ? 'программа'
+      : 'браузер';
+    return os + ' · ' + br;
   }
 
   /**
@@ -1374,7 +1410,17 @@ function createApi(store, opts = {}) {
     if (!u) return null;
     // pkg3-59: забаненный не проходит ни на один маршрут — но узнаёт причину
     if (u.bannedUntil && u.bannedUntil > Date.now()) return { banned: u.bannedUntil };
-    u.lastSeen = Date.now();
+    // pkg3-141: «Мои устройства» показывают живое «последний раз», но базу на
+    // каждый запрос не пишем — освежаем не чаще раза в 5 минут
+    const nowAt = Date.now();
+    if (!s.at) s.at = s.exp - SESSION_TTL;
+    if (!s.sid) s.sid = crypto.randomBytes(4).toString('hex');
+    if (nowAt - (s.seen || 0) > 5 * 60 * 1000) {
+      s.seen = nowAt;
+      if (req && req.ip) s.ip = String(req.ip);
+      save();
+    }
+    u.lastSeen = nowAt;
     store.touchPresence(u);
     return { user: u, token: sid };
   }
@@ -1774,7 +1820,7 @@ function createApi(store, opts = {}) {
         createdAt: Date.now(), lastSeen: Date.now(), activeAt: Date.now()
       };
       db.users.push(user);
-      const token = newSession(user);
+      const token = newSession(user, req);
       save();
       return J(200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
     }
@@ -1805,7 +1851,7 @@ function createApi(store, opts = {}) {
       loginClear(name);
       // pkg3-59: забаненный при входе получает честную причину и срок
       if (u.bannedUntil && u.bannedUntil > Date.now()) return banError(u.bannedUntil);
-      const token = newSession(u);
+      const token = newSession(u, req);
       u.lastSeen = Date.now();
       save();
       return J(200, { token, user: publicUser(u), saltWrap: u.saltWrap, wrappedKeyByPass: u.wrappedKeyByPass, wrappedPriv: u.wrappedPriv || null });
@@ -1978,7 +2024,7 @@ function createApi(store, opts = {}) {
         const dm0 = chatById(dmId(invitedBy, user.id));
         if (dm0) { dm0.savedBy = [invitedBy, user.id]; dm0.openedBy = [invitedBy, user.id]; }
       }
-      const token = newSession(user);
+      const token = newSession(user, req);
       save();
       return J(200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
     }
@@ -2292,6 +2338,63 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/logout' && method === 'POST') {
       delete db.sessions[session.token]; save();
       return J(200, { ok: true });
+    }
+
+    // pkg3-141: «Мои устройства» — где и когда входили. Отпечатки сессий и так
+    // лежат в базе с 135-го; теперь их видно человеку, и он может закрыть чужие.
+    if (pathname === '/api/sessions' && method === 'GET') {
+      await store.loadSessions();
+      const nowAt = Date.now();
+      const list = Object.entries(db.sessions)
+        .filter(([, s]) => s && s.uid === me.id && s.exp > nowAt)
+        .map(([sid, s]) => ({
+          id: s.sid || sid.slice(0, 8),
+          at: s.at || (s.exp - SESSION_TTL),
+          seen: s.seen || s.at || 0,
+          ip: s.ip || '',
+          device: deviceOf(s.ua),
+          current: sid === session.token
+        }))
+        .sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.seen - a.seen);
+      return J(200, { ok: true, list, ttlDays: Math.round(SESSION_TTL / (24 * 60 * 60 * 1000)) });
+    }
+
+    // «Выйти на всех остальных» (или на одном: body {id}). Текущая сессия
+    // остаётся, если её специально не назвали.
+    if (pathname === '/api/sessions/revoke' && method === 'POST') {
+      if (throttle('revoke:' + me.id, 20)) return E(429, 'Слишком часто — подождите минуту');
+      await store.loadSessions();
+      const b = req.body || {};
+      const want = String(b.id || '');
+      let closed = 0;
+      for (const [sid, ses] of Object.entries(db.sessions)) {
+        if (!ses || ses.uid !== me.id) continue;
+        const mine = want ? (ses.sid === want || sid.slice(0, 8) === want) : sid !== session.token;
+        if (!mine) continue;
+        delete db.sessions[sid];
+        if (sid !== session.token) closed++;
+      }
+      save();
+      return J(200, { ok: true, closed });
+    }
+
+    // pkg3-141: «Отправить тестовое письмо» — владельцу, чтобы убедиться, что
+    // почта не просто «настроена», а письмо действительно принимают.
+    if (pathname === '/api/admin/mail/test' && method === 'POST') {
+      if (throttle('mailtest:' + me.id, 5)) return E(429, 'Слишком часто — подождите пару минут');
+      if (!smtp.enabled()) return E(503, 'Почта на сервере не настроена (нужны SEGA_SMTP_* в .env)');
+      const to = String((req.body && req.body.to) || me.email || '').trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return E(400, 'Сначала привяжите почту или укажите адрес');
+      try {
+        await smtp.sendMail(to, 'SEGA-CHAT: проверка почты',
+          'Это проверочное письмо из вашего мессенджера. Значит, почта настроена и письма доходят.\n\n'
+          + 'Если вы его не ждали — просто удалите.\n\n' + publicBase(req));
+      } catch (e) {
+        mailNote(false, e.message);
+        return E(502, 'Письмо не ушло: ' + (e.message || 'почтовый сервер недоступен') + (e.hint ? ' · ' + e.hint : ''));
+      }
+      mailNote(true, '');
+      return J(200, { ok: true, to });
     }
 
     // Web Push subscriptions contain no message content. They are kept per user
