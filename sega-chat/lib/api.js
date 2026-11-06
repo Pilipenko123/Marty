@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-138';
+const BUILD = 'pkg3-139';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -4646,7 +4646,9 @@ function createApi(store, opts = {}) {
         // pkg3-137: плюс адрес за адресом (IPv4/IPv6), контрольная проверка
         // интернета (443) и готовый текст в поддержку хостера — владелец уже
         // видел «smtp.gmail.com:465 не ответил», и это не его ошибка.
-        const res = await smtp.checkAll(4000);
+        // pkg3-139: 5 с вместо 4 — в письме в поддержку некрасиво выглядит
+        // «нет ответа за 2.0 с»: хостер вправе сказать «мало ждали»
+        const res = await smtp.checkAll(5000);
         return J(200, Object.assign({ ok: res.ok }, res));
       }
       if (pathname === '/api/admin/archives' && method === 'GET') {

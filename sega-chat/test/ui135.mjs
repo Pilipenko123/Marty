@@ -1,4 +1,4 @@
-// test/ui135.mjs — pkg3-138: укрепление входа и починка почты.
+// test/ui135.mjs — pkg3-139: укрепление входа и починка почты.
 //
 // 1. ПОЧТА. Владелец: «при вводе почты пишет — не удалось отправить письмо,
 //    почтовый сервер не ответил». Причина найдена: на порту 587 (STARTTLS) клиент
@@ -31,7 +31,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-138: вход крепче, почта работает');
+console.log('  pkg3-139: вход крепче, почта работает');
 console.log('══════════════════════════════════════════════════\n');
 
 /* ── 0. Сертификат для игрушечного SMTP (нужен для STARTTLS) ─────────────── */
@@ -318,10 +318,10 @@ ok(/SEGA_SMTP_INSECURE/.test(read('lib/smtp.js')) && /SEGA_SMTP_PLAIN/.test(read
   'послабления SMTP включаются только переменными окружения (по умолчанию TLS обязателен)');
 
 console.log('\n  8. Отметки выпуска');
-ok((/const BUILD = '([^']+)'/.exec(appJsText) || [])[1] === BUILD && BUILD === 'pkg3-138', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJsText) || [])[1] === BUILD && BUILD === 'pkg3-139', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v132', 'кэш оформления поднят до v129');
-ok(/\| pkg3-138 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-138');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v133', 'кэш оформления поднят до v129');
+ok(/\| pkg3-139 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-139');
 ok(read('package.json').includes('node test/ui135.mjs'), 'тест ui135 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

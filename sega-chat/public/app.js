@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-138';
+const BUILD = 'pkg3-139';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12612,6 +12612,9 @@ async function mailDiag() {
     ${r && r.hint ? `<div class="tiny" style="margin-top:6px"><b>Подсказка:</b> ${escapeHtml(r.hint)}</div>` : ''}
     ${ticket}
     ${err ? `<div class="tiny">Не удалось проверить: ${escapeHtml(err.message || String(err))}</div>` : ''}
+    ${r && !r.ok ? `<div class="tiny muted" style="margin-top:6px">Почта нужна только для восстановления пароля по письму.
+      Вход, переписка и код восстановления работают без неё, а пароль владелец может сбросить вручную:
+      «Участники» → нужный человек → «Сбросить пароль».</div>` : ''}
     <div class="tiny muted" style="margin-top:6px">Настройка — переменные SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env сервера.</div>
   </div>`;
   const copyBtn = $('#pf-mail-copy');

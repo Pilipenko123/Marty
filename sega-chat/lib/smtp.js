@@ -370,6 +370,23 @@ async function probePort(host, port, timeoutMs) {
   return { port: Number(port), mode, ok: false, detail, ms: Date.now() - started, via: '', tried };
 }
 
+/** Внешний IPv4 самого сервера — хос­теру нужен именно адрес, а не имя машины. */
+function serverAddress() {
+  // pkg3-139: на арендованном VPS адрес может быть не на интерфейсе (NAT, облако) —
+  // тогда его можно задать руками: SEGA_SERVER_IP=1.2.3.4
+  const env = String(process.env.SEGA_SERVER_IP || '').trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(env)) return env;
+  try {
+    const nets = require('os').networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const a of nets[name] || []) {
+        if (a && a.family === 'IPv4' && !a.internal && !/^169\.254\./.test(a.address)) return a.address;
+      }
+    }
+  } catch (e) {}
+  return '';
+}
+
 /** «А интернет у сервера вообще есть?» — 443 до двух посторонних хостов. */
 function tcpOpen(addr, port, ms) {
   return new Promise(resolve => {
@@ -422,31 +439,43 @@ async function probeNet(timeoutMs, targets) {
  */
 function supportTicket(c, dns, ports, net) {
   const L = [];
+  const ip = serverAddress();
+  let when = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' (UTC)';
+  try { when = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Yekaterinburg' }); } catch (e) {}
   L.push('Здравствуйте!');
   L.push('');
-  L.push('С сервера (VPS ' + (require('os').hostname() || '') + ') не уходят письма: не открываются исходящие порты почтовых серверов.');
-  L.push('Проверка из самого чата SEGA-CHAT, сервер почты ' + c.host + ':' + c.port + ':');
+  // pkg3-139: хостеру нужны адрес сервера, дата и факты — иначе письмо читают
+  // как «у меня что-то не работает» и отвечают «это не наша зона».
+  L.push('С сервера (VPS ' + (require('os').hostname() || '') + (ip ? ', IP ' + ip : '') + ') не уходят письма:'
+    + ' не открываются исходящие порты почтовых серверов.');
+  L.push('Проверено ' + when + ' из самого чата SEGA-CHAT. Сервер почты: ' + c.host + ':' + c.port + '.');
   L.push('');
   if (dns && dns.ok) {
-    L.push('  имя ' + c.host + ' находится: ' + (dns.addresses || []).map(fmtAddr).join(', '));
+    L.push('Имя ' + c.host + ' находится: ' + (dns.addresses || []).map(fmtAddr).join(', '));
   } else {
-    L.push('  имя ' + c.host + ' не находится (' + ((dns && dns.error) || '') + ')');
+    L.push('Имя ' + c.host + ' не находится (' + ((dns && dns.error) || '') + ')');
   }
+  L.push('');
   (ports || []).forEach(p => {
-    const extra = (p.tried && p.tried.length > 1)
-      ? '  [' + p.tried.map(t => fmtAddr(t) + ': ' + t.detail).join('; ') + ']'
-      : '';
-    L.push('  ' + String(p.port) + ' (' + p.mode + ') — ' + p.detail + extra);
+    if (p.ok) { L.push('  ' + String(p.port) + ' (' + p.mode + ') — открыт: ' + p.detail); return; }
+    // pkg3-139: по одному адресу на строку. Раньше адреса печатались дважды —
+    // в самой ошибке и в квадратных скобках, и письмо выглядело как сбой программы.
+    const refused = (p.tried || []).length > 0 && p.tried.every(t => /ECONNREFUSED/.test(t.detail));
+    L.push('  ' + String(p.port) + ' (' + p.mode + ') — ' + (refused ? 'закрыт (сервер отказал в соединении)' : 'нет ответа'));
+    (p.tried || []).forEach(t => L.push('      ' + fmtAddr(t) + ' — ' + t.detail));
   });
   const netItems = (net && net.items) || [];
   if (net && net.ok) {
     L.push('');
-    L.push('Интернет при этом работает:');
+    L.push('Интернет при этом работает (значит, заблокированы именно почтовые порты):');
     netItems.forEach(i => L.push('  ' + i.target + ' — ' + (i.ok ? 'отвечает' : i.detail)));
   }
   L.push('');
-  L.push('Пожалуйста, откройте исходящие TCP-порты 465 и 587 (если можно — и 25) к внешним серверам.');
-  L.push('Если так нельзя, подскажите, пожалуйста, ваш SMTP-релей: адрес, порт и нужен ли отдельный логин.');
+  L.push('Пожалуйста, откройте исходящие TCP-порты 465 и 587 (если можно — и 25)'
+    + (ip ? ' для адреса ' + ip : '') + ' к внешним серверам.');
+  L.push('Если по правилам хостера это невозможно, подскажите, пожалуйста, ваш SMTP-релей:'
+    + ' адрес, порт и нужен ли отдельный логин. Подойдёт и любой порт, кроме 25/465/587'
+    + ' (например 2525), если у вас есть такой релей.');
   return L.join('\n');
 }
 
@@ -519,7 +548,9 @@ async function checkAll(timeoutMs, opts) {
   const dns = await resolveHost(c.host);
   const probeMs = Math.min(Number(timeoutMs) || 3500, 4000);
   // проверяем и общепринятые порты, и тот, что задан в .env (бывает 2525 и другие)
-  const candidates = Array.from(new Set([465, 587, 25, Number(c.port) || 587]));
+  // pkg3-139: 2525 — обходной порт, который есть у SendGrid/Mailgun и подобных;
+  // если хостер закрыл только 25/465/587, это единственный шанс остаться на SMTP
+  const candidates = Array.from(new Set([465, 587, 25, 2525, Number(c.port) || 587]));
   // pkg3-137: порты и «есть ли интернет» — параллельно, чтобы кнопка не думала дольше
   const [ports, net] = await Promise.all([
     dns.ok ? Promise.all(candidates.map(p => probePort(c.host, p, probeMs))) : Promise.resolve([]),
@@ -544,6 +575,10 @@ async function checkAll(timeoutMs, opts) {
           : ' Причём 443 не открывается тоже — тогда проверьте сеть и фаервол самого сервера.');
     hint = hint || 'Порты закрыты — это не ошибка настроек в чате, а сеть хостера.';
     ticket = supportTicket(c, dns, ports, net);
+  } else if (!open.includes(c.port) && open.includes(2525)) {
+    advice = 'Почтовые порты 25/465/587 закрыты, но 2525 отвечает. У SendGrid, Mailgun и подобных сервисов'
+      + ' есть почта через порт 2525 — попросите у хостера релей или подключите такой сервис'
+      + ' и поставьте в .env SEGA_SMTP_PORT=2525.';
   } else if (!open.includes(c.port)) {
     advice = 'На порту ' + c.port + ' сервер молчит, а отвечает на ' + open.join(' и ') + '. '
       + 'Поставьте в .env SEGA_SMTP_PORT=' + open[0] + (open[0] === 465 ? ' (это SSL, порт 587 — STARTTLS)' : '') + ' и перезапустите службу.';
@@ -558,4 +593,4 @@ async function checkAll(timeoutMs, opts) {
   };
 }
 
-module.exports = { sendMail, enabled, check, checkAll, probePort, probeNet, resolveHost, hintFor, addresses, sortAddresses };
+module.exports = { sendMail, enabled, check, checkAll, probePort, probeNet, resolveHost, hintFor, addresses, sortAddresses, serverAddress };
