@@ -2637,3 +2637,17 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
   .dkv-sheet .gd-doc{font-size:14px}
   .dkv-media-el{max-height:calc(100dvh - 140px)}
 }
+
+/* ══ pkg3-146: мелкие правки по следам владельца ═════════════════════════════
+   1) окно Диска и любая вложенная папка на телефоне — на весь экран;
+   2) листание фотографий в просмотре: счётчик и стрелки ‹ › в полосе. */
+@media (max-width:760px){
+  #modal.dsk-modal{padding:0;align-items:stretch;justify-content:stretch}
+  #modal.dsk-modal .modal-box{max-width:100%;width:100%;height:100dvh;max-height:100dvh;border-radius:0}
+  #modal.dsk-modal .modal-body{padding:8px 8px 10px}
+  #modal.dsk-modal .dsk.wxp{border-left:0;border-right:0;border-radius:0}
+}
+.dkv-bar-photo{align-items:center}
+.dkv-count{font-size:12px;color:#c8c8c8;min-width:54px;text-align:center;font-variant-numeric:tabular-nums}
+.dkv-bar-photo .wxp-tool[disabled]{opacity:.4;cursor:default}
+.dkv-bar-photo .wxp-tool[data-dkv-step]{min-width:30px;justify-content:center;font-size:15px;line-height:1}

@@ -118,8 +118,8 @@ console.log('\n  Метки выпуска и кэш');
 
 // ── 6. BUILD, кэш, стили, цепочка тестов ──
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' в обоих файлах');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v139';"), 'кэш статики поднят до v93');
-ok(dom42.includes('sega-static-v139') && sound80.includes('sega-static-v139') && games81.includes('sega-static-v139'),
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v140';"), 'кэш статики поднят до v93');
+ok(dom42.includes('sega-static-v140') && sound80.includes('sega-static-v140') && games81.includes('sega-static-v140'),
   'три набора тестов ждут именно v93');
 ok(css.includes('.mus-ctl .mini.primary{width:auto;margin-top:0}'), 'кнопка «▶ / ⏸» больше не растягивается на всю строку (⏮ не остаётся одна)');
 ok(css.includes('.mus-add .mini.primary{width:100%;margin-top:0}'), '«Добавить» осталась широкой, но без лишнего отступа');

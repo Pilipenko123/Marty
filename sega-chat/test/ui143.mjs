@@ -1,4 +1,4 @@
-// test/ui143.mjs — pkg3-145: «Мои устройства» — по строке на устройство,
+// test/ui143.mjs — pkg3-146: «Мои устройства» — по строке на устройство,
 //                  и входы не копятся сотнями.
 //
 // Владелец поставил 141/142 и увидел в профиле длинную простыню строк: «вероятно
@@ -34,7 +34,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(r => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-145: устройства одной строкой, входы не копятся');
+console.log('  pkg3-146: устройства одной строкой, входы не копятся');
 console.log('══════════════════════════════════════════════════\n');
 
 const UA_PHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -179,10 +179,10 @@ ok(/store\.dropSession\(session\.token\)/.test(apiJs), '«Выйти» чист�
 ok(/data-ids=/.test(appJs) && /Закрыть старые входы/.test(appJs), 'клиент рисует кнопку на строку устройства');
 ok(/входов: /.test(appJs) && /Строки собраны по устройствам/.test(appJs), 'и подписывает, сколько входов в строке');
 ok(!/data-close-session/.test(appJs), 'старая разметка «строка на вход» убрана');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-145', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-146', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(apiJs) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v139', 'кэш оформления поднят до v137');
-ok(/\| pkg3-145 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-145');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v140', 'кэш оформления поднят до v137');
+ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui143.mjs'), 'тест ui143 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

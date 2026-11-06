@@ -94,8 +94,16 @@ ok(r.status === 200, 'файл загружен другим участнико�
 
 // ── сводка
 r = await call(base, '/api/storage/summary?scope=me', {}, g1);
-ok(r.status === 200 && r.d.cats.photos.count === 1 && r.d.cats.media.count === 1 && r.d.cats.files.count === 0,
-  'сводка «мои»: фото и медиа Поли посчитаны по mime');
+// pkg3-146: «Мои чаты» — это ВСЯ переписка и ВСЕ вложения чатов, где человек
+// состоит (владелец справедливо удивился, что «мои чаты» меньше «всех»).
+ok(r.status === 200 && r.d.cats.photos.count === 1 && r.d.cats.media.count === 1 && r.d.cats.files.count === 1,
+  'сводка «мои чаты»: вложения всех участников этих чатов посчитаны по mime');
+ok(typeof r.d.disk === 'object' && r.d.disk && typeof r.d.disk.total === 'number' && r.d.disk.free >= 0,
+  'сводка несёт правду о диске сервера (всего/свободно)');
+ok(typeof r.d.folder === 'object' && r.d.folder && typeof r.d.folder.bytes === 'number',
+  'и размер папки с данными мессенджера');
+ok(typeof r.d.cats.other === 'object' && typeof r.d.cats.other.bytes === 'number',
+  'есть доля «служебное» — чтобы доли сходились с занятым местом');
 ok(typeof r.d.free === 'number' && typeof r.d.percent === 'number' && r.d.canOperate === false,
   'сводка несёт свободное место, процент и признак админства');
 r = await call(base, '/api/storage/summary?scope=all', {}, g2);
