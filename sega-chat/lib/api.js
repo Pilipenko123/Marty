@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-146';
+const BUILD = 'pkg3-147';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -911,7 +911,7 @@ function createApi(store, opts = {}) {
         // pkg3-146: правда о диске сервера — сколько всего, сколько занято и
         // сколько реально лежит в папке с данными мессенджера
         disk: diskSpace(),
-        folder: dirBytes(),
+        folder: dirBreakdown(),   // pkg3-147: база / файлы вложений / архивы / прочее
         free: Math.max(0, u.limit - u.bytes),
         canOperate: isAdmin === true
       };
@@ -931,27 +931,42 @@ function createApi(store, opts = {}) {
    * Владелец справедливо спросил, почему диаграмма показывает только сообщения,
    * хотя фотографии на сервере есть. Теперь пульт показывает и настоящий диск.
    */
-  function dirBytes(dir0, depth) {
+  /**
+   * pkg3-147: разбивка папки с данными по смыслу — чтобы ответить на вопрос
+   * «где лежат фотографии из чатов». Фотографии до ~2 МБ уходят ВНУТРИ
+   * зашифрованного письма (клиент их сжимает и шифрует), поэтому живут они в
+   * базе (`db.json`), а отдельными файлами на сервер попадают только видео,
+   * музыка и крупные файлы. Теперь это видно прямо в пульте.
+   */
+  function dirBreakdown(dir0) {
     const fs = require('fs');
     const path = require('path');
     const base = dir0 || process.env.DATA_DIR || 'data';
-    let total = 0, files = 0;
-    const walk = (d, lvl) => {
-      if (files > 20000 || lvl > 4) return;
+    const out = { total: 0, files: 0, db: 0, uploads: 0, meta: 0, archives: 0, other: 0 };
+    const walk = (d, lvl, inArch) => {
+      if (out.files > 20000 || lvl > 4) return;
       let list = [];
       try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
       for (const ent of list) {
-        if (files > 20000) return;
+        if (out.files > 20000) return;
         const full = path.join(d, ent.name);
         try {
-          if (ent.isDirectory()) walk(full, lvl + 1);
-          else { total += fs.statSync(full).size; files++; }
+          if (ent.isDirectory()) { walk(full, lvl + 1, inArch || ent.name === 'archives'); continue; }
+          const size = fs.statSync(full).size;
+          out.total += size; out.files++;
+          if (inArch) out.archives += size;
+          else if (/^db\.json/.test(ent.name)) out.db += size;
+          else if (/^upmeta-/.test(ent.name)) out.meta += size;
+          else if (/^up-/.test(ent.name)) out.uploads += size;
+          else out.other += size;
         } catch (e) { /* пропал файл — не беда */ }
       }
     };
-    walk(base, 0);
-    return { bytes: total, files };
+    walk(base, 0, false);
+    out.bytes = out.total;   // привычное поле: сколько всего лежит в папке
+    return out;
   }
+  function dirBytes(dir0) { const r = dirBreakdown(dir0); return { bytes: r.total, files: r.files }; }
   /** Весь диск VPS: всего и свободно (для честной картины, а не «предела»). */
   function diskSpace() {
     try {

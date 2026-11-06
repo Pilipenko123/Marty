@@ -92,6 +92,14 @@ ok(r.status === 200, 'видео загружено');
 r = await upload(g2, grp, 'application/pdf', 'QUJDRA==');
 ok(r.status === 200, 'файл загружен другим участником');
 
+// pkg3-147: фотография из чата приходит не отдельным файлом, а ВНУТРИ письма
+// (клиент сжимает её в JPEG и шифрует). Проверяем, в какую долю попадает её вес.
+const before = await call(base, '/api/storage/summary?scope=me&fresh=1', {}, g1);
+const photosBefore = before.d.cats.photos.bytes;
+const msgBlob = 'enc:' + 'A'.repeat(40000);
+r = await call(base, '/api/messages', { method: 'POST', body: { chat: grp, blob: msgBlob } }, g1);
+ok(r.status === 200, 'письмо с фотографией внутри отправлено');
+
 // ── сводка
 r = await call(base, '/api/storage/summary?scope=me', {}, g1);
 // pkg3-146: «Мои чаты» — это ВСЯ переписка и ВСЕ вложения чатов, где человек
@@ -104,6 +112,20 @@ ok(typeof r.d.folder === 'object' && r.d.folder && typeof r.d.folder.bytes === '
   'и размер папки с данными мессенджера');
 ok(typeof r.d.cats.other === 'object' && typeof r.d.cats.other.bytes === 'number',
   'есть доля «служебное» — чтобы доли сходились с занятым местом');
+// pkg3-147: где именно лежат мегабайты — база с письмами, файлы вложений,
+// архивы и прочее. Именно это отвечает на вопрос «где фотографии из чатов».
+fs.writeFileSync(path.join(dir, 'upmeta-test.json'), 'x'.repeat(1000));
+fs.mkdirSync(path.join(dir, 'archives'), { recursive: true });
+fs.writeFileSync(path.join(dir, 'archives', 'a.json'), 'y'.repeat(2000));
+fs.writeFileSync(path.join(dir, 'chat-icon-x.png'), 'z'.repeat(500));
+const rFolder = await call(base, '/api/storage/summary?scope=me&fresh=1', {}, admin);
+const fo = rFolder.d.folder;
+ok(fo.db > 0 && fo.uploads > 0 && fo.meta >= 1000 && fo.archives >= 2000 && fo.other >= 500,
+  'папка с данными разложена по смыслу: база, вложения, архивы, прочее');
+ok(fo.db + fo.uploads + fo.meta + fo.archives + fo.other === fo.bytes && fo.bytes === fo.total,
+  'сумма частей равна размеру папки — ничего не потеряно');
+ok(rFolder.d.cats.messages.bytes >= 40000, 'фото внутри письма показано в доле «Письма»');
+ok(rFolder.d.cats.photos.bytes === photosBefore, 'и не приписано к «Фото»: это не загрузка файлом');
 ok(typeof r.d.free === 'number' && typeof r.d.percent === 'number' && r.d.canOperate === false,
   'сводка несёт свободное место, процент и признак админства');
 r = await call(base, '/api/storage/summary?scope=all', {}, g2);
