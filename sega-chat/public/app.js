@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-141';
+const BUILD = 'pkg3-142';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12546,10 +12546,17 @@ async function makeRecoveryCode() {
   }
   try {
     const K = rnd(32);
-    const blob = await aesEncryptBytes(K, enc.encode(JSON.stringify({ pkcs8: toB64(S.privRaw), room: toB64(S.roomKeyRaw) })));
+    // pkg3-142: ВОТ ЗДЕСЬ БЫЛА ПОЛОМКА. aesEncryptBytes ждёт CryptoKey, а ему
+    // совали сырые 32 байта — браузер отвечал «parameter 2 is not of type
+    // 'CryptoKey'», и код восстановления нельзя было создать вообще никогда.
+    const blob = await aesEncryptBytes(await importAes(K), enc.encode(JSON.stringify({ pkcs8: toB64(S.privRaw), room: toB64(S.roomKeyRaw) })));
     await api('/api/profile', { method: 'POST', body: { recoveryBlob: blob } });
     return fmtRecoveryCode(K);
-  } catch (e) { toast(e.message, true); return null; }
+  } catch (e) {
+    // человеку — по-русски, а не «Failed to execute 'encrypt'…»
+    toast('Не удалось собрать код восстановления. Почта уже привязана — войдите заново по паролю и попробуйте ещё раз', true);
+    return null;
+  }
 }
 const recoveryCodeHtml = code => `<div class="card" style="padding:10px;margin-top:10px">
   <b>Код восстановления</b>
@@ -12847,7 +12854,9 @@ function openRecover(token, resetTok) {
           const K = parseRecoveryCode(codeEl.value);
           if (!K) { err.textContent = 'Код восстановления похоже не тот: проверьте строку'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
           let sec;
-          try { sec = JSON.parse(dec.decode(await aesDecryptBytes(K, st.blob))); }
+          // pkg3-142: здесь была та же ошибка, что и при создании кода —
+          // в decrypt уходили сырые байты вместо CryptoKey
+          try { sec = JSON.parse(dec.decode(await aesDecryptBytes(await importAes(K), st.blob))); }
           catch (e) { err.textContent = 'Код не подошёл: копия восстановления не открылась'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
           body.wrappedKeyByPass = await aesEncryptBytes(wrapKey, fromB64(sec.room));
           body.wrappedPriv = await aesEncryptBytes(wrapKey, fromB64(sec.pkcs8));

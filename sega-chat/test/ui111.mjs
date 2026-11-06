@@ -86,10 +86,10 @@ const sz = existsSync(cov) ? statSync(cov).size : 0;
 ok(sz > 10 * 1024 && sz < 160 * 1024, `картинка лёгкая (${Math.round(sz / 1024)} КБ)`);
 if (existsSync(cov)) { const b = readFileSync(cov); ok(b[0] === 0xFF && b[1] === 0xD8, 'это настоящий JPEG'); }
 ok(/return `<img src="\$\{def\}" alt="" class="mus-cov-def"/.test(app) && /src: 'img\/music-cover\.jpg'/.test(app), 'трек без своей обложки показывает её (pkg3-112: или другую выбранную из четырёх)');
-// pkg3-141: обработчик-атрибут заменён запасным адресом в data- и общим
+// pkg3-142: обработчик-атрибут заменён запасным адресом в data- и общим
 // перехватчиком (строгий CSP без «unsafe-inline»); смысл тот же — не пустота
 ok(/data-fb-src="\$\{escapeHtml\(def\)\}"/.test(app) && /img\.dataset\.fbSrc/.test(app)
-  && /addEventListener\('error'/.test(app), 'если своя обложка трека не загрузилась — стандартная, а не пустота (pkg3-141: без onerror=)');
+  && /addEventListener\('error'/.test(app), 'если своя обложка трека не загрузилась — стандартная, а не пустота (pkg3-142: без onerror=)');
 ok(!/<svg viewBox="0 0 400 400"[^>]*>[\s\S]*?musg1/.test(app.slice(app.indexOf('function musCoverBigHtml'), app.indexOf('function musSearchRenderRows'))), 'нарисованный винил со значком ♪ убран');
 ok(/\.mus-v105 \.mus-cov-left img[^{]*\{[^}]*object-fit:contain/.test(css.replace(/\s+/g, ' ')), 'картинка вписана целиком без обрезки (pkg3-113)');
 

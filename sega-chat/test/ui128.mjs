@@ -1,4 +1,4 @@
-// test/ui128.mjs — pkg3-141: Google Диск на запись.
+// test/ui128.mjs — pkg3-142: Google Диск на запись.
 //
 // Что проверяем на живом сервере с игрушечным Google (он умеет и писать):
 //   • у входа теперь право «смотреть и менять» (`/auth/drive`, не `.readonly`);
@@ -28,7 +28,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-141: Google Диск на запись (папки, загрузка, переименование, корзина)');
+console.log('  pkg3-142: Google Диск на запись (папки, загрузка, переименование, корзина)');
 console.log('══════════════════════════════════════════════════\n');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-m128-'));
@@ -290,10 +290,10 @@ ok(/realPerm/.test(appJs), 'тост «Поделиться» говорит о 
 console.log('\n  9. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(b2 === BUILD && BUILD === 'pkg3-141', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
+ok(b2 === BUILD && BUILD === 'pkg3-142', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(/\| pkg3-141 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v135', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(/\| pkg3-142 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
+ok(cache === 'sega-static-v136', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui128.mjs'), 'тест ui128 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

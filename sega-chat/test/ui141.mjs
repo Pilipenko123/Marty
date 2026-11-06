@@ -1,4 +1,4 @@
-// test/ui141.mjs — pkg3-141: «Мои устройства» и «Выйти на всех остальных».
+// test/ui141.mjs — pkg3-142: «Мои устройства» и «Выйти на всех остальных».
 //
 // Отпечатки сессий появились в базе ещё в 135-м, но человек их не видел:
 // украденный вход можно было заметить только по странным сообщениям. Здесь
@@ -25,7 +25,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(r => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-141: мои устройства, выход на всех, тестовое письмо');
+console.log('  pkg3-142: мои устройства, выход на всех, тестовое письмо');
 console.log('══════════════════════════════════════════════════\n');
 
 function fakeSmtp() {
@@ -178,10 +178,10 @@ ok(/Выйти на всех остальных/.test(appJs), 'и умеет з�
 ok(/Выйти здесь/.test(appJs), 'и один вход отдельно');
 ok(/проверочное письмо|Отправить тестовое письмо/.test(appJs), 'есть кнопка тестового письма');
 ok(/\/api\/admin\/mail\/test/.test(appJs), 'и она действительно ходит на сервер');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-141', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-142', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v135', 'кэш оформления поднят до v135');
-ok(/\| pkg3-141 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-141');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v136', 'кэш оформления поднят до v135');
+ok(/\| pkg3-142 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-142');
 ok(read('package.json').includes('node test/ui141.mjs'), 'тест ui141 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
