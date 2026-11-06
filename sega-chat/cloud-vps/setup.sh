@@ -163,6 +163,14 @@ say "7/8. nginx для $DOMAIN (порт 80, а при готовом серти
 LIVE="/etc/letsencrypt/live/$DOMAIN"
 NGCONF="/etc/nginx/sites-available/sega-chat"
 [ -f "$NGCONF" ] && cp -f "$NGCONF" "$NGCONF.bak-setup"
+# pkg3-135: зона ограничения частоты для входа. Живёт в http-контексте (conf.d),
+# поэтому не мешает ни одному варианту server-блока ниже.
+cat > /etc/nginx/conf.d/sega-limits.conf <<'LIM'
+# SEGA-CHAT pkg3-135: не чаще 20 запросов в минуту с адреса на вход/регистрацию
+limit_req_zone $binary_remote_addr zone=segalogin:10m rate=20r/m;
+limit_req_status 429;
+server_tokens off;
+LIM
 if [ -f "$LIVE/fullchain.pem" ] && [ -f "$LIVE/privkey.pem" ]; then
 cat > "$NGCONF" <<NGX
 server {
@@ -177,7 +185,22 @@ server {
     server_name $DOMAIN;
     ssl_certificate $LIVE/fullchain.pem;
     ssl_certificate_key $LIVE/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
     client_max_body_size 30m;
+    # pkg3-135: браузер запоминает «только https» на полгода
+    add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+    # pkg3-135: вход, регистрация и восстановление пароля — не чаще 20 раз в минуту
+    # с одного адреса. Основная защита от подбора живёт в приложении (счётчик по
+    # аккаунту), а это — грубая сетка на уровне nginx, чтобы не тратить Node.
+    location ~ ^/api/(login|register|invite|recover/(request|commit)) {
+        limit_req zone=segalogin burst=10 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -205,6 +228,18 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_buffering off;
         proxy_read_timeout 600s;
+    }
+    # pkg3-135: вход, регистрация и восстановление пароля — не чаще 20 раз в минуту
+    # с одного адреса. Основная защита от подбора живёт в приложении (счётчик по
+    # аккаунту), а это — грубая сетка на уровне nginx, чтобы не тратить Node.
+    location ~ ^/api/(login|register|invite|recover/(request|commit)) {
+        limit_req zone=segalogin burst=10 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
     }
     location / {
         proxy_pass http://127.0.0.1:3000;

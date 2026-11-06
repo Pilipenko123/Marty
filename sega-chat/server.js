@@ -16,6 +16,7 @@ const path = require('path');
 
 const { createApi } = require('./lib/api');
 const { serveStatic, splitBase } = require('./lib/static');
+const { clientIp } = require('./lib/clientip');
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -43,6 +44,28 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+/**
+ * pkg3-135: заголовки безопасности для всех ответов.
+ * CSP для страницы считает lib/static.js (там отпечатки встроенных скриптов),
+ * поэтому здесь её нет — иначе она перекрыла бы точную.
+ */
+const SEC_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), display-capture=()',
+  'Cross-Origin-Opener-Policy': 'same-origin'
+};
+const HSTS = 'max-age=15552000; includeSubDomains';   // полгода
+
+function applySecurityHeaders(req, res) {
+  for (const [k, v] of Object.entries(SEC_HEADERS)) res.setHeader(k, v);
+  // HSTS только когда соединение действительно защищённое: иначе браузер
+  // запомнит «только https» там, где https ещё нет, и сайт перестанет открываться
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (req.socket && req.socket.encrypted || proto === 'https') res.setHeader('Strict-Transport-Security', HSTS);
 }
 
 function send(res, out) {
@@ -75,8 +98,7 @@ function send(res, out) {
 
 const handler = async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  applySecurityHeaders(req, res);
   const { base, path: pathname } = splitBase(url.pathname);
   try {
     if (pathname.startsWith('/api/')) {
@@ -91,7 +113,10 @@ const handler = async (req, res) => {
       const out = await app.handle({
         method: req.method, path: pathname, query: url.searchParams,
         headers: req.headers, body,
-        ip: (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()
+        // pkg3-135: заголовку X-Forwarded-For верим только от своего прокси,
+        // и берём ПОСЛЕДНИЙ адрес (его дописал nginx), а не первый — первый
+        // подделывается клиентом, и ограничение попыток входа обходилось.
+        ip: clientIp({ headers: req.headers, remote: req.socket.remoteAddress })
       });
       send(res, out);
     } else {
