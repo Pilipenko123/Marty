@@ -2590,3 +2590,50 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
    На телефоне оно по-прежнему во всю ширину экрана. */
 #modal.dsk-modal .modal-box{max-width:min(980px,96vw)}
 @media (max-width:760px){ #modal.dsk-modal .modal-box{max-width:100%} }
+
+/* ══ pkg3-145: документы и файлы — на всё окно браузера ══════════════════════
+   Владелец: «чтобы документы и файлы открывались на всё окно браузера, хоть на
+   ПК, хоть на телефоне, а при закрытии оставалось открытым окно, где этот файл
+   лежит». Поэтому окно просмотра занимает весь экран, а документ лежит на белом
+   «листе» (а не на фоне темы мессенджера); закрытие и Esc возвращают в папку. */
+#modal.dsk-view{background:#1c1c1e;padding:0}
+#modal.dsk-view .modal-box{width:100vw;max-width:none;height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none;
+  display:flex;flex-direction:column;overflow:hidden;background:#fff}
+#modal.dsk-view .modal-head{flex:0 0 auto;padding:6px 10px;background:#f3f3f3;border-bottom:1px solid #e2e2e2}
+#modal.dsk-view .modal-head h3{font-size:13px;font-weight:600;color:#1b1b1b;padding-right:8px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#modal.dsk-view .modal-body{flex:1 1 auto;min-height:0;padding:0;overflow:hidden;display:flex;flex-direction:column;background:#fff}
+.dkv{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;background:#fff;
+  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Roboto","Helvetica Neue",Arial,sans-serif}
+.dkv-bar{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;
+  background:#fafafa;border-bottom:1px solid #e6e6e6;color:#605e5c;font-size:12px}
+.dkv-note{flex:1 1 160px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dkv-acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dkv .wxp-tool{height:26px;padding:0 10px;border:1px solid #dcdcdc;border-radius:4px;background:#fff;color:#1b1b1b;
+  font:inherit;font-size:12px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
+.dkv .wxp-tool:hover{background:#eef6ff;border-color:#cfe3f7}
+.dkv-body{flex:1 1 auto;min-height:0;overflow:auto;background:#fff;padding:24px 16px 40px}
+.dkv-sheet{max-width:860px;margin:0 auto;padding:28px 32px;background:#fff;color:#1b1b1b;
+  border:1px solid #e6e6e6;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+/* документ читается как на бумаге: чёрный текст на белом, светлые таблицы */
+.dkv-sheet .gd-doc{color:#1b1b1b;font-size:15px;line-height:1.6}
+.dkv-sheet .gd-doc a{color:#0a58ca}
+.dkv-sheet .gd-doc td,.dkv-sheet .gd-doc th{border-color:#d9d9d9}
+.dkv-sheet .gd-doc blockquote{border-left-color:#d9d9d9;color:#444;opacity:1}
+.dkv-sheet .gd-sheet th,.dkv-sheet .gd-sheet td{border-color:#d9d9d9;color:#1b1b1b}
+.dkv-sheet .gd-sheet th{background:#f3f3f3}
+.dkv-foot{flex:0 0 auto;padding:8px 12px;background:#fafafa;border-top:1px solid #ececec;color:#6b6b6b;font-size:12px}
+.dkv-dark{background:#111}
+.dkv-dark .dkv-bar{background:#1c1c1e;border-bottom-color:#2c2c2e;color:#c8c8c8}
+.dkv-dark .dkv-body{background:#111}
+.dkv-dark .dkv .wxp-tool{background:#2a2a2c;border-color:#3a3a3c;color:#eaeaea}
+.dkv-stage{display:flex;align-items:center;justify-content:center;padding:12px}
+.dkv-media-el{max-width:100%;max-height:calc(100dvh - 130px);object-fit:contain;display:block}
+@media (max-width:700px){
+  #modal.dsk-view .modal-head{padding:5px 8px}
+  #modal.dsk-view .modal-head h3{font-size:12.5px}
+  .dkv-body{padding:12px 8px 28px}
+  .dkv-sheet{padding:16px 14px;border:0;box-shadow:none;border-radius:0;max-width:none;margin:0}
+  .dkv-sheet .gd-doc{font-size:14px}
+  .dkv-media-el{max-height:calc(100dvh - 140px)}
+}

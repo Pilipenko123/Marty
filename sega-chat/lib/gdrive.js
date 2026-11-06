@@ -458,6 +458,62 @@ async function parentsOf(token, fileId, c) {
  * огромный документ не съел память VPS.
  */
 const EXPORT_CAP = 4 * 1024 * 1024;
+/**
+ * pkg3-145: Google отдаёт «Документ Google» в формате HTML УПАКОВАННЫМ в ZIP
+ * (внутри html и картинки). Раньше байты архива читались как текст — на экране
+ * получались «иероглифы» (жалоба владельца). Здесь архив распаковывается
+ * встроенным zlib, без новых зависимостей.
+ */
+function unzipFirstEntry(buf) {
+  try {
+    const zlib = require('node:zlib');
+    let eocd = -1;
+    const from = Math.max(0, buf.length - 66000);
+    for (let i = buf.length - 22; i >= from; i--) {
+      if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) return null;
+    const count = buf.readUInt16LE(eocd + 10);
+    let p = buf.readUInt32LE(eocd + 16);
+    const entries = [];
+    for (let n = 0; n < count && p >= 0 && p + 46 <= buf.length; n++) {
+      if (buf.readUInt32LE(p) !== 0x02014b50) break;
+      const method = buf.readUInt16LE(p + 10);
+      const csize = buf.readUInt32LE(p + 20);
+      const usize = buf.readUInt32LE(p + 24);
+      const nlen = buf.readUInt16LE(p + 28);
+      const elen = buf.readUInt16LE(p + 30);
+      const clen = buf.readUInt16LE(p + 32);
+      const lho = buf.readUInt32LE(p + 42);
+      const name = buf.slice(p + 46, p + 46 + nlen).toString('utf8');
+      entries.push({ name, method, csize, usize, lho });
+      p += 46 + nlen + elen + clen;
+    }
+    if (!entries.length) return null;
+    const file = entries.find(x => /\.html?$/i.test(x.name)) || entries.find(x => !/\/$/.test(x.name));
+    if (!file || file.usize > 16 * 1024 * 1024 || file.lho + 30 > buf.length) return null;
+    const nl = buf.readUInt16LE(file.lho + 26);
+    const el = buf.readUInt16LE(file.lho + 28);
+    const start = file.lho + 30 + nl + el;
+    if (start > buf.length) return null;
+    const data = buf.slice(start, start + (file.csize || buf.length - start));
+    if (file.method === 0) return data;
+    if (file.method === 8) return zlib.inflateRawSync(data, { maxOutputLength: 16 * 1024 * 1024 });
+    return null;
+  } catch (e) { return null; }
+}
+/** Экспорт → текст. Архив распаковываем, обычный текст отдаём как есть. */
+function decodeExport(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || '');
+  const zipped = b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+  if (zipped) {
+    const inner = unzipFirstEntry(b);
+    if (inner) return { text: inner.toString('utf8').replace(/^\uFEFF/, ''), zipped, unzipped: true };
+    return { text: '', zipped, unzipped: false };
+  }
+  return { text: b.toString('utf8').replace(/^\uFEFF/, ''), zipped, unzipped: false };
+}
+
 async function exportFile(token, googlePath, mimeType, c) {
   const conf = c || cfg();
   const id = idOf(googlePath);
@@ -508,7 +564,15 @@ async function exportFile(token, googlePath, mimeType, c) {
     err.status = 502;
     throw err;
   }
-  return { text: Buffer.concat(chunks).toString('utf8'), bytes: total, truncated, mime: mimeType };
+  // pkg3-145: не «читать байты как текст», а распаковать, если это архив.
+  // Если документ был обрезан по размеру (truncated) и распаковать не вышло —
+  // честно говорим об этом вызывающему коду, чтобы человек увидел объяснение,
+  // а не мусор на экране.
+  // обрезанный по размеру документ не выбрасываем: обычный HTML показываем
+  // началом (как и раньше), а обрезанный архив честно не распакуется — тогда
+  // /api/gdrive/doc скажет «нажмите „Открыть в Google“»
+  const decoded = decodeExport(Buffer.concat(chunks));
+  return { text: decoded.text, bytes: total, truncated, mime: mimeType, zipped: !!decoded.zipped, unzipped: !!decoded.unzipped };
 }
 
 function mediaUrl(googlePath, c) {
@@ -625,7 +689,7 @@ async function uploadSession(token, googlePath, o = {}, c) {
   return { url: loc, method: 'PUT', name: np.name, mime, size };
 }
 
-module.exports = {
+module.exports = { decodeExport, unzipFirstEntry, 
   cfg, loadKeys, KEYS_HINT, tokenKey, sealToken, openToken, httpJSON,
   buildAuthUrl, exchangeCode, refreshTokens,
   safePath, idOf, isGooglePath, slotOf, pathOf: p => 'google:/' + idOf(p),

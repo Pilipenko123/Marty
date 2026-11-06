@@ -201,7 +201,7 @@ ok(/function diskEmbedHtml[\s\S]{0,1600}data-disk-act="open"/.test(appJs) && /da
 ok(/\$\{ymEmbedHtml\(p\.text\)\}\$\{diskEmbedHtml\(p\.text\)\}/.test(appJs), 'карточка рисуется и в ленте, и в открытом письме');
 ok(/if \(S\.eco\) return ''/.test(appJs), 'в экономном режиме карточка не рисуется (текст со ссылкой остаётся)');
 ok(/function diskToPlaylist\(/.test(appJs) && /musAskPlaylist\(\{ kind: 'disk'/.test(appJs), 'файл можно положить в свой плейлист');
-ok(/video class="disk-prev"/.test(appJs) && /img class="disk-prev"/.test(appJs), 'фото и видео открываются в окне, а не только скачиваются');
+ok(/video class="dkv-media-el"/.test(appJs) && /img class="dkv-media-el"/.test(appJs), 'фото и видео открываются в окне, а не только скачиваются');
 ok(/DriveConnectAsk|driveTokenAsk/.test(appJs) && /function driveTokenAsk/.test(appJs), 'подключение по токену доступно прямо из раздела');
 ok(/drivesLoad\(\)\.catch/.test(appJs), 'список дисков читается при входе');
 ok(/\.disk-row\{/.test(css) && /\.disk-embed\{/.test(css) && /\.drive-ic\{/.test(css), 'оформление раздела, проводника и карточки на месте');
@@ -217,7 +217,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v138', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v139', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui124.mjs'), 'тест ui124 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
