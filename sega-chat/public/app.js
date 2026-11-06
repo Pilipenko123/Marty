@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-137';
+const BUILD = 'pkg3-138';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12628,16 +12628,27 @@ async function paintPfMail() {
   let st = null;
   try { st = await api('/api/profile'); }
   catch (e) { box.innerHTML = '<div class="tiny muted">' + escapeHtml(e.message) + '</div>'; return; }
+  // pkg3-138: «Проверить почтовый сервер» — владельцу ВСЕГДА, а не только после
+  // привязки. Раньше кнопка жила в ветке «почта привязана», и получалось
+  // издевательство: почта не работает → привязать нельзя → кнопки проверки нет.
+  const isAdmin = !!(S.me && S.me.isAdmin);
+  const diag = isAdmin ? `
+    <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.12);padding-top:8px">
+      <p class="hint">Проверка почтового сервера (видит только владелец): находится ли имя и адреса,
+      отвечают ли порты 465/587/25, есть ли у сервера интернет — и готовое письмо в поддержку,
+      если почтовые порты закрыты. Этой же кнопкой проверяется, почему не приходит письмо.</p>
+      <button class="mini" id="pf-mail-diag" type="button">Проверить почтовый сервер</button>
+      <div id="pf-mail-diagbox"></div>
+    </div>` : '';
+  const wireDiag = () => { const b = $('#pf-mail-diag'); if (b) b.addEventListener('click', mailDiag); };
   if (st.emailConfirmed) {
     box.innerHTML = `
       <p class="hint">Привязана: <b>${escapeHtml(st.email)}</b>. Забыли пароль — на экране входа
       «Забыли пароль?», ссылка придёт на эту почту.</p>
       <button class="mini" id="pf-mail-code" type="button">Показать новый код восстановления</button>
       <button class="mini danger" id="pf-mail-off" type="button" style="margin-left:6px">Отвязать почту</button>
-      <div id="pf-mail-codebox"></div>
-      ${(S.me && S.me.isAdmin) ? '<button class="mini" id="pf-mail-diag" type="button" style="margin-top:6px">Проверить почтовый сервер</button><div id="pf-mail-diagbox"></div>' : ''}`;
-    const diagBtn = $('#pf-mail-diag');
-    if (diagBtn) diagBtn.addEventListener('click', mailDiag);
+      <div id="pf-mail-codebox"></div>${diag}`;
+    wireDiag();
     $('#pf-mail-code').addEventListener('click', async () => {
       const code = await makeRecoveryCode();
       if (code) $('#pf-mail-codebox').innerHTML = recoveryCodeHtml(code);
@@ -12658,7 +12669,8 @@ async function paintPfMail() {
     <div id="pf-mail-code-row" class="hidden" style="margin-top:8px">
       <label>Код из письма<input type="text" id="pf-mail-codein" inputmode="numeric" maxlength="6" placeholder="6 цифр"></label>
       <button class="mini primary" id="pf-mail-confirm" type="button">Подтвердить</button>
-    </div>`;
+    </div>${diag}`;
+  wireDiag();
   $('#pf-mail-go').addEventListener('click', async () => {
     try {
       await api('/api/profile', { method: 'POST', body: { email: $('#pf-mail-in').value.trim() } });
