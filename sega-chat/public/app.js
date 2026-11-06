@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-144';
+const BUILD = 'pkg3-145';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5818,6 +5818,30 @@ function gdDocBodyHtml(r) {
   const html = String(r.html || '');
   return html ? `<div class="gd-doc">${html}</div>` : '<div class="tiny muted">Документ пустой.</div>';
 }
+/**
+ * pkg3-145: документ и файл открываются НА ВСЁ окно браузера (и на ПК, и на
+ * телефоне), а закрытие возвращает в ту папку, откуда их открыли: состояние
+ * проводника живёт в S.disk, поэтому достаточно перерисовать окно папки.
+ */
+function dkViewerOpen(title, html) {
+  // возвращаемся только туда, откуда правда пришли: если окно папки открыто —
+  // в папку, если файл открыли из письма в чате — просто закрываем просмотр
+  const box = $('#modal');
+  const fromDisk = !!(box && !box.classList.contains('hidden') && box.querySelector('.disk-win.dsk'));
+  S.dkViewerBack = fromDisk;
+  modal(title, html, { cls: 'dsk-view' });
+}
+function dkViewerBack() {
+  if (!S.dkViewerBack) return false;
+  S.dkViewerBack = false;
+  renderDiskWindow();   // окно папки рисуется заново из S.disk — путь и выбор целы
+  return true;
+}
+/** Верхняя полоса просмотра: что открыто и куда вернуться. */
+function dkViewerBar(note, acts) {
+  return `<div class="dkv-bar"><span class="dkv-note">${note}</span>`
+    + `<span class="dkv-acts">${acts}<button class="wxp-tool" data-disk-back="1" title="Вернуться в папку">← В папку</button></span></div>`;
+}
 async function diskViewDoc(it, of) {
   const mine = !of || (S.me && of === S.me.id);
   const q = '?path=' + encodeURIComponent(it.path) + (mine ? '' : '&of=' + encodeURIComponent(of));
@@ -5830,19 +5854,18 @@ async function diskViewDoc(it, of) {
     const openBtn = r.openInGoogle
       ? `<a class="mini" href="${escapeHtml(r.openInGoogle)}" target="_blank" rel="noopener noreferrer">Открыть в Google</a>`
       : '';
-    modal(r.name || 'Документ Google', `<div class="gd-win">
-      <div class="gd-head tiny muted">${escapeHtml(bits.join(' · '))}</div>
-      <div class="gd-body">${gdDocBodyHtml(r)}</div>
-      <div class="gd-acts">${openBtn}<button class="mini" data-gd-close="1">Закрыть</button></div>
-      <div class="tiny muted">Документ открыт только для чтения: правки — в самом Google. Ничего не скачивается и не копируется на сервер.</div>
+    dkViewerOpen(r.name || 'Документ Google', `<div class="dkv dkv-paper">
+      ${dkViewerBar(escapeHtml(bits.join(' · ')), openBtn)}
+      <div class="dkv-body"><div class="dkv-sheet gd-doc">${gdDocBodyHtml(r)}</div></div>
+      <div class="dkv-foot">Документ открыт только для чтения: правки — в самом Google. Ничего не скачивается и не копируется на сервер.</div>
     </div>`);
     const cl = document.querySelector('[data-gd-close]');
-    if (cl) cl.addEventListener('click', () => closeModal());
+    if (cl) cl.addEventListener('click', () => { if (!dkViewerBack()) closeModal(); });
   } catch (e) {
-    modal(it.name || 'Документ Google', `<div class="disk-err">Не получилось открыть: ${escapeHtml(e.message || String(e))}</div>
-      <div class="gd-acts"><button class="mini" data-gd-close="1">Закрыть</button></div>`);
-    const cl = document.querySelector('[data-gd-close]');
-    if (cl) cl.addEventListener('click', () => closeModal());
+    dkViewerOpen(it.name || 'Документ Google', `<div class="dkv dkv-paper">
+      ${dkViewerBar('документ не открылся', '')}
+      <div class="dkv-body"><div class="dkv-sheet"><div class="disk-err">Не получилось открыть: ${escapeHtml(e.message || String(e))}</div></div></div>
+    </div>`);
   }
 }
 async function diskViewFile(it, of) {
@@ -5850,11 +5873,13 @@ async function diskViewFile(it, of) {
     const r = await diskFileHref(it.path, of);
     const media = it.media || r.media || '';
     const inner = media === 'video'
-      ? `<video class="disk-prev" src="${escapeHtml(r.href)}" controls playsinline preload="metadata"></video>`
-      : `<img class="disk-prev" src="${escapeHtml(r.href)}" alt="${escapeHtml(it.name || '')}">`;
-    modal(it.name || 'Файл с Диска', `<div class="disk-pv">${inner}
-      <div class="tiny muted">${escapeHtml(it.name || '')}${it.size ? ' · ' + dkSize(it.size) : ''}${of ? ' · Диск участника' : ''}</div>
-      <div class="disk-pv-acts"><button class="mini" data-disk-dl-url="${escapeHtml(r.href)}" data-disk-dl-name="${escapeHtml(it.name || '')}">⬇ Скачать</button><button class="mini" data-disk-back="1">Назад к папке</button></div>
+      ? `<video class="dkv-media-el" src="${escapeHtml(r.href)}" controls playsinline preload="metadata"></video>`
+      : `<img class="dkv-media-el" src="${escapeHtml(r.href)}" alt="${escapeHtml(it.name || '')}">`;
+    const size = it.size ? ' · ' + dkSize(it.size) : '';
+    dkViewerOpen(it.name || 'Файл с Диска', `<div class="dkv dkv-dark">
+      ${dkViewerBar(escapeHtml((it.name || '') + size + (of ? ' · Диск участника' : '')),
+        `<button class="wxp-tool" data-disk-dl-url="${escapeHtml(r.href)}" data-disk-dl-name="${escapeHtml(it.name || '')}">⬇ Скачать</button>`)}
+      <div class="dkv-body dkv-stage">${inner}</div>
     </div>`);
   } catch (e) { toast('Не получилось открыть файл: ' + (e.message || e), true); }
 }
@@ -6263,7 +6288,7 @@ document.addEventListener('click', async e => {
   const dlUrl = e.target.closest('[data-disk-dl-url]');
   if (dlUrl) { diskSaveUrl(dlUrl.getAttribute('data-disk-dl-url'), dlUrl.getAttribute('data-disk-dl-name')); return; }
   const back = e.target.closest('[data-disk-back]');
-  if (back) { renderDiskWindow(); return; }
+  if (back) { S.dkViewerBack = false; renderDiskWindow(); return; }
   const pick = e.target.closest('[data-disk-chat]');
   if (pick) {
     const it = diskState().pick;
@@ -9751,6 +9776,13 @@ document.addEventListener('click', e => {
 });
 $('#plus-scrim').addEventListener('click', () => plusMenu(false));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') plusMenu(false); });
+// pkg3-145: Esc в полноэкранном просмотре — вернуться в папку
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!S.dkViewerBack) return;
+  e.preventDefault();
+  dkViewerBack();
+});
 
 // ─────────────────────────────────────────── pkg3-53: свои разделы (папки) чатов
 // Раздел — личная папка: в неё кладётся КОПИЯ чата, из системного раздела чат не
@@ -11194,7 +11226,11 @@ function modal(title, html, opts) {
   // страницы). Прочие окна пометки не получают.
   const md = $('#modal');
   md.classList.remove('mus-modal');
-  md.classList.remove('dsk-modal');   // pkg3-144: широкое окно Диска — только для него
+  // pkg3-144: широкое окно Диска — только для него; pkg3-145: полноэкранный
+  // просмотр документа/файла — тоже только для него, иначе класс останется
+  // на следующем окне и папка откроется «на весь экран»
+  md.classList.remove('dsk-modal');
+  md.classList.remove('dsk-view');
   if (opts && opts.cls) md.classList.add(opts.cls);
   // pkg3-114: высоты, посчитанные числом для плеера на телефоне, другим окнам не нужны
   const bx = md.querySelector('.modal-box'), bd = md.querySelector('.modal-body');
@@ -11301,6 +11337,9 @@ function musAddMinBtn() {
   mb.addEventListener('click', () => musMinimize());
 }
 $('#modal-close').addEventListener('click', () => {
+  // pkg3-145: из просмотра документа/файла «крестик» возвращает в папку,
+  // а не в чат — окно папки открывается заново как было
+  if (dkViewerBack()) return;
   if (document.querySelector('#modal-body .mus-wrap')) musCloseFull(); else hide($('#modal'));
 });
 // pkg3-103: «клик мимо окна = свернуть» больше не ловит ВЫДЕЛЕНИЕ текста: человек

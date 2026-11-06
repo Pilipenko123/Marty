@@ -1,4 +1,4 @@
-// test/ui144.mjs — pkg3-144: диски открываются как папки Windows.
+// test/ui144.mjs — pkg3-145: диски открываются как папки Windows.
 //
 // Владелец: «Хочется, чтобы диски открывались как папки Windows, что на ПК, что
 // на телефоне. Я имею в виду по структуре, по цвету и шрифту» (со скриншотом
@@ -23,7 +23,7 @@ let good = 0, bad = 0;
 const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ПРОВАЛ: ') + m); if (c) good++; else bad++; };
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-144: «Мои диски» — как папка в проводнике Windows');
+console.log('  pkg3-145: «Мои диски» — как папка в проводнике Windows');
 console.log('══════════════════════════════════════════════════\n');
 
 const appJs = read('public/app.js');
@@ -164,10 +164,10 @@ if (!JSDOM) {
 console.log('\n  4. Отметки выпуска');
 const appBuild = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(appBuild === BUILD && BUILD === 'pkg3-144', `отметка выпуска одна (${BUILD})`);
+ok(appBuild === BUILD && BUILD === 'pkg3-145', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(cache === 'sega-static-v138', `кэш оформления поднят (${cache}) — устройства получат новое окно`);
-ok(/\| pkg3-144 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-144');
+ok(cache === 'sega-static-v139', `кэш оформления поднят (${cache}) — устройства получат новое окно`);
+ok(/\| pkg3-145 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-145');
 ok(read('package.json').includes('node test/ui144.mjs'), 'тест ui144 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

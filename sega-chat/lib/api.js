@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-144';
+const BUILD = 'pkg3-145';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -4087,6 +4087,11 @@ function createApi(store, opts = {}) {
         if (e.status === 401 || e.status === 403) return E(403, 'Google не пустил к этому документу');
         if (e.status === 400) return E(400, e.message);
         return E(502, e.message || 'Google не отдал документ');
+      }
+      // pkg3-145: Google отдаёт документ архивом; если распаковать не удалось —
+      // честный отказ вместо «иероглифов» на экране.
+      if (exDoc.zipped && !exDoc.unzipped) {
+        return E(502, 'Google отдал документ в упакованном виде, а распаковать не удалось — нажмите «Открыть в Google»');
       }
       const outDoc = {
         kind: kindDoc,
