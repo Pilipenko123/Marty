@@ -1,4 +1,4 @@
-// test/ui136.mjs — pkg3-136: «письмо не уходит» → по одному нажатию видно, почему.
+// test/ui136.mjs — pkg3-137: «письмо не уходит» → по одному нажатию видно, почему.
 //
 // После 135-го владелец получил честный текст: «почтовый сервер не ответил за
 // 20 с · соединение не установилось». Это уже лучше прежнего молчания, но всё
@@ -27,7 +27,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-136: проверка почты — имя, порты, вход');
+console.log('  pkg3-137: проверка почты — имя, порты, вход');
 console.log('══════════════════════════════════════════════════\n');
 
 const smtp = await import('../lib/smtp.js').then(m => m.default || m);
@@ -197,10 +197,10 @@ ok(/12000/.test(read('lib/smtp.js')), 'письмо ждём 12 с вместо 
 ok(/host \+ ':' \+ c\.port/.test(read('lib/smtp.js')), 'в текстах ошибок видно, какой сервер молчал');
 
 console.log('\n  6. Отметки выпуска');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-136', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-137', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v130', 'кэш оформления поднят до v130');
-ok(/\| pkg3-136 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-136');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v131', 'кэш оформления поднят до v130');
+ok(/\| pkg3-137 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-137');
 ok(read('package.json').includes('node test/ui136.mjs'), 'тест ui136 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
