@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-143';
+const BUILD = 'pkg3-144';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5376,13 +5376,89 @@ function drvIcon(id) { return drvKindOf(id) === 'google' ? '🅖' : '☁'; }
 function drvDriveId(kind, slot) { return (kind === 'google' ? 'google' : 'yandex') + (Number(slot) > 1 ? String(slot) : ''); }
 const DRV_ICON = { yandex: '☁', google: '🅖' };
 const DK_MEDIA_RU = { audio: 'Музыка', image: 'Фото', video: 'Видео', doc: 'Документ', other: 'Файл', dir: 'Папка' };
-const DK_ICON = { dir: '📁', audio: '🎵', image: '🖼', video: '🎬', doc: '📄', other: '📦' };
 // pkg3-131: у «документов Google» своего файла нет — открываем их в окне
 const GDOC_RU = { document: 'Документ Google', spreadsheet: 'Таблица Google', presentation: 'Презентация Google', drawing: 'Рисунок Google' };
 const GDOC_ICON = { document: '📝', spreadsheet: '📊', presentation: '📽', drawing: '🖼' };
 const gdocLabel = it => (it && it.gdoc ? (GDOC_RU[it.gdoc] || 'Документ Google') : '');
 const gdocIcon = it => (it && it.gdoc ? (GDOC_ICON[it.gdoc] || '📝') : '');
 const dkSize = n => ydFmtSize(n);
+
+/* ── pkg3-144: вид «как папки Windows» ──────────────────────────────────────
+ * Владелец попросил, чтобы диски открывались как папки в проводнике Windows —
+ * по структуре, цвету и шрифту. Поэтому: плоские жёлтые значки папок (SVG, а не
+ * эмодзи), белое окно, шрифт Segoe UI (на телефоне — родной шрифт системы),
+ * столбцы «Название · Дата изменения · Тип · Размер» и сортировка по щелчку на
+ * заголовке столбца. Папки всегда сверху — как в Windows. */
+const WXP_SVG_FOLDER = '<svg class="wxp-svg" viewBox="0 0 48 40" width="34" height="28" aria-hidden="true" focusable="false">'
+  + '<path d="M4 9.5a3 3 0 0 1 3-3h11.4l4 4H41a3 3 0 0 1 3 3v3.5H4z" fill="#e0a012"/>'
+  + '<path d="M4 13h40a3 3 0 0 1 3 3v15.5a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" fill="#ffcf4d"/>'
+  + '<path d="M4 13h40a3 3 0 0 1 3 3H4z" fill="#ffe29b"/></svg>';
+function wxpSheet(color, glyph) {
+  return '<svg class="wxp-svg" viewBox="0 0 40 48" width="27" height="32" aria-hidden="true" focusable="false">'
+    + '<path d="M7.5 2h17L33 10v34a2.5 2.5 0 0 1-2.5 2.5h-23A2.5 2.5 0 0 1 5 44V4.5A2.5 2.5 0 0 1 7.5 2z" fill="#ffffff" stroke="#c9cdd2" stroke-width="1.5"/>'
+    + '<path d="M24.5 2.4V10h7.6" fill="none" stroke="#c9cdd2" stroke-width="1.5"/>'
+    + '<rect x="8.5" y="18" width="22" height="15" rx="3.5" fill="' + color + '"/>'
+    + glyph + '</svg>';
+}
+const WXP_GLYPH = {
+  audio: '<path d="M17.5 29.5v-7l6.5-1.5v6.4" fill="none" stroke="#fff" stroke-width="1.5"/>'
+    + '<circle cx="16.3" cy="29.6" r="1.9" fill="#fff"/><circle cx="22.8" cy="27.4" r="1.9" fill="#fff"/>',
+  image: '<circle cx="15" cy="23.2" r="1.7" fill="#fff"/>'
+    + '<path d="M11 30.4l4.8-4.3 3 2.6 3-2.2 3.8 3.9z" fill="#fff"/>',
+  video: '<path d="M17.2 23.1l6.6 3.9-6.6 3.9z" fill="#fff"/>',
+  doc: '<path d="M13.2 23.2h12M13.2 26.6h12M13.2 30h7.6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>',
+  other: '<rect x="14" y="23" width="10" height="8" rx="1.6" fill="none" stroke="#fff" stroke-width="1.6"/>'
+};
+const WXP_COLOR = { audio: '#1f6feb', image: '#2e9e4f', video: '#d93025', doc: '#6b4bd0', other: '#5f6b7a' };
+/** Значок строки: папка — как в Windows, файл — лист с цветной плашкой по виду. */
+function dkWxpIcon(kind) {
+  if (kind === 'dir') return WXP_SVG_FOLDER;
+  const k = WXP_COLOR[kind] ? kind : 'other';
+  return wxpSheet(WXP_COLOR[k], WXP_GLYPH[k]);
+}
+/** Дата изменения по-русски: 05.11.2026 14:02 (пусто — прочерк). */
+function dkWhen(iso) {
+  const s0 = String(iso || '');
+  if (!s0) return '—';
+  const d0 = new Date(s0);
+  if (isNaN(d0.getTime())) return '—';
+  const p2 = n => (n < 10 ? '0' : '') + n;
+  return p2(d0.getDate()) + '.' + p2(d0.getMonth() + 1) + '.' + d0.getFullYear()
+    + ' ' + p2(d0.getHours()) + ':' + p2(d0.getMinutes());
+}
+const DK_WXP_TYPE = { audio: 'Аудиофайл', image: 'Изображение', video: 'Видеофайл', doc: 'Документ', other: 'Файл', dir: 'Папка с файлами' };
+/** Тип строки — как в Windows: «Папка с файлами», «MP3-файл», «JPEG-изображение». */
+function dkTypeName(it) {
+  if (it && it.dir) return DK_WXP_TYPE.dir;
+  const gd0 = gdocLabel(it);
+  if (gd0) return gd0;
+  const kind = (it && it.media) || 'other';
+  const base = DK_WXP_TYPE[kind] || 'Файл';
+  const ext = String((it && it.name) || '').split('.').pop().toUpperCase();
+  const good = /^[A-Z0-9]{1,6}$/.test(ext) && ext !== String(it && it.name).toUpperCase();
+  if (!good) return base;
+  return kind === 'image' ? ext + '-изображение' : ext + '-файл';
+}
+/**
+ * Порядок строк: папки всегда сверху (как в Windows), внутри — по выбранному
+ * столбцу. Чистая функция — тест проверяет её отдельно (ui144).
+ */
+function dkSortItems(items, key, dir) {
+  const list = Array.isArray(items) ? items.slice() : [];
+  const k = key || 'name';
+  const d = dir === -1 ? -1 : 1;
+  const val = it => k === 'date' ? String((it && it.modified) || '')
+    : k === 'size' ? (it && it.dir ? -1 : Number(it && it.size) || 0)
+    : k === 'type' ? dkTypeName(it).toLowerCase()
+    : String((it && it.name) || '').toLowerCase();
+  return list.sort((a, b) => {
+    const fa = a && a.dir ? 0 : 1, fb = b && b.dir ? 0 : 1;
+    if (fa !== fb) return fa - fb;
+    const x = val(a), y = val(b);
+    const c = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x).localeCompare(String(y), 'ru');
+    return (c * d) || String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'ru');
+  });
+}
 
 /** Строки раздела «☁ Мои диски» (раздел стоит внизу списка чатов). */
 function drivesRailRows() {
@@ -5414,6 +5490,8 @@ function diskState() {
   if (!st.path) st.path = 'disk:/';
   if (!Array.isArray(st.items)) st.items = [];
   if (st.sel === undefined) st.sel = -1;
+  // pkg3-144: как в проводнике — по какому столбцу разложены строки
+  if (!st.sort || !st.sort.key) st.sort = { key: 'name', dir: 1 };
   return st;
 }
 const dkMine = () => { const st = diskState(); return !st.of || (S.me && st.of === S.me.id); };
@@ -5551,16 +5629,16 @@ function diskCrumbsHtml(path, root) {
 /** Строка проводника: значок/превью, имя, тип, размер. */
 function diskRowHtml(it, i, sel) {
   const kind = it.dir ? 'dir' : (it.media || 'other');
-  const gd0 = gdocLabel(it);   // pkg3-131
   // pkg3-125: кадр фото и видео показывается СРАЗУ, без нажатий; у видео — значок ▶
   const thumb = it.preview && (it.media === 'image' || it.media === 'video')
     ? `<span class="disk-thumb-box"><img class="disk-thumb" src="${escapeHtml(it.preview)}" alt="" loading="lazy" data-disk-thumb="1">${it.media === 'video' ? '<span class="disk-thumb-play">▶</span>' : ''}</span>`
-    : `<span class="disk-thumb-ic">${gd0 ? gdocIcon(it) : (DK_ICON[kind] || '📦')}</span>`;
-  return `<div class="disk-row${sel ? ' sel' : ''}" data-dsk-i="${i}" data-disk-row="${i}" title="${escapeHtml(it.name)}">
-    <div class="disk-ic">${thumb}</div>
-    <div class="disk-name">${escapeHtml(it.name)}${it.dir ? '/' : ''}</div>
-    <div class="disk-type tiny muted">${gd0 || DK_MEDIA_RU[kind] || 'Файл'}</div>
-    <div class="disk-size tiny muted">${it.dir ? '' : dkSize(it.size)}</div>
+    : dkWxpIcon(kind);
+  return `<div class="disk-row wxp-row${sel ? ' sel' : ''}" data-dsk-i="${i}" data-disk-row="${i}" title="${escapeHtml(it.name)}">
+    <span class="disk-ic wxp-ic">${thumb}</span>
+    <span class="disk-name wxp-name">${escapeHtml(it.name)}</span>
+    <span class="disk-date wxp-date">${escapeHtml(dkWhen(it.modified))}</span>
+    <span class="disk-type wxp-type">${escapeHtml(dkTypeName(it))}</span>
+    <span class="disk-size wxp-size">${it.dir ? '' : dkSize(it.size)}</span>
   </div>`;
 }
 /** Перерисовать окно диска. Слушатели — общие, ниже (делегирование). */
@@ -5579,12 +5657,18 @@ function renderDiskWindow() {
   })();
   const writable = mine ? gWrite : (st.perm === 'write');
   const canUp = g ? !!st.parent : !atRoot;
+  // pkg3-144: столбцы и сортировка — как в проводнике Windows. Порядок считаем
+  // от исходного списка, а data-dsk-i оставляем прежним: обработчики строк
+  // ищут файл по номеру в st.items, а не в отрисованном порядке.
+  const order = dkSortItems(st.items, st.sort.key, st.sort.dir);
+  const idxOf = new Map(st.items.map((it, i) => [it, i]));
+  const selIt = st.sel >= 0 ? st.items[st.sel] : null;
   const rows = st.loading
-    ? '<div class="tiny muted disk-wait">Читаю папку на Диске…</div>'
+    ? '<div class="wxp-empty">Читаю папку на Диске…</div>'
     : st.err
-      ? `<div class="tiny disk-err">Не получилось: ${escapeHtml(st.err)}</div><button class="mini" id="disk-retry">Повторить</button>`
-      : (st.items.length ? st.items.map((it, i) => diskRowHtml(it, i, i === st.sel)).join('')
-        : '<div class="tiny muted disk-wait">В этой папке пусто.</div>');
+      ? `<div class="wxp-empty wxp-err">Не получилось: ${escapeHtml(st.err)}</div><button class="wxp-tool" id="disk-retry">Повторить</button>`
+      : (order.length ? order.map(it => diskRowHtml(it, idxOf.get(it), it === selIt)).join('')
+        : '<div class="wxp-empty">В этой папке пусто.</div>');
   const space = st.space && st.space.total
     ? `<span class="dsk-space" title="Всего ${dkSize(st.space.total)}, занято ${dkSize(st.space.used)}">Свободно ${dkSize(st.space.free)} из ${dkSize(st.space.total)}</span>`
     : '';
@@ -5593,26 +5677,33 @@ function renderDiskWindow() {
       ? `<b>${escapeHtml(dr.title || 'Google Диск')}</b> <span class="tiny muted">подключён через Google · ${gWrite ? 'можно смотреть и менять' : 'только чтение'}</span>`
       : `<b>${escapeHtml(dr.title || 'Яндекс.Диск')}</b> <span class="tiny muted">${dr.manual ? 'подключён токеном' : 'подключён через Яндекс'}</span>`)
     : `<b>${escapeHtml(st.title || 'Общая папка')}</b> <span class="tiny muted">${g ? 'папка участника с Google · ' + (st.perm === 'write' ? 'можно менять' : 'только чтение') : 'папка участника · ' + (st.perm === 'write' ? 'можно менять' : 'только чтение')}</span>`;
-  modal('☁ Мои диски', `<div class="disk-win dsk">
-    <div class="dsk-bar">
-      <button class="mini" id="dsk-up" title="Наверх" ${canUp ? '' : 'disabled'}>↑</button>
-      <button class="mini" id="disk-refresh" title="Обновить">⟳</button>
-      <div class="dsk-crumbs disk-crumbs">${diskCrumbsHtml(st.path, g ? 'google:/root' : (mine ? 'disk:/' : (st.root || st.path)))}</div>
-      ${space}
+  modal('☁ Мои диски', `<div class="disk-win dsk wxp">
+    <div class="wxp-nav">
+      <button class="wxp-btn" id="dsk-up" title="Наверх" ${canUp ? '' : 'disabled'}>↑</button>
+      <button class="wxp-btn" id="disk-refresh" title="Обновить">⟳</button>
+      <div class="dsk-crumbs disk-crumbs wxp-addr">${diskCrumbsHtml(st.path, g ? 'google:/root' : (mine ? 'disk:/' : (st.root || st.path)))}</div>
     </div>
-    <div class="dsk-head">${head}<button class="mini" data-drive-add="1" title="Подключить ещё диск">＋ Диск</button></div>
-    <div class="dsk-tools">
-      <button class="mini primary" data-dsk-act="open" title="Открыть (или двойной клик по строке)">Открыть</button>
-      <button class="mini" data-dsk-act="share" title="Поделиться в чате: файлом или папкой">Поделиться</button>
-      <button class="mini" data-dsk-act="dl" title="Скачать на устройство">⬇ Скачать</button>
-      <button class="mini" data-dsk-act="dlfolder" title="Скачать эту папку целиком одним архивом ZIP">⬇ Папку</button>
+    <div class="dsk-head wxp-head">${head}<span class="wxp-headright">${space}<button class="wxp-tool" data-drive-add="1" title="Подключить ещё диск">＋ Диск</button></span></div>
+    <div class="dsk-tools wxp-tools">
+      <button class="wxp-tool primary" data-dsk-act="open" title="Открыть (или двойной клик по строке)">Открыть</button>
+      <button class="wxp-tool" data-dsk-act="share" title="Поделиться в чате: файлом или папкой">Поделиться</button>
+      <button class="wxp-tool" data-dsk-act="dl" title="Скачать на устройство">⬇ Скачать</button>
+      <button class="wxp-tool" data-dsk-act="dlfolder" title="Скачать эту папку целиком одним архивом ZIP">⬇ Папку</button>
       <span class="dsk-gap"></span>
-      <button class="mini" data-dsk-act="mkdir" ${writable ? '' : 'disabled'} title="Создать папку">Новая папка</button>
-      <button class="mini" data-dsk-act="upload" ${writable ? '' : 'disabled'} title="Загрузить файл со своего устройства">Загрузить</button>
-      <button class="mini" data-dsk-act="rename" ${writable ? '' : 'disabled'} title="Переименовать">Переименовать</button>
-      <button class="mini danger" data-dsk-act="del" ${writable ? '' : 'disabled'} title="Удалить (в корзину Диска)">Удалить</button>
+      <button class="wxp-tool" data-dsk-act="mkdir" ${writable ? '' : 'disabled'} title="Создать папку">Новая папка</button>
+      <button class="wxp-tool" data-dsk-act="upload" ${writable ? '' : 'disabled'} title="Загрузить файл со своего устройства">Загрузить</button>
+      <button class="wxp-tool" data-dsk-act="rename" ${writable ? '' : 'disabled'} title="Переименовать">Переименовать</button>
+      <button class="wxp-tool danger" data-dsk-act="del" ${writable ? '' : 'disabled'} title="Удалить (в корзину Диска)">Удалить</button>
     </div>
-    <div class="dsk-list disk-list" id="disk-list">${rows}</div>
+    <div class="wxp-cols">
+      <span class="wxp-col-ic"></span>
+      <button class="wxp-col${st.sort.key === 'name' ? ' on' : ''}" data-dsk-sort="name" type="button" title="Сортировать по названию">Название<span class="wxp-arrow">${st.sort.key === 'name' ? (st.sort.dir === -1 ? '▾' : '▴') : ''}</span></button>
+      <button class="wxp-col${st.sort.key === 'date' ? ' on' : ''}" data-dsk-sort="date" type="button" title="Сортировать по дате изменения">Дата изменения<span class="wxp-arrow">${st.sort.key === 'date' ? (st.sort.dir === -1 ? '▾' : '▴') : ''}</span></button>
+      <button class="wxp-col${st.sort.key === 'type' ? ' on' : ''}" data-dsk-sort="type" type="button" title="Сортировать по типу">Тип<span class="wxp-arrow">${st.sort.key === 'type' ? (st.sort.dir === -1 ? '▾' : '▴') : ''}</span></button>
+      <button class="wxp-col num${st.sort.key === 'size' ? ' on' : ''}" data-dsk-sort="size" type="button" title="Сортировать по размеру">Размер<span class="wxp-arrow">${st.sort.key === 'size' ? (st.sort.dir === -1 ? '▾' : '▴') : ''}</span></button>
+    </div>
+    <div class="dsk-list disk-list wxp-list" id="disk-list">${rows}</div>
+    <div class="wxp-status"><span>Элементов: ${st.loading || st.err ? '—' : (order.length || 0)}</span><span class="wxp-status-r">${st.loading || st.err ? '' : 'Папки сверху — как в проводнике Windows'}</span></div>
     <div class="tiny muted disk-hint">${g
       ? (writable
         ? 'Google разрешил SEGA-CHAT смотреть и менять файлы: новая папка, загрузка и переименование идут прямо в ваш Google, а «Удалить» убирает в корзину Google (восстановить можно там). Файлы не копируются на сервер.'
@@ -5621,7 +5712,7 @@ function renderDiskWindow() {
       ? 'Файлы остаются на вашем Диске — сервер их не копирует, а выдаёт короткую временную ссылку. «⬇ Папку» собирает всю папку с подпапками в один архив ZIP: он идёт потоком, поэтому большой папке нужно время, а место на сервере не занимается.'
       : (writable ? 'Вам открыли эту папку с правом изменения: можно добавлять, переименовывать и удалять внутри.' : 'Вам открыли эту папку только для чтения.'))} Кнопка «Поделиться» отправляет ссылку в чат и открывает доступ только его участникам.</div>
     <input type="file" id="dsk-file" class="hidden" multiple>
-  </div>`);
+  </div>`, { cls: 'dsk-modal' });
   const up = document.getElementById('dsk-up');
   if (up) up.addEventListener('click', () => {
     const cur = diskState();
@@ -6134,6 +6225,16 @@ document.addEventListener('click', async e => {
     if (act === 'dlfolder') return diskDownloadFolder(st.path, diskFolderTitle(st), st.of);
     if (act === 'rename') { if (!it) return dkToastPick(); return diskRename(it); }
     if (act === 'del') { if (!it) return dkToastPick(); return diskDelete(it); }
+    return;
+  }
+  // pkg3-144: щелчок по заголовку столбца — сортировка (повторный щелчок
+  // переворачивает порядок). Папки при этом остаются сверху, как в Windows.
+  const srt = e.target.closest('[data-dsk-sort]');
+  if (srt) {
+    const k = String(srt.getAttribute('data-dsk-sort') || 'name');
+    const stt = diskState();
+    stt.sort = (stt.sort && stt.sort.key === k) ? { key: k, dir: stt.sort.dir === -1 ? 1 : -1 } : { key: k, dir: 1 };
+    renderDiskWindow();
     return;
   }
   const row = e.target.closest('[data-dsk-i]');
@@ -11093,6 +11194,7 @@ function modal(title, html, opts) {
   // страницы). Прочие окна пометки не получают.
   const md = $('#modal');
   md.classList.remove('mus-modal');
+  md.classList.remove('dsk-modal');   // pkg3-144: широкое окно Диска — только для него
   if (opts && opts.cls) md.classList.add(opts.cls);
   // pkg3-114: высоты, посчитанные числом для плеера на телефоне, другим окнам не нужны
   const bx = md.querySelector('.modal-box'), bd = md.querySelector('.modal-body');

@@ -210,7 +210,7 @@ ok(apiJs.includes('«Сталкер»: есть новости забега'), '
 // инварианты выпуска
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"),
   'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v137';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v138';"), 'кэш статики поднят до v93');
 ok(html.includes('<script src="game-sound.js"></script>'), 'game-sound.js подключён в index.html');
 ok(appJs.split("gamePlayerName(g.white) + ' и ' + gamePlayerName(g.black)").length - 1 === 2,
   'инвариант run-all: союз «и» в заголовках партий встречается ровно дважды');
