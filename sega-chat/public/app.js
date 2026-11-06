@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-142';
+const BUILD = 'pkg3-143';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12651,7 +12651,7 @@ async function mailDiag() {
   }
 }
 /**
- * pkg3-141: «Мои устройства» — список входов. Раньше отпечатки сессий лежали в
+ * pkg3-141 / pkg3-143: «Мои устройства» — список входов, по строке на устройство. Раньше отпечатки сессий лежали в
  * базе, но человек их не видел: украденный вход можно было заметить только по
  * странным сообщениям. Теперь видно «когда, откуда, с чего», и есть кнопка,
  * которая закрывает все остальные входы одной кнопкой.
@@ -12668,20 +12668,38 @@ async function paintPfDevices() {
   try { d = await api('/api/sessions'); }
   catch (e) { box.innerHTML = '<div class="tiny muted">' + escapeHtml(e.message || String(e)) + '</div>'; return; }
   const list = (d && d.list) || [];
-  const rows = list.map(x => `
+  // pkg3-143: сервер отдаёт одну строку на устройство, а не на каждый вход:
+  // «заходил десять раз с ноутбука» — это один пункт, а не десять одинаковых.
+  const rows = list.map(x => {
+    const ids = (x.ids && x.ids.length ? x.ids : [x.id]).filter(Boolean);
+    const n = Number(x.count) || ids.length || 1;
+    // на своём устройстве закрываем только СТАРЫЕ входы, текущий не трогаем
+    const btnIds = x.current ? ids.filter(v => v !== (x.currentId || x.id)) : ids;
+    const label = x.current
+      ? `Закрыть старые входы${btnIds.length > 1 ? ' (' + btnIds.length + ')' : ''}`
+      : `Закрыть${n > 1 ? ' (' + n + ')' : ''}`;
+    return `
     <div class="tiny" style="margin-top:8px">${x.current ? '🟢' : '⚪'} <b>${escapeHtml(x.device || 'устройство')}</b>${x.current ? ' — это устройство' : ''}
-      <div class="muted">вход ${escapeHtml(whenText(x.at))}${x.seen ? ' · был(а) ' + escapeHtml(whenText(x.seen)) : ''}${x.ip ? ' · ' + escapeHtml(x.ip) : ''}</div>
-      ${x.current ? '' : `<button class="mini danger" data-close-session="${escapeHtml(x.id)}" type="button" style="margin-top:4px">Выйти здесь</button>`}
-    </div>`).join('');
-  box.innerHTML = `<p class="hint">Вход живёт ${Number(d && d.ttlDays) || 30} дней. Если видите незнакомое устройство —
+      <div class="muted">${n > 1 ? 'входов: ' + n + ' · ' : ''}первый ${escapeHtml(whenText(x.at))} · последний раз ${escapeHtml(whenText(x.seen))}${x.ip ? ' · ' + escapeHtml(x.ip) : ''}</div>
+      ${btnIds.length ? `<button class="mini danger" data-ids="${escapeHtml(btnIds.join(','))}" type="button" style="margin-top:4px">${escapeHtml(label)}</button>` : ''}
+    </div>`;
+  }).join('');
+  box.innerHTML = `<p class="hint">Вход живёт ${Number(d && d.ttlDays) || 30} дней. Строки собраны по устройствам:
+    сколько бы раз вы ни входили с одного, это один пункт. Если видите незнакомое устройство —
     закройте его и смените пароль.</p>${rows}` +
     `<button class="mini danger" id="pf-devices-out" type="button" style="margin-top:10px">Выйти на всех остальных</button>`;
-  box.querySelectorAll('[data-close-session]').forEach(btn => {
+  box.querySelectorAll('[data-ids]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-close-session');
-      if (!confirm('Закрыть этот вход? На этом устройстве попросят пароль заново.')) return;
-      try { await api('/api/sessions/revoke', { method: 'POST', body: { id } }); toast('Вход закрыт'); paintPfDevices(); }
-      catch (e) { toast(e.message, true); }
+      const ids = String(btn.getAttribute('data-ids') || '').split(',').filter(Boolean);
+      if (!ids.length) return;
+      const many = ids.length > 1;
+      if (!confirm(many ? 'Закрыть эти входы (' + ids.length + ')? На них попросят пароль заново.'
+        : 'Закрыть этот вход? На этом устройстве попросят пароль заново.')) return;
+      try {
+        const r = await api('/api/sessions/revoke', { method: 'POST', body: { ids } });
+        toast(r && r.closed ? 'Закрыто входов: ' + r.closed : 'Вход закрыт');
+        paintPfDevices();
+      } catch (e) { toast(e.message, true); }
     });
   });
   const out = $('#pf-devices-out');
