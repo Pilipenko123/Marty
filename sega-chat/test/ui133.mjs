@@ -1,4 +1,4 @@
-// test/ui133.mjs — pkg3-134: «Новая папка» и «Переименовать» на Яндекс.Диске.
+// test/ui133.mjs — pkg3-135: «Новая папка» и «Переименовать» на Яндекс.Диске.
 //
 // Жалоба владельца: кнопки активны, а папка не создаётся и ничего не
 // переименовывается. Причина — двойная косая в КОРНЕ Диска: клиент склеивал
@@ -29,7 +29,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-134: создание папки и переименование на Диске');
+console.log('  pkg3-135: создание папки и переименование на Диске');
 console.log('══════════════════════════════════════════════════\n');
 
 /* ── 1. Клиент: как он строит путь ─────────────────────────────────────── */
@@ -207,10 +207,10 @@ ok(seen.some(x => x.op === 'upload' && x.path === 'disk:/Новая папка/�
 ok(badPaths.length === 0, 'за весь прогон ни одного отвергнутого пути');
 
 console.log('\n  6. Отметки выпуска');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-134', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-135', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v128', 'кэш оформления поднят до v127');
-ok(/\| pkg3-134 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-134');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v129', 'кэш оформления поднят до v127');
+ok(/\| pkg3-135 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-135');
 ok(read('package.json').includes('node test/ui133.mjs'), 'тест ui133 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

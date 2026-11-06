@@ -149,7 +149,10 @@ const B = up(await freePort(), {
   STORE: 'file', DATA_DIR: dirB, HOST: '127.0.0.1', HTTPS: '', PRESENCE_EVERY: '0',
   NEW_INVITE_DELAY: '0', INVITE_COOLDOWN_MS: '0',
   SEGA_SMTP_HOST: '127.0.0.1', SEGA_SMTP_PORT: String(smtpPort),
-  SEGA_SMTP_USER: 'bot', SEGA_SMTP_PASS: 'secret', SEGA_SMTP_FROM: 'chat@test.local'
+  SEGA_SMTP_USER: 'bot', SEGA_SMTP_PASS: 'secret', SEGA_SMTP_FROM: 'chat@test.local',
+  // pkg3-135: по умолчанию клиент требует TLS. Подставной сервер в этом тесте
+  // говорит открытым текстом, поэтому разрешаем явно — как для локальной пересылки.
+  SEGA_SMTP_PLAIN: '1'
 });
 await waitReady(B.base);
 
@@ -264,17 +267,46 @@ await wait(300);
 const tokenK = ((mails[0] || '').match(/\/\?recover=([0-9a-f]{48})/) || [])[1];
 ok(!!tokenK, 'ссылка Клаве ушла');
 const fresh = { saltAuth: hex(), authKey: hex(32), saltWrap: hex(), wrappedKeyByPass: null, wrappedPriv: null };
+// pkg3-135: без кода восстановления сброс ПО ПОЧТЕ не проходит — иначе доступ
+// к почте означал бы захват учётки (новые сообщения, чаты и диски чужим людям).
 r = await call(B.base, '/api/recover/commit', { method: 'POST', body: Object.assign({ token: tokenK }, fresh) });
-ok(r.status === 200 && r.d.mode === 'fresh', 'commit свежий: принят, mode=fresh');
+ok(r.status === 400 && /код восстановления/.test(r.d.error || ''),
+  'сброс по почте без кода восстановления — 400 «нужен код», ссылка не потрачена');
+r = await call(B.base, '/api/recover/state?token=' + tokenK);
+ok(r.status === 200, 'после отказа ссылка ещё жива: человек может ввести код');
+// кода у Клавы нет — значит выручает владелец: выдаёт одноразовую ссылку сброса
+const uList = await call(B.base, '/api/admin/invites', {}, admin);
+const klavaUid = (((uList.d && uList.d.users) || []).find(u => u.name === 'Клава') || {}).id;
+ok(!!klavaUid, 'владелец видит учётку Клавы');
+r = await call(B.base, '/api/admin/users/' + klavaUid + '/reset', { method: 'POST' }, admin);
+ok(r.status === 200 && /\?reset=[0-9a-f]{48}/.test(r.d.url || ''), 'владелец выдал ссылку сброса (на час)');
+const resetUrl = r.d.url || '';
+const resetTok = (resetUrl.match(/reset=([0-9a-f]{48})/) || [])[1];
+r = await call(B.base, '/api/reset/state?token=' + resetTok);
+ok(r.status === 200 && r.d.admin === true && r.d.name === 'Клава', 'ссылка сброса называет имя и говорит, что она от владельца');
+r = await call(B.base, '/api/recover/commit', { method: 'POST', body: Object.assign({ reset: resetTok }, fresh) });
+ok(r.status === 200 && r.d.mode === 'fresh', 'сброс по ссылке владельца: принят, mode=fresh');
 r = await call(B.base, '/api/login', { method: 'POST', body: { name: 'Клава', authKey: fresh.authKey } });
 ok(r.status === 200, 'вход новым паролем Клавы работает');
 ok(!r.d.wrappedKeyByPass && !r.d.wrappedPriv && !r.d.user.pub,
   'обёртки и pub сброшены: при входе пересоздастся пара ключей, старая история закрыта');
+r = await call(B.base, '/api/reset/state?token=' + resetTok);
+ok(r.status === 410, 'ссылка сброса одноразовая: повторно — 410');
+// прежние входы Клавы закрыты: её старый токен больше не пускает
+r = await call(B.base, '/api/profile', {}, klava);
+ok(r.status === 401 || r.status === 403 || r.status === 409,
+  'старая сессия Клавы закрыта после сброса (вход требует заново)');
+r = await call(B.base, '/api/recover/commit', { method: 'POST', body: Object.assign({ token: tokenK }, fresh) });
+ok(r.status === 410, 'ссылка из письма тоже погашена после сброса');
 
 // ── отвязка почты стирает копию
-r = await call(B.base, '/api/profile', { method: 'POST', body: { email: '' } }, polya);
+// после сброса пароля прежние входы закрыты — входим заново новым паролем
+r = await call(B.base, '/api/login', { method: 'POST', body: { name: 'Поля', authKey: newPolya.authKey } });
+ok(r.status === 200, 'Поля входит новым паролем после сброса (прежние входы закрыты)');
+const polya2 = r.d.token;
+r = await call(B.base, '/api/profile', { method: 'POST', body: { email: '' } }, polya2);
 ok(r.status === 200, 'почта отвязана');
-r = await call(B.base, '/api/profile', {}, polya);
+r = await call(B.base, '/api/profile', {}, polya2);
 ok(r.d.email === '' && r.d.emailConfirmed === false && r.d.hasRecoveryBlob === false,
   'после отвязки: почты, подтверждения и копии восстановления нет');
 

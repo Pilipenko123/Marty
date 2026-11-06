@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-134';
+const BUILD = 'pkg3-135';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -1291,6 +1291,43 @@ function createApi(store, opts = {}) {
   // он живёт в строке «Найти чат или участника» и дёргается при каждом запросе,
   // поэтому ему разрешено больше (SEARCH_LIMIT, по умолчанию 60).
   const SEARCH_LIMIT = Math.max(5, Number(process.env.SEARCH_LIMIT || 60));
+  /**
+   * pkg3-135: в базе лежит НЕ ключ сессии, а его отпечаток (SHA-256). Утечка базы
+   * больше не даёт готовых входов: по отпечатку в чат не войти. Старые сессии,
+   * записанные самим токеном, пускаются один раз и тут же переносятся (см. auth).
+   */
+  const sidOf = (token) => crypto.createHash('sha256').update('sega-session:' + String(token)).digest('hex');
+  function newSession(u) {
+    const token = crypto.randomBytes(24).toString('hex');
+    db.sessions[sidOf(token)] = { uid: u.id, exp: Date.now() + SESSION_TTL };
+    return token;
+  }
+
+  /**
+   * pkg3-135: неверные пароли считаем и ПО АККАУНТУ, с растущей паузой.
+   * По адресу считать мало: адресов у подбирающего много, а имя одно.
+   * 5 промахов — 5 с, 10 — 30 с, 20 — 5 мин, 50 — 15 мин. Успешный вход
+   * счётчик обнуляет, поэтому опечатавшийся человек не страдает.
+   */
+  const loginFail = new Map();
+  const LOGIN_STEPS = [[5, 5 * 1000], [10, 30 * 1000], [20, 5 * 60 * 1000], [50, 15 * 60 * 1000]];
+  function loginWait(nameLower) {
+    const r = loginFail.get(nameLower);
+    if (!r) return 0;
+    const left = (r.until || 0) - Date.now();
+    return left > 0 ? left : 0;
+  }
+  function loginMiss(nameLower) {
+    if (loginFail.size > 5000) loginFail.clear();   // память не копим бесконечно
+    const r = loginFail.get(nameLower) || { n: 0, until: 0, at: Date.now() };
+    if (Date.now() - r.at > 60 * 60 * 1000) { r.n = 0; r.until = 0; r.at = Date.now(); }
+    r.n++;
+    for (const [n, ms] of LOGIN_STEPS) if (r.n >= n) r.until = Date.now() + ms;
+    loginFail.set(nameLower, r);
+    return r;
+  }
+  const loginClear = (nameLower) => loginFail.delete(nameLower);
+
   function throttle(key, limit) {
     const max = Number(limit) > 0 ? Number(limit) : 25;
     const now = Date.now();
@@ -1304,10 +1341,24 @@ function createApi(store, opts = {}) {
     const h = req.headers['authorization'] || '';
     const token = h.startsWith('Bearer ') ? h.slice(7) : null;
     if (!token) return null;
-    let s = db.sessions[token];
-    if (s === undefined) s = await store.getSession(token);
+    const sid = sidOf(token);
+    let s = db.sessions[sid];
+    // хранилища отвечают и null, и undefined — приводим к одному виду
+    if (!s) s = (await store.getSession(sid)) || undefined;
+    if (!s) {
+      // pkg3-135: сессия, созданная до выпуска, лежит под самим токеном
+      let old = db.sessions[token];
+      if (!old) old = (await store.getSession(token)) || undefined;
+      if (old) s = old;
+      if (s) {
+        delete db.sessions[token];
+        store.dropSession(token);
+        db.sessions[sid] = s;
+        save();
+      }
+    }
     if (!s || s.exp < Date.now()) {
-      if (s) { delete db.sessions[token]; store.dropSession(token); save(); }
+      if (s) { delete db.sessions[sid]; store.dropSession(sid); save(); }
       return null;
     }
     const u = db.users.find(x => x.id === s.uid);
@@ -1316,7 +1367,7 @@ function createApi(store, opts = {}) {
     if (u.bannedUntil && u.bannedUntil > Date.now()) return { banned: u.bannedUntil };
     u.lastSeen = Date.now();
     store.touchPresence(u);
-    return { user: u, token };
+    return { user: u, token: sid };
   }
 
   let dirty = false;
@@ -1714,8 +1765,7 @@ function createApi(store, opts = {}) {
         createdAt: Date.now(), lastSeen: Date.now(), activeAt: Date.now()
       };
       db.users.push(user);
-      const token = crypto.randomBytes(24).toString('hex');
-      db.sessions[token] = { uid: user.id, exp: Date.now() + SESSION_TTL };
+      const token = newSession(user);
       save();
       return J(200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
     }
@@ -1732,14 +1782,21 @@ function createApi(store, opts = {}) {
       if (throttle('login:' + ip)) return E(429, 'Слишком много попыток. Подождите 10 минут.');
       const b = req.body;
       const name = normName(b.name).toLowerCase();
+      // pkg3-135: пауза по аккаунту (а не только по адресу) — подбор пароля
+      // перестаёт быть вопросом времени, даже если адресов у атакующего много
+      const wait = loginWait(name);
+      if (wait > 0) {
+        return E(429, 'Слишком много неверных паролей. Подождите ' + Math.ceil(wait / 1000) + ' с и попробуйте снова.');
+      }
       const u = db.users.find(x => x.nameLower === name);
       if (!u || !b.authKey || !timingEqual(hashSecret(b.authKey, u.saltAuth), u.authHash)) {
+        loginMiss(name);
         return E(403, 'Неверное имя или пароль');
       }
+      loginClear(name);
       // pkg3-59: забаненный при входе получает честную причину и срок
       if (u.bannedUntil && u.bannedUntil > Date.now()) return banError(u.bannedUntil);
-      const token = crypto.randomBytes(24).toString('hex');
-      db.sessions[token] = { uid: u.id, exp: Date.now() + SESSION_TTL };
+      const token = newSession(u);
       u.lastSeen = Date.now();
       save();
       return J(200, { token, user: publicUser(u), saltWrap: u.saltWrap, wrappedKeyByPass: u.wrappedKeyByPass, wrappedPriv: u.wrappedPriv || null });
@@ -1766,7 +1823,10 @@ function createApi(store, opts = {}) {
           + 'Ссылка (действует 1 час, одноразовая):\n' + publicBase(req) + '/?recover=' + token + '\n\n'
           + 'На открывшейся странице введите код восстановления (если вы сохранили его или отправили себе на почту) и новый пароль.\n'
           + 'Не запрашивали? Просто проигнорируйте письмо: без ссылки и кода пароль не изменить.');
-      } catch (e) { return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')); }
+      } catch (e) {
+        return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')
+          + (e.hint ? ' · ' + e.hint : ''));
+      }
       return J(200, { ok: true });
     }
     if (pathname === '/api/recover/state' && method === 'GET') {
@@ -1776,12 +1836,30 @@ function createApi(store, opts = {}) {
       if (!rec || !u) return E(410, 'Ссылка просрочена или уже использована');
       return J(200, { ok: true, name: u.name, hasBlob: !!u.recoveryBlob, blob: u.recoveryBlob || null });
     }
+    // pkg3-135: ссылка сброса, выданная ВЛАДЕЛЬЦЕМ (когда кода восстановления
+    // у человека нет). Открывается так же, как письмо, но живёт час и одноразово.
+    if (pathname === '/api/reset/state' && method === 'GET') {
+      const t = String(query.get('token') || '');
+      const rl = (db.resets || []).find(x => x.token === t && x.exp > Date.now());
+      const u = rl && db.users.find(x => x.id === rl.uid);
+      if (!rl || !u) return E(410, 'Ссылка просрочена или уже использована');
+      return J(200, { ok: true, name: u.name, admin: true });
+    }
     if (pathname === '/api/recover/commit' && method === 'POST') {
       if (throttle('recovercommit:' + ip, 10)) return E(429, 'Слишком много попыток. Подождите 10 минут.');
       const b = req.body || {};
-      const rec = (db.recover || []).find(x => x.token === String(b.token || '') && x.exp > Date.now());
+      const resetTok = String(b.reset || '');
+      const rec = resetTok
+        ? ((db.resets || []).find(x => x.token === resetTok && x.exp > Date.now()) || null)
+        : ((db.recover || []).find(x => x.token === String(b.token || '') && x.exp > Date.now()) || null);
       const u = rec && db.users.find(x => x.id === rec.uid);
       if (!rec || !u) return E(410, 'Ссылка просрочена или уже использована');
+      // pkg3-135: по ПОЧТЕ сброс без кода восстановления больше не проходит.
+      // Иначе доступ к почте = захват учётки (новые сообщения, чаты и диски).
+      // Совсем без кода может только владелец — он выдаёт ссылку сброса сам.
+      if (!resetTok && !b.wrappedPriv) {
+        return E(400, 'Для сброса по почте нужен код восстановления. Если код потерян — попросите владельца чата выдать ссылку сброса.');
+      }
       for (const k of ['saltAuth', 'authKey', 'saltWrap'])
         if (!b[k]) return E(400, 'Не хватает поля ' + k);
       u.saltAuth = b.saltAuth;
@@ -1797,7 +1875,15 @@ function createApi(store, opts = {}) {
       // обёртки и pub сбрасываются, при входе пересоздаётся пара ключей
       if (b.wrappedPriv) u.wrappedPriv = b.wrappedPriv;
       else { u.wrappedPriv = null; u.pub = null; }
-      db.recover = (db.recover || []).filter(x => x.token !== rec.token);
+      // любая ссылка этого участника гаснет: и письмо, и выданная владельцем
+      db.recover = (db.recover || []).filter(x => x.uid !== u.id);
+      db.resets = (db.resets || []).filter(x => x.uid !== u.id);
+      // pkg3-135: после сброса пароля все прежние входы закрываются — иначе
+      // тот, кто залез в учётку, остался бы в чате со своей сессией
+      await store.loadSessions();
+      for (const t of Object.keys(db.sessions)) if (db.sessions[t].uid === u.id) delete db.sessions[t];
+      adminLogAdd(rec.by || 'система', 'пароль «' + u.name + '» восстановлен'
+        + (resetTok ? ' по ссылке владельца' : ' кодом восстановления') + '; прежние входы закрыты');
       save();
       return J(200, { ok: true, mode: b.wrappedPriv ? 'full' : 'fresh' });
     }
@@ -1877,8 +1963,7 @@ function createApi(store, opts = {}) {
         const dm0 = chatById(dmId(invitedBy, user.id));
         if (dm0) { dm0.savedBy = [invitedBy, user.id]; dm0.openedBy = [invitedBy, user.id]; }
       }
-      const token = crypto.randomBytes(24).toString('hex');
-      db.sessions[token] = { uid: user.id, exp: Date.now() + SESSION_TTL };
+      const token = newSession(user);
       save();
       return J(200, { token, user: publicUser(user), saltWrap: user.saltWrap, wrappedKeyByPass: user.wrappedKeyByPass, wrappedPriv: user.wrappedPriv });
     }
@@ -4371,7 +4456,10 @@ function createApi(store, opts = {}) {
             await smtp.sendMail(em, 'SEGA-CHAT: привязка почты',
               'Код подтверждения: ' + code + '\n\nДействует 15 минут. Введите его в окне мессенджера.\n'
               + 'Если вы не привязывали почту — просто проигнорируйте письмо.\n\nВаш мессенджер: ' + publicBase(req));
-          } catch (e) { return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')); }
+          } catch (e) {
+            return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')
+              + (e.hint ? ' · ' + e.hint : ''));
+          }
         }
       }
       if (b.emailCode !== undefined) {
@@ -4509,6 +4597,19 @@ function createApi(store, opts = {}) {
           save();
           return J(200, { ok: true, bannedUntil: u.bannedUntil || 0 });
         }
+        // pkg3-135: владелец выдаёт участнику ОДНОРАЗОВУЮ ссылку сброса пароля.
+        // Нужна, когда человек забыл пароль и потерял код восстановления:
+        // без неё он остался бы без входа (а слать пароли в чат нельзя).
+        if (method === 'POST' && action === 'reset') {
+          if (u.id === me.id) return E(400, 'Свой пароль меняйте обычным путём — в настройках');
+          const now = Date.now();
+          db.resets = (db.resets || []).filter(x => x.exp > now && x.uid !== u.id);
+          const token = crypto.randomBytes(24).toString('hex');
+          db.resets.push({ token, uid: u.id, exp: now + 60 * 60 * 1000, by: me.id });
+          adminLogAdd(me.id, 'выдал «' + u.name + '» ссылку сброса пароля (на час)');
+          save();
+          return J(200, { ok: true, url: publicBase(req) + '/?reset=' + token, exp: now + 60 * 60 * 1000 });
+        }
         // pkg3-61: «поглощение» учётки — привязать внешность (имя и аватар)
         // другой учётки. Нужно, когда человек потерял пароль и зарегистрировался
         // заново: старая переписка становится «новой учёткой» на вид. Ключи и
@@ -4535,6 +4636,13 @@ function createApi(store, opts = {}) {
         }
       }
 
+      // pkg3-135: «проверить почту» — где именно застряло: связь, TLS или вход.
+      // Раньше человек видел одно «не удалось отправить письмо» и не знал, что чинить.
+      if (pathname === '/api/admin/mail' && method === 'GET') {
+        if (throttle('mail-diag-' + me.id, 20)) return E(429, 'Слишком часто — подождите минуту');
+        const res = await smtp.check(12000);
+        return J(200, Object.assign({ ok: res.ok }, res));
+      }
       if (pathname === '/api/admin/archives' && method === 'GET') {
         await store.loadArchives();
         return J(200, { archives: db.archives.slice().reverse() });

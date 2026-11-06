@@ -1,4 +1,4 @@
-// test/ui134.mjs — pkg3-134: второй Яндекс-Диск не даёт создавать папки.
+// test/ui134.mjs — pkg3-135: второй Яндекс-Диск не даёт создавать папки.
 //
 // Жалоба владельца: «на одном яндекс диске работает создание папок, а на втором
 // нет». В 133 починили двойную косую (одна причина), серверную склейку путей
@@ -35,7 +35,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-134: второй Яндекс-Диск — права записи');
+console.log('  pkg3-135: второй Яндекс-Диск — права записи');
 console.log('══════════════════════════════════════════════════\n');
 
 /* ── 1. Клиент: отказ виден и объяснён ─────────────────────────────────── */
@@ -245,10 +245,10 @@ r = await call('/api/yadisk/list?path=' + encodeURIComponent('disk2:/'), {}, adm
 ok(r.status === 200, 'список второго Диска по-прежнему читается');
 
 console.log('\n  7. Отметки выпуска');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-134', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-135', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v128', 'кэш оформления поднят до v128');
-ok(/\| pkg3-134 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-134');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v129', 'кэш оформления поднят до v128');
+ok(/\| pkg3-135 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-135');
 ok(read('package.json').includes('node test/ui134.mjs'), 'тест ui134 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

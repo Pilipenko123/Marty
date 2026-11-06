@@ -24,6 +24,7 @@ function emptyDb() {
     sessions: {},   // token -> { uid, exp }
     invites: [],    // pkg3-45: { id, ownerId, secretHash, invSalt, wrappedRoomKey, createdAt,
                     //   expiresAt, usedBy, usedAt, revoked } — одноразовые ссылки-приглашения
+    resets: [],     // pkg3-135: { token, uid, exp, by } — ссылки сброса пароля от владельца
     bonds: [],      // pkg3-47: { owner, member, origin:'invite'|'request', at } — кто кого
                     //   держит у себя в разделе «Приглашенные»; у участника может быть
                     //   несколько таких связей, в отличие от единственного invitedBy
@@ -72,6 +73,7 @@ function migrate(db) {
   if (!db.chg) db.chg = 0;
   if (!Array.isArray(db.changes)) db.changes = [];
   if (!Array.isArray(db.backups)) db.backups = [];
+  if (!Array.isArray(db.resets)) db.resets = [];   // pkg3-135: ссылки сброса пароля
 
   const legacyId = 'legacy-group';
   if (db.messages.some(m => m.ch !== undefined && m.chat === undefined)) {

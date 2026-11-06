@@ -17,6 +17,7 @@
 const { createApi } = require('../lib/api');
 const { createYdbStore } = require('../lib/store-ydb');
 const { serveStatic, splitBase } = require('../lib/static');
+const { clientIp } = require('../lib/clientip');
 
 let store = null, app = null;
 
@@ -66,8 +67,13 @@ module.exports.handler = async function (event, context) {
       out = await api.handle({
         method, path: pathname, query: pickQuery(event, qmark >= 0 ? raw.slice(qmark + 1) : ''),
         headers, body,
-        ip: (headers['x-forwarded-for'] || (event.requestContext && event.requestContext.identity
-          && event.requestContext.identity.sourceIp) || '').split(',')[0].trim()
+        // pkg3-135: последний адрес в цепочке (его дописал прокси), а не первый
+        ip: clientIp({
+          headers,
+          remote: '',
+          sourceIp: (event.requestContext && event.requestContext.identity
+            && event.requestContext.identity.sourceIp) || ''
+        })
       });
     } else {
       out = serveStatic(pathname, base);
@@ -78,7 +84,14 @@ module.exports.handler = async function (event, context) {
   }
 
   const resHeaders = Object.assign(
-    { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' },
+    {
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      // pkg3-135: те же защиты, что и на своём сервере (CSP страницы приходит из lib/static.js)
+      'X-Frame-Options': 'DENY',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), display-capture=()',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Strict-Transport-Security': 'max-age=15552000; includeSubDomains'
+    },
     out.headers || {}
   );
   let body, isBase64Encoded = false;

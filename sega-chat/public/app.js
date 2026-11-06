@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-134';
+const BUILD = 'pkg3-135';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -195,7 +195,7 @@ function segaEmoFail(img) {
   const alt = img.getAttribute('alt') || '';
   if (alt) img.replaceWith(document.createTextNode(alt));
 }
-window.segaEmoFail = segaEmoFail;   // вызывается из onerror в разметке
+window.segaEmoFail = segaEmoFail;   // pkg3-135: вызывается общим перехватчиком (CSP без «unsafe-inline»)
 function twEmo(html, opts) {
   if (S.eco) return String(html);   // эконом-режим: никаких картинок-смайлов
   const eager = !!(opts && opts.eager);
@@ -203,10 +203,26 @@ function twEmo(html, opts) {
     const cp = twCode(seq);
     return `<img class="emo" src="${BASE}${EMO_SRC}${cp}.svg" alt="${seq}"`
       + (eager ? '' : ' loading="lazy"')
-      + ` onerror="segaEmoFail(this)" data-emo="${cp}" data-emo-fb="${TW_URL}${cp}.svg">`;
+      + ` data-emo="${cp}" data-emo-fb="${TW_URL}${cp}.svg">`;
   });
 }
 const linkify = h => h.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+/**
+ * pkg3-135: единый обработчик «картинка не загрузилась» вместо onerror-атрибутов.
+ * Так разметка остаётся чистой, а строгий CSP (без «unsafe-inline») не ломает
+ * ни смайлы, ни обложки: атрибуты вида onerror= под запретом, слушатель — нет.
+ *   data-emo-fb  — запасной адрес смайла (внешний CDN → свой значок);
+ *   data-fb-src  — запасная обложка;
+ *   data-fb-note — что написать на месте картинки-обложки (♪).
+ */
+window.addEventListener('error', e => {
+  const img = e && e.target;
+  if (!img || img.tagName !== 'IMG' || img.dataset.fbDone === '1') return;
+  img.dataset.fbDone = '1';
+  if (img.dataset.emoFb) { segaEmoFail(img); return; }
+  if (img.dataset.fbSrc) { img.src = img.dataset.fbSrc; return; }
+  if (img.dataset.fbNote && img.parentNode) { img.parentNode.textContent = img.dataset.fbNote; }
+}, true);
 function fmtBytes(b) {
   if (b < 1024) return b + ' Б';
   if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' КБ';
@@ -655,7 +671,10 @@ async function boot() {
   if (st.setupRequired) { loadUi.hide(); return screen('setup'); }
   // pkg3-64: ссылка из письма («…/?recover=…») ведёт прямо на экран восстановления
   const recToken = new URLSearchParams(location.search).get('recover');
-  if (recToken) { loadUi.hide(); openRecover(recToken); return; }
+  // pkg3-135: ссылка сброса от владельца («…/?reset=…») ведёт на тот же экран,
+  // но кода восстановления не требует — владелец уже подтвердил, что это вы
+  const admReset = new URLSearchParams(location.search).get('reset');
+  if (recToken || admReset) { loadUi.hide(); openRecover(recToken, admReset); return; }
 
   if (window.createLocalCache) {
     try {
@@ -4950,7 +4969,8 @@ function musCoverDefault() {
 function musCoverBigHtml(t) {
   const src = t ? (t.cover || t.coverSite || '') : '';
   const def = musCoverDefault().src;
-  if (src) return `<img src="${escapeHtml(src)}" alt="" onerror="this.src='${def}';this.onerror=null">`;
+  // pkg3-135: обработчик-атрибут заменён запасным адресом в data- (строгий CSP)
+  if (src) return `<img src="${escapeHtml(src)}" alt="" data-fb-src="${escapeHtml(def)}">`;
   // pkg3-111: когда у трека нет своей обложки — картинка владельца «Обложка»;
   // pkg3-112: касание по ней открывает выбор из четырёх стандартных.
   return `<img src="${def}" alt="" class="mus-cov-def" title="Нажмите, чтобы выбрать стандартную обложку">`;
@@ -5013,7 +5033,7 @@ const musicFind = id => id === MUS_SEARCH ? musSearchPl() : (musicAll().find(p =
 /** pkg3-115: маленькая обложка у ▶ в строке: своя или с сайта, иначе значок ♪. */
 function musThumbHtml(t) {
   const src = t ? (t.cover || t.coverSite || '') : '';
-  if (src) return `<span class="mus-thumb"><img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentNode.textContent='♪'"></span>`;
+  if (src) return `<span class="mus-thumb"><img src="${escapeHtml(src)}" alt="" loading="lazy" data-fb-note="♪"></span>`;
   return '<span class="mus-thumb mus-thumb-n">♪</span>';
 }
 const musicUid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -11279,7 +11299,7 @@ $('#btn-profile').addEventListener('click', () => {
     <button class="primary soft" id="pf-save-status">Сохранить статус</button>
     <div class="divider"><span>Пароль</span></div>
     <label>Текущий пароль<input type="password" id="pf-old" autocomplete="current-password"></label>
-    <label>Новый пароль<input type="password" id="pf-new" autocomplete="new-password" placeholder="минимум 6 символов"></label>
+    <label>Новый пароль<input type="password" id="pf-new" minlength="10" autocomplete="new-password" placeholder="минимум 10 символов"></label>
     <label>Повторите новый<input type="password" id="pf-new2" autocomplete="new-password"></label>
     <div class="err" id="pf-err"></div>
     <button class="primary" id="pf-save-pass">Сменить пароль</button>
@@ -11319,7 +11339,8 @@ $('#btn-profile').addEventListener('click', () => {
   $('#pf-save-pass').addEventListener('click', async () => {
     const err = $('#pf-err'); err.textContent = '';
     const oldP = $('#pf-old').value, np = $('#pf-new').value;
-    if (np.length < 6) return err.textContent = 'Новый пароль слишком короткий';
+    // pkg3-135: 10 символов вместо 6 — подбор пароля становится дороже
+    if (np.length < 10) return err.textContent = 'Новый пароль слишком короткий: нужно 10 символов. Хороший вариант — три слова через дефис';
     if (np !== $('#pf-new2').value) return err.textContent = 'Новые пароли не совпадают';
     const btn = $('#pf-save-pass'); btn.disabled = true; btn.textContent = 'Меняем ключи…';
     try {
@@ -12310,11 +12331,34 @@ function openUserAdmin(id) {
         <button class="mini" id="ua-display" type="button">${aliasName ? 'Изменить / Отвязать' : 'Привязать внешность'}</button>
       </div>
       <div class="set-row">
+        <div class="t"><b>Забыл пароль и потерял код восстановления</b>
+          <span>ссылка на час: человек сам задаст новый пароль, все прежние входы закроются, старая переписка останется закрытой</span></div>
+        <button class="mini" id="ua-reset" type="button">Ссылка сброса</button>
+      </div>
+      <div class="set-row">
         <div class="t"><b>Удалить из мессенджера навсегда</b>
           <span>все данные участника стираются с сервера; возврат — только по новому приглашению и новой регистрацией</span></div>
         <button class="mini danger" id="ua-del" type="button">Удалить</button>
       </div>
     </div>`);
+  $('#ua-reset').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/admin/users/' + encodeURIComponent(id) + '/reset', { method: 'POST' });
+      modal('Ссылка сброса для «' + visName + '»', `<div class="card">
+        <p class="tiny">Передайте ссылку лично (не в общий чат). Она действует час и срабатывает один раз.
+        Человек задаст новый пароль сам; все его прежние входы закроются, старая переписка останется закрытой.</p>
+        <input type="text" id="rst-url" readonly value="${escapeHtml(r.url)}">
+        <div class="ask-b"><button class="mini" id="rst-copy" type="button">Скопировать</button>
+        <button class="mini primary" id="rst-ok" type="button">Понятно</button></div>
+      </div>`);
+      $('#rst-copy').addEventListener('click', () => {
+        const inp = $('#rst-url');
+        inp.select();
+        try { navigator.clipboard.writeText(inp.value); toast('Ссылка скопирована'); } catch (e) { toast('Скопируйте вручную', true); }
+      });
+      $('#rst-ok').addEventListener('click', () => hide($('#modal')));
+    } catch (e) { toast('Не получилось: ' + (e.message || e), true); }
+  });
   $('#ua-display').addEventListener('click', () => openAdminDisplayMerge(id));
   $('#ua-noinvite').addEventListener('change', async e => {
     const list = new Set(pol.blockedUsers || []);
@@ -12515,6 +12559,28 @@ document.addEventListener('click', e => {
   const code = (e.target.closest('.card').querySelector('div[style*="monospace"]') || {}).textContent || '';
   try { navigator.clipboard.writeText(code); toast('Код скопирован'); } catch (err) { toast('Скопируйте код вручную', true); }
 });
+/**
+ * pkg3-135: «почему не отправляется письмо» — по шагам и словами.
+ * Раньше на экране было одно «не удалось отправить», и понять причину
+ * (пароль приложения? порт? адрес?) было нельзя.
+ */
+async function mailDiag() {
+  const box = $('#pf-mail-diagbox') || (() => { const d = document.createElement('div'); document.body.appendChild(d); return d; })();
+  box.innerHTML = '<div class="tiny muted">Проверяем почтовый сервер…</div>';
+  let r = null, err = null;
+  try { r = await api('/api/admin/mail', { timeout: 30000 }); } catch (e) { err = e; }
+  const steps = (r && r.steps) || [];
+  const rows = steps.map(x => `<div class="tiny">${x.ok ? '✅' : '⛔'} <b>${escapeHtml(x.step)}</b>: ${escapeHtml(x.detail)}</div>`).join('');
+  const conf = r && r.config ? `<p class="tiny muted">Сервер: ${escapeHtml(r.config.host || '—')}:${escapeHtml(String(r.config.port || ''))}, ящик ${escapeHtml(r.config.user || '—')}, отправитель ${escapeHtml(r.config.from || '—')}</p>` : '';
+  box.innerHTML = `<div class="card" style="padding:10px;margin-top:8px">
+    <b>${r && r.ok ? 'Почта работает' : 'Почта не работает'}</b>
+    ${conf}${rows}
+    ${r && r.error ? `<div class="tiny" style="margin-top:6px"><b>Что ответил сервер:</b> <code>${escapeHtml(r.error)}</code></div>` : ''}
+    ${r && r.hint ? `<div class="tiny" style="margin-top:6px"><b>Что делать:</b> ${escapeHtml(r.hint)}</div>` : ''}
+    ${err ? `<div class="tiny">Не удалось проверить: ${escapeHtml(err.message || String(err))}</div>` : ''}
+    <div class="tiny muted" style="margin-top:6px">Настройка — переменные SEGA_SMTP_HOST, SEGA_SMTP_PORT, SEGA_SMTP_USER, SEGA_SMTP_PASS, SEGA_SMTP_FROM в .env сервера.</div>
+  </div>`;
+}
 async function paintPfMail() {
   const box = $('#pf-mail');
   if (!box) return;
@@ -12527,7 +12593,10 @@ async function paintPfMail() {
       «Забыли пароль?», ссылка придёт на эту почту.</p>
       <button class="mini" id="pf-mail-code" type="button">Показать новый код восстановления</button>
       <button class="mini danger" id="pf-mail-off" type="button" style="margin-left:6px">Отвязать почту</button>
-      <div id="pf-mail-codebox"></div>`;
+      <div id="pf-mail-codebox"></div>
+      ${(S.me && S.me.isAdmin) ? '<button class="mini" id="pf-mail-diag" type="button" style="margin-top:6px">Проверить почтовый сервер</button><div id="pf-mail-diagbox"></div>' : ''}`;
+    const diagBtn = $('#pf-mail-diag');
+    if (diagBtn) diagBtn.addEventListener('click', mailDiag);
     $('#pf-mail-code').addEventListener('click', async () => {
       const code = await makeRecoveryCode();
       if (code) $('#pf-mail-codebox').innerHTML = recoveryCodeHtml(code);
@@ -12567,8 +12636,13 @@ async function paintPfMail() {
   });
 }
 
-/** Экран восстановления пароля. token — из письма (?recover=…), null — шаг запроса. */
-function openRecover(token) {
+/**
+ * Экран восстановления пароля. token — из письма (?recover=…), resetTok — ссылка
+ * от владельца (?reset=…), null — шаг запроса письма.
+ * pkg3-135: сброс по ПОЧТЕ требует код восстановления (иначе доступ к почте =
+ * захват учётки). Совсем без кода может только владелец — своей ссылкой.
+ */
+function openRecover(token, resetTok) {
   screen('recover');
   const box = $('#recover-steps');
   if (!box) return;
@@ -12591,17 +12665,22 @@ function openRecover(token) {
   }
   (async () => {
     let st;
-    try { st = await api('/api/recover/state?token=' + encodeURIComponent(token)); }
-    catch (e) { box.innerHTML = '<p class="hint">' + escapeHtml(e.message) + '</p>'; return; }
+    try {
+      st = resetTok
+        ? await api('/api/reset/state?token=' + encodeURIComponent(resetTok))
+        : await api('/api/recover/state?token=' + encodeURIComponent(token));
+    } catch (e) { box.innerHTML = '<p class="hint">' + escapeHtml(e.message) + '</p>'; return; }
     box.innerHTML = `
       <p class="hint">Восстанавливаем пароль для имени <b>${escapeHtml(st.name)}</b>.
-      Шаг 2: новый пароль${st.hasBlob ? ' и код восстановления, если вы его сохраняли' : ''}.</p>
-      ${st.hasBlob
-        ? `<label>Код восстановления <span class="tiny muted">(необязательно, но с ним вернётся старая переписка)</span>
-           <input type="text" id="rc-code" placeholder="xxxx-xxxx-xxxx-…" autocomplete="off"></label>`
-        : '<p class="tiny muted">Копии восстановления у этого имени нет: учётка оживёт, но старая переписка останется закрытой.</p>'}
-      <label>Новый пароль<input type="password" id="rc-pass" minlength="6" autocomplete="new-password" placeholder="минимум 6 символов"></label>
-      <label>Повторите новый<input type="password" id="rc-pass2" minlength="6" autocomplete="new-password"></label>
+      Шаг 2: новый пароль${resetTok ? '' : ' и код восстановления'}.</p>
+      ${resetTok
+        ? '<p class="tiny muted">Ссылку выдал владелец чата. Старая переписка этого имени останется закрытой: открыть её может только код восстановления, а он, судя по обращению, потерян. Все прежние входы будут закрыты.</p>'
+        : (st.hasBlob
+          ? `<label>Код восстановления <span class="tiny muted">(обязательно: он и есть ваша вторая вещь)</span>
+             <input type="text" id="rc-code" placeholder="xxxx-xxxx-xxxx-…" autocomplete="off"></label>`
+          : '<p class="tiny muted">Копии восстановления у этого имени нет, поэтому по почте сброс невозможен — так защищено от чужого доступа к вашей почте. Попросите владельца чата выдать ссылку сброса; старая переписка при этом останется закрытой.</p>')}
+      <label>Новый пароль<input type="password" id="rc-pass" minlength="10" autocomplete="new-password" placeholder="минимум 10 символов"></label>
+      <label>Повторите новый<input type="password" id="rc-pass2" minlength="10" autocomplete="new-password"></label>
       <label class="row-check"><input type="checkbox" id="rc-show"> <span>Показать пароль</span></label>
       <div class="err" id="rc-err"></div>
       <button class="primary" id="rc-go" type="button">Поставить новый пароль</button>`;
@@ -12613,13 +12692,24 @@ function openRecover(token) {
       const err = $('#rc-err'); err.textContent = '';
       const pass = $('#rc-pass').value;
       if (pass !== $('#rc-pass2').value) { err.textContent = 'Пароли не совпадают'; return; }
-      if (pass.length < 6) { err.textContent = 'Пароль минимум 6 символов'; return; }
+      if (pass.length < 10) { err.textContent = 'Пароль минимум 10 символов (например, три слова через дефис)'; return; }
+      if (!resetTok && !st.hasBlob) {
+        err.textContent = 'Без кода восстановления сброс по почте не проходит: нужна ссылка от владельца чата.';
+        return;
+      }
+      const codeEl0 = $('#rc-code');
+      if (!resetTok && st.hasBlob && !(codeEl0 && codeEl0.value.trim())) {
+        err.textContent = 'Введите код восстановления — без него сброс по почте не проходит.';
+        return;
+      }
       const btn = $('#rc-go'); btn.disabled = true; btn.textContent = 'Ставим…';
       try {
         const saltAuth = newSalt(), saltWrap = newSalt();
         const authKey = toHex(await pbkdf2(pass, saltAuth));
         const wrapKey = await aesKeyFrom(pass, saltWrap);
-        const body = { token, saltAuth, authKey, saltWrap, wrappedKeyByPass: null, wrappedPriv: null };
+        const body = resetTok
+          ? { reset: resetTok, saltAuth, authKey, saltWrap, wrappedKeyByPass: null, wrappedPriv: null }
+          : { token, saltAuth, authKey, saltWrap, wrappedKeyByPass: null, wrappedPriv: null };
         const codeEl = $('#rc-code');
         if (st.hasBlob && codeEl && codeEl.value.trim()) {
           const K = parseRecoveryCode(codeEl.value);
@@ -12629,8 +12719,6 @@ function openRecover(token) {
           catch (e) { err.textContent = 'Код не подошёл: копия восстановления не открылась'; btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
           body.wrappedKeyByPass = await aesEncryptBytes(wrapKey, fromB64(sec.room));
           body.wrappedPriv = await aesEncryptBytes(wrapKey, fromB64(sec.pkcs8));
-        } else if (st.hasBlob) {
-          if (!confirm('Без кода восстановления учётка получит новый пароль, но старая переписка этого имени останется закрытой НАВСЕГДА. Продолжить?')) { btn.disabled = false; btn.textContent = 'Поставить новый пароль'; return; }
         }
         await api('/api/recover/commit', { method: 'POST', body });
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
