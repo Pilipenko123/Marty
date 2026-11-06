@@ -1,4 +1,4 @@
-// test/ui127.mjs — pkg3-139: Google Диск внутри «Моей музыки».
+// test/ui127.mjs — pkg3-140: Google Диск внутри «Моей музыки».
 //
 // Что проверяем на живом сервере с игрушечным Google:
 //   • «🅖 Google Диск» — такой же список треков, как у Яндекса
@@ -27,7 +27,7 @@ const hex = (n = 16) => crypto.randomBytes(n).toString('hex');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-139: Google Диск в «Моей музыке»');
+console.log('  pkg3-140: Google Диск в «Моей музыке»');
 console.log('══════════════════════════════════════════════════\n');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sega-m127-'));
@@ -185,10 +185,10 @@ ok(/🅖 диск/.test(appJs), 'в строке трека видно, что �
 console.log('\n  6. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(b2 === BUILD && BUILD === 'pkg3-139', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
+ok(b2 === BUILD && BUILD === 'pkg3-140', `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(/\| pkg3-139 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v133', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(/\| pkg3-140 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
+ok(cache === 'sega-static-v134', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui127.mjs'), 'тест ui127 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

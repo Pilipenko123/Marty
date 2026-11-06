@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-139';
+const BUILD = 'pkg3-140';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -12635,10 +12635,20 @@ async function paintPfMail() {
   // привязки. Раньше кнопка жила в ветке «почта привязана», и получалось
   // издевательство: почта не работает → привязать нельзя → кнопки проверки нет.
   const isAdmin = !!(S.me && S.me.isAdmin);
+  // pkg3-140: «почта не работает» видно сразу, без нажатия кнопки — иначе владелец
+  // узнаёт об этом только от человека, который ждёт письмо, которого не будет
+  const last = st.mail && st.mail.last ? st.mail.last : null;
+  const mailLine = !isAdmin ? '' : (st.mail && st.mail.configured === false)
+    ? `<div class="tiny" style="margin-top:6px">⛔ <b>почта на сервере не настроена</b> — нет переменных SEGA_SMTP_* в .env</div>`
+    : last
+      ? `<div class="tiny" style="margin-top:6px">${last.ok ? '✅' : '⛔'} <b>последнее письмо</b>: ${last.ok ? 'ушло' : 'не ушло'}
+        · ${escapeHtml(new Date(last.at).toLocaleString('ru-RU'))}${!last.ok && last.error ? ' · ' + escapeHtml(last.error) : ''}</div>`
+      : '';
   const diag = isAdmin ? `
     <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.12);padding-top:8px">
+      ${mailLine}
       <p class="hint">Проверка почтового сервера (видит только владелец): находится ли имя и адреса,
-      отвечают ли порты 465/587/25, есть ли у сервера интернет — и готовое письмо в поддержку,
+      отвечают ли порты 465/587/25/2525, есть ли у сервера интернет — и готовое письмо в поддержку,
       если почтовые порты закрыты. Этой же кнопкой проверяется, почему не приходит письмо.</p>
       <button class="mini" id="pf-mail-diag" type="button">Проверить почтовый сервер</button>
       <div id="pf-mail-diagbox"></div>
@@ -12709,7 +12719,10 @@ function openRecover(token, resetTok) {
       <label>Ник<input type="text" id="rc-name" autocomplete="username"></label>
       <label>Почта<input type="email" id="rc-email" autocomplete="email"></label>
       <div class="err" id="rc-err"></div>
-      <button class="primary" id="rc-go" type="button">Восстановить пароль</button>`;
+      <button class="primary" id="rc-go" type="button">Восстановить пароль</button>
+      <p class="hint" style="margin-top:10px">Если письмо не приходит — это не ваша ошибка.
+      Владелец может сбросить пароль вручную: Профиль → Участники → «Сбросить пароль».
+      Одноразовый код восстановления, сохранённый при регистрации, тоже подойдёт.</p>`;
     $('#rc-go').addEventListener('click', async () => {
       const err = $('#rc-err'); err.textContent = '';
       try {

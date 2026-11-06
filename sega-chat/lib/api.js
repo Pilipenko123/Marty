@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-139';
+const BUILD = 'pkg3-140';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -661,6 +661,15 @@ function createApi(store, opts = {}) {
   // ------------------------------------------------------------- ответы
   const J = (status, json, headers) => ({ status, json, headers });
   const E = (status, msg) => ({ status, json: { error: msg } });
+  // pkg3-140: помним, чем закончилась последняя отправка письма. Владелец должен
+  // видеть «почта не работает» без нажатия кнопки проверки — иначе он узнаёт об
+  // этом только от человека, который ждёт письмо, которого не будет.
+  const mailNote = (ok, error) => {
+    try {
+      db.mailStatus = { ok: !!ok, at: Date.now(), error: String(error || '').slice(0, 240) };
+      save();
+    } catch (e) {}
+  };
 
   /** pkg3-128: токен Google, которому разрешено МЕНЯТЬ файлы. Если вход был
    * «только смотреть» (так подключались в 126-м), сразу говорим, что нажать, —
@@ -1824,9 +1833,15 @@ function createApi(store, opts = {}) {
           + 'На открывшейся странице введите код восстановления (если вы сохранили его или отправили себе на почту) и новый пароль.\n'
           + 'Не запрашивали? Просто проигнорируйте письмо: без ссылки и кода пароль не изменить.');
       } catch (e) {
-        return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')
-          + (e.hint ? ' · ' + e.hint : ''));
+        mailNote(false, e.message);
+        // pkg3-140: человек на экране входа не админ сервера — ему бесполезно
+        // читать «проверьте SEGA_SMTP_PORT». Говорим, что делать ЕМУ.
+        console.warn('recover: письмо не ушло —', e.message);
+        return E(502, 'Письмо не ушло: почтовый сервер недоступен (это на стороне сервера, не ваша ошибка). '
+          + 'Попросите владельца сбросить пароль вручную — Профиль → Участники → Сбросить пароль. '
+          + 'Если вы сохранили одноразовый код восстановления, он тоже подойдёт.');
       }
+      mailNote(true, '');
       return J(200, { ok: true });
     }
     if (pathname === '/api/recover/state' && method === 'GET') {
@@ -4392,7 +4407,9 @@ function createApi(store, opts = {}) {
       // pkg3-64: своя почта и наличие копии восстановления (в publicUser этого нет)
       return J(200, {
         email: me.email || '', emailConfirmed: !!me.emailConfirmed,
-        hasRecoveryBlob: !!me.recoveryBlob
+        hasRecoveryBlob: !!me.recoveryBlob,
+        // pkg3-140: только владельцу — чтобы он видел поломку почты, не дожидаясь жалобы
+        mail: me.isAdmin ? { configured: smtp.enabled(), last: db.mailStatus || null } : undefined
       });
     }
     if (pathname === '/api/profile' && method === 'POST') {
@@ -4457,9 +4474,11 @@ function createApi(store, opts = {}) {
               'Код подтверждения: ' + code + '\n\nДействует 15 минут. Введите его в окне мессенджера.\n'
               + 'Если вы не привязывали почту — просто проигнорируйте письмо.\n\nВаш мессенджер: ' + publicBase(req));
           } catch (e) {
+            mailNote(false, e.message);
             return E(502, 'Не удалось отправить письмо: ' + (e.message || 'почтовый сервер недоступен')
               + (e.hint ? ' · ' + e.hint : ''));
           }
+          mailNote(true, '');
         }
       }
       if (b.emailCode !== undefined) {

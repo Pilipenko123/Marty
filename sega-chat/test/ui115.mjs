@@ -59,7 +59,7 @@ ok(/pub \? String\(t\.title \|\| t\.url\)\.slice\(0, 80\) : ''/.test(app), 'в �
 console.log('\n  3. Мини-обложка у ▶');
 ok(/function musThumbHtml\(t\)/.test(app), 'есть отрисовка мини-обложки');
 ok(/const src = t \? \(t\.cover \|\| t\.coverSite \|\| ''\) : '';\s+if \(src\) return `<span class="mus-thumb"><img src="\$\{escapeHtml\(src\)\}" alt="" loading="lazy" data-fb-note="♪"><\/span>`;/.test(app),
-  'своя обложка важнее обложки сайта; если картинка не грузится — ♪ (pkg3-139: без onerror=)');
+  'своя обложка важнее обложки сайта; если картинка не грузится — ♪ (pkg3-140: без onerror=)');
 ok(/return '<span class="mus-thumb mus-thumb-n">♪<\/span>';/.test(app), 'без обложки — значок с нотой');
 ok((app.match(/\$\{musThumbHtml\(t\)\}/g) || []).length === 2, 'мини-обложка стоит и в строках плейлиста, и в строках поиска');
 ok(/\.mus-v105 \.mus-thumb\{flex:none;width:26px;height:26px;border-radius:6px;overflow:hidden/.test(css) && /\.mus-v105 \.mus-thumb img\{width:100%;height:100%;object-fit:cover/.test(css),
