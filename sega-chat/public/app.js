@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-145';
+const BUILD = 'pkg3-146';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5823,18 +5823,22 @@ function gdDocBodyHtml(r) {
  * телефоне), а закрытие возвращает в ту папку, откуда их открыли: состояние
  * проводника живёт в S.disk, поэтому достаточно перерисовать окно папки.
  */
-function dkViewerOpen(title, html) {
+function dkViewerOpen(title, html, opts) {
   // возвращаемся только туда, откуда правда пришли: если окно папки открыто —
   // в папку, если файл открыли из письма в чате — просто закрываем просмотр
+  const keep = !!(opts && opts.keepBack);   // pkg3-146: листание фото не сбрасывает возврат
   const box = $('#modal');
-  const fromDisk = !!(box && !box.classList.contains('hidden') && box.querySelector('.disk-win.dsk'));
+  const fromDisk = keep ? !!S.dkViewerBack
+    : !!(box && !box.classList.contains('hidden') && box.querySelector('.disk-win.dsk'));
   S.dkViewerBack = fromDisk;
+  if (!keep) S.dkvGallery = null;
   modal(title, html, { cls: 'dsk-view' });
 }
 function dkViewerBack() {
   if (!S.dkViewerBack) return false;
   S.dkViewerBack = false;
-  renderDiskWindow();   // окно папки рисуется заново из S.disk — путь и выбор целы
+  S.dkvGallery = null;   // pkg3-146: листание фото закрыто вместе с просмотром
+  renderDiskWindow();    // окно папки рисуется заново из S.disk — путь и выбор целы
   return true;
 }
 /** Верхняя полоса просмотра: что открыто и куда вернуться. */
@@ -5868,13 +5872,65 @@ async function diskViewDoc(it, of) {
     </div>`);
   }
 }
+/**
+ * pkg3-146: просмотр фото листается, не закрывая окно — стрелками на ПК,
+ * кнопками ‹ › и смахиванием на телефоне. Список — фотографии той папки,
+ * которую человек открыл.
+ */
+function dkvPhotosOf(it) {
+  const st = diskState();
+  const list = (st.items || []).filter(x => x && !x.dir && x.media === 'image' && x.path);
+  const here = list.findIndex(x => x.path === (it && it.path));
+  if (here >= 0) return { items: list, i: here, of: st.of || '' };
+  return { items: it ? [it] : [], i: 0, of: (it && it.of) || diskState().of || '' };
+}
+function dkvPhotoBar(g) {
+  const many = g.items.length > 1;
+  const n = g.i + 1, all = g.items.length;
+  return `<div class="dkv-bar dkv-bar-photo">`
+    + (many
+      ? `<button class="wxp-tool" data-dkv-step="-1" title="Предыдущее фото (←)" ${g.i <= 0 ? 'disabled' : ''}>‹</button>`
+        + `<span class="dkv-count">${n} / ${all}</span>`
+        + `<button class="wxp-tool" data-dkv-step="1" title="Следующее фото (→)" ${g.i >= all - 1 ? 'disabled' : ''}>›</button>`
+      : '')
+    + `<span class="dkv-note">${escapeHtml(g.items[g.i] && g.items[g.i].name || '')}</span>`
+    + `<span class="dkv-acts"><button class="wxp-tool" data-dkv-dl="1">⬇ Скачать</button>`
+    + `<button class="wxp-tool" data-disk-back="1" title="Вернуться в папку">← В папку</button></span>`
+    + '</div>';
+}
+async function diskViewPhotoAt(idx) {
+  const g = S.dkvGallery;
+  if (!g || !g.items.length) return;
+  g.i = Math.max(0, Math.min(g.items.length - 1, Number(idx) || 0));
+  const it = g.items[g.i];
+  try {
+    const r = await diskFileHref(it.path, g.of);
+    dkViewerOpen(it.name || 'Фото', `<div class="dkv dkv-dark">${dkvPhotoBar(g)}`
+      + `<div class="dkv-body dkv-stage"><img class="dkv-media-el" src="${escapeHtml(r.href)}" alt="${escapeHtml(it.name || '')}" data-dkv-src="1"></div></div>`,
+      // первое открытие запоминает, что мы пришли из папки; листание возврат не сбрасывает
+      { keepBack: !!S.dkViewerBack });
+    S.dkvGallery = g;   // dkViewerOpen с keepBack его не сбрасывает
+  } catch (e) { toast('Фото не открылось: ' + (e.message || e), true); }
+}
+function dkvPhotoStep(delta) {
+  const g = S.dkvGallery;
+  if (!g || g.items.length < 2) return false;
+  const next = g.i + (Number(delta) || 0);
+  if (next < 0 || next >= g.items.length) return false;
+  diskViewPhotoAt(next);
+  return true;
+}
 async function diskViewFile(it, of) {
   try {
     const r = await diskFileHref(it.path, of);
     const media = it.media || r.media || '';
-    const inner = media === 'video'
-      ? `<video class="dkv-media-el" src="${escapeHtml(r.href)}" controls playsinline preload="metadata"></video>`
-      : `<img class="dkv-media-el" src="${escapeHtml(r.href)}" alt="${escapeHtml(it.name || '')}">`;
+    // pkg3-146: фотографию показываем галереей — можно листать, не закрывая окно
+    if (media === 'image') {
+      if (!S.dkvGallery || !S.dkvGallery.items.some(x => x.path === it.path)) S.dkvGallery = dkvPhotosOf(it);
+      else S.dkvGallery.i = Math.max(0, S.dkvGallery.items.findIndex(x => x.path === it.path));
+      return diskViewPhotoAt(S.dkvGallery.i);
+    }
+    const inner = `<video class="dkv-media-el" src="${escapeHtml(r.href)}" controls playsinline preload="metadata"></video>`;
     const size = it.size ? ' · ' + dkSize(it.size) : '';
     dkViewerOpen(it.name || 'Файл с Диска', `<div class="dkv dkv-dark">
       ${dkViewerBar(escapeHtml((it.name || '') + size + (of ? ' · Диск участника' : '')),
@@ -5891,7 +5947,18 @@ async function diskOpenItem(it) {
   if (it.gdoc) return diskViewDoc(it, st.of);
   if (it.media === 'audio') return diskPlayFile(it, st.of);
   if (it.media === 'image' || it.media === 'video') return diskViewFile(it, st.of);
-  return diskDownloadFile(it, st.of);
+  // pkg3-146: у файлов вроде .docx, .zip или .pdf просмотра в окне нет. Раньше
+  // такой файл МОЛЧА начинал скачиваться (владелец: «почему некоторые файлы
+  // открываются, а некоторые скачиваются?»). Теперь сперва спрашиваем.
+  return diskAskDownload(it);
+}
+/** «Этот файл нельзя открыть в окне. Скачать его на устройство?» */
+function diskAskDownload(it) {
+  const name = (it && it.name) || 'файл';
+  const size = it && it.size ? ' (' + dkSize(it.size) + ')' : '';
+  const yes = confirm('Этот файл нельзя открыть в окне чата.\n\nСкачать «' + name + '»' + size + ' на устройство?');
+  if (!yes) return null;
+  return diskDownloadFile(it, diskState().of);
 }
 async function diskToPlaylist(it) {
   musAskPlaylist({ kind: 'disk', path: it.path, title: it.name, diskOf: (S.me && S.me.id) || '', cover: '' });
@@ -6287,8 +6354,17 @@ document.addEventListener('click', async e => {
   if (iSend) { const it = st.items[Number(iSend.getAttribute('data-disk-send'))]; if (it) diskShareAsk(it); return; }
   const dlUrl = e.target.closest('[data-disk-dl-url]');
   if (dlUrl) { diskSaveUrl(dlUrl.getAttribute('data-disk-dl-url'), dlUrl.getAttribute('data-disk-dl-name')); return; }
+  // pkg3-146: листание фотографий — кнопками ‹ › и смахиванием
+  const step = e.target.closest('[data-dkv-step]');
+  if (step) { dkvPhotoStep(Number(step.getAttribute('data-dkv-step')) || 0); return; }
+  const dkvDl = e.target.closest('[data-dkv-dl]');
+  if (dkvDl) {
+    const g = S.dkvGallery;
+    if (g && g.items[g.i]) diskDownloadFile(g.items[g.i], g.of);
+    return;
+  }
   const back = e.target.closest('[data-disk-back]');
-  if (back) { S.dkViewerBack = false; renderDiskWindow(); return; }
+  if (back) { S.dkViewerBack = false; S.dkvGallery = null; renderDiskWindow(); return; }
   const pick = e.target.closest('[data-disk-chat]');
   if (pick) {
     const it = diskState().pick;
@@ -8495,16 +8571,19 @@ function renderMemory() {
 // тумблер «мои чаты / все чаты»; кнопка «Актуализировать» с прогрессом;
 // списки своих загрузок с просмотром и удалением; админу — операции в
 // «всех чатах» без просмотра содержимого и управление пределом хранилища.
-const ST_COLORS = { messages: '#6f9bff', photos: '#ff7ab2', media: '#b28cff', files: '#ffb86b', free: '#39415a' };
-const ST_LABEL = { messages: 'Сообщения', photos: 'Фотографии', media: 'Медиа', files: 'Файлы', free: 'Свободное место' };
+const ST_COLORS = { messages: '#6f9bff', photos: '#ff7ab2', media: '#b28cff', files: '#ffb86b', other: '#9db2c9', free: '#39415a' };
+const ST_LABEL = { messages: 'Сообщения', photos: 'Фотографии', media: 'Медиа', files: 'Файлы', other: 'Служебное (аватары, копии, фоны)', free: 'Свободное место' };
 let stScope = 'me';
 const stMB = b => (b / 1048576).toFixed(1) + ' МБ';
 function stDonutHtml(cats, free, percent) {
-  const total = cats.messages.bytes + cats.photos.bytes + cats.media.bytes + cats.files.bytes + free;
+  // pkg3-146: в круг входят ВСЕ доли, включая служебное, — иначе сумма не
+  // сходилась с занятым местом и диаграмма «врала» (жалоба владельца)
+  const catOf = k => (cats[k] && cats[k].bytes) || 0;
+  const total = catOf('messages') + catOf('photos') + catOf('media') + catOf('files') + catOf('other') + free;
   const R = 54, C = 2 * Math.PI * R;
   let off = 0, arcs = '';
-  for (const k of ['messages', 'photos', 'media', 'files', 'free']) {
-    const v = k === 'free' ? free : cats[k].bytes;
+  for (const k of ['messages', 'photos', 'media', 'files', 'other', 'free']) {
+    const v = k === 'free' ? free : catOf(k);
     if (!total || v <= 0) continue;
     const len = v / total * C;
     arcs += `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${ST_COLORS[k]}" stroke-width="26"
@@ -8518,10 +8597,20 @@ function stDonutHtml(cats, free, percent) {
     <text x="70" y="84" text-anchor="middle" style="font-size:9px;fill:currentColor;opacity:.7">занято</text>
   </svg>`;
 }
+/** pkg3-146: отдельная строка — что на самом деле творится на диске VPS. */
+function stDiskHtml(d) {
+  if (!d || !d.disk) return '';
+  const folder = d.folder ? ` · папка с данными: ${stMB(d.folder.bytes)} (${d.folder.files} файлов)` : '';
+  const more = d.folder && d.folder.bytes > Math.max(d.used * 1.15, d.used + 1048576)
+    ? '<div class="tiny muted" style="text-align:center;margin-top:2px">На диске лежит больше, чем посчитано по сообщениям: остальное — резервные копии, архивы и служебные файлы.</div>' : '';
+  return '<div class="tiny muted" style="text-align:center;margin-top:8px;line-height:1.45">'
+    + `Диск сервера: занято ${stMB(d.disk.used)} из ${stMB(d.disk.total)} · свободно ${stMB(d.disk.free)}${folder}`
+    + '</div>' + more;
+}
 function stLegendHtml(d) {
-  const rows = ['messages', 'photos', 'media', 'files', 'free'].map(k => {
-    const v = k === 'free' ? d.free : d.cats[k].bytes;
-    const cnt = k === 'free' ? '' : (' · ' + d.cats[k].count + ' шт.');
+  const rows = ['messages', 'photos', 'media', 'files', 'other', 'free'].map(k => {
+    const v = k === 'free' ? d.free : (d.cats[k] ? d.cats[k].bytes : 0);
+    const cnt = k === 'free' ? '' : (' · ' + ((d.cats[k] && d.cats[k].count) || 0) + ' шт.');
     return `<div class="st-row" data-stk="${k}" style="display:flex;align-items:center;gap:8px;padding:4px 2px;${k === 'free' ? '' : 'cursor:pointer'}">
       <span style="width:12px;height:12px;border-radius:3px;background:${ST_COLORS[k]};flex:none"></span>
       <span style="flex:1">${ST_LABEL[k]}</span>
@@ -8559,9 +8648,15 @@ async function stRender(fresh) {
     <input id="st-lim" type="number" min="1" style="width:90px" placeholder="МБ"> <button class="mini" id="st-lim-go">Расширить до МБ</button>
     <div class="tiny muted">Диск расширить нельзя (это тариф хостинга); можно поднять предел мессенджера, пока на диске есть место, и освободить место удалениями.</div></div>` : '';
   $('#st-main').innerHTML = stDonutHtml(d.cats, d.free, d.percent) + togg
+    + '<div class="tiny muted" style="text-align:center;margin:-2px 0 8px;line-height:1.4">'
+    + (stScope === 'me'
+      ? '«Мои чаты» — вся переписка и все вложения в чатах, где вы состоите (кто бы что ни отправил).'
+      : '«Все чаты» — вся база сервера целиком.')
+    + '</div>'
     + '<div style="max-width:340px;margin:0 auto">' + stLegendHtml(d) + '</div>'
     + '<div class="tiny muted" style="text-align:center;margin-top:6px">Занято ' + stMB(d.used) + ' из ' + stMB(d.limit)
-    + (stScope === 'all' && !d.canOperate ? ' · просмотр сумм без операций' : '') + '</div>' + lim;
+    + (stScope === 'all' && !d.canOperate ? ' · просмотр сумм без операций' : '') + '</div>'
+    + stDiskHtml(d) + lim;
   setP(100, 'готово:');
   setTimeout(() => { const p = $('#st-prog-fill'); if (p) p.parentElement.style.display = 'none'; const t = $('#st-prog-txt'); if (t) t.style.display = 'none'; }, 500);
   $('#st-me').addEventListener('click', () => { stScope = 'me'; stRender(false); });
@@ -9783,6 +9878,29 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   dkViewerBack();
 });
+// pkg3-146: стрелки ← → листают фотографии, не закрывая просмотр
+document.addEventListener('keydown', e => {
+  if (!S.dkvGallery || S.dkvGallery.items.length < 2) return;
+  const md = $('#modal');
+  if (!md || !md.classList.contains('dsk-view')) return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); dkvPhotoStep(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); dkvPhotoStep(-1); }
+});
+// pkg3-146: на телефоне — смахивание влево/вправо
+let dkvTouchX = null;
+document.addEventListener('touchstart', e => {
+  dkvTouchX = null;
+  if (!S.dkvGallery || !e.target.closest || !e.target.closest('#modal.dsk-view .dkv-stage')) return;
+  dkvTouchX = (e.touches && e.touches[0]) ? e.touches[0].clientX : null;
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  if (dkvTouchX == null) return;
+  const t = e.changedTouches && e.changedTouches[0];
+  const dx = t ? (t.clientX - dkvTouchX) : 0;
+  dkvTouchX = null;
+  if (Math.abs(dx) < 40) return;
+  dkvPhotoStep(dx < 0 ? 1 : -1);
+}, { passive: true });
 
 // ─────────────────────────────────────────── pkg3-53: свои разделы (папки) чатов
 // Раздел — личная папка: в неё кладётся КОПИЯ чата, из системного раздела чат не

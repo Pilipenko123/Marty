@@ -1,4 +1,4 @@
-// test/ui145.mjs — pkg3-145: документы и файлы на всё окно, возврат в папку,
+// test/ui145.mjs — pkg3-146: документы и файлы на всё окно, возврат в папку,
 //                  и документы Google больше не открываются «иероглифами».
 //
 // Владелец после 144-го: «документы открываются не на белом фоне, а на фоне темы
@@ -23,7 +23,7 @@ let good = 0, bad = 0;
 const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ПРОВАЛ: ') + m); if (c) good++; else bad++; };
 
 console.log('\n══════════════════════════════════════════════════');
-console.log('  pkg3-145: документы и файлы на всё окно, назад в папку');
+console.log('  pkg3-146: документы и файлы на всё окно, назад в папку');
 console.log('══════════════════════════════════════════════════\n');
 
 const gdrive = (await import(pathToFileURL(path.join(ROOT, 'lib/gdrive.js')).href)).default;
@@ -82,7 +82,7 @@ const plain = gdrive.decodeExport(Buffer.from(DOC_HTML, 'utf8'));
 ok(plain.zipped === false && /Отпуск в Сочи/.test(plain.text), 'обычный (не упакованный) экспорт читается как раньше');
 const broken = gdrive.decodeExport(Buffer.from([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4, 5]));
 ok(broken.zipped === true && broken.unzipped === false && broken.text === '', 'битый архив не выдаёт мусор — отдаёт пустой текст');
-ok(/проверка|Распаковка|pkg3-145/.test(read('lib/gdrive.js')), 'в коде есть отметка выпуска про распаковку');
+ok(/function unzipFirstEntry\(|function decodeExport\(/.test(read('lib/gdrive.js')), 'в коде есть распаковка экспорта');
 ok(/decodeExport\(Buffer\.concat\(chunks\)\)/.test(read('lib/gdrive.js')), 'экспорт распаковывается сразу, а не «как получится»');
 ok(/exDoc\.zipped && !exDoc\.unzipped/.test(read('lib/api.js')) && /распаковать не удалось/.test(read('lib/api.js')),
   'если распаковать не вышло — честный отказ вместо мусора на экране');
@@ -99,7 +99,7 @@ ok(/\.dkv-sheet \.gd-doc\{color:#1b1b1b/.test(css), 'тёмная тема ме�
 ok(/\.dkv-dark\{background:#111\}/.test(css) && /\.dkv-media-el\{/.test(css), 'фото и видео — на тёмном фоне, целиком в экране');
 ok(/@media \(max-width:700px\)\{[\s\S]*\.dkv-sheet\{padding:16px 14px/.test(css), 'на телефоне лист без рамки и полей — весь экран под текст');
 ok(/function dkViewerOpen\(/.test(appJs) && /cls: 'dsk-view'/.test(appJs), 'просмотр открывается отдельным полноэкранным окном');
-ok(/function dkViewerBack\(/.test(appJs) && /renderDiskWindow\(\);   \/\/ окно папки рисуется заново/.test(appJs),
+ok(/function dkViewerBack\(/.test(appJs) && /renderDiskWindow\(\);\s*\/\/ окно папки/.test(appJs),
   'закрытие возвращает в ту же папку (проводник перерисовывается)');
 ok(/data-disk-back="1" title="Вернуться в папку"/.test(appJs), 'в полосе просмотра есть кнопка «← В папку»');
 
@@ -179,10 +179,10 @@ if (!JSDOM) {
 /* ── 4. Отметки выпуска ─────────────────────────────────────────────────── */
 console.log('\n  4. Отметки выпуска');
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(((/const BUILD = '([^']+)'/.exec(appJs) || [])[1]) === BUILD && BUILD === 'pkg3-145', `отметка выпуска одна (${BUILD})`);
+ok(((/const BUILD = '([^']+)'/.exec(appJs) || [])[1]) === BUILD && BUILD === 'pkg3-146', `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(cache === 'sega-static-v139', `кэш оформления поднят (${cache})`);
-ok(/\| pkg3-145 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-145');
+ok(cache === 'sega-static-v140', `кэш оформления поднят (${cache})`);
+ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui145.mjs'), 'тест ui145 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

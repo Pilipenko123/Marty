@@ -63,6 +63,31 @@ const OK_STYLE = /^(font-weight|font-style|text-decoration|text-align|color|back
 const OK_VALUE = /^[#a-z0-9\s.,%()+-]{1,60}$/i;
 const OK_HOST = /^https:\/\/[a-z0-9.-]*\.(googleusercontent\.com|google\.com|gstatic\.com)\//i;
 
+/* ── pkg3-146: раскодирование «сущностей» HTML ────────────────────────────
+ * Google в экспорте пишет кириллицу числами: &#1058;&#1080;… Раньше эти
+ * последовательности попадали на экран как «иероглифы» (жалоба владельца со
+ * скриншотом). Теперь сущности раскодируются, а потом текст снова
+ * экранируется — на экран попадают буквы, а не коды.
+ */
+const NAMED_ENT = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0',
+  mdash: '—', ndash: '–', laquo: '«', raquo: '»', hellip: '…', copy: '©',
+  reg: '®', deg: '°', times: '×', divide: '÷', euro: '€', trade: '™',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', bull: '•', middot: '·'
+};
+function decodeEntities(raw) {
+  return String(raw || '').replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]{1,9});/g, (all, body) => {
+    if (body[0] === '#') {
+      const hex = body[1] === 'x' || body[1] === 'X';
+      const num = parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+      if (!Number.isFinite(num) || num <= 0 || num > 0x10ffff) return all;
+      try { return String.fromCodePoint(num); } catch (e) { return all; }
+    }
+    const hit = NAMED_ENT[body.toLowerCase()];
+    return hit == null ? all : hit;
+  });
+}
+
 /** Значение атрибута — наружу без кавычек, чтобы нельзя было вырваться из него. */
 function attrValue(raw, isUrl) {
   let v = String(raw == null ? '' : raw)
@@ -79,7 +104,10 @@ function attrValue(raw, isUrl) {
 }
 
 function escText(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // pkg3-146: сначала раскодируем HTML-сущности (Google пишет кириллицу кодами
+  // вида &#1058;&#1080;), потом экранируем. Иначе браузер показывает сами коды —
+  // это и были «иероглифы» в документах со скриншота владельца.
+  return decodeEntities(String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function rebuildOpenTag(name, rawAttrs) {
@@ -227,4 +255,4 @@ function csvRows(text, o = {}) {
   return { rows, cols, truncated };
 }
 
-module.exports = { GDOC_RE, kindOf, exportMime, kindTitle, openUrl, safeHtml, csvRows };
+module.exports = { GDOC_RE, kindOf, exportMime, kindTitle, openUrl, safeHtml, csvRows, decodeEntities };

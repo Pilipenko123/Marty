@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-145';
+const BUILD = 'pkg3-146';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -867,21 +867,31 @@ function createApi(store, opts = {}) {
       const u = usage();
       const upTotal = ups.reduce((a, x) => a + Math.ceil((x.stored || x.size || 0) * UP_B64), 0);
       const mine = scope === 'me';
+      // pkg3-146: «Мои чаты» — это ВСЕ чаты, где я состою, а не только мои
+      // собственные сообщения. Владелец справедливо удивился: почему объём «моих
+      // чатов» меньше «всех чатов», если он во всех чатах и состоит. Раньше
+      // считались только сообщения, написанные им самим, — это и была ошибка.
+      const myChats = mine
+        ? new Set(db.chats.filter(c => Array.isArray(c.members) && c.members.includes(meId)).map(c => c.id))
+        : null;
       const cats = {
         messages: { bytes: 0, count: 0 },
         photos: { bytes: 0, count: 0 },
         media: { bytes: 0, count: 0 },
-        files: { bytes: 0, count: 0 }
+        files: { bytes: 0, count: 0 },
+        other: { bytes: 0, count: 0 }   // аватары, копии, фоны чатов, архивы
       };
       for (const x of ups) {
-        if (mine && x.owner !== meId) continue;
+        // вложения считаем по ЧАТАМ, в которых состоим (а не по автору загрузки)
+        if (mine && !(myChats.has(x.chat) || x.owner === meId)) continue;
         const b = Math.ceil((x.stored || x.size || 0) * UP_B64);
-        cats[KIND_OF(x.mime)].bytes += b;
-        cats[KIND_OF(x.mime)].count += 1;
+        const k = KIND_OF(x.mime);
+        cats[k].bytes += b;
+        cats[k].count += 1;
       }
       if (mine) {
         for (const m of db.messages) {
-          if (m.uid !== meId || m.svc) continue;
+          if (m.svc || !myChats.has(m.chat)) continue;
           cats.messages.bytes += (m.bytes || 0) + MSG_ROW_OVERHEAD;
           cats.messages.count += 1;
         }
@@ -889,9 +899,19 @@ function createApi(store, opts = {}) {
         cats.messages.bytes = Math.max(0, u.bytes - upTotal);
         cats.messages.count = db.stats.count;
       }
+      // «служебное» — то, что занято, но не попало в категории (аватары, копии,
+      // фоны). Без него сумма долей не сходилась с занятым местом, и диаграмма
+      // выглядела врущей.
+      const catSum = cats.messages.bytes + cats.photos.bytes + cats.media.bytes + cats.files.bytes;
+      cats.other.bytes = Math.max(0, u.bytes - catSum);
+      cats.other.count = db.archives.length;
       const data = {
         scope, used: u.bytes, limit: u.limit, percent: u.percent,
         diskFree: diskFree(), cats,
+        // pkg3-146: правда о диске сервера — сколько всего, сколько занято и
+        // сколько реально лежит в папке с данными мессенджера
+        disk: diskSpace(),
+        folder: dirBytes(),
         free: Math.max(0, u.limit - u.bytes),
         canOperate: isAdmin === true
       };
@@ -906,6 +926,42 @@ function createApi(store, opts = {}) {
     return v > 0 ? v : STORAGE_LIMIT;
   }
   // pkg3-74: свободное место диска под базой (для пульта и для предела)
+  /**
+   * pkg3-146: сколько РЕАЛЬНО лежит в папке с данными (копии, архивы, вложения).
+   * Владелец справедливо спросил, почему диаграмма показывает только сообщения,
+   * хотя фотографии на сервере есть. Теперь пульт показывает и настоящий диск.
+   */
+  function dirBytes(dir0, depth) {
+    const fs = require('fs');
+    const path = require('path');
+    const base = dir0 || process.env.DATA_DIR || 'data';
+    let total = 0, files = 0;
+    const walk = (d, lvl) => {
+      if (files > 20000 || lvl > 4) return;
+      let list = [];
+      try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+      for (const ent of list) {
+        if (files > 20000) return;
+        const full = path.join(d, ent.name);
+        try {
+          if (ent.isDirectory()) walk(full, lvl + 1);
+          else { total += fs.statSync(full).size; files++; }
+        } catch (e) { /* пропал файл — не беда */ }
+      }
+    };
+    walk(base, 0);
+    return { bytes: total, files };
+  }
+  /** Весь диск VPS: всего и свободно (для честной картины, а не «предела»). */
+  function diskSpace() {
+    try {
+      const fs = require('fs');
+      const st = fs.statfsSync(process.env.DATA_DIR || 'data');
+      const total = Math.floor(st.blocks * st.bsize);
+      const free = Math.floor(st.bavail * st.bsize);
+      return { total, free, used: Math.max(0, total - free) };
+    } catch (e) { return null; }
+  }
   function diskFree() {
     // pkg3-75: fs требуем прямо здесь — в области видимости модуля его нет,
     // и в pkg3-74 функция молча падала в catch, отдавая null («н/д» в пульте).
@@ -5086,10 +5142,10 @@ function createApi(store, opts = {}) {
         let msgBytes = 0, msgCount = 0;
         for (const m of db.messages) {
           if (m.chat !== c.id || m.svc) continue;
-          if (scope === 'me' && m.uid !== me.id) continue;
           msgBytes += (m.bytes || 0) + MSG_ROW_OVERHEAD; msgCount += 1;
         }
-        const upBytes = ups.filter(u => u.chat === c.id && (scope === 'all' || u.owner === me.id))
+        // pkg3-146: вложения считаем по чату целиком (кто бы их ни загрузил)
+        const upBytes = ups.filter(u => u.chat === c.id)
           .reduce((a, u) => a + Math.ceil((u.stored || u.size || 0) * UP_B64), 0);
         if (!msgBytes && !upBytes) return;
         rows.push({
