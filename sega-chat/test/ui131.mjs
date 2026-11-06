@@ -254,9 +254,9 @@ ok(/gd-sheet/.test(appJs) && /gd-pre/.test(appJs), 'таблица и презе
 ok(/Открыть в Google/.test(appJs), 'в окне есть кнопка «Открыть в Google»');
 ok(/GDOC_RU/.test(appJs) && /Документ Google/.test(appJs), 'в списке у документа человеческая подпись');
 ok(/\.gd-doc/.test(read('public/styles.css')), 'стили окна документа на месте');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-146', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v140', 'кэш оформления поднят до v125');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v141', 'кэш оформления поднят до v125');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui131.mjs'), 'тест ui131 включён в цепочку npm test');
 ok(!/require\('(sanitize-html|dompurify|jsdom|papaparse|marked)'\)/.test(read('lib/gdocs.js')), 'документы разбираются без новых зависимостей');

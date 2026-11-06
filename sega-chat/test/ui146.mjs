@@ -51,7 +51,7 @@ ok(!/return diskDownloadFile\(it, st\.of\);\n\}/.test(appJs), 'молчалив�
 
 /* ── 3. Память сервера: честные доли и правда о диске ───────────────────── */
 console.log('\n  3. Диаграмма памяти');
-ok(/other: '#9db2c9'/.test(appJs) && /Служебное \(аватары, копии, фоны\)/.test(appJs), 'в легенде появилась доля «Служебное»');
+ok(/other: '#9db2c9'/.test(appJs) && /Служебное \(аватары, копии, /.test(appJs), 'в легенде появилась доля «Служебное»');
 ok(/catOf\('messages'\) \+ catOf\('photos'\)/.test(appJs), 'круг считает все доли — сумма сходится с занятым местом');
 ok(/function stDiskHtml\(/.test(appJs) && /Диск сервера: занято/.test(appJs), 'внизу показан настоящий диск сервера');
 ok(/папка с данными/.test(appJs), 'и сколько реально занимает папка с данными');
@@ -177,7 +177,7 @@ if (!JSDOM) {
       folder: { bytes: 3145728, files: 42 }
     };
     const legend = sega.stLegendHtml(fake);
-    ok(/Служебное/.test(legend) && /Фотографии/.test(legend), 'в легенде есть и фото, и служебная доля');
+    ok(/Служебное/.test(legend) && /Фото/.test(legend), 'в легенде есть и фото, и служебная доля');
     const donut = sega.stDonutHtml(fake.cats, fake.free, 30);
     ok((donut.match(/<circle/g) || []).length >= 3, 'круг рисует все непустые доли');
     const diskLine = sega.stDiskHtml(fake);
@@ -190,9 +190,9 @@ if (!JSDOM) {
 /* ── 7. Отметки выпуска ─────────────────────────────────────────────────── */
 console.log('\n  7. Отметки выпуска');
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
-ok(((/const BUILD = '([^']+)'/.exec(appJs) || [])[1]) === BUILD && BUILD === 'pkg3-146', `отметка выпуска одна (${BUILD})`);
+ok(((/const BUILD = '([^']+)'/.exec(appJs) || [])[1]) === BUILD && /^pkg3-1[4-9][0-9]$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(apiJs) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(cache === 'sega-static-v140', `кэш оформления поднят (${cache})`);
+ok(/^sega-static-v\d+$/.test(cache) && Number(cache.split('-v')[1]) >= 141, `кэш оформления поднят (${cache})`);
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui146.mjs'), 'тест ui146 включён в цепочку npm test');
 

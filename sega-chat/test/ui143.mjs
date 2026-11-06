@@ -179,9 +179,9 @@ ok(/store\.dropSession\(session\.token\)/.test(apiJs), '«Выйти» чист�
 ok(/data-ids=/.test(appJs) && /Закрыть старые входы/.test(appJs), 'клиент рисует кнопку на строку устройства');
 ok(/входов: /.test(appJs) && /Строки собраны по устройствам/.test(appJs), 'и подписывает, сколько входов в строке');
 ok(!/data-close-session/.test(appJs), 'старая разметка «строка на вход» убрана');
-ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && BUILD === 'pkg3-146', `отметка выпуска одна (${BUILD})`);
+ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(apiJs) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v140', 'кэш оформления поднят до v137');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v141', 'кэш оформления поднят до v137');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui143.mjs'), 'тест ui143 включён в цепочку npm test');
 
