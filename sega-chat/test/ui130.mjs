@@ -328,7 +328,7 @@ ok(/if \(it\.dir\) return diskDownloadFolder\(it\.path/.test(appJs), '«Скач
 ok(/diskSaveUrl\(r\.url, r\.name/.test(appJs), 'скачивание идёт обычной ссылкой (вход в заголовке тут не нужен)');
 ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v143', 'кэш оформления поднят до v124');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v144', 'кэш оформления поднят до v124');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui130.mjs'), 'тест ui130 включён в цепочку npm test');
 ok(!/require\('(archiver|jszip|adm-zip|yazl)'\)/.test(read('lib/zip.js')), 'архив собирается без новых зависимостей');

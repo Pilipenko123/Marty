@@ -224,7 +224,7 @@ ok(/checkAll\(5000\)/.test(read('lib/api.js')), 'кнопка зовёт пол�
 console.log('\n  8. Отметки выпуска');
 ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v143', 'кэш оформления поднят до v131');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v144', 'кэш оформления поднят до v131');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui137.mjs'), 'тест ui137 включён в цепочку npm test');
 

@@ -66,7 +66,13 @@ const mock = http.createServer((rq, rs) => {
     }
     const m = /'([^']+)' in parents/.exec(q);
     const parent = m ? m[1] : 'root';
-    return jsend(200, { files: FILES.filter(f => f.parents[0] === parent) });
+    const children = FILES.filter(f => f.parents[0] === parent);
+    if (u.searchParams.get('pageSize') === '1') {
+      return u.searchParams.get('pageToken') === 'folder-page'
+        ? jsend(200, { files: children.slice(1, 2) })
+        : jsend(200, { files: children.slice(0, 1), nextPageToken: 'folder-page' });
+    }
+    return jsend(200, { files: children });
   }
   const fm = /^\/drive\/v3\/files\/([^/]+)$/.exec(u.pathname);
   if (fm) {
@@ -136,6 +142,11 @@ const cb = await fetch(base + '/api/gdrive/callback?state=' + encodeURIComponent
 const cbBody = await cb.text();
 ok(/Google Диск подключён!/.test(cbBody), 'Google подключён у Васи (для проверки музыки)');
 
+r = await call('/api/yadisk/list?path=' + encodeURIComponent('google:/' + FOLDER_ID) + '&limit=1', {}, A.token);
+ok(r.d.items.length === 1 && r.d.nextPageToken === 'folder-page', 'папка Google отдаёт метку следующей страницы');
+r = await call('/api/yadisk/list?path=' + encodeURIComponent('google:/' + FOLDER_ID) + '&limit=1&pageToken=folder-page', {}, A.token);
+ok(r.d.items.length === 1 && r.d.items[0].path === 'google:/' + SONG2_ID, 'следующая страница папки Google открывается');
+
 console.log('\n  1. Список треков Google для «Моей музыки»');
 r = await call('/api/yadisk/files?drive=google&limit=200', {}, A.token);
 ok(r.status === 200 && Array.isArray(r.d.items), 'список аудиофайлов Google отдаётся');
@@ -164,6 +175,16 @@ ok(r.status === 409, 'без своего Google трек не запустит�
 console.log('\n  3. Чужой Google: только по открытому');
 r = await call('/api/yadisk/shared-href?of=' + A.id + '&path=' + encodeURIComponent('google:/' + SONG_ID), {}, K.token);
 ok(r.status === 404, 'закрытый файл чужого Google не играет');
+r = await call('/api/music', { method: 'POST', body: { pub: [{ id: 'p', name: 'Общий', vis: 'pub', tracks: [{ kind: 'disk', path: 'google:/' + SONG_ID, diskOf: A.id }] }] } }, A.token);
+ok(r.status === 200, 'открытый плейлист с треком Google сохранён');
+r = await call('/api/yadisk/shared-href?of=' + A.id + '&path=' + encodeURIComponent('google:/' + SONG_ID), {}, K.token);
+ok(r.status === 200 && String(r.d.href || '').includes('/api/gdrive/stream'), 'трек из открытого плейлиста Google доступен участнику чата');
+r = await call('/api/yadisk/shared-href?of=' + A.id + '&path=' + encodeURIComponent('google:/' + SONG2_ID), {}, K.token);
+ok(r.status === 404, 'соседний файл вне открытого плейлиста не открыт');
+r = await call('/api/yadisk/share', { method: 'POST', body: { share: false } }, A.token);
+r = await call('/api/yadisk/shared-href?of=' + A.id + '&path=' + encodeURIComponent('google:/' + SONG_ID), {}, K.token);
+ok(r.status === 403, 'выключенная галочка закрывает Google трек');
+await call('/api/yadisk/share', { method: 'POST', body: { share: true } }, A.token);
 r = await call('/api/yadisk/share-file', { method: 'POST', body: { path: 'google:/' + FOLDER_ID, name: 'Музыка', kind: 'folder' } }, A.token);
 ok(r.status === 200, 'Вася открыл папку «Музыка» участникам чата');
 r = await call('/api/yadisk/shared-href?of=' + A.id + '&path=' + encodeURIComponent('google:/' + SONG_ID), {}, K.token);
@@ -189,11 +210,11 @@ ok(r.status === 200 && !r.d.sync, 'путь с «..» в якорь не про�
 console.log('\n  5. Клиент: пункт в «Моей музыке»');
 const appJs = read('public/app.js');
 ok(/const MUS_GDISK = 'gdisk'/.test(appJs), 'у Google свой «псевдоплейлист» в «Моей музыке»');
-ok(/data-mus-pl="gdisk"/.test(appJs) && /🅖 Google Диск/.test(appJs), 'в «Плейлисты ▾» появился пункт «🅖 Google Диск»');
+ok(/data-mus-drive=/.test(appJs) && /Google\.диск/.test(appJs), 'в «Плейлисты ▾» есть раскрываемый Google Диск');
 ok(/drive=google/.test(appJs) && /\/api\/yadisk\/files\?limit=200&offset=/.test(appJs), 'список треков просится с нужного диска');
-ok(/mus-gdisk-sw/.test(appJs) && /mus-gdisk-go/.test(appJs), 'между Яндексом и Google можно переключаться прямо в окне');
+ok(/data-mus-drive=/.test(appJs) && /data-mus-slot=/.test(appJs), 'диск выбирается в «Плейлисты и источники»');
 ok(/Google Диск не подключён\./.test(appJs) && /mus-gdisk-go/.test(appJs), 'если не подключён — окно говорит, что нажать');
-ok(/🅖 диск/.test(appJs), 'в строке трека видно, что он с Google, а не с Яндекса');
+ok(/Файл с Google Диска">☁ диск/.test(appJs), 'Google-трек помечен облачком');
 
 console.log('\n  6. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
@@ -201,7 +222,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v143', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v144', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui127.mjs'), 'тест ui127 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

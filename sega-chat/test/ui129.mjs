@@ -87,9 +87,11 @@ const mock = http.createServer((rq, rs) => {
       const list = p === 'disk:/'
         ? YD_FILES[token].filter(x => restOf(x).indexOf('/') === -1)
         : YD_FILES[token].filter(x => x.path.startsWith(p + '/'));
+      const limit = Number(u.searchParams.get('limit')) || 100;
+      const offset = Number(u.searchParams.get('offset')) || 0;
       return jsend(200, {
         name: 'Диск', path: p, type: 'dir',
-        _embedded: { path: p, items: list.map(x => ydItem(x)), limit: 100, offset: 0, total: list.length }
+        _embedded: { path: p, items: list.slice(offset, offset + limit).map(x => ydItem(x)), limit, offset, total: list.length }
       });
     }
     if (u.pathname === '/v1/disk/resources/download') {
@@ -202,9 +204,13 @@ let rows = r.d.drives || [];
 const row = id => rows.find(x => x.id === id) || {};
 ok(row('yandex').connected === true && row('yandex').manual === true, 'первый диск в списке, подключён токеном');
 ok(row('yandex2').connected === true && row('yandex2').slot === 2, 'второй диск — отдельной строкой');
+ok(row('yandex').title === 'Диск Y1' && row('yandex2').title === 'Диск Y2', 'диски названы Y1 и Y2');
 ok(row('yandex').prefix === 'disk:' && row('yandex2').prefix === 'disk2:', 'у дисков разные начала пути (disk: и disk2:)');
 ok(!!row('google') && row('google').connected === false, 'Google-строки тоже на месте');
 ok(r.d.canAdd && r.d.canAdd.yandex === true, 'видно, что можно добавить третий диск');
+
+r = await call('/api/yadisk/list?path=' + encodeURIComponent('disk:/') + '&limit=1&offset=1', {}, A.token);
+ok(r.status === 200 && r.d.offset === 1 && r.d.items.length === 1 && r.d.items[0].name === 'Папка-1', 'листание папки Яндекса передаёт отступ');
 
 console.log('\n  2. Пути и токены не путаются');
 r = await call('/api/yadisk/list?path=' + encodeURIComponent('disk:/'), {}, A.token);
@@ -358,7 +364,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v143', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v144', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui129.mjs'), 'тест ui129 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
