@@ -74,7 +74,7 @@ ok(/u\.hostname/.test(app), 'иначе — имя сайта из самой с
 const srcRule = near('.mus-v105 .mus-nowsrc{');
 ok(/border:1px solid var\(--glow-line\)/.test(srcRule), 'подпись — плашка со светящейся окантовкой (как панели 118-го)');
 ok(/border-radius:999px/.test(srcRule), 'скруглённая, как ярлык');
-const rowBadge = /mus-badge" title="Источник, откуда взят трек">\$\{escapeHtml\(musSourceRu\(t\)\)\}/.test(app);
+const rowBadge = /function musSourceBadgeHtml\(t\)/.test(app) && /\$\{musSourceBadgeHtml\(t\)\}/.test(app);
 ok(rowBadge, 'в строке плейлиста источник тоже подписан');
 ok(!/!musicIsWidget\(t\) && !musicIsDisk\(t\) && t\.site \?/.test(app),
   'подпись не привязана к одному виду источника (работает и для обычных ссылок)');
@@ -116,7 +116,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(sw) || [])[1];
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(api) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v144', `кэш оформления поднят (${cache}) — устройства получат правки`);
+ok(cache === 'sega-static-v145', `кэш оформления поднят (${cache}) — устройства получат правки`);
 ok(i120 > 0 && i120 > css.indexOf('pkg3-119'), 'блок 120-го идёт после 119-го — его правила побеждают');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

@@ -175,7 +175,7 @@ const css = read('public/styles.css');
 const sw = read('public/sw.js');
 ok(/<span class="mq">\$\{escapeHtml\(t\.title/.test(appJs), 'строка плейлиста: название — бегущая строка');
 ok(/<span class="mq">\$\{escapeHtml\(t\.title\)\}/.test(appJs), 'результаты поиска: тоже бегущая строка');
-ok(/mus-badge" title="Источник, откуда взят трек"/.test(appJs), 'и там же — бейдж источника трека');
+ok(/function musSourceBadgeHtml\(t\)/.test(appJs) && /\$\{musSourceBadgeHtml\(t\)\}/.test(appJs), 'в строке — отдельный бейдж источника трека');
 ok(/function musMarqueeSync\(\)[\s\S]{0,400}querySelectorAll\('#modal \.mus-trs'\)/.test(appJs), 'замер обходит все списки окна музыки');
 ok(/<div class="mus-nowt" id="mus-now-title">/.test(appJs), 'справа от обложки — обычное название (перенос), не бегущая строка');
 ok(/\.mus-v105 \.mus-nowt\{\n  display:-webkit-box/.test(css) && /-webkit-line-clamp:6/.test(css), 'оно переносится и ограничено шестью строками');
@@ -196,7 +196,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(sw) || [])[1];
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v144', `кэш оформления поднят (${cache}) — устройства получат правки`);
+ok(cache === 'sega-static-v145', `кэш оформления поднят (${cache}) — устройства получат правки`);
 ok(read('package.json').includes('node test/ui121.mjs'), 'тест ui121 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

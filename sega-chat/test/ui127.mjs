@@ -214,7 +214,7 @@ ok(/data-mus-drive=/.test(appJs) && /Google\.диск/.test(appJs), 'в «Пле
 ok(/drive=google/.test(appJs) && /\/api\/yadisk\/files\?limit=200&offset=/.test(appJs), 'список треков просится с нужного диска');
 ok(/data-mus-drive=/.test(appJs) && /data-mus-slot=/.test(appJs), 'диск выбирается в «Плейлисты и источники»');
 ok(/Google Диск не подключён\./.test(appJs) && /mus-gdisk-go/.test(appJs), 'если не подключён — окно говорит, что нажать');
-ok(/Файл с Google Диска">☁ диск/.test(appJs), 'Google-трек помечен облачком');
+ok(/musicIsDisk\(t\) \? '☁ ' \+ label/.test(appJs) && /dkIsGoogle\(t.path\)/.test(appJs), 'Google-трек помечен облачком и номером Диска');
 
 console.log('\n  6. Отметки выпуска');
 const b2 = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
@@ -222,7 +222,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v144', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v145', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui127.mjs'), 'тест ui127 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
