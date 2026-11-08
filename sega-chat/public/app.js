@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-150';
+const BUILD = 'pkg3-151';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4702,6 +4702,8 @@ function musicAudio() {
     MUS.a.addEventListener('ended', () => musicStep(1, true));
     MUS.a.addEventListener('play', musicFabSync);
     MUS.a.addEventListener('pause', musicFabSync);
+    MUS.a.addEventListener('play', musicTickUi);
+    MUS.a.addEventListener('pause', musicTickUi);
     MUS.a.addEventListener('play', musVizSync);      // pkg3-109: картинка оживает
     MUS.a.addEventListener('pause', musVizSync);     // …и замирает на паузе
     MUS.a.addEventListener('ended', musVizSync);
@@ -5036,6 +5038,7 @@ function musicPlay(pl, idx, opts) {
   // pkg3-90: трек с Диска — сначала свежая временная ссылка, потом наш плеер
   if (musicIsDisk(t)) {
     musicStartDiskTrack(t);
+    musicTickUi();
     if (MUS.plId === MUS_FOLDER) {
       document.querySelectorAll('[data-pl="disk-folder"] .mus-tr').forEach((row, i) => row.classList.toggle('cur', i === MUS.idx));
     }
@@ -5164,6 +5167,7 @@ const ydFmtSize = n => {
 async function musicStartDiskTrack(t) {
   musWidgetHide();
   const a = musicAudio();
+  MUS.diskPlayingTrack = null;
   // Снимаем сторож прежнего трека до смены источника.
   if (typeof a.__musOff === 'function') a.__musOff();
   a.pause();
@@ -5176,6 +5180,7 @@ async function musicStartDiskTrack(t) {
   const problems = [];
   let href = '';
   const startIt = async url => {
+    MUS.diskPlayingTrack = t;
     a.src = url;
     try { a.load(); } catch (e) { /* старые браузеры */ }
     let timer;
@@ -5236,7 +5241,8 @@ function musicPlayDiskList(i) {
   const t = MUS.list[i];
   if (!t) return;
   musicStartDiskTrack(t);
-  ydRenderOn();   // подсветить текущую строку
+  musicTickUi();
+  musMarqueeKick();
 }
 /** Строка состояния панели (только наш текст + экранированные вставки). */
 function ydBar(html) {
@@ -6543,22 +6549,37 @@ function ydRenderOn() {
   });
   const box = document.getElementById('mus-disk-files');
   if (!box) return;
-  box.innerHTML = y.files.map((f, i) => '<div class="mus-tr' + (MUS.plId === (y.drive === 'google' ? MUS_GDISK : MUS_DISK) && MUS.idx === i ? ' cur' : '') + '">'
-      + '<button class="mini" data-mus-disk-play="' + i + '" title="Играть прямо с Диска">▶</button>'
-      + '<span class="mus-tr-t"><span class="mus-cov mus-cov-e">☁</span>'
-      + '<span class="mus-tr-n" title="' + escapeHtml(f.path) + '">' + escapeHtml(f.name) + '</span>'
-      + ' <span class="tiny muted">' + ydFmtSize(f.size) + '</span></span>'
-      + '<button class="mini" data-mus-disk-add="' + i + '" title="Добавить в плейлист">＋</button>'
-      + '</div>').join('')
-    || '<div class="tiny muted">Аудиофайлы не найдены. Проверьте выбранный Диск и нажмите «Обновить список».</div>';
+  box.innerHTML = y.files.map((f, i) => {
+    const t = { kind: 'disk', path: f.path, title: f.name };
+    const current = MUS.list[MUS.idx];
+    const cur = MUS.plId === (y.drive === 'google' ? MUS_GDISK : MUS_DISK) && current && current.path === f.path;
+    const playing = cur && MUS.a && !MUS.a.paused && !MUS.a.ended;
+    return '<div class="mus-tr' + (cur ? ' cur' : '') + (cur && !playing ? ' paused' : '') + '" data-mus-path="' + escapeHtml(f.path) + '">'
+      + '<button class="mus-pbtn" data-mus-disk-play="' + i + '" title="Играть / пауза">' + (playing ? '❚❚' : '▶') + '</button>'
+      + musThumbHtml(t)
+      + '<span class="mus-ti" title="' + escapeHtml(f.name) + '"><span class="mq">' + escapeHtml(f.name) + '</span></span>'
+      + musSourceBadgeHtml(t)
+      + '<button class="mus-addbtn" data-mus-disk-add="' + i + '" title="Добавить в плейлист">＋</button></div>';
+  }).join('') || '<div class="tiny muted">Аудиофайлы не найдены. Проверьте выбранный Диск и нажмите «Обновить список».</div>';
+  musicTickUi();
+  musMarqueeKick();
   if (y.more) box.insertAdjacentHTML('beforeend', '<button class="mini" id="mus-disk-more">Показать ещё…</button>');
   const mb = document.getElementById('mus-disk-more');
   if (mb) mb.addEventListener('click', () => { ydLoadFiles(false).catch(() => {}); });
   box.onclick = e => {
     const pb = e.target.closest('[data-mus-disk-play]');
     const ab = e.target.closest('[data-mus-disk-add]');
-    if (pb) musicPlayDiskList(Number(pb.getAttribute('data-mus-disk-play')));
-    else if (ab) {
+    if (pb) {
+      const i = Number(pb.getAttribute('data-mus-disk-play'));
+      const f = y.files[i], t = MUS.list[MUS.idx];
+      const same = f && t && MUS.plId === (y.drive === 'google' ? MUS_GDISK : MUS_DISK) && t.path === f.path;
+      if (same && MUS.diskPlayingTrack === t) {
+        musBreakFollow();
+        const a = musicAudio();
+        if (a.paused) a.play().catch(() => {}); else a.pause();
+        musicTickUi();
+      } else musicPlayDiskList(i);
+    } else if (ab) {
       const f = y.files[Number(ab.getAttribute('data-mus-disk-add'))];
       if (f) musAskPlaylist({ kind: 'disk', path: f.path, title: f.name, cover: '', diskOf: (S.me && S.me.id) || '' });
     }
@@ -6745,6 +6766,14 @@ function musSourceRu(t) {
   } catch (e) {}
   return t.site ? String(t.site) : '';
 }
+/** Источник отдельно от названия: его не обрезает бегущая строка. */
+function musSourceBadgeHtml(t) {
+  const label = musSourceRu(t);
+  if (!label) return '';
+  const cls = musicIsWidget(t) ? 'mus-badge-y' : musicIsDisk(t) ? 'mus-badge-d' : 'mus-badge';
+  const text = musicIsDisk(t) ? '☁ ' + label : label;
+  return '<span class="' + cls + ' mus-source" title="Источник: ' + escapeHtml(label) + '">' + escapeHtml(text) + '</span>';
+}
 /**
  * pkg3-120 (pkg3-121: строк стало больше): бегущая строка названия живёт в
  * СТРОКАХ списка «Моей музыки» — и в плейлисте, и в результатах поиска.
@@ -6904,10 +6933,12 @@ function musicTickUi() {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (!row.classList || !row.classList.contains('mus-tr')) continue;
-      const isCur = rpl === MUS.plId && i === MUS.idx;
+      const isDiskRow = rowsBox.id === 'mus-disk-files';
+      const track = MUS.list[MUS.idx];
+      const isCur = rpl === MUS.plId && (isDiskRow ? !!track && row.getAttribute('data-mus-path') === track.path : i === MUS.idx);
       row.classList.toggle('cur', isCur);
       row.classList.toggle('paused', !!(a.paused || a.ended));
-      const pb = row.querySelector('[data-mus-play]');
+      const pb = row.querySelector('[data-mus-play], [data-mus-disk-play]');
       if (pb) pb.textContent = isCur && !a.paused && !a.ended ? '❚❚' : '▶';
       if (isCur) musMqFit(row);
     }
@@ -7298,14 +7329,15 @@ async function openMusic(wantId, diskSlot) {
   const listHtml = S.musFollow ? musSyncPanelHtml() : isSearch
     ? '<div class="mus-trs" id="mus-sres" data-pl="search">' + musSearchRowsHtml() + '</div>'
     : isDisk ? `<div class="mus-disk-bar tiny" id="mus-disk-bar">Проверяю соединение с Яндекс.Диском…</div>
-        <div class="mus-trs" id="mus-disk-files"></div>`
+        <div class="mus-trs" id="mus-disk-files" data-pl="${isGDisk ? MUS_GDISK : MUS_DISK}"></div>`
       : pl ? `<div class="mus-trs" data-pl="${pl.id}">${(pl.tracks || []).map((t, i) => {
           const cur = MUS.plId === pl.id && MUS.idx === i;
           return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
             ${musThumbHtml(t)}
-            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? (/^google\d*:/.test(String(t.path || '')) ? ' <span class="mus-badge-d" title="Файл с Google Диска">☁ диск</span>' : ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>') : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
+            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span></span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
+            ${musSourceBadgeHtml(t)}
             ${isFolder ? `<button class="mus-rowb" data-mus-folder-add="${i}" title="Добавить в плейлист">＋</button>` : `<button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>`}
           </div>`;
         }).join('') || '<div class="tiny muted">В плейлисте пока нет треков — добавьте первый через «⋯» → «Умная вставка».</div>'}</div>`

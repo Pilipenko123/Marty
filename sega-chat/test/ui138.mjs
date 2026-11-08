@@ -152,7 +152,7 @@ ok(/\/api\/admin\/mail/.test(appJs) && /pf-mail-diagbox/.test(appJs), 'окно 
 console.log('\n  5. Отметки выпуска');
 ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v144', 'кэш оформления поднят до v132');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v145', 'кэш оформления поднят до v132');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui138.mjs'), 'тест ui138 включён в цепочку npm test');
 
