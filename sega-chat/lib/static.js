@@ -34,7 +34,7 @@ function cspFor(html) {
     "script-src 'self'" + (hashes.length ? ' ' + hashes.join(' ') : ''),
     "style-src 'self' 'unsafe-inline'",              // в разметке много style="…"
     "img-src 'self' data: blob: https:",
-    "media-src 'self' data: blob:",
+    "media-src 'self' data: blob: https:",
     "font-src 'self' data:",
     "connect-src 'self'",
     "worker-src 'self' blob:",
