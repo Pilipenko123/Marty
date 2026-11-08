@@ -181,7 +181,7 @@ console.log('\n  4. Отметки выпуска');
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
 ok(((/const BUILD = '([^']+)'/.exec(appJs) || [])[1]) === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(cache === 'sega-static-v141', `кэш оформления поднят (${cache})`);
+ok(cache === 'sega-static-v142', `кэш оформления поднят (${cache})`);
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui145.mjs'), 'тест ui145 включён в цепочку npm test');
 

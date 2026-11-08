@@ -116,7 +116,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(sw) || [])[1];
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(api) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v141', `кэш оформления поднят (${cache}) — устройства получат правки`);
+ok(cache === 'sega-static-v142', `кэш оформления поднят (${cache}) — устройства получат правки`);
 ok(i120 > 0 && i120 > css.indexOf('pkg3-119'), 'блок 120-го идёт после 119-го — его правила побеждают');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
