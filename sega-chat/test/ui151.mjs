@@ -92,7 +92,8 @@ assert.match(rows[2].querySelector('.mus-source').textContent,/Яндекс.Му
 assert.match(rows[3].querySelector('.mus-source').textContent,/unusuallylongmusicdomain/);
 const css=readSrc('public/styles.css');
 assert.match(css,/\.mus-v105 \.mus-tr \.mus-source\{[^}]*flex:0 0 auto[^}]*overflow-wrap:anywhere/);
-assert.match(css,/\.mus-v105 \.mus-trs:not\(#mus-sres\) \.mus-tr \.mq:not\(\.mq-s\)\{animation:mus-mq/);
+assert.match(css,/\.mus-tr\.cur \.mq\{animation:mus-mq/);
+assert.doesNotMatch(css,/\.mus-trs:not\(#mus-sres\) \.mus-tr \.mq:not\(\.mq-s\)\{animation:mus-mq/);
 assert.match(css,/\.mus-tr\.cur\.paused \.mq\{animation-play-state:paused/);
 dom.window.close();
 console.log('  pkg3-151: строки дисков, пауза, смена треков, бегущая строка и источник проверены');
