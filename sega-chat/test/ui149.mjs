@@ -32,7 +32,8 @@ ydRenderOn();
 assert.match(w.document.getElementById('mus-disk-files').textContent, /Первый.mp3/);
 assert(w.document.querySelector('[data-mus-disk-play="0"]'));
 assert(w.document.querySelector('[data-mus-disk-add="0"]'));
-assert.equal(w.document.querySelectorAll('#mus-disk-slot option').length, 2);
+assert(!w.document.querySelector('#mus-disk-slot')); // выбор диска теперь в «Плейлисты и источники»
+assert(w.document.querySelector('#mus-disk-share'));
 assert(w.document.querySelector('#mus-disk-more'));
 
 const requests = [];

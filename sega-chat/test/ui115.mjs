@@ -37,7 +37,7 @@ ok(pb.length < 10 * 1024, `стоп-кадр лёгкий (${Math.round(pb.lengt
 
 console.log('\n  2. Результаты поиска — плейлист');
 ok(/function musSearchPl\(\)/.test(app) && /id: MUS_SEARCH, name: 'Результаты поиска', vis: 'priv'/.test(app), 'есть временный плейлист «Результаты поиска» (не сохраняется, личный)');
-ok(/const musicFind = id => id === MUS_SEARCH \? musSearchPl\(\) : \(musicAll\(\)\.find\(p => p\.id === id\) \|\| null\);/.test(app),
+ok(/const musicFind = id => id === MUS_SEARCH \? musSearchPl\(\) : id === MUS_FOLDER \? \(MUS\.folder \|\| null\) : \(musicAll\(\)\.find\(p => p\.id === id\) \|\| null\);/.test(app),
   'плеер находит его по имени «search» — значит ⏮ ⏭ и автопереход работают через общий musicStep');
 ok(/MUS\.a\.addEventListener\('ended', \(\) => musicStep\(1, true\)\);/.test(app) && /musicPlay\(musicFind\(MUS\.plId\) \|\| \{ id: MUS\.plId, tracks: MUS\.list \}, n\);/.test(app),
   'конец трека → следующий из того же списка (и для поиска тоже)');

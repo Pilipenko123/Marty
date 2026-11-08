@@ -320,7 +320,7 @@ ok(/SEGA_SMTP_INSECURE/.test(read('lib/smtp.js')) && /SEGA_SMTP_PLAIN/.test(read
 console.log('\n  8. Отметки выпуска');
 ok((/const BUILD = '([^']+)'/.exec(appJsText) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v143', 'кэш оформления поднят до v129');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v144', 'кэш оформления поднят до v129');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui135.mjs'), 'тест ui135 включён в цепочку npm test');
 

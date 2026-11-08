@@ -191,7 +191,7 @@ ok(/function drivesRailRows[\s\S]{0,600}drive-item/.test(appJs), 'строки �
 ok(appJs.indexOf("html += foldHead('drives'") > appJs.indexOf("for (const sn of (S.sections || []))"),
   'раздел стоит НИЖЕ всех чатов и своих разделов (в самом низу)');
 ok(/async function diskBrowse\(path, of\)/.test(appJs) && /api\/yadisk\/list\?path=/.test(appJs), 'окно-проводник читает папки через новый маршрут');
-ok(/data-disk-go="disk:\/"/.test(appJs) && /diskCrumbsHtml/.test(appJs), 'есть хлебные крошки и возврат в корень');
+ok(/data-disk-go="\$\{escapeHtml\(rootPath\)\}"/.test(appJs) && /diskCrumbsHtml/.test(appJs), 'есть хлебные крошки и возврат в корень');
 ok(/data-disk-play/.test(appJs) && /data-disk-view/.test(appJs) && /data-disk-dl/.test(appJs), 'у файлов есть «Слушать», «Смотреть», «Скачать»');
 ok(/data-disk-send/.test(appJs) && /diskSendAsk/.test(appJs) && /data-dsk-act="share"/.test(appJs) && /Поделиться/.test(appJs), 'у файла есть кнопка «Поделиться» (бывшее «В чат»)');
 ok(/async function diskSendToChat\(/.test(appJs) && /api\/yadisk\/share-file/.test(appJs), 'перед отправкой сервер открывает доступ именно к этому файлу');
@@ -217,7 +217,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v143', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v144', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui124.mjs'), 'тест ui124 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
