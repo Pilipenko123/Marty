@@ -47,7 +47,7 @@ ok(appJs.includes("mq-s") && css.includes('.mus-tr.cur .mq.mq-s{animation:none;t
 
 console.log('\n  3. Инварианты выпуска');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v142';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v143';"), 'кэш статики поднят до v93');
 ok(pkg.includes('node test/music96.mjs'), 'тест music96 включён в цепочку npm test');
 ok(readme.includes('| pkg3-96 |'), 'в журнале README есть строка выпуска pkg3-96');
 const deps = JSON.parse(pkg).dependencies;

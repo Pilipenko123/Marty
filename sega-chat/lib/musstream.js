@@ -59,6 +59,9 @@ function hostOk(u) {
   const hp = u.port ? h + ':' + u.port : h;
   if (EXTRA.includes(h) || EXTRA.includes(hp)) return true;   // только тесты
   if (u.protocol !== 'https:') return false;
+  // Те же раздающие домены Яндекса, что проверяет yadisk.downloadHref.
+  // Переходы проверяются заново; нестандартные порты не разрешаем.
+  if ((!u.port || u.port === '443') && /^[a-z0-9.-]+\.(yandex\.net|yandex\.ru|disk\.yandex\.[a-z]+|yadi\.sk)$/.test(h)) return true;
   // pkg3-105: помимо белого списка источников — хозяева звука, которых сервер
   // сам увидел в <enclosure> прочитанных RSS-лент подкастов (не открытый прокси:
   // хозяина нельзя «заказать» ссылкой, он приходит только из ленты).

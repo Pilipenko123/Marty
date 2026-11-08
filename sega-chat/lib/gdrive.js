@@ -388,12 +388,13 @@ async function listAudio(token, o = {}, c) {
   const limit = Math.min(200, Math.max(1, Number(o.limit) || 200));
   const q = new URLSearchParams({
     q: "mimeType contains 'audio/' and trashed = false",
-    fields: 'files(id,name,mimeType,size,modifiedTime)',
+    fields: 'nextPageToken,files(id,name,mimeType,size,modifiedTime)',
     pageSize: String(limit),
     orderBy: 'name',
     includeItemsFromAllDrives: 'true',
     supportsAllDrives: 'true'
   });
+  if (o.pageToken) q.set('pageToken', String(o.pageToken).slice(0, 2048));
   const r = await httpJSON(conf.apiBase + '/drive/v3/files?' + q.toString(), {
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
   });
@@ -407,7 +408,7 @@ async function listAudio(token, o = {}, c) {
     modified: String(x.modifiedTime || '')
   }));
   items.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  return { items, limit, offset: 0, more: false };
+  return { items, limit, offset: 0, nextPageToken: String(r.json.nextPageToken || ''), more: !!r.json.nextPageToken };
 }
 
 /** Метаданные одного файла (для карточки и проверки, что он существует). */

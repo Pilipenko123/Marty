@@ -54,7 +54,16 @@ const mock = http.createServer((rq, rs) => {
   if (u.pathname === '/drive/v3/about') return jsend(200, { storageQuota: { limit: '1000', usage: '10' } });
   if (rq.method === 'GET' && u.pathname === '/drive/v3/files') {
     const q = String(u.searchParams.get('q') || '');
-    if (q.includes("mimeType contains 'audio/'")) return jsend(200, { files: FILES.filter(f => f.mimeType.startsWith('audio/')) });
+    if (q.includes("mimeType contains 'audio/'")) {
+      const aud = FILES.filter(f => f.mimeType.startsWith('audio/'));
+      if (u.searchParams.get('pageSize') === '1') {
+        if (!u.searchParams.get('fields').includes('nextPageToken')) return jsend(200, { files: aud.slice(0, 1) });
+        return u.searchParams.get('pageToken') === 'next127'
+          ? jsend(200, { files: aud.slice(1) })
+          : jsend(200, { files: aud.slice(0, 1), nextPageToken: 'next127' });
+      }
+      return jsend(200, { files: aud });
+    }
     const m = /'([^']+)' in parents/.exec(q);
     const parent = m ? m[1] : 'root';
     return jsend(200, { files: FILES.filter(f => f.parents[0] === parent) });
@@ -133,6 +142,10 @@ ok(r.status === 200 && Array.isArray(r.d.items), 'список аудиофай�
 ok(r.d.items.length === 2, 'в списке только музыка (два трека), папки и фото не попали');
 ok(r.d.items.every(x => String(x.path).startsWith('google:/')), 'пути треков — google:/<id>');
 ok(r.d.items.every(x => x.media === 'audio'), 'все записи помечены как музыка');
+r = await call('/api/yadisk/files?drive=google&limit=1', {}, A.token);
+ok(r.d.items.length === 1 && r.d.nextPageToken === 'next127' && r.d.more, 'Google отдаёт следующую страницу');
+r = await call('/api/yadisk/files?drive=google&limit=1&pageToken=next127', {}, A.token);
+ok(r.d.items.length === 1 && r.d.items[0].path.endsWith(SONG2_ID) && !r.d.more, 'следующая страница читается по метке');
 r = await call('/api/yadisk/files?drive=google&limit=200', {}, K.token);
 ok(r.status === 409, 'у кого Google не подключён — честный отказ, а не пустой список');
 
@@ -188,7 +201,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v142', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v143', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui127.mjs'), 'тест ui127 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

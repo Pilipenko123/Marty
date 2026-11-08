@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-148';
+const BUILD = 'pkg3-149';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -4037,7 +4037,7 @@ function createApi(store, opts = {}) {
         const gt = await gdFreshToken(me, slotF);
         if (!gt) return E(409, gdrive.loadKeys() ? 'Google Диск не подключён — подключите его в «Моих дисках»' : gdrive.KEYS_HINT);
         try {
-          const aud = await gdrive.listAudio(gt.access_token, { limit: query.get('limit') });
+          const aud = await gdrive.listAudio(gt.access_token, { limit: query.get('limit'), pageToken: query.get('pageToken') });
           return J(200, Object.assign({}, aud, { items: tagItems(drives.prefixFor('google', slotF), aud.items) }));
         }
         catch (e) { return E(502, e.message || 'Google Диск не отвечает'); }

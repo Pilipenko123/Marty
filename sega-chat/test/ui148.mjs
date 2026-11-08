@@ -82,8 +82,8 @@ ok(/Внутри писем: \$\{stMB\(inl\.bytes\)\} \(\$\{inl\.count\} фот�
 
 /* ── 5б. Музыка с Дисков: два пути и старый номер ──────────────────────── */
 console.log('\n  5б. Музыка с Дисков');
-ok(/await startIt\('\/api\/yadisk\/file' \+ q, 'через сервер'\)/.test(appJs),
-  'если прямая ссылка не сработала — трек играет через сервер (тот же путь, что у окна Диска)');
+ok(/await startIt\(musProxyHref\(href, ticket\.t\)\)/.test(appJs),
+  'если прямая ссылка не сработала — используем поток через сервер, а не JSON');
 ok(/problems\.push\('прямая ссылка: '/.test(appJs) && /problems\.push\('через сервер: '/.test(appJs),
   'в отказе видны обе причины по-русски');
 ok(/за 12 секунд звук не пошёл/.test(appJs), 'зависшая ссылка не держит очередь: 12 секунд и дальше');
@@ -159,23 +159,23 @@ if (!JSDOM) {
       const u = String(url);
       calls.push({ url: u, body: opts && opts.body ? String(opts.body) : '' });
       if (u.includes('/api/yadisk/href')) {
-        return { ok: false, status: 409, headers: { get: () => 'application/json' },
-          json: async () => ({ error: 'Яндекс.Диск не подключён (или связь с ним истекла)' }), text: async () => '' };
+        return { ok: true, status: 200, headers: { get: () => 'application/json' },
+          json: async () => ({ href: 'https://audio.yandex.net/track.mp3' }), text: async () => '' };
       }
-      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({}), text: async () => '{}' };
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ t: 'ticket148' }), text: async () => '{}' };
     };
     w.fetch = musicFetch;
     sega.S.me = { id: 'u1' };
     sega.S.drives = [];
     // в jsdom нет настоящего <audio> — подставляем простой двойник
-    sega.MUS.a = { src: '', paused: true, pause() {}, load() {}, play() { return Promise.resolve(); },
+    sega.MUS.a = { src: '', paused: true, pause() {}, load() {}, play() { return this.src.startsWith('https:') ? Promise.reject(new Error('прямой адрес недоступен')) : Promise.resolve(); },
       addEventListener() {}, removeEventListener() {}, currentTime: 0 };
     const trk = { kind: 'disk', path: 'disk2:/Музыка/трек.mp3', title: 'трек', diskOf: 'u1' };
     sega.MUS.list = [trk]; sega.MUS.idx = 0;
     try { await sega.musicStartDiskTrack(trk); } catch (e) { /* отказы проверяем ниже */ }
     const src = String(sega.MUS.a.src || '');
-    ok(/\/api\/yadisk\/file\?path=/.test(src), 'плеер перешёл на запасной путь через сервер');
-    ok(src.includes(encodeURIComponent('disk2:/Музыка/трек.mp3')), 'и попросил именно тот файл');
+    ok(src.includes('/api/musstream?t=ticket148'), 'плеер перешёл на настоящий поток через сервер');
+    ok(calls.some(c => c.url.includes('/api/yadisk/href') && c.url.includes(encodeURIComponent('disk2:/Музыка/трек.mp3'))), 'и попросил именно тот файл');
 
     const disk = sega.stDiskHtml({
       used: 1, disk: { total: 4e10, used: 1e10, free: 3e10 },

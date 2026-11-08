@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-148';
+const BUILD = 'pkg3-149';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -4764,6 +4764,7 @@ function musStartStream(a, url, onDead, opts) {
   const proxyOn = musProxyOk(url) || !!(opts && opts.pod);
   let via = 'direct', switched = false, done = false, paused = false, timer = 0;
   const off = () => {
+    done = true;
     a.removeEventListener('error', onErr);
     a.removeEventListener('pause', onPause);
     if (timer) { clearTimeout(timer); timer = 0; }
@@ -5176,55 +5177,63 @@ const ydFmtSize = n => {
 async function musicStartDiskTrack(t) {
   musWidgetHide();
   const a = musicAudio();
+  // Снимаем сторож прежнего трека до смены источника.
+  if (typeof a.__musOff === 'function') a.__musOff();
   a.pause();
   musicNowUi(); musicFabSync();
   const path = String(t.path || '');
   const of = String(t.diskOf || '');
   const mine = !of || (S.me && of === S.me.id);
-  // pkg3-148: трек с Диска пробуем ДВУМЯ путями. Прежде был только первый, и если
-  // Диск не отдавал свежую ссылку (истёк доступ, файл переехал, сеть владельца не
-  // пускает прямой адрес) — не играло ничего и было непонятно почему. Теперь есть
-  // запасной путь через наш сервер (тот же, что у окна «Мои диски»), а если и он
-  // не смог — видно обе причины по-русски.
+  const run = MUS.diskRun = (MUS.diskRun || 0) + 1;
+  const current = () => MUS.diskRun === run && MUS.list[MUS.idx] === t;
   const problems = [];
-  const startIt = async (url, how) => {
+  let href = '';
+  const startIt = async url => {
     a.src = url;
     try { a.load(); } catch (e) { /* старые браузеры */ }
-    // не ждём вечно: если через 12 секунд звук так и не пошёл — считаем отказом
-    const played = a.play();
-    await Promise.race([
-      Promise.resolve(played).catch(e => { throw e; }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('за 12 секунд звук не пошёл')), 12000))
-    ]);
-    return how;
+    let timer;
+    try {
+      await Promise.race([
+        Promise.resolve(a.play()),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('за 12 секунд звук не пошёл')), 12000); })
+      ]);
+    } finally { clearTimeout(timer); }
   };
-  // 1) свежая временная ссылка: звук идёт прямо с Диска, VPS не нагружается
   try {
     const r = mine
       ? await api('/api/yadisk/href?path=' + encodeURIComponent(path))
       : await api('/api/yadisk/shared-href?of=' + encodeURIComponent(of) + '&path=' + encodeURIComponent(path));
     if (!r || !r.href) throw new Error('сервер не дал ссылку на файл');
-    if (MUS.list[MUS.idx] !== t) return;         // человек уже включил другой трек
-    await startIt(r.href, 'прямая ссылка');
+    href = r.href;
+    if (!current()) return;
+    await startIt(href);
+    if (!current()) return;
     musicNowUi(); musicFabSync();
     return;
   } catch (e) {
-    if (MUS.list[MUS.idx] !== t) return;
+    if (!current()) return;
+    if (e && e.name === 'NotAllowedError') {
+      toast('Браузер не разрешил запуск звука — нажмите ▶ ещё раз', true);
+      return;
+    }
     problems.push('прямая ссылка: ' + ((e && e.message) || e));
   }
-  // 2) запасной путь — через наш сервер (он умеет и Яндекс, и Google)
+  // Для ссылки Яндекса получаем пропуск на настоящий поток через сервер.
+  // /api/yadisk/file отдаёт описание в JSON, а не звук: в 148-м это было ошибкой.
   try {
-    const q = mine ? ('?path=' + encodeURIComponent(path))
-      : ('?of=' + encodeURIComponent(of) + '&path=' + encodeURIComponent(path));
-    await startIt('/api/yadisk/file' + q, 'через сервер');
+    if (!href || !/^https:\/\//i.test(href)) throw new Error('нет доступной ссылки Яндекс.Диска');
+    const ticket = await api('/api/musstream-ticket', { method: 'POST', body: { url: href } });
+    if (!ticket || !ticket.t) throw new Error('сервер не дал пропуск');
+    if (!current()) return;
+    await startIt(musProxyHref(href, ticket.t));
+    if (!current()) return;
     toast('Играю через сервер: Диск не отдал прямую ссылку');
     musicNowUi(); musicFabSync();
     return;
   } catch (e2) {
-    if (MUS.list[MUS.idx] !== t) return;
+    if (!current()) return;
     problems.push('через сервер: ' + ((e2 && e2.message) || e2));
   }
-  // 3) честно говорим обе причины и идём дальше по списку
   musTrackDead(false, t, 'Трек с Диска не заиграл — ' + problems.join(' · '));
   musicNowUi(); musicFabSync();
 }
@@ -5234,7 +5243,8 @@ function musicPlayDiskList(i) {
   const y = ydState();
   MUS.list = y.files.map(f => ({ id: 'd:' + f.path, kind: 'disk', path: f.path, title: f.name, cover: '' }));
   MUS.idx = i;
-  MUS.plId = MUS_DISK;
+  MUS.plId = y.drive === 'google' ? MUS_GDISK : MUS_DISK;
+  MUS.fails = 0; MUS.dead = false;
   const t = MUS.list[i];
   if (!t) return;
   musicStartDiskTrack(t);
@@ -5250,12 +5260,15 @@ async function ydPaneStart() {
   const y = ydState();
   const g = y.drive === 'google';
   const kind = g ? 'google' : 'yandex';
+  const pane = y.paneSeq || 0;
   ydBar(g ? 'Проверяю соединение с Google Диском…' : 'Проверяю соединение с Яндекс.Диском…');
   try {
     // pkg3-129: дисков может быть несколько. Если выбранный номер не подключён,
     // берём первый подключённый диск того же вида — чтобы окно не пугало зря.
     const d = await drivesLoad();
+    if (pane !== y.paneSeq) return;
     const mine = (d.list || []).filter(x => x.kind === kind && x.connected && !x.placeholder);
+    y.cards = mine;
     if (!mine.some(x => x.slot === y.slot) && mine.length) y.slot = mine[0].slot;
     if (g) {
       const card = mine.find(x => x.slot === y.slot) || {};
@@ -5265,11 +5278,13 @@ async function ydPaneStart() {
       y.share = false;
     } else {
       const s = await api('/api/yadisk/state?slot=' + encodeURIComponent(String(y.slot || 1)));
+      if (pane !== y.paneSeq) return;
       y.keys = !!s.keys; y.connected = !!s.connected;
       y.share = s.share !== false;   // pkg3-121: открыт ли мой Диск другим участникам
       y.manual = !!s.manual;         // pkg3-123: подключён своим приложением или токеном
     }
   } catch (e) {
+    if (pane !== y.paneSeq) return;
     ydBar('Сервер не отвечает: ' + escapeHtml(e.message || String(e)));
     return;
   }
@@ -6462,19 +6477,24 @@ document.addEventListener('dblclick', e => {
 /** Загрузка списка аудиофайлов со всего Диска (страницами по 200). */
 async function ydLoadFiles(reset) {
   const y = ydState();
-  if (y.fetching) return;
+  if (y.fetching && !reset) return;
+  const seq = y.loadSeq = (y.loadSeq || 0) + 1;
+  const pane = y.paneSeq;
   y.fetching = true;
-  if (reset) { y.offset = 0; y.more = false; }
+  if (reset) { y.offset = 0; y.more = false; y.pageToken = ''; }
   ydBar(reset ? 'Загружаю список аудиофайлов с Диска…' : 'Загружаю следующую страницу…');
   try {
     const gsrc = y.drive === 'google';
-    const r = await api('/api/yadisk/files?limit=200&offset=' + (gsrc ? 0 : y.offset) + (gsrc ? '&drive=google' : '') + '&slot=' + encodeURIComponent(String(y.slot || 1)));
+    const r = await api('/api/yadisk/files?limit=200&offset=' + (gsrc ? 0 : y.offset) + (gsrc ? '&drive=google&pageToken=' + encodeURIComponent(y.pageToken || '') : '') + '&slot=' + encodeURIComponent(String(y.slot || 1)));
+    if (seq !== y.loadSeq || pane !== y.paneSeq) return;
     const items = Array.isArray(r.items) ? r.items : [];
     y.files = reset ? items : y.files.concat(items);
-    y.offset = gsrc ? items.length : y.offset + items.length;
-    y.more = gsrc ? false : items.length >= 200;   // pkg3-127: у Google отдаём весь список сразу
+    y.offset += items.length;
+    y.pageToken = gsrc ? (r.nextPageToken || '') : '';
+    y.more = gsrc ? !!y.pageToken : items.length >= 200;
     ydRenderOn();
   } catch (e) {
+    if (seq !== y.loadSeq || pane !== y.paneSeq) return;
     if (e.status === 409 || /не подключ|отозвал|ключей/i.test(e.message || '')) {
       y.connected = false; y.files = []; ydRenderOff();
     } else {
@@ -6483,8 +6503,9 @@ async function ydLoadFiles(reset) {
       const rb = document.getElementById('mus-disk-retry');
       if (rb) rb.addEventListener('click', () => { ydLoadFiles(true).catch(() => {}); });
     }
+  } finally {
+    if (seq === y.loadSeq) y.fetching = false;
   }
-  y.fetching = false;
 }
 /** Диск подключён: строка управления, выбор плейлиста для «＋», список файлов. */
 function ydRenderOn() {
@@ -6497,8 +6518,7 @@ function ydRenderOn() {
     if (rlG) rlG.addEventListener('click', () => { ydLoadFiles(true).catch(() => {}); });
     const swG = document.getElementById('mus-gdisk-sw');
     if (swG) swG.addEventListener('click', () => openMusic(MUS_DISK));
-    return;
-  }
+  } else {
   ydBar('✅ Яндекс.Диск подключён' + (y.manual ? ' по токену' : '') + '. <span class="tiny muted">Файлы остаются на Диске: звук идёт с серверов Яндекса прямо в браузер, место на сервере не тратится. Ссылка на трек временная и создаётся заново при каждом запуске.</span> '
     + '<button class="mini" id="mus-disk-reload">Обновить список</button> '
     + '<button class="mini danger" id="mus-disk-off">Отключить</button>'
@@ -6532,6 +6552,17 @@ function ydRenderOn() {
     ydRenderOff();
     toast('Яндекс.Диск отключён');
   });
+  }
+  const bar = document.getElementById('mus-disk-bar');
+  if (bar && y.cards && y.cards.length > 1) {
+    bar.insertAdjacentHTML('beforeend', '<br><label>Диск: <select id="mus-disk-slot">' + y.cards.map(c =>
+      '<option value="' + Number(c.slot) + '"' + (c.slot === y.slot ? ' selected' : '') + '>' + escapeHtml(c.title) + '</option>').join('') + '</select></label>');
+    document.getElementById('mus-disk-slot').addEventListener('change', e => {
+      y.slot = Number(e.target.value) || 1;
+      y.paneSeq = (y.paneSeq || 0) + 1;
+      ydPaneStart().catch(() => {});
+    });
+  }
   const all = musicAll();
   const al = document.getElementById('mus-disk-addline');
   if (al) {
@@ -6547,14 +6578,14 @@ function ydRenderOn() {
   }
   const box = document.getElementById('mus-disk-files');
   if (!box) return;
-  box.innerHTML = y.files.map((f, i) => '<div class="mus-tr' + (MUS.plId === MUS_DISK && MUS.idx === i ? ' cur' : '') + '">'
+  box.innerHTML = y.files.map((f, i) => '<div class="mus-tr' + (MUS.plId === (y.drive === 'google' ? MUS_GDISK : MUS_DISK) && MUS.idx === i ? ' cur' : '') + '">'
       + '<button class="mini" data-mus-disk-play="' + i + '" title="Играть прямо с Диска">▶</button>'
       + '<span class="mus-tr-t"><span class="mus-cov mus-cov-e">☁</span>'
       + '<span class="mus-tr-n" title="' + escapeHtml(f.path) + '">' + escapeHtml(f.name) + '</span>'
       + ' <span class="tiny muted">' + ydFmtSize(f.size) + '</span></span>'
       + (all.length ? '<button class="mini" data-mus-disk-add="' + i + '" title="Добавить в выбранный плейлист">＋</button>' : '')
       + '</div>').join('')
-    || '<div class="tiny muted">Аудиофайлов на Диске пока нет. Закиньте музыку на Яндекс.Диск (сайтом disk.yandex.ru или приложением на телефоне) и нажмите «Обновить список».</div>';
+    || '<div class="tiny muted">Аудиофайлы не найдены. Проверьте выбранный Диск и нажмите «Обновить список».</div>';
   if (y.more) box.insertAdjacentHTML('beforeend', '<button class="mini" id="mus-disk-more">Показать ещё…</button>');
   const mb = document.getElementById('mus-disk-more');
   if (mb) mb.addEventListener('click', () => { ydLoadFiles(false).catch(() => {}); });
@@ -7319,7 +7350,7 @@ async function openMusic(wantId) {
           return `<div class="mus-tr${cur ? ' cur' : ''}${cur && MUS.a && MUS.a.paused ? ' paused' : ''}">
             <button class="mus-pbtn" data-mus-play="${i}" title="Играть / пауза">${cur && MUS.a && !MUS.a.paused ? '❚❚' : '▶'}</button>
             ${musThumbHtml(t)}
-            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? (String(t.path || '').startsWith('google:') ? ' <span class="mus-badge-d" title="Файл с Google Диска: сервер только переливает звук, ничего не хранит, доступ на просмотр">🅖 диск</span>' : ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>') : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
+            <span class="mus-ti" title="${escapeHtml(t.title || t.url || t.path || '')}"><span class="mq">${escapeHtml(t.title || t.url || t.path || '')}</span>${musicIsWidget(t) ? ` <span class="mus-badge-y" title="Встроенный плеер Яндекс.Музыки: звук играет Яндекс, а без входа в его аккаунт песни звучат отрывками по 30 секунд">Я · ${musicWhatRu(t.what)}</span>` : ''}${musicIsDisk(t) ? (/^google\d*:/.test(String(t.path || '')) ? ' <span class="mus-badge-d" title="Файл с Google Диска: сервер только переливает звук, ничего не хранит, доступ на просмотр">🅖 диск</span>' : ' <span class="mus-badge-d" title="Файл с вашего Яндекс.Диска: играется по свежей временной ссылке, место на сервере не занимает">☁ диск</span>') : ''}${!musicIsWidget(t) && !musicIsDisk(t) && musSourceRu(t) ? ` <span class="mus-badge" title="Источник, откуда взят трек">${escapeHtml(musSourceRu(t))}</span>` : ''}</span>
             ${musicIsWidget(t) ? `<a class="mini mus-y-link" data-mus-y="${i}" href="${escapeHtml(t.page || t.url)}" target="_blank" rel="noopener noreferrer" title="Открыть в Яндекс.Музыке">↗</a>` : ''}
             <button class="mus-rowb" data-mus-edit="${i}" title="Правка трека: название, ссылка, обложка, убрать из плейлиста">✎</button>
           </div>`;
@@ -7679,6 +7710,7 @@ async function openMusic(wantId) {
   // pkg3-90: панель Яндекс.Диска оживает асинхронно (проверка связи → список)
   if (isDisk) {
     const y0 = ydState();
+    y0.paneSeq = (y0.paneSeq || 0) + 1;
     y0.drive = isGDisk ? 'google' : 'yandex';
     // pkg3-129: номер диска — первый подключённый этого вида (если список ещё не
     // загружен, останется 1 и панель сама поправит номер при старте)
