@@ -2660,6 +2660,3 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 /* Источник — отдельная неподвижная часть строки рядом с кнопкой действия.
    Длинные имена источников переносятся, не прячась под названием трека. */
 .mus-v105 .mus-tr .mus-source{flex:0 0 auto;max-width:38%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;line-height:1.15;text-align:center;margin-left:0}
-/* Все длинные названия в плейлистах и на дисках можно прочитать целиком. */
-.mus-v105 .mus-trs:not(#mus-sres) .mus-tr .mq:not(.mq-s){animation:mus-mq var(--mq-dur,8s) ease-in-out infinite alternate}
-.mus-v105 .mus-trs:not(#mus-sres) .mus-tr.cur.paused .mq{animation-play-state:paused}
