@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-146';
+const BUILD = 'pkg3-147';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -8572,7 +8572,10 @@ function renderMemory() {
 // списки своих загрузок с просмотром и удалением; админу — операции в
 // «всех чатах» без просмотра содержимого и управление пределом хранилища.
 const ST_COLORS = { messages: '#6f9bff', photos: '#ff7ab2', media: '#b28cff', files: '#ffb86b', other: '#9db2c9', free: '#39415a' };
-const ST_LABEL = { messages: 'Сообщения', photos: 'Фотографии', media: 'Медиа', files: 'Файлы', other: 'Служебное (аватары, копии, фоны)', free: 'Свободное место' };
+// pkg3-147: честные подписи. Фотографии из чатов уходят ВНУТРИ письма
+// (клиент сжимает их и шифрует), поэтому их место — в «Письмах». Отдельными
+// файлами на сервер попадают только видео, музыка и документы.
+const ST_LABEL = { messages: 'Письма (текст и фото внутри)', photos: 'Фото, загруженные файлом', media: 'Видео и музыка', files: 'Документы и файлы', other: 'Служебное (аватары, копии, архивы, фоны)', free: 'Свободное место' };
 let stScope = 'me';
 const stMB = b => (b / 1048576).toFixed(1) + ' МБ';
 function stDonutHtml(cats, free, percent) {
@@ -8601,11 +8604,21 @@ function stDonutHtml(cats, free, percent) {
 function stDiskHtml(d) {
   if (!d || !d.disk) return '';
   const folder = d.folder ? ` · папка с данными: ${stMB(d.folder.bytes)} (${d.folder.files} файлов)` : '';
+  // pkg3-147: где именно лежат мегабайты — база с письмами, файлы вложений,
+  // копии и архивы, прочее. Это отвечает на вопрос «где фотографии из чатов».
+  const f = d.folder || {};
+  const parts = [];
+  if (f.db) parts.push('база с письмами (и фото внутри них) — ' + stMB(f.db));
+  if (f.uploads) parts.push('файлы вложений (видео, музыка, документы) — ' + stMB(f.uploads));
+  if (f.archives) parts.push('архивы чатов — ' + stMB(f.archives));
+  if (f.other) parts.push('прочее — ' + stMB(f.other));
+  const partsHtml = parts.length
+    ? '<div class="tiny muted" style="text-align:center;margin-top:4px;line-height:1.45">Из них: ' + parts.join(' · ') + '</div>' : '';
   const more = d.folder && d.folder.bytes > Math.max(d.used * 1.15, d.used + 1048576)
     ? '<div class="tiny muted" style="text-align:center;margin-top:2px">На диске лежит больше, чем посчитано по сообщениям: остальное — резервные копии, архивы и служебные файлы.</div>' : '';
   return '<div class="tiny muted" style="text-align:center;margin-top:8px;line-height:1.45">'
     + `Диск сервера: занято ${stMB(d.disk.used)} из ${stMB(d.disk.total)} · свободно ${stMB(d.disk.free)}${folder}`
-    + '</div>' + more;
+    + '</div>' + partsHtml + more;
 }
 function stLegendHtml(d) {
   const rows = ['messages', 'photos', 'media', 'files', 'other', 'free'].map(k => {
@@ -8654,6 +8667,9 @@ async function stRender(fresh) {
       : '«Все чаты» — вся база сервера целиком.')
     + '</div>'
     + '<div style="max-width:340px;margin:0 auto">' + stLegendHtml(d) + '</div>'
+    + '<div class="tiny muted" style="text-align:center;margin-top:4px;line-height:1.4">'
+    + 'Фотографии из чатов отправляются внутри письма (сжимаются и шифруются) — поэтому они входят в «Письма». '
+    + 'Отдельно файлами на сервер загружаются видео, музыка и документы.</div>'
     + '<div class="tiny muted" style="text-align:center;margin-top:6px">Занято ' + stMB(d.used) + ' из ' + stMB(d.limit)
     + (stScope === 'all' && !d.canOperate ? ' · просмотр сумм без операций' : '') + '</div>'
     + stDiskHtml(d) + lim;
