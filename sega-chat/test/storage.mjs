@@ -124,12 +124,51 @@ ok(fo.db > 0 && fo.uploads > 0 && fo.meta >= 1000 && fo.archives >= 2000 && fo.o
   'папка с данными разложена по смыслу: база, вложения, архивы, прочее');
 ok(fo.db + fo.uploads + fo.meta + fo.archives + fo.other === fo.bytes && fo.bytes === fo.total,
   'сумма частей равна размеру папки — ничего не потеряно');
-ok(rFolder.d.cats.messages.bytes >= 40000, 'фото внутри письма показано в доле «Письма»');
-ok(rFolder.d.cats.photos.bytes === photosBefore, 'и не приписано к «Фото»: это не загрузка файлом');
+// pkg3-148: письмо теперь может нести метку «внутри фото на N байт» — клиент
+// сообщает её при отправке. Тогда фото попадает в свою долю, а не в «Письма».
+const phBytes = 30000;
+let rPh;
+rPh = await call(base, '/api/messages', { method: 'POST', body: { chat: grp, blob: 'enc:' + 'B'.repeat(phBytes), ph: phBytes, pn: 1 } }, g1);
+ok(rPh.status === 200, 'письмо с пометкой «внутри фото» отправлено');
+const msgId = rPh.d.message.id;
+const rPhoto = await call(base, '/api/storage/summary?scope=me&fresh=1', {}, g1);
+const dMsg = rPhoto.d.cats.messages.bytes - rFolder.d.cats.messages.bytes;
+const dPhoto = rPhoto.d.cats.photos.bytes - rFolder.d.cats.photos.bytes;
+ok(dPhoto >= phBytes, 'вес фото из письма попал в долю «Фотографии»');
+ok(rPhoto.d.cats.photos.inline && rPhoto.d.cats.photos.inline.bytes >= phBytes, 'и помечен как «внутри писем» (inline)');
+ok(dMsg >= 0 && dMsg < 2000, 'из доли «Письма» этот вес вычтен: там остался только служебный вес строки');
+ok(Math.abs((dMsg + dPhoto) - (phBytes + 286)) < 400, 'общая занятая память выросла ровно на письмо — двойного счёта нет');
+
+// досчёт для уже отправленных писем: устройство, расшифровавшее письмо, сообщает вес
+let rAtt = await call(base, '/api/messages/att', { method: 'POST', body: { items: [{ id: msgId, ph: phBytes + 1000, pn: 1 }] } }, g1);
+ok(rAtt.status === 200 && rAtt.d.saved === 1, 'метка веса фото обновляется для уже отправленного письма');
+rAtt = await call(base, '/api/messages/att', { method: 'POST', body: { items: [{ id: msgId, ph: phBytes + 1000, pn: 1 }] } }, g1);
+ok(rAtt.status === 200 && rAtt.d.saved === 0, 'повторный тот же отчёт ничего не переписывает');
+// чат Поли и Гоши, админ в нём не состоит — его отчёт не должен приниматься
+const dmOther = await call(base, '/api/chats', {
+  method: 'POST',
+  body: { titleBlob: 'enc:' + hex(), members: [g1Id, g2Id], keys: { [g1Id]: { blob: 'w-1' }, [g2Id]: { blob: 'w-2' } } }
+}, g1);
+const dmId = dmOther.d && dmOther.d.chat && dmOther.d.chat.id;
+let rDm;
+rDm = await call(base, '/api/messages', { method: 'POST', body: { chat: dmId, blob: 'enc:' + hex(), ph: 5000, pn: 1 } }, g1);
+ok(!!dmId && rDm.status === 200, 'письмо с фото в чате, где админа нет');
+rAtt = await call(base, '/api/messages/att', { method: 'POST', body: { items: [{ id: rDm.d.message.id, ph: 999999, pn: 1 }] } }, admin);
+ok(rAtt.status === 200 && rAtt.d.saved === 0, 'не участник чата не может править вес фото в чужом письме');
+rAtt = await call(base, '/api/messages/att', { method: 'POST', body: { items: [] } }, g1);
+ok(rAtt.status === 400, 'пустой список отклоняется');
+
+ok(typeof rFolder.d.program === 'object' && rFolder.d.program && rFolder.d.program.bytes > 0,
+  'сводка сообщает, сколько занимает сама программа');
+ok(rFolder.d.program.code > 0 && typeof rFolder.d.program.libs === 'number' && typeof rFolder.d.program.git === 'number',
+  'и раскладывает её на код, библиотеки и историю обновлений');
+ok(rFolder.d.program.bytes < rFolder.d.disk.total, 'программа меньше всего диска (единицы не перепутаны)');
 ok(typeof r.d.free === 'number' && typeof r.d.percent === 'number' && r.d.canOperate === false,
   'сводка несёт свободное место, процент и признак админства');
 r = await call(base, '/api/storage/summary?scope=all', {}, g2);
-ok(r.status === 200 && r.d.cats.photos.count === 1 && r.d.cats.files.count === 1,
+// pkg3-148: «Фотографии» теперь включают и снимки внутри писем, поэтому
+// проверяем объём, а не число файловых загрузок
+ok(r.status === 200 && r.d.cats.photos.bytes > 0 && r.d.cats.files.count === 1,
   'сводка «все»: участник видит только суммы, без операций');
 r = await call(base, '/api/storage/summary?scope=all', {}, admin);
 ok(r.status === 200 && r.d.canOperate === true, 'администратор получает право операций');
@@ -180,7 +219,9 @@ ok(r.d.limit === 400 * 1024 * 1024 && typeof r.d.diskFree === 'number' && r.d.di
 r = await call(base, '/api/chats/' + grp + '/clear', { method: 'POST', body: {} }, admin);
 ok(r.status === 200, 'очистка чата администратором прошла');
 r = await call(base, '/api/storage/summary?scope=all&fresh=1', {}, admin);
-ok(r.d.cats.photos.count === 0 && r.d.cats.files.count === 0, 'вложения очищенного чата стёрты с сервера');
+// pkg3-148: у Поли с Гошей остался личный чат с фото в письме — учитываем это
+ok(r.d.cats.files.count === 0 && (!r.d.cats.photos.inline || r.d.cats.photos.inline.bytes < 20000),
+  'вложения очищенного чата стёрты с сервера');
 
 console.log('\n──────────────────────────────────────────────────');
 console.log(`  Пульт памяти: ${good} ✓, провалов ${bad}`);

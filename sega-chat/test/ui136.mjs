@@ -199,7 +199,7 @@ ok(/host \+ ':' \+ c\.port/.test(read('lib/smtp.js')), 'в текстах оши
 console.log('\n  6. Отметки выпуска');
 ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v141', 'кэш оформления поднят до v130');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v142', 'кэш оформления поднят до v130');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui136.mjs'), 'тест ui136 включён в цепочку npm test');
 

@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-147';
+const BUILD = 'pkg3-148';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -256,6 +256,18 @@ function createApi(store, opts = {}) {
     if (i >= 0) list.splice(i, 1);
     save();
   }
+  /**
+   * pkg3-148: на какой диск на самом деле идти. Если номер из пути не подключён,
+   * а диск этого вида у человека ровно один — это он: файл переехал вместе с
+   * повторным подключением, а старые пути (playlists, письма) остались с прежним
+   * номером. Так музыка снова играет, а не «Диск не подключён».
+   */
+  function resolvedSlot(u, kind, slot) {
+    const n = Math.min(drives.MAX_SLOTS, Math.max(1, Number(slot) || 1));
+    if (driveRec(u, kind, n)) return n;
+    const live = userDrives(u).filter(d => d && d.kind === kind && typeof d.blob === 'string');
+    return live.length === 1 ? live[0].slot : n;
+  }
   /** Свободный номер диска этого вида (0 — все три заняты). */
   function freeSlot(u, kind) {
     const list = userDrives(u);
@@ -392,12 +404,12 @@ function createApi(store, opts = {}) {
       const gp = gdrive.safePath(p);
       if (!gp) { const e = new Error('Неверный путь к файлу на Google Диске'); e.status = 400; throw e; }
       if (!owner) { const e = new Error('Нет владельца файла'); e.status = 404; throw e; }
-      const gslot = gdrive.slotOf(gp);
+      const gslot = resolvedSlot(owner, 'google', gdrive.slotOf(gp));
       const gtok = await gdFreshToken(owner, gslot);
       if (!gtok) { const e = new Error('Google Диск не подключён'); e.status = 409; throw e; }
       return { href: '/api/gdrive/stream?t=' + encodeURIComponent(gdTicket(owner.id, gdrive.idOf(gp), gslot)), ttl: Math.round(GD_TICKET_TTL / 1000) };
     }
-    const tok = await ydFreshToken(owner, yadisk.loadKeys(), drives.slotOf(p));
+    const tok = await ydFreshToken(owner, yadisk.loadKeys(), resolvedSlot(owner, 'yandex', drives.slotOf(p)));
     if (!tok) { const e = new Error('Яндекс.Диск не подключён'); e.status = 409; throw e; }
     return yadisk.downloadHref(tok.access_token, p);
   }
@@ -889,6 +901,18 @@ function createApi(store, opts = {}) {
         cats[k].bytes += b;
         cats[k].count += 1;
       }
+      // pkg3-148: фотографии, отправленные ВНУТРИ письма (так клиент шлёт все
+      // снимки — сжимает и шифрует), лежат в весе письма. Владелец справедливо
+      // ждал их в доле «Фотографии». Теперь сервер вычитает их из «Писем» и
+      // прибавляет к «Фото», поэтому общая занятая память не меняется.
+      const phIn = { bytes: 0, count: 0 };
+      for (const m of db.messages) {
+        if (m.svc) continue;
+        if (mine && !myChats.has(m.chat)) continue;
+        if (!(m.ph > 0)) continue;
+        phIn.bytes += m.ph;
+        phIn.count += (m.pn || 1);
+      }
       if (mine) {
         for (const m of db.messages) {
           if (m.svc || !myChats.has(m.chat)) continue;
@@ -898,6 +922,12 @@ function createApi(store, opts = {}) {
       } else {
         cats.messages.bytes = Math.max(0, u.bytes - upTotal);
         cats.messages.count = db.stats.count;
+      }
+      if (phIn.bytes > 0) {
+        cats.messages.bytes = Math.max(0, cats.messages.bytes - phIn.bytes);
+        cats.photos.bytes += phIn.bytes;
+        cats.photos.count += phIn.count;
+        cats.photos.inline = { bytes: phIn.bytes, count: phIn.count };
       }
       // «служебное» — то, что занято, но не попало в категории (аватары, копии,
       // фоны). Без него сумма долей не сходилась с занятым местом, и диаграмма
@@ -912,6 +942,7 @@ function createApi(store, opts = {}) {
         // сколько реально лежит в папке с данными мессенджера
         disk: diskSpace(),
         folder: dirBreakdown(),   // pkg3-147: база / файлы вложений / архивы / прочее
+        program: programBreakdown(),   // pkg3-148: код, библиотеки и история обновлений
         free: Math.max(0, u.limit - u.bytes),
         canOperate: isAdmin === true
       };
@@ -967,6 +998,48 @@ function createApi(store, opts = {}) {
     return out;
   }
   function dirBytes(dir0) { const r = dirBreakdown(dir0); return { bytes: r.total, files: r.files }; }
+  /**
+   * pkg3-148: сколько занимает САМА ПРОГРАММА — код, библиотеки и история
+   * обновлений (папка `.git`). Владелец просил видеть это в «Системных»: на
+   * маленьком VPS это заметная часть диска, но к памяти чатов она не относится.
+   * Обход тяжёлый (библиотек десятки тысяч файлов), поэтому итог держим 10 минут.
+   */
+  let progCache = { ts: 0, data: null };
+  function programBreakdown() {
+    if (progCache.data && Date.now() - progCache.ts < 10 * 60 * 1000) return progCache.data;
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const root = path2.join(__dirname, '..');
+    const skip = path2.resolve(process.env.DATA_DIR || path2.join(root, 'data'));
+    const out = { bytes: 0, total: 0, files: 0, code: 0, libs: 0, git: 0, other: 0 };
+    const walk = (d, lvl, kind) => {
+      if (out.files > 60000 || lvl > 8) return;
+      let list = [];
+      try { list = fs2.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+      for (const ent of list) {
+        if (out.files > 60000) return;
+        const full = path2.join(d, ent.name);
+        if (ent.isDirectory()) {
+          if (path2.resolve(full) === skip) continue;         // папка с данными — отдельно
+          const k = kind || (ent.name === 'node_modules' ? 'libs' : (ent.name === '.git' ? 'git' : ''));
+          walk(full, lvl + 1, k);
+          continue;
+        }
+        let size = 0;
+        try { size = fs2.statSync(full).size; } catch (e) { continue; }
+        out.files++;
+        out.bytes += size;
+        if (kind === 'libs') out.libs += size;
+        else if (kind === 'git') out.git += size;
+        else out.code += size;
+      }
+    };
+    walk(root, 0, '');
+    out.total = out.bytes;
+    out.other = Math.max(0, out.bytes - out.code - out.libs - out.git);
+    progCache = { ts: Date.now(), data: out };
+    return out;
+  }
   /** Весь диск VPS: всего и свободно (для честной картины, а не «предела»). */
   function diskSpace() {
     try {
@@ -3353,6 +3426,31 @@ function createApi(store, opts = {}) {
     }
 
     // ------------------------------------------------ сообщения
+    // pkg3-148: клиент досчитывает вес фотографий в уже отправленных письмах.
+    // Письмо остаётся зашифрованным: устройство, которое его расшифровало,
+    // сообщает только «в этом письме фото на N байт, штук M» — сервер так же
+    // знает размер письма, но теперь может разложить его по категориям честно.
+    // Ничего не пишется, если значения не изменились (повторные отчёты дешевы).
+    if (pathname === '/api/messages/att' && method === 'POST') {
+      const items = Array.isArray(req.body && req.body.items) ? req.body.items.slice(0, 500) : [];
+      if (!items.length) return E(400, 'Пустой список');
+      let saved = 0;
+      for (const it of items) {
+        const id = String((it && it.id) || '');
+        if (!id) continue;
+        const ph = Math.max(0, Math.min(60 * MB, Math.floor(Number(it && it.ph) || 0)));
+        const pn = Math.max(0, Math.min(500, Math.floor(Number(it && it.pn) || 0)));
+        if (!ph) continue;
+        const m = await findMessage(id);
+        if (!m || m.svc) continue;
+        const chat = chatById(m.chat);
+        if (!chat || !isMember(chat, me.id)) continue;   // считать может только участник
+        if ((m.ph || 0) === ph && (m.pn || 0) === (pn || 1)) continue;
+        m.ph = ph; m.pn = pn || 1; saved++;
+      }
+      if (saved) save();
+      return J(200, { saved });
+    }
     if (pathname === '/api/messages' && method === 'POST') {
       const b = req.body;
       if (!b.blob || typeof b.blob !== 'string') return E(400, 'Пустое сообщение');
@@ -3381,6 +3479,15 @@ function createApi(store, opts = {}) {
         quote = q.id;
       }
       const m = { id: uid(), seq: await store.reserveSeq(), uid: me.id, ts: Date.now(), blob: b.blob, bytes: b.blob.length, chat: chat.id, parent, quote, upId: b.upId || null };
+      // pkg3-148: фотографии внутри письма. Сервер содержимое не читает (blob
+      // зашифрован), но клиент честно сообщает, сколько байт из письма — это
+      // фотографии: иначе они не попадали ни в одну категорию, и владелец видел
+      // «0 МБ по фотографиям», хотя фото на сервере есть.
+      {
+        const ph = Math.max(0, Math.min(60 * MB, Math.floor(Number(b.ph) || 0)));
+        const pn = Math.max(0, Math.min(500, Math.floor(Number(b.pn) || 0)));
+        if (ph > 0) { m.ph = ph; m.pn = pn || 1; }
+      }
       db.messages.push(m);
       addStat(m, 1);
       // pkg3-82 (правка 5): открытая метка письма с результатом раунда
@@ -3925,7 +4032,7 @@ function createApi(store, opts = {}) {
       if (throttle('yd-files-' + me.id, 60)) return E(429, 'Слишком много запросов к Диску — подождите немного');
       // pkg3-127: «Моя музыка» → «🅖 Google Диск» просит список так же, как у Яндекса
       // pkg3-129: `slot` — который по счёту диск этого вида (1, 2 или 3)
-      const slotF = slotArg(query.get('slot'));
+      const slotF = resolvedSlot(me, String(query.get('drive') || '') === 'google' ? 'google' : 'yandex', slotArg(query.get('slot')));
       if (String(query.get('drive') || '') === 'google') {
         const gt = await gdFreshToken(me, slotF);
         if (!gt) return E(409, gdrive.loadKeys() ? 'Google Диск не подключён — подключите его в «Моих дисках»' : gdrive.KEYS_HINT);
@@ -4260,7 +4367,8 @@ function createApi(store, opts = {}) {
             return J(200, { dir: true, of: gOwner.id, drive: 'google', path: gp, name: entG.name || 'папка', perm: String(entG.perm || 'read') });
           }
         }
-        const gtok2 = await gdFreshToken(gOwner, gdrive.slotOf(gp));
+        const gslot2 = resolvedSlot(gOwner, 'google', gdrive.slotOf(gp));
+        const gtok2 = await gdFreshToken(gOwner, gslot2);
         if (!gtok2) return E(409, gOwner.id === me.id ? 'Google Диск не подключён' : 'У этого участника Google Диск не подключён');
         try {
           const meta2 = await gdrive.fileMeta(gtok2.access_token, gp);
@@ -4270,7 +4378,7 @@ function createApi(store, opts = {}) {
           }
           const metaS = (Array.isArray(gOwner.diskShared) ? gOwner.diskShared : []).find(x => x && x.path === gp) || {};
           return J(200, {
-            href: '/api/gdrive/stream?t=' + encodeURIComponent(gdTicket(gOwner.id, gdrive.idOf(gp))),
+            href: '/api/gdrive/stream?t=' + encodeURIComponent(gdTicket(gOwner.id, gdrive.idOf(gp), gslot2)),
             ttl: Math.round(GD_TICKET_TTL / 1000),
             of: gOwner.id, drive: 'google', path: gp,
             name: metaS.name || meta2.name,
@@ -4298,7 +4406,7 @@ function createApi(store, opts = {}) {
         }
       }
       const keys2 = yadisk.loadKeys();
-      const tok2 = await ydFreshToken(owner, keys2, drives.slotOf(path));
+      const tok2 = await ydFreshToken(owner, keys2, resolvedSlot(owner, 'yandex', drives.slotOf(path)));
       if (!tok2) return E(409, owner.id === me.id ? 'Яндекс.Диск не подключён' : 'У этого участника Яндекс.Диск не подключён');
       try {
         const href = await yadisk.downloadHref(tok2.access_token, path);
@@ -4552,7 +4660,7 @@ function createApi(store, opts = {}) {
         }
       }
       const keys = yadisk.loadKeys();
-      const slotH = drives.slotOf(String(query.get('path') || ''));
+      const slotH = resolvedSlot(me, 'yandex', drives.slotOf(String(query.get('path') || '')));
       const tok = await ydFreshToken(me, keys, slotH);
       if (!tok) return E(409, keys ? 'Яндекс.Диск не подключён (или связь с ним истекла)' : YD_KEYS_HINT);
       try {
@@ -4603,7 +4711,7 @@ function createApi(store, opts = {}) {
       if (!of || of === me.id) {
         // свой Диск — обычный путь (тот же, что /api/yadisk/href)
         const keys0 = yadisk.loadKeys();
-        const slotSf = drives.slotOf(path);
+        const slotSf = resolvedSlot(me, 'yandex', drives.slotOf(path));
         const tok0 = await ydFreshToken(me, keys0, slotSf);
         if (!tok0) return E(409, keys0 ? 'Яндекс.Диск не подключён (или связь с ним истекла)' : YD_KEYS_HINT);
         try { return J(200, await yadisk.downloadHref(tok0.access_token, path)); }

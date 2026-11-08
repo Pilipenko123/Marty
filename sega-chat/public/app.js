@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-147';
+const BUILD = 'pkg3-148';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -1890,6 +1890,7 @@ async function decryptSmart(fresh) {
     if (chatId === S.view) need.push(...list.slice(-WIN_SIZE));
   }
   await decryptAll(need);
+  attReportSoon();          // pkg3-148: досчитать вес фотографий в письмах
 }
 async function decryptAll(list) {
   for (const m of list) {
@@ -5177,23 +5178,54 @@ async function musicStartDiskTrack(t) {
   const a = musicAudio();
   a.pause();
   musicNowUi(); musicFabSync();
+  const path = String(t.path || '');
+  const of = String(t.diskOf || '');
+  const mine = !of || (S.me && of === S.me.id);
+  // pkg3-148: трек с Диска пробуем ДВУМЯ путями. Прежде был только первый, и если
+  // Диск не отдавал свежую ссылку (истёк доступ, файл переехал, сеть владельца не
+  // пускает прямой адрес) — не играло ничего и было непонятно почему. Теперь есть
+  // запасной путь через наш сервер (тот же, что у окна «Мои диски»), а если и он
+  // не смог — видно обе причины по-русски.
+  const problems = [];
+  const startIt = async (url, how) => {
+    a.src = url;
+    try { a.load(); } catch (e) { /* старые браузеры */ }
+    // не ждём вечно: если через 12 секунд звук так и не пошёл — считаем отказом
+    const played = a.play();
+    await Promise.race([
+      Promise.resolve(played).catch(e => { throw e; }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('за 12 секунд звук не пошёл')), 12000))
+    ]);
+    return how;
+  };
+  // 1) свежая временная ссылка: звук идёт прямо с Диска, VPS не нагружается
   try {
-    // pkg3-121: трек может лежать на Диске ДРУГОГО участника (он им поделился).
-    // Тогда просим ссылку у сервера с пометкой, чей Диск; свой — как раньше.
-    const mine = !t.diskOf || (S.me && t.diskOf === S.me.id);
     const r = mine
-      ? await api('/api/yadisk/href?path=' + encodeURIComponent(t.path || ''))
-      : await api('/api/yadisk/shared-href?of=' + encodeURIComponent(t.diskOf) + '&path=' + encodeURIComponent(t.path || ''));
+      ? await api('/api/yadisk/href?path=' + encodeURIComponent(path))
+      : await api('/api/yadisk/shared-href?of=' + encodeURIComponent(of) + '&path=' + encodeURIComponent(path));
     if (!r || !r.href) throw new Error('сервер не дал ссылку на файл');
-    // пока ждали ссылку, человек мог включить другой трек — не перебиваем его
-    if (MUS.list[MUS.idx] !== t) return;
-    a.src = r.href;
-    await a.play();
+    if (MUS.list[MUS.idx] !== t) return;         // человек уже включил другой трек
+    await startIt(r.href, 'прямая ссылка');
+    musicNowUi(); musicFabSync();
+    return;
   } catch (e) {
-    // pkg3-116: файл на Диске не отдался — тоже пропускаем и включаем следующий
-    if (MUS.list[MUS.idx] === t) musTrackDead(false, t, 'Трек с Диска не заиграл: ' + (e.message || e));
-    else toast('Трек с Диска не заиграл: ' + (e.message || e), true);
+    if (MUS.list[MUS.idx] !== t) return;
+    problems.push('прямая ссылка: ' + ((e && e.message) || e));
   }
+  // 2) запасной путь — через наш сервер (он умеет и Яндекс, и Google)
+  try {
+    const q = mine ? ('?path=' + encodeURIComponent(path))
+      : ('?of=' + encodeURIComponent(of) + '&path=' + encodeURIComponent(path));
+    await startIt('/api/yadisk/file' + q, 'через сервер');
+    toast('Играю через сервер: Диск не отдал прямую ссылку');
+    musicNowUi(); musicFabSync();
+    return;
+  } catch (e2) {
+    if (MUS.list[MUS.idx] !== t) return;
+    problems.push('через сервер: ' + ((e2 && e2.message) || e2));
+  }
+  // 3) честно говорим обе причины и идём дальше по списку
+  musTrackDead(false, t, 'Трек с Диска не заиграл — ' + problems.join(' · '));
   musicNowUi(); musicFabSync();
 }
 /** Проигрывание прямо из панели Диска: список = все показанные файлы, поэтому
@@ -8575,7 +8607,7 @@ const ST_COLORS = { messages: '#6f9bff', photos: '#ff7ab2', media: '#b28cff', fi
 // pkg3-147: честные подписи. Фотографии из чатов уходят ВНУТРИ письма
 // (клиент сжимает их и шифрует), поэтому их место — в «Письмах». Отдельными
 // файлами на сервер попадают только видео, музыка и документы.
-const ST_LABEL = { messages: 'Письма (текст и фото внутри)', photos: 'Фото, загруженные файлом', media: 'Видео и музыка', files: 'Документы и файлы', other: 'Служебное (аватары, копии, архивы, фоны)', free: 'Свободное место' };
+const ST_LABEL = { messages: 'Письма (текст и фото внутри)', photos: 'Фотографии (в письмах и файлом)', media: 'Видео и музыка', files: 'Документы и файлы', other: 'Служебное (аватары, копии, архивы, фоны)', free: 'Свободное место' };
 let stScope = 'me';
 const stMB = b => (b / 1048576).toFixed(1) + ' МБ';
 function stDonutHtml(cats, free, percent) {
@@ -8604,6 +8636,16 @@ function stDonutHtml(cats, free, percent) {
 function stDiskHtml(d) {
   if (!d || !d.disk) return '';
   const folder = d.folder ? ` · папка с данными: ${stMB(d.folder.bytes)} (${d.folder.files} файлов)` : '';
+  // pkg3-148: сколько занимает сама программа — код, библиотеки и история
+  // обновлений. К памяти чатов это не относится, но на диске VPS место ест.
+  const pr = d.program || {};
+  const prog = pr.bytes
+    ? `<div class="tiny muted" style="text-align:center;margin-top:4px;line-height:1.45">`
+      + `Программа (код, библиотеки, история обновлений): ${stMB(pr.bytes)} — из них код ${stMB(pr.code || 0)}`
+      + (pr.libs ? ` · библиотеки ${stMB(pr.libs)}` : '')
+      + (pr.git ? ` · история обновлений ${stMB(pr.git)}` : '')
+      + `</div>`
+    : '';
   // pkg3-147: где именно лежат мегабайты — база с письмами, файлы вложений,
   // копии и архивы, прочее. Это отвечает на вопрос «где фотографии из чатов».
   const f = d.folder || {};
@@ -8618,7 +8660,16 @@ function stDiskHtml(d) {
     ? '<div class="tiny muted" style="text-align:center;margin-top:2px">На диске лежит больше, чем посчитано по сообщениям: остальное — резервные копии, архивы и служебные файлы.</div>' : '';
   return '<div class="tiny muted" style="text-align:center;margin-top:8px;line-height:1.45">'
     + `Диск сервера: занято ${stMB(d.disk.used)} из ${stMB(d.disk.total)} · свободно ${stMB(d.disk.free)}${folder}`
-    + '</div>' + partsHtml + more;
+    + '</div>' + partsHtml + prog + more;
+}
+/** pkg3-148: «в том числе внутри писем» — честная расшифровка доли «Фотографии». */
+function stInlinePhotoHtml(d) {
+  const ph = d && d.cats && d.cats.photos;
+  const inl = ph && ph.inline;
+  if (!inl || !inl.bytes) return '';
+  return '<div class="tiny muted" style="text-align:center;margin-top:4px;line-height:1.4">'
+    + `Фотографии в письмах: ${stMB(inl.bytes)} (${inl.count} шт.) — они едут внутри письма и лежат в переписке, `
+    + 'а не отдельными файлами.</div>';
 }
 function stLegendHtml(d) {
   const rows = ['messages', 'photos', 'media', 'files', 'other', 'free'].map(k => {
@@ -8634,6 +8685,9 @@ function stLegendHtml(d) {
 async function openStoragePanel(scope) {
   stScope = scope || stScope || 'me';
   modal('Память сервера', '<div id="st-body"><div class="tiny muted">Запрашиваю сводку…</div></div>');
+  // pkg3-148: сперва досчитываем вес фотографий из расшифрованных писем — иначе
+  // сводка покажет только то, что сервер уже знает.
+  try { await attReport(true); } catch (e) {}
   await stRender(false);
 }
 async function stRender(fresh) {
@@ -8650,6 +8704,7 @@ async function stRender(fresh) {
   let d = null;
   try { d = await api('/api/storage/summary?scope=' + stScope + (fresh ? '&fresh=1' : '')); }
   catch (e) { setP(100, 'ошибка:'); $('#st-main').innerHTML = '<div class="tiny">' + escapeHtml(e.message) + '</div>'; return; }
+  S.stSummary = d;   // pkg3-148: пригодится окну «Фотографии» (вес снимков в письмах)
   setP(62, 'размечаю сектора…');
   await new Promise(r => setTimeout(r, 30));
   const togg = `<div style="display:flex;gap:6px;justify-content:center;margin:8px 0">
@@ -8667,6 +8722,7 @@ async function stRender(fresh) {
       : '«Все чаты» — вся база сервера целиком.')
     + '</div>'
     + '<div style="max-width:340px;margin:0 auto">' + stLegendHtml(d) + '</div>'
+    + stInlinePhotoHtml(d)
     + '<div class="tiny muted" style="text-align:center;margin-top:4px;line-height:1.4">'
     + 'Фотографии из чатов отправляются внутри письма (сжимаются и шифруются) — поэтому они входят в «Письма». '
     + 'Отдельно файлами на сервер загружаются видео, музыка и документы.</div>'
@@ -8677,7 +8733,7 @@ async function stRender(fresh) {
   setTimeout(() => { const p = $('#st-prog-fill'); if (p) p.parentElement.style.display = 'none'; const t = $('#st-prog-txt'); if (t) t.style.display = 'none'; }, 500);
   $('#st-me').addEventListener('click', () => { stScope = 'me'; stRender(false); });
   $('#st-all').addEventListener('click', () => { stScope = 'all'; stRender(false); });
-  $('#st-fresh').addEventListener('click', () => stRender(true));
+  $('#st-fresh').addEventListener('click', async () => { try { await attReport(true); } catch (e) {} stRender(true); });
   $('#st-main').querySelectorAll('[data-st],[data-stk]').forEach(el => {
     el.addEventListener('click', () => {
       const k = el.dataset.st || el.dataset.stk;
@@ -8697,7 +8753,18 @@ async function stRender(fresh) {
   });
 }
 async function openStorageKind(kind) {
-  modal(ST_LABEL[kind] + ' на сервере', '<div id="stk-body"><div class="tiny muted">Загружаю список…</div></div>');
+  // pkg3-148: у «Фотографий» две части — файлы, загруженные на сервер, и снимки
+  // внутри писем. Вторые перечислять списком нельзя (они в переписке), поэтому
+  // честно говорим, сколько их и где смотреть.
+  let note = '';
+  const sum = S.stSummary;
+  const inl = kind === 'photos' && sum && sum.cats && sum.cats.photos && sum.cats.photos.inline;
+  if (inl && inl.bytes) {
+    note = '<div class="tiny muted" style="margin:0 0 6px;line-height:1.4">'
+      + `Внутри писем: ${stMB(inl.bytes)} (${inl.count} фото) — они лежат в переписке, их видно в чатах. `
+      + 'Ниже — только то, что загружено отдельными файлами.</div>';
+  }
+  modal(ST_LABEL[kind] + ' на сервере', note + '<div id="stk-body"><div class="tiny muted">Загружаю список…</div></div>');
   let cursor = 0;
   const load = async () => {
     const r = await api('/api/storage/items?scope=' + stScope + '&kind=' + kind + '&cursor=' + cursor);
@@ -10574,7 +10641,8 @@ async function send({ textarea, parent, attachKey }) {
     blob, bytes: blob.length, chat: c.id, parent: parent || null, quote: quote || null,
     upId: (attRef && attRef.upId) || null, local: true
   };
-  S.retry[tmpId] = { blob, chat: c.id, parent: parent || null, quote: quote || null, payload };
+  const phStat = attPhotoStats(payload);
+  S.retry[tmpId] = Object.assign({ blob, chat: c.id, parent: parent || null, quote: quote || null, payload }, phStat || {});
   addMessages([draft]);
   S.plain.set(tmpId, payload);
   S.atBottom = true; S.sig = '';
@@ -11959,6 +12027,65 @@ const pickMsg = m => ({
 });
 /** Положить в локальную память только что отправленное сообщение:
  *  курсор кэша darf идти вперёд только вместе с сохранённым телом. */
+/* ───────── pkg3-148: вес фотографий, отправленных внутри письма ─────────
+ * Фотография из чата не загружается файлом: клиент сжимает снимок и кладёт
+ * его в само письмо (payload.att), а письмо шифруется целиком. Сервер видит
+ * только размер письма — поэтому фото и не попадало в долю «Фотографии».
+ * Теперь устройство, которое умеет расшифровать письмо, один раз сообщает
+ * серверу необязательную мелочь: «в этом письме фото на N байт, штук M».
+ * Ни текста, ни самого снимка сервер не получает. */
+function attPhotoStats(p) {
+  const a = p && p.att;
+  if (!a || a.kind !== 'image' || !a.data) return null;
+  const bytes = String(a.data).length;
+  if (!bytes) return null;
+  return { ph: bytes, pn: 1 };
+}
+const ATT_DONE_KEY = 'sega.attReported.v1';
+function attDoneSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(ATT_DONE_KEY) || '[]')); } catch (e) { return new Set(); }
+}
+function attDoneSave(set) {
+  try { localStorage.setItem(ATT_DONE_KEY, JSON.stringify(Array.from(set).slice(-8000))); } catch (e) {}
+}
+let attBusy = false, attTimer = 0;
+/** Отправить на сервер метки о фото в уже расшифрованных письмах (пачками). */
+async function attReport(force) {
+  if (!S.me || attBusy) return 0;
+  attBusy = true;
+  let saved = 0;
+  try {
+    const done = attDoneSet();
+    let guard = 0;
+    while (guard++ < 6) {
+      const items = [];
+      for (const [id, p] of S.plain) {
+        if (items.length >= 200) break;
+        if (!id || id.startsWith('tmp') || done.has(id)) continue;
+        const st = attPhotoStats(p);
+        if (!st) { done.add(id); continue; }        // обычный текст — больше не смотрим
+        items.push(Object.assign({ id }, st));
+      }
+      if (!items.length) break;
+      try {
+        const r = await api('/api/messages/att', { method: 'POST', body: { items } });
+        saved += (r && r.saved) || 0;
+      } catch (e) { break; }                        // нет сети/старый сервер — повторим позже
+      for (const it of items) done.add(it.id);
+      attDoneSave(done);
+      if (items.length < 200) break;
+    }
+    attDoneSave(done);
+  } finally { attBusy = false; }
+  if (saved || force) { /* суммы придут в следующей сводке */ }
+  return saved;
+}
+/** Тихо, с задержкой: расшифровали пачку писем — досчитали вес фотографий. */
+function attReportSoon() {
+  if (attTimer) return;
+  attTimer = setTimeout(() => { attTimer = 0; attReport().catch(() => {}); }, 2500);
+}
+
 function cacheMsg(m) {
   if (!S.idb || !S.cacheFp || !m) return;
   S.idb.applySync(S.cacheFp, {

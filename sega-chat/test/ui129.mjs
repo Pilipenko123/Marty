@@ -273,7 +273,23 @@ ok((await (await fetch(base + r.d.href)).text()) === 'SOUND-g1tok-gf1aaa', 'пе
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', path: 'google2:/root/Второй' } }, A.token);
 ok(r.status !== 500, 'правки второго Google не путают сервер (ответ — не «ошибка сервера»)');
 
-console.log('\n  6. Ограничения');
+console.log('\n  6. Файл со старого номера диска');
+// pkg3-148: владелец переподключал Диск, и старые пути (плейлисты, письма)
+// остались с прежним номером — музыка переставала играть с «Диск не подключён».
+r = await call('/api/yadisk/disconnect', { method: 'POST', body: { slot: 2 } }, A.token);
+ok(r.status === 200, 'второй Яндекс-Диск отключён');
+// путь со старым номером, а файл лежит на единственном подключённом диске
+r = await call('/api/yadisk/href?path=' + encodeURIComponent('disk2:/first.mp3'), {}, A.token);
+ok(r.status === 200 && String(r.d.href || '').includes(encodeURIComponent(TOK1)),
+  'старый путь disk2:/ играет единственным подключённым диском');
+r = await call('/api/yadisk/file?path=' + encodeURIComponent('disk2:/first.mp3'), {}, A.token);
+ok(r.status === 200 && String(r.d.href || '').includes(encodeURIComponent(TOK1)),
+  'и через сервер (запасной путь плеера) — тоже он');
+// вернуть второй диск: он нужен проверкам дальше
+r = await call('/api/yadisk/token', { method: 'POST', body: { token: TOK2, slot: 2 } }, A.token);
+ok(r.status === 200 && r.d.slot === 2, 'второй Яндекс-Диск подключён обратно');
+
+console.log('\n  7. Ограничения');
 r = await call('/api/yadisk/token', { method: 'POST', body: { token: TOK1, slot: 4 } }, A.token);
 ok(r.status === 400 && /не больше трёх/i.test(String(r.d.error || '')), 'четвёртый номер отклоняется, а не затирает первый диск');
 r = await call('/api/yadisk/state?slot=3', {}, A.token);
@@ -342,7 +358,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v141', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v142', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui129.mjs'), 'тест ui129 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);

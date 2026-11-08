@@ -62,8 +62,9 @@ ok(/«' \+ name\.slice\(0, 70\) \+ '» не проигрался — включ�
   'человеку видно, ЧТО не проигралось и что включён следующий');
 ok(/function musTrackDead\(viaProxy, track, reason\)/.test(app) && /toast\(reason \|\| musDeadMsg\(viaProxy\), true\);/.test(dead),
   'причину можно передать словами — для трека с Яндекс.Диска она своя');
-ok(/if \(MUS\.list\[MUS\.idx\] === t\) musTrackDead\(false, t, 'Трек с Диска не заиграл: ' \+ \(e\.message \|\| e\)\);/.test(app),
-  'файл с Диска не отдался — тоже пропуск и переход к следующему');
+// pkg3-148: у Диска теперь два пути, и в отказе видны обе причины
+ok(/musTrackDead\(false, t, 'Трек с Диска не заиграл — ' \+ problems\.join/.test(app),
+  'файл с Диска не отдался — тоже пропуск и переход к следующему (с двумя причинами)');
 
 console.log('\n  3. Клавиатура не сдвигает окно вниз (телефон)');
 ok(/#modal\.mus-modal\{padding:0;overflow:hidden;align-items:flex-start\}/.test(mob),
