@@ -247,7 +247,7 @@ ok((r.d.drives || []).find(x => x.id === 'google').connected === false, 'пос�
 console.log('\n  6. Клиент: Google в проводнике и в окне подключения');
 const appJs = read('public/app.js');
 // pkg3-146: у дисков теперь несколько номеров — кнопки различаются data-атрибутами
-ok(/data-gd-login="\$\{slot\}"/.test(appJs) && /\/api\/gdrive\/auth\?slot=/.test(appJs), 'в окне подключения есть «Войти через Google»');
+ok(/data-gd-login="\$\{free.slot\}"/.test(appJs) && /\/api\/gdrive\/auth\?slot=/.test(appJs), 'в окне подключения есть «Войти через Google»');
 ok(/\/api\/gdrive\/disconnect/.test(appJs) && /data-drv-off="\$\{escapeHtml\(x\.id\)\}"/.test(appJs), 'и «Отключить» для любого диска');
 ok(/keysHint/.test(appJs), 'если ключей нет — показываем подсказку, а не пустую кнопку');
 ok(/const writable = mine \? gWrite : \(st\.perm === 'write'\)/.test(appJs) && /Google разрешил SEGA-CHAT только смотреть файлы/.test(appJs), 'право на правки считается по правам входа, и это написано словами');
@@ -266,7 +266,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v146', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v147', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui126.mjs'), 'тест ui126 включён в цепочку npm test');
 ok(!/require\('googleapis'\)/.test(read('lib/gdrive.js')), 'новых зависимостей npm нет — только встроенные модули');
 

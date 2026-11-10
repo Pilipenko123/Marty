@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-152';
+const BUILD = 'pkg3-153';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -4087,7 +4087,7 @@ function createApi(store, opts = {}) {
           const prefix = drives.prefixFor(kind, n);
           rows.push({
             id, kind, slot: n, prefix,
-            title: 'Диск ' + (kind === 'yandex' ? 'Y' : 'G') + n,
+            title: rec.title || ('Диск ' + (kind === 'yandex' ? 'Y' : 'G') + n),
             connected, manual,
             readonly: kind === 'google' ? !can : false,
             canWrite: kind === 'google' ? can : true,
@@ -4122,6 +4122,18 @@ function createApi(store, opts = {}) {
         },
         maxSlots: drives.MAX_SLOTS
       });
+    }
+    // Имя принадлежит записи подключённого диска и не меняет его путь или права.
+    if (pathname === '/api/drives/rename' && method === 'POST') {
+      const b = req.body || {};
+      const match = /^(yandex|google)([23]?)$/.exec(String(b.id || ''));
+      const title = typeof b.title === 'string' ? b.title.trim() : '';
+      if (!match || !title || title.length > 80 || /[\x00-\x1f\x7f]/.test(title)) return E(400, 'Укажите название диска до 80 символов');
+      const rec = driveRec(me, match[1], Number(match[2] || 1));
+      if (!rec) return E(404, 'Диск не подключён');
+      rec.title = title;
+      save();
+      return J(200, { ok: true, title });
     }
     // pkg3-124: содержимое папки Диска — папки и файлы любых типов. Маршрут
     // работает ТОЛЬКО со своим Диском: чужой Диск отдаётся поштучно и только

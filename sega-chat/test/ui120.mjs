@@ -67,7 +67,7 @@ ok(/const src = document\.getElementById\('mus-now-src'\)/.test(app), 'musicNowU
 ok(/src\.classList\.toggle\('hidden', !ru\)/.test(app), 'нет источника — подписи не видно');
 ok(/function musSourceRu\(t\)/.test(app), 'есть одна общая подпись источника');
 ok(/musicIsWidget\(t\)\) return 'Яндекс\.Музыка'/.test(app), 'трек-виджет Яндекса — «Яндекс.Музыка»');
-ok(/return \(t\.diskOf && S\.me && t\.diskOf !== S\.me\.id\) \? 'Диск участника' : drvName\(/.test(app),
+ok(/return \(t\.diskOf && S\.me && t\.diskOf !== S\.me\.id\) \? 'Диск участника' : drvDisplayName\(/.test(app),
   'файл подписан номером своего Диска или «Диск участника»');
 ok(/MUS_SITE_TITLES\[t\.site\]/.test(app), 'сайт поиска — его человеческое имя (MUS_SITE_TITLES)');
 ok(/u\.hostname/.test(app), 'иначе — имя сайта из самой ссылки');
@@ -116,7 +116,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(sw) || [])[1];
 ok(b2 === BUILD, `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(api) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(new RegExp('\\| ' + BUILD + ' \\|').test(read(join(ROOT, 'README.md'))), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v146', `кэш оформления поднят (${cache}) — устройства получат правки`);
+ok(cache === 'sega-static-v147', `кэш оформления поднят (${cache}) — устройства получат правки`);
 ok(i120 > 0 && i120 > css.indexOf('pkg3-119'), 'блок 120-го идёт после 119-го — его правила побеждают');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
