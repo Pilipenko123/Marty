@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 const req=createRequire(import.meta.url);
 const {createFolder} = req('../local-pc/folder.js');
-const {createRelay,digest} = req('../local-pc/relay.js');
+const {createRelay,digest,MAX_AGE,REPLAY_WINDOW} = req('../local-pc/relay.js');
 const secure = req('../local-pc/secure-channel.js');
 const {createReadService,MAX_READ} = req('../local-pc/read-service.js');
 const {transferToStage} = req('../local-pc/verified-transfer.js');
@@ -87,6 +87,20 @@ try {
   await assert.rejects(agent.handle(rid,JSON.stringify(changed)));
   await assert.rejects(agent.handle('6'.repeat(32),p));
   assert.throws(()=>relay.request('other',id,'7'.repeat(32),p));
+  // Даже после освобождения ячейки ответом номер нельзя использовать повторно,
+  // пока исходный шифрованный запрос ещё действует. Только в одном процессе!
+  let t=5_000_000, reads=0;const born=t, replayId='e'.repeat(32), expires=born+secure.MAX_FUTURE;
+  const memoryRelay=createRelay({clock:()=>t});memoryRelay.register('owner',id,digest(token));
+  const counted=createReadService({folder:{async list(){reads++;return []},async read(){}},secret,deviceId:id,clock:()=>t});
+  const request=await secure.seal(secret,id,'request',replayId,expires,new TextEncoder().encode('{"op":"list","path":""}'));
+  memoryRelay.request('owner',id,replayId,request);const leased=memoryRelay.next(id,token);
+  const answer=await counted.handle(replayId,leased.packet);memoryRelay.reply(id,token,replayId,leased.claim,answer);
+  memoryRelay.acknowledge('owner',id,replayId);assert.equal(reads,1);
+  t=born+MAX_AGE;await secure.open(secret,request,{channel:id,direction:'request',request:replayId},t);
+  assert.throws(()=>memoryRelay.request('owner',id,replayId,request));assert.equal(reads,1);
+  t=born+REPLAY_WINDOW-1;await secure.open(secret,request,{channel:id,direction:'request',request:replayId},t);
+  assert.throws(()=>memoryRelay.request('owner',id,replayId,request));
+  t=born+REPLAY_WINDOW;await assert.rejects(secure.open(secret,request,{channel:id,direction:'request',request:replayId},t),/просрочен/);
   relay.revoke('owner',id);
   assert.throws(()=>relay.next(id,token));
   console.log('local-pc-encrypted-flow: список и чтение в памяти через шифрованные сообщения, без HTTP/Windows');

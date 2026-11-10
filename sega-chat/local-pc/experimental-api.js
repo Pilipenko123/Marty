@@ -4,6 +4,7 @@
 // с настоящими файлами до проверки Windows, устойчивой привязки и всей защиты.
 const crypto = require('node:crypto');
 const { createRelay, digest, MAX_PACKET } = require('./relay');
+const { MAX_FUTURE, CLOCK_SKEW } = require('./secure-channel');
 const ID = /^[a-f0-9]{32}$/, HASH = /^[a-f0-9]{64}$/;
 const J = (status,json) => ({status,json});
 const E = (status,error) => J(status,{error});
@@ -34,7 +35,7 @@ function createExperimentalApi() {
       const p = JSON.parse(packet), now = Date.now();
       return !!p && typeof p === 'object' && !Array.isArray(p) && Object.keys(p).sort().join(',') === 'b,c,d,e,i,n,v'
         && p.v === 1 && p.c === dev && p.d === direction && p.i === requestId
-        && Number.isSafeInteger(p.e) && p.e >= now - 30000 && p.e <= now + 120000
+        && Number.isSafeInteger(p.e) && p.e >= now - CLOCK_SKEW && p.e <= now + MAX_FUTURE
         && typeof p.n === 'string' && /^[A-Za-z0-9_-]{16}$/.test(p.n)
         && typeof p.b === 'string' && /^[A-Za-z0-9_-]{22,349547}$/.test(p.b);
     } catch (_) { return false; }

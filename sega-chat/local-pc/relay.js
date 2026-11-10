@@ -1,18 +1,24 @@
 'use strict';
 
 // Изолированный прототип почтового ящика для ЗАШИФРОВАННЫХ сообщений.
-// НЕ зарегистрирован в API и НЕ открывает сетевых портов. Вызывающий код
+// Сам не открывает сетевых портов; API подключает его лишь в лабораторном режиме. Вызывающий код
 // обязан установить владельца по настоящей сессии, сохранить хеш токена ПК,
 // восстановить подключения после перезапуска и отдельно шифровать сообщения.
 const crypto = require('node:crypto');
+const {MAX_FUTURE,CLOCK_SKEW}=require('./secure-channel');
 const MAX_PACKET = 512 * 1024;
 const MAX_PENDING = 8;
-// Кратковременные отметки подтверждённых запросов ограничены отдельно от
-// восьми живых сообщений. Они не сохраняются при перезапуске сервера.
+// Отметки подтверждённых и истёкших запросов не сохраняются при перезапуске.
+// Число отметок вместе с зарезервированными для живых запросов ограничено.
 const MAX_RECENT = 1024;
 const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_DEVICES = 100;
 const MAX_AGE = 60_000;
+// Для лабораторного API пакет может быть действителен максимум 120 секунд от
+// приёма плюс 30 секунд допуска часов (включая граничную миллисекунду).
+// Сохраняем номер запроса даже после истечения без ответа или подтверждения.
+// После перезапуска или отзыва устройства отметки всё равно теряются.
+const REPLAY_WINDOW = MAX_FUTURE + CLOCK_SKEW + 1;
 const LEASE = 10_000;
 const ONLINE_AGE = 30_000;
 const ID = /^[a-f0-9]{32}$/;
@@ -42,10 +48,13 @@ function createRelay(options = {}) {
   function reap() {
     const now = clock();
     for (const d of devices.values()) {
+      for (const [id, record] of d.completed) if (now >= record.created + REPLAY_WINDOW) d.completed.delete(id);
       for (const [id, r] of d.requests) {
-        if (now >= r.created + MAX_AGE) { bytes -= r.bytes; d.requests.delete(id); }
+        if (now >= r.created + MAX_AGE) {
+          bytes -= r.bytes; d.requests.delete(id);
+          if (now < r.created + REPLAY_WINDOW) d.completed.set(id,{created:r.created,acknowledged:false});
+        }
       }
-      for (const [id, created] of d.completed) if (now >= created + MAX_AGE) d.completed.delete(id);
     }
   }
   function register(owner, id, tokenHash) {
@@ -74,7 +83,9 @@ function createRelay(options = {}) {
       return; // повтор после обрыва безопасен
     }
     const n = Buffer.byteLength(packet, 'utf8');
-    if (d.requests.size >= MAX_PENDING || bytes + n > MAX_TOTAL_BYTES) fail('Слишком много ожидающих запросов');
+    // Заранее резервируем место для отметки каждого принятого запроса, чтобы
+    // даже истёкшие без ответа запросы не теряли защиту при заполнении памяти.
+    if (d.requests.size >= MAX_PENDING || d.completed.size + d.requests.size >= MAX_RECENT || bytes + n > MAX_TOTAL_BYTES) fail('Слишком много ожидающих запросов');
     d.requests.set(requestId, { packet, created:clock(), bytes:n, claim:'', lease:0, response:null });
     bytes += n;
   }
@@ -119,14 +130,17 @@ function createRelay(options = {}) {
     reap();
     const d = requireOwner(owner, id);
     if (typeof requestId !== 'string' || !ID.test(requestId)) fail('Неверный номер запроса');
-    if (d.completed.has(requestId)) return;
+    const finished=d.completed.get(requestId);
+    if (finished) {
+      if(finished.acknowledged)return;
+      fail('Запрос истёк без подтверждения');
+    }
     const r = d.requests.get(requestId);
     if (!r || r.response === null) fail('Ответ ещё не получен');
-    if (d.completed.size >= MAX_RECENT) fail('Слишком много завершённых запросов');
-    d.completed.set(requestId, r.created);
+    d.completed.set(requestId,{created:r.created,acknowledged:true});
     bytes -= r.bytes;
     d.requests.delete(requestId);
   }
   return Object.freeze({ register, revoke, status, request, next, reply, result, acknowledge });
 }
-module.exports = { createRelay, digest, MAX_PACKET, MAX_PENDING, MAX_RECENT, MAX_TOTAL_BYTES, MAX_DEVICES, MAX_AGE, LEASE, ONLINE_AGE };
+module.exports = { createRelay, digest, MAX_PACKET, MAX_PENDING, MAX_RECENT, MAX_TOTAL_BYTES, MAX_DEVICES, MAX_AGE, REPLAY_WINDOW, LEASE, ONLINE_AGE };
