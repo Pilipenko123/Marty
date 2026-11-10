@@ -32,6 +32,10 @@ const BUILD = 'pkg3-153';
 const BACKUP_DL_MAX = 3.2 * MB;
 
 function createApi(store, opts = {}) {
+  // Эксперимент доступен только тестам, передавшим явный флаг; ни server.js,
+  // ни облачная функция его не включают. Файловое хранилище и один процесс.
+  const localPcLab = opts.localPcExperimental === true && store.name === 'file'
+    ? require('../local-pc/experimental-api').createExperimentalApi() : null;
   const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 250 * MB);
   // pkg3-141: 30 дней вместо 60. Украденная сессия не должна жить два месяца,
   // а человек, который заходит раз в отпуск, всё равно продлевает её входом.
@@ -2380,11 +2384,15 @@ function createApi(store, opts = {}) {
       }
     }
 
+    // Лабораторный агент имеет отдельный секрет, не токен входа человека.
+    if (localPcLab && pathname.startsWith('/api/pc-lab/agent/')) return localPcLab.agent(req, db, save);
+
     // ------------------------------------------------ дальше только с токеном
     const session = await auth(req);
     if (session && session.banned) return banError(session.banned);
     if (!session) return E(401, 'Нужен вход');
     const me = session.user;
+    if (localPcLab && pathname.startsWith('/api/pc-lab/')) return localPcLab.owner(req, db, me, save);
 
     // --- pkg3-45: персональные приглашения (список, создание, отзыв) --------
     if (pathname === '/api/invites' && method === 'GET') {

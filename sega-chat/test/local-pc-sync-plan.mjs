@@ -1,0 +1,36 @@
+// Тестирует только расчёт изменений, не работу Windows или настоящей корзины.
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const { planSync } = createRequire(import.meta.url)('../local-pc/sync-plan.js');
+const file = (path, n) => ({ path, type:'file', hash: String(n).repeat(64), size:n });
+const dir = path => ({ path, type:'dir' });
+const plan = (base,left,right) => planSync({base,left,right});
+const f = file('a.txt', 1), f2 = file('a.txt', 2), f3 = file('a.txt', 3);
+assert.deepEqual(plan([], [], []), []);
+assert.deepEqual(plan([f], [f], [f]), []);
+assert.deepEqual(plan([], [f], []), [{type:'copy',from:'left',to:'right',path:'a.txt',source:{type:'file',hash:'1'.repeat(64),size:1},target:null,replaceToTrash:false}]);
+assert.equal(plan([], [], [f])[0].from, 'right');
+assert.equal(plan([f], [f2], [f])[0].replaceToTrash, true);
+assert.equal(plan([f], [f2], [f])[0].target.hash, f.hash);
+assert.equal(plan([f], [f], [f2])[0].from, 'right');
+assert.deepEqual(plan([f], [f2], [f2]), []);
+assert.equal(plan([f], [f2], [f3])[0].type, 'conflict');
+assert.equal(plan([], [f], [f2])[0].type, 'conflict');
+assert.deepEqual(plan([f], [], [f]), [{type:'trash',side:'right',path:'a.txt',expected:{type:'file',hash:f.hash,size:1},tree:false}]);
+assert.equal(plan([f], [f], [])[0].side, 'left');
+assert.equal(plan([f], [], [f2])[0].type, 'conflict');
+assert.deepEqual(plan([f], [], []), []);
+const d = dir('docs'), x = file('docs/x.txt',1), x2 = file('docs/x.txt',2), y = file('docs/y.txt',3);
+assert.deepEqual(plan([d,x], [], [d,x]).map(a=>[a.type,a.path,a.side,a.tree]), [['trash','docs','right',true]]);
+assert.deepEqual(plan([d,x], [], [d,x2]).map(a=>[a.type,a.path]), [['conflict','docs']]);
+assert.deepEqual(plan([d,x], [], [d,x,y]).map(a=>[a.type,a.path]), [['conflict','docs']]);
+assert.deepEqual(plan([], [d,x], []).map(a=>[a.type,a.path]), [['mkdir','docs'],['copy','docs/x.txt']]);
+assert.deepEqual(plan([], [d,x], [d,y]).map(a=>[a.type,a.path]), [['copy','docs/x.txt'],['copy','docs/y.txt']]);
+assert.equal(plan([], [file('docs',1)], [d,x])[0].type,'conflict');
+assert.throws(()=>plan([f], null, [f]), /Неполный/); // нет связи не означает удаление
+assert.throws(()=>plan([], [x], []), /Неполный список папок/);
+assert.throws(()=>plan([], [file('../x',1)], []), /Неверный путь/);
+assert.throws(()=>plan([], [file('X',1)], [file('x',1)]), /регистром/);
+assert.throws(()=>plan([], [{path:'a',type:'file',hash:'x',size:1}], []), /проверки/);
+assert.throws(()=>plan([], [f,f], []), /совпадают/);
+console.log('local-pc-sync-plan: двусторонние изменения, конфликты и корзина проверены как план, без выполнения');

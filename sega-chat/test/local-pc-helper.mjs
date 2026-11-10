@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+const {runHelper}=createRequire(import.meta.url)('../local-pc/windows-helper.js');
+await assert.rejects(runHelper({platform:'linux'}));
+let prepared=0, started=0, wizard=0, stopped=0;
+const vault={async load(){return null}}, coordinator={async prepare(code,folder){prepared++;assert.equal(code,'secret');assert.equal(folder,'C:\\folder')}};
+const runnerFactory=()=>({async start(){started++},async stop(){stopped++}});
+assert.equal(await runHelper({platform:'win32',vault,coordinator,runnerFactory,wizard:async()=>{wizard++;return null}}),'cancelled');
+assert.equal(prepared,0);assert.equal(started,0);
+assert.equal(await runHelper({platform:'win32',vault,coordinator,runnerFactory,wizard:async()=>{wizard++;return {code:'secret',folder:'C:\\folder'}}}),'stopped');
+assert.equal(prepared,1);assert.equal(started,1);
+assert.equal(await runHelper({platform:'win32',vault:{async load(){return {configured:true}}},coordinator,runnerFactory,wizard:async()=>{throw new Error('unexpected')}}),'stopped');
+assert.equal(prepared,1);assert.equal(started,2);assert.equal(stopped,0);
+console.log('local-pc-helper: отмена и повторный запуск проверены с заглушками, не на Windows');
