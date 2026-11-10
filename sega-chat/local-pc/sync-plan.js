@@ -28,11 +28,27 @@ function same(a, b) {
   if (!a || !b) return !a && !b;
   return a.type === b.type && (a.type === 'dir' || (a.hash === b.hash && a.size === b.size));
 }
-function under(p, parent) { return p.startsWith(parent + '/'); }
-function unchangedTree(a, b, root) {
-  const keys = new Set([...a.keys(), ...b.keys()].filter(p => p === root || under(p, root)));
-  for (const p of keys) if (!same(a.get(p), b.get(p))) return false;
+// Отсортированный по кодовым единицам индекс позволяет рассматривать только
+// потомков проверяемой папки, а не заново обходить все 20 000 элементов для
+// каждого удаления. Заблокированные поддеревья не пересекаются.
+function unchangedTree(a, b, root, ordered) {
+  if (!same(a.get(root), b.get(root))) return false;
+  const prefix = root + '/';
+  let lo = 0, hi = ordered.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (ordered[mid] < prefix) lo = mid + 1; else hi = mid; }
+  for (let i = lo; i < ordered.length && ordered[i].startsWith(prefix); i++) {
+    const p = ordered[i];
+    if (!same(a.get(p), b.get(p))) return false;
+  }
   return true;
+}
+function hasBlockedParent(p, blocked) {
+  let i = p.lastIndexOf('/');
+  while (i !== -1) {
+    if (blocked.has(p.slice(0, i))) return true;
+    i = p.lastIndexOf('/', i - 1);
+  }
+  return false;
 }
 function expect(entry) { return entry ? { ...entry } : null; }
 
@@ -52,33 +68,33 @@ function planSync({ base, left, right }) {
     if (spellings.has(fold) && spellings.get(fold) !== p) throw new Error('Имена файлов различаются только регистром');
     spellings.set(fold, p);
   }
-  const paths = [...new Set([...B.keys(), ...L.keys(), ...R.keys()])]
-    .sort((a,b) => a.split('/').length - b.split('/').length || a.localeCompare(b, 'ru'));
-  const actions = [], blocked = [];
+  const ordered = [...new Set([...B.keys(), ...L.keys(), ...R.keys()])].sort();
+  const paths = [...ordered].sort((a,b) => a.split('/').length - b.split('/').length || a.localeCompare(b, 'ru'));
+  const actions = [], blocked = new Set();
   for (const p of paths) {
-    if (blocked.some(parent => under(p, parent))) continue;
+    if (hasBlockedParent(p, blocked)) continue;
     const baseEntry = B.get(p), l = L.get(p), r = R.get(p);
     // Удаление целой папки распространяем только если её ВЕСЬ состав не менялся.
     if (baseEntry && baseEntry.type === 'dir' && (!l || !r)) {
-      if (!l && !r) { blocked.push(p); continue; }
+      if (!l && !r) { blocked.add(p); continue; }
       const surviving = l ? L : R, side = l ? 'left' : 'right';
-      if (same(baseEntry, surviving.get(p)) && unchangedTree(B, surviving, p)) {
+      if (same(baseEntry, surviving.get(p)) && unchangedTree(B, surviving, p, ordered)) {
         actions.push({ type:'trash', side, path:p, expected:expect(baseEntry), tree:true });
       } else {
         actions.push({ type:'conflict', path:p, reason:'Папка удалена на одном компьютере, но изменена на другом' });
       }
-      blocked.push(p); continue;
+      blocked.add(p); continue;
     }
     if (same(l, r)) continue;
     // Разные типы и одновременные правки требуют сохранения обеих версий.
     if (l && r && l.type !== r.type) {
       actions.push({ type:'conflict', path:p, reason:'Файл и папка имеют одинаковое имя' });
-      blocked.push(p); continue;
+      blocked.add(p); continue;
     }
     const lc = !same(l, baseEntry), rc = !same(r, baseEntry);
     if (lc && rc) {
       actions.push({ type:'conflict', path:p, reason:'Одновременные изменения' });
-      if ((l && l.type === 'dir') || (r && r.type === 'dir') || (baseEntry && baseEntry.type === 'dir')) blocked.push(p);
+      if ((l && l.type === 'dir') || (r && r.type === 'dir') || (baseEntry && baseEntry.type === 'dir')) blocked.add(p);
       continue;
     }
     const from = lc ? 'left' : 'right', to = lc ? 'right' : 'left';
@@ -86,7 +102,7 @@ function planSync({ base, left, right }) {
     if (!source) {
       if (target) actions.push({ type:'trash', side:to, path:p, expected:expect(target), tree:false });
     } else if (source.type === 'dir') {
-      if (target) { actions.push({ type:'conflict', path:p, reason:'Нельзя заменить папку автоматически' }); blocked.push(p); }
+      if (target) { actions.push({ type:'conflict', path:p, reason:'Нельзя заменить папку автоматически' }); blocked.add(p); }
       else actions.push({ type:'mkdir', side:to, path:p });
     } else {
       // Замена должна сперва положить старую версию в корзину; если корзина
@@ -96,4 +112,18 @@ function planSync({ base, left, right }) {
   }
   return actions;
 }
-module.exports = { planSync, MAX_ITEMS };
+// Только предварительная проверка кандидата общей базы. Ни состояния на
+// диске, ни полноту сканирования эти аргументы сами по себе не доказывают.
+// Вызывающая система обязана получать подтверждения с обоих ПК, фиксировать
+// изменения и атомарно сохранять базу; такой системы здесь пока нет.
+function confirmSyncBase({enabled, leftComplete, rightComplete, operationsComplete, left, right} = {}) {
+  if (enabled !== true || leftComplete !== true || rightComplete !== true || operationsComplete !== true) {
+    throw new Error('Состояние синхронизации не подтверждено');
+  }
+  const L = parseSnapshot(left), R = parseSnapshot(right);
+  if (L.size !== R.size) throw new Error('Папки ещё различаются');
+  for (const [p, entry] of L) if (!same(entry, R.get(p))) throw new Error('Папки ещё различаются');
+  return [...L.entries()].sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)
+    .map(([path, entry]) => ({path, ...entry}));
+}
+module.exports = { planSync, confirmSyncBase, MAX_ITEMS };

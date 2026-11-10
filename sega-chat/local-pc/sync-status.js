@@ -3,7 +3,7 @@
 // Предварительное представление статуса. Только получив реальные проверенные
 // состояния от будущего помощника, интерфейс сможет пользоваться этой функцией.
 // Отсутствующее состояние не превращается в «всё синхронизировано».
-function syncStatus({ online, peerOnline, scanned, items } = {}) {
+function syncStatus({ online, peerOnline, scanned, scanVerified, items } = {}) {
   if (online !== true) return { state:'offline', label:'Нет соединения', icon:'none', force:'Нет соединения', canForce:false };
   if (peerOnline !== true) return { state:'peer-offline', label:'Компьютер недоступен', icon:'none', force:'Компьютер недоступен', canForce:false };
   if (scanned !== true || !Array.isArray(items)) return { state:'checking', label:'Проверка синхронизации', icon:'sync', force:'Синхронизировать принудительно', canForce:false };
@@ -13,7 +13,9 @@ function syncStatus({ online, peerOnline, scanned, items } = {}) {
   if (list.some(x => x.state === 'error')) return { state:'error', label:'Не удалось синхронизировать', icon:'warning', force:'Синхронизировать принудительно', canForce:true };
   if (list.some(x => x.state === 'running')) return { state:'running', label:'Идёт синхронизация', icon:'sync', force:'Идёт синхронизация', canForce:false };
   if (list.some(x => x.state === 'pending')) return { state:'pending', label:'Ожидает синхронизации', icon:'sync', force:'Синхронизировать принудительно', canForce:true };
-  if (list.some(x => x.verified !== true)) return { state:'checking', label:'Проверка синхронизации', icon:'sync', force:'Синхронизировать принудительно', canForce:false };
+  // Даже пустой список не доказывает, что обе папки проверены полностью:
+  // отдельное подтверждение относится ко всему сканированию, не к элементам.
+  if (scanVerified !== true || list.some(x => x.verified !== true)) return { state:'checking', label:'Проверка синхронизации', icon:'sync', force:'Синхронизировать принудительно', canForce:false };
   return { state:'synced', label:'Синхронизировано', icon:'check', force:'Синхронизировано', canForce:false };
 }
 module.exports = { syncStatus };

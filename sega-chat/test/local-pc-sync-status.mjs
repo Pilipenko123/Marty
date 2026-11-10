@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const { syncStatus } = createRequire(import.meta.url)('../local-pc/sync-status.js');
-const state = (items, changes={}) => syncStatus({online:true,peerOnline:true,scanned:true,items,...changes});
+const state = (items, changes={}) => syncStatus({online:true,peerOnline:true,scanned:true,scanVerified:true,items,...changes});
 const verified = {state:'synced',verified:true};
 assert.equal(syncStatus().state,'offline');
 assert.equal(state([verified],{online:false}).force,'Нет соединения');
@@ -11,6 +11,9 @@ assert.equal(state([],{scanned:false}).state,'checking');
 assert.equal(state(null).state,'checking');
 assert.equal(state([{state:'synced'}]).state,'checking');
 assert.equal(state([{state:'mystery'}]).state,'checking');
+assert.equal(state([],{scanVerified:false}).state,'checking');
+assert.equal(state([],{scanVerified:undefined}).state,'checking');
+assert.equal(state([verified],{scanVerified:false}).state,'checking');
 assert.equal(state([]).state,'synced'); // полный проверенный пустой список
 assert.equal(state([verified]).icon,'check');
 assert.equal(state([verified,{state:'pending'}]).state,'pending');
