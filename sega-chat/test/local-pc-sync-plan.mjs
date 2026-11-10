@@ -1,7 +1,7 @@
 // Тестирует только расчёт изменений, не работу Windows или настоящей корзины.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const { planSync, confirmSyncBase } = createRequire(import.meta.url)('../local-pc/sync-plan.js');
+const { planSync, isPlanActionCurrent, confirmSyncBase } = createRequire(import.meta.url)('../local-pc/sync-plan.js');
 const file = (path, n) => ({ path, type:'file', hash: String(n).repeat(64), size:n });
 const dir = path => ({ path, type:'dir' });
 const planFlags={enabled:true,online:true,peerOnline:true,baseConfirmed:true,leftComplete:true,rightComplete:true};
@@ -93,6 +93,42 @@ for(let run=0;run<80;run++) {
     }
   }
 }
+
+// Повторный расчёт выявляет устаревший план по новым снимкам. Это модель,
+// а не файловая операция, гарантия неизменности или разрешение на её выполнение.
+const current=(action,base,left,right,overrides={})=>isPlanActionCurrent({...planFlags,base,left,right,...overrides,action});
+const fileTrash=plan([f],[],[f])[0];
+assert.equal(current(fileTrash,[f],[],[f]),true);
+assert.equal(current(fileTrash,[f],[f2],[f]),false); // удалённый файл появился вновь
+assert.equal(current(fileTrash,[f],[],[f2]),false); // другая сторона изменила файл
+assert.equal(current(fileTrash,[f],[],[]),false); // уже нет и на другой стороне
+assert.equal(current(fileTrash,[f],[f],[f]),false);
+assert.equal(current({...fileTrash,side:'left'},[f],[],[f]),false);
+assert.equal(current({...fileTrash,expected:{...fileTrash.expected,hash:f2.hash}},[f],[],[f]),false);
+assert.equal(current({...fileTrash,extra:'лишнее'},[f],[],[f]),false);
+assert.equal(current(null,[f],[],[f]),false);
+assert.equal(current({type:'conflict',path:'a.txt'},[f],[f2],[f3]),false);
+for(const key of Object.keys(planFlags)) assert.throws(()=>current(fileTrash,[f],[],[f],{[key]:false}),/не подтверждены/);
+assert.throws(()=>current(fileTrash,[f],null,[f]),/Неполный/);
+const copy=plan([f],[f2],[f])[0];
+assert.equal(current(copy,[f],[f2],[f]),true);
+assert.equal(current(copy,[f],[f3],[f]),false); // источник изменился
+assert.equal(current(copy,[f],[f2],[f3]),false); // получатель изменился
+assert.equal(current(copy,[f],[f2],[]),false); // получатель удалён
+const createDir=plan([], [d], [])[0];
+assert.equal(current(createDir,[],[d],[]),true);
+assert.equal(current(createDir,[],[d],[d]),false);
+assert.equal(current(createDir,[],[],[]),false);
+assert.equal(current(folderTrash,[d,x],[],[d,x]),true);
+assert.equal(current(folderTrash,[d,x],[d,x],[d,x]),false); // папка восстановлена
+assert.equal(current(folderTrash,[d,x],[file('docs',2)],[d,x]),false); // восстановлена как файл
+assert.equal(current(folderTrash,[d,x],[],[d,x2]),false); // изменён вложенный файл
+assert.equal(current(folderTrash,[d,x],[],[d,x,y]),false); // добавлен вложенный файл
+assert.equal(current(folderTrash,[d,x],[],[d]),false); // вложенный файл удалён
+assert.equal(current(folderTrash,[d,x],[],[d,x,inner]),false); // добавлена пустая папка
+assert.equal(current(folderTrash,[d,x,near], [near], [d,x,near]),true); // независимое изменение
+assert.equal(current({...folderTrash,expectedTree:[d]},[d,x],[],[d,x]),false);
+assert.throws(()=>current(folderTrash,[d,x],[],[d,x,file('DOCS/y',1)]),/Неполный список папок|регистром/);
 
 // Новую базу можно лишь предложить по одинаковым полным снимкам с обеих сторон
 // после включения синхронизации и подтверждения завершения всех действий.

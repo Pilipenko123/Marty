@@ -3,6 +3,7 @@
 // Только расчёт. Модуль не копирует и не удаляет файлы и не обращается к сети.
 // Базой может быть только ранее подтверждённое одинаковое состояние обеих сторон.
 const { partsOf } = require('./folder');
+const { isDeepStrictEqual } = require('node:util');
 const MAX_ITEMS = 20000;
 const hashRx = /^[0-9a-f]{64}$/;
 
@@ -131,6 +132,16 @@ function planSync({enabled,online,peerOnline,baseConfirmed,leftComplete,rightCom
   }
   return actions;
 }
+// Сравнение с заново рассчитанным планом — только модель, не разрешение на
+// выполнение. Вызывающий код должен сам предоставить ту же подтверждённую базу,
+// новые полные снимки и актуальные признаки связи/согласия. Идентичное содержимое
+// не доказывает, что файл не был заменён, а после проверки возможна новая гонка.
+// Нельзя применять результат для настоящей корзины, записи или публикации.
+function isPlanActionCurrent({action, ...snapshotOptions} = {}) {
+  const current = planSync(snapshotOptions);
+  if (!action || !['copy','mkdir','trash'].includes(action.type)) return false;
+  return current.some(item => item.type === action.type && isDeepStrictEqual(item, action));
+}
 // Только предварительная проверка кандидата общей базы. Ни состояния на
 // диске, ни полноту сканирования эти аргументы сами по себе не доказывают.
 // Вызывающая система обязана получать подтверждения с обоих ПК, фиксировать
@@ -145,4 +156,4 @@ function confirmSyncBase({enabled, online, peerOnline, leftComplete, rightComple
   return [...L.entries()].sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([path, entry]) => ({path, ...entry}));
 }
-module.exports = { planSync, confirmSyncBase, MAX_ITEMS };
+module.exports = { planSync, isPlanActionCurrent, confirmSyncBase, MAX_ITEMS };
