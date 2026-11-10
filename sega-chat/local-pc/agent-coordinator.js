@@ -6,6 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const pairing = require('./pairing');
 const {createReadService} = require('./read-service');
+const {validateSignal,checkAborted} = require('./abort');
 const ID = /^[a-f0-9]{32}$/, TOKEN = /^[a-f0-9]{64}$/;
 const hash = token => crypto.createHash('sha256').update(token,'utf8').digest('hex');
 function validateConfig(c, trustedUrl) {
@@ -58,9 +59,19 @@ function createCoordinator({vault, transportFactory, folderFactory, anchor, trus
     if (busy) throw new Error('Подключение уже обрабатывается');
     busy=true; try { return await fn(); } finally { busy=false; }
   }
-  async function makeTransport(cfg, token, folder, secret) {
+  async function makeTransport(cfg, token, folder, secret, signal) {
     const service=createReadService({folder,secret,deviceId:cfg.deviceId});
-    return transportFactory({baseUrl:cfg.url,deviceId:cfg.deviceId,token,service});
+    return transportFactory({baseUrl:cfg.url,deviceId:cfg.deviceId,token,service,signal});
+  }
+  // Только явно завершённый опрос означает, что сервер ответил. Иначе нельзя
+  // отмечать подключение как действующее или показывать успешную связь.
+  async function poll(client,signal) {
+    if(!client || typeof client.step!=='function')throw new Error('Транспорт недоступен');
+    checkAborted(signal);
+    const result=await client.step(signal);
+    checkAborted(signal);
+    if(result!==true && result!==false)throw new Error('Неверный ответ опроса');
+    return result;
   }
   async function saveConfig(cfg) {
     // save() должен атомарно сохранять данные в защищённое хранилище ДО ответа.
@@ -89,43 +100,52 @@ function createCoordinator({vault, transportFactory, folderFactory, anchor, trus
     config={...loaded};
     return config;
   }
-  async function tick(signal) { return locked(async () => {
-    const checkStopped=()=>{if(signal && signal.aborted){const e=new Error('Остановлено');e.name='AbortError';throw e;}};
-    checkStopped();
-    currentFolder=null;
-    try {
-      const c=await load();
+  async function tick(signal) {
+    validateSignal(signal);
+    return locked(async () => {
+      const checkStopped=()=>checkAborted(signal);
       checkStopped();
-      const secret=validateConfig(c,trusted), a=await anchor(c.folder,signal);
-      checkStopped();
-      if (a.root !== c.folder || a.dev !== c.rootDevice || a.ino !== c.rootInode) {
-        const e=new Error('Выбранная папка изменилась, подключение остановлено');
-        e.code='LOCAL_FOLDER_CHANGED'; throw e;
-      }
-      const folder=checkedFolder(await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode},signal));
-      checkStopped();
-      currentFolder=folder;
-      if (!transport) transport=await makeTransport(c,c.token,folderProxy,secret);
-      if (c.state === 'pending') {
-        let accepted=false;
-        try {
-          // Если предыдущий ответ потерялся, новый токен уже может работать.
-          await transport.step(signal); accepted=true;
-        } catch (e) { if (!e || e.status !== 401) throw e; }
+      currentFolder=null;
+      try {
+        const c=await load();
         checkStopped();
-        if (!accepted) {
-          const setup=await makeTransport(c,c.setupToken,folderProxy,secret);
-          await setup.claim(hash(c.token),signal);
+        const secret=validateConfig(c,trusted), a=await anchor(c.folder,signal);
+        checkStopped();
+        if (a.root !== c.folder || a.dev !== c.rootDevice || a.ino !== c.rootInode) {
+          const e=new Error('Выбранная папка изменилась, подключение остановлено');
+          e.code='LOCAL_FOLDER_CHANGED'; throw e;
+        }
+        const folder=checkedFolder(await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode},signal));
+        checkStopped();
+        currentFolder=folder;
+        if (!transport) {
+          const candidate=await makeTransport(c,c.token,folderProxy,secret,signal);
+          checkStopped();
+          transport=candidate;
+        }
+        if (c.state === 'pending') {
+          let accepted=false;
+          try {
+            // Если предыдущий ответ потерялся, новый токен уже может работать.
+            await poll(transport,signal); accepted=true;
+          } catch (e) { if (!e || e.status !== 401) throw e; }
+          checkStopped();
+          if (!accepted) {
+            const setup=await makeTransport(c,c.setupToken,folderProxy,secret,signal);
+            checkStopped();
+            if(!setup || typeof setup.claim!=='function')throw new Error('Транспорт недоступен');
+            await setup.claim(hash(c.token),signal);
+          }
+          checkStopped();
+          const active={...c,state:'active'}; delete active.setupToken;
+          await saveConfig(active);
+          config=active;
         }
         checkStopped();
-        const active={...c,state:'active'}; delete active.setupToken;
-        await saveConfig(active);
-        config=active;
-      }
-      checkStopped();
-      return await transport.step(signal);
-    } finally { currentFolder=null; }
-  }); }
+        return await poll(transport,signal);
+      } finally { currentFolder=null; }
+    });
+  }
   return Object.freeze({prepare,tick});
 }
 module.exports={createCoordinator,anchorFolder};

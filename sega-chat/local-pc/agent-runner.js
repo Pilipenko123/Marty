@@ -3,7 +3,8 @@
 // Статус сети не является подтверждением синхронизации файлов.
 function createAgentRunner({coordinator,onStatus=()=>{},idleMs=2000,maxRetryMs=30000}={}) {
   if (!coordinator || typeof coordinator.tick !== 'function' || typeof onStatus !== 'function'
-      || !Number.isInteger(idleMs) || idleMs<1 || !Number.isInteger(maxRetryMs) || maxRetryMs<idleMs) throw new Error('Неверные настройки помощника');
+      || !Number.isInteger(idleMs) || idleMs<1 || !Number.isInteger(maxRetryMs) || maxRetryMs<idleMs
+      || maxRetryMs>2147483647) throw new Error('Неверные настройки помощника');
   let controller=null, running=null, current='';
   function emit(status) { if(current===status)return;current=status;try{onStatus(status)}catch(_){} }
   function wait(ms,signal) {
@@ -23,8 +24,9 @@ function createAgentRunner({coordinator,onStatus=()=>{},idleMs=2000,maxRetryMs=3
       try {
         while(!signal.aborted) {
           try {
-            await coordinator.tick(signal);
+            const completed=await coordinator.tick(signal);
             if(signal.aborted)break;
+            if(completed!==true && completed!==false)throw new Error('Опрос не подтверждён');
             delay=idleMs; emit('online');
           } catch(e) {
             if(signal.aborted)break;

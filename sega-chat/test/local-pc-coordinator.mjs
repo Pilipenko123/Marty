@@ -75,6 +75,63 @@ try {
     return JSON.parse(new TextDecoder().decode(plain));
   }
   const fakeAnchor=async()=>({root:config.folder,dev:config.rootDevice,ino:changed?'999':config.rootInode});
+  const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r});return {promise,resolve}};
+  const memoryVault=state=>({async load(){return copy(state)},async save(x){Object.assign(state,copy(x));if(x.setupToken===undefined)delete state.setupToken}});
+  const fakeFolder=async()=>({async list(){return []},async read(){}});
+  // Если создание транспорта ещё выполняется, отмена не должна запускать опрос
+  // после его завершения; параллельный тик не допускается.
+  let releaseFactory=deferred(), factoryEntered=deferred(), factoryCalls=0, fakePolls=0, passedSignal;
+  const delayed=createCoordinator({vault:memoryVault(copy(config)),anchor:fakeAnchor,folderFactory:fakeFolder,trustedUrl,
+    transportFactory:async({signal})=>{passedSignal=signal;if(++factoryCalls===1){factoryEntered.resolve();await releaseFactory.promise;}
+      return {async step(){fakePolls++;return false}}}});
+  const stopFactory=new AbortController(), delayedTick=delayed.tick(stopFactory.signal);
+  await factoryEntered.promise;assert.equal(passedSignal,stopFactory.signal);
+  await assert.rejects(delayed.tick(),/уже обрабатывается/);
+  stopFactory.abort();releaseFactory.resolve();await assert.rejects(delayedTick,e=>e.name==='AbortError');assert.equal(fakePolls,0);
+  assert.equal(await delayed.tick(),false);assert.equal(factoryCalls,2);assert.equal(fakePolls,1);
+  await assert.rejects(delayed.tick({aborted:false}),/сигнал/);
+  // Внешний транспорт может проигнорировать отмену: тик не возвращает успех
+  // после его позднего ответа, но до ответа вынужден оставаться занятым.
+  let polled=deferred(), finishPoll=deferred();
+  const slow=createCoordinator({vault:memoryVault(copy(config)),anchor:fakeAnchor,folderFactory:fakeFolder,trustedUrl,
+    transportFactory:()=>({async step(){polled.resolve();await finishPoll.promise;return true}})});
+  const stopPoll=new AbortController(), slowTick=slow.tick(stopPoll.signal);await polled.promise;stopPoll.abort();
+  await assert.rejects(slow.tick(),/уже обрабатывается/);finishPoll.resolve();
+  await assert.rejects(slowTick,e=>e.name==='AbortError');
+  // В режиме незавершённой привязки неверный ответ не подтверждает подключение.
+  const pendingState={...config,state:'pending',setupToken:initial.token};let pendingSaves=0,pendingClaims=0;
+  const pendingVault={async load(){return copy(pendingState)},async save(){pendingSaves++}};
+  const invalid=createCoordinator({vault:pendingVault,anchor:fakeAnchor,folderFactory:fakeFolder,trustedUrl,
+    transportFactory:()=>({async step(){},async claim(){pendingClaims++}})});
+  await assert.rejects(invalid.tick(),/Неверный ответ опроса/);
+  assert.equal(pendingSaves,0);assert.equal(pendingClaims,0);assert.equal(pendingState.state,'pending');
+  // Если отмена пришла при создании транспорта привязки, claim не запускается.
+  let secondFactory=deferred(), releaseSecond=deferred(), countFactories=0;
+  const pending=createCoordinator({vault:pendingVault,anchor:fakeAnchor,folderFactory:fakeFolder,trustedUrl,
+    transportFactory:async()=>{if(++countFactories===1)return {async step(){const e=new Error('нет доступа');e.status=401;throw e}};
+      secondFactory.resolve();await releaseSecond.promise;return {async claim(){pendingClaims++}}}});
+  const stopClaim=new AbortController(), pendingTick=pending.tick(stopClaim.signal);await secondFactory.promise;
+  stopClaim.abort();releaseSecond.resolve();await assert.rejects(pendingTick,e=>e.name==='AbortError');
+  assert.equal(pendingClaims,0);assert.equal(pendingSaves,0);
+  // Остановку после уже начатого claim нельзя считать его отменой на сервере,
+  // но она не должна запускать сохранение активных настроек в этом опросе.
+  let claimStarted=deferred(), finishClaim=deferred();countFactories=0;
+  const claiming=createCoordinator({vault:pendingVault,anchor:fakeAnchor,folderFactory:fakeFolder,trustedUrl,
+    transportFactory:()=>++countFactories===1?{async step(){const e=new Error();e.status=401;throw e}}:
+      {async claim(){pendingClaims++;claimStarted.resolve();await finishClaim.promise}}});
+  const stopDuringClaim=new AbortController(), claimTick=claiming.tick(stopDuringClaim.signal);await claimStarted.promise;
+  stopDuringClaim.abort();finishClaim.resolve();await assert.rejects(claimTick,e=>e.name==='AbortError');
+  assert.equal(pendingClaims,1);assert.equal(pendingSaves,0);
+  // Уже начатое сохранение может завершиться после остановки: не притворяемся,
+  // что оно было отменено, и не запускаем дополнительный опрос до перезапуска.
+  let saveStarted=deferred(), finishSave=deferred(), actualState=copy(pendingState), actualPolls=0;
+  const duringSave=createCoordinator({vault:{async load(){return copy(actualState)},async save(x){saveStarted.resolve();await finishSave.promise;actualState=copy(x)}},
+    anchor:fakeAnchor,folderFactory:fakeFolder,trustedUrl,transportFactory:()=>({async step(){actualPolls++;return false}})});
+  const stopSave=new AbortController(), saveTick=duringSave.tick(stopSave.signal);await saveStarted.promise;
+  stopSave.abort();finishSave.resolve();await assert.rejects(saveTick,e=>e.name==='AbortError');
+  assert.equal(actualState.state,'active');assert.equal(actualState.setupToken,undefined);assert.equal(actualPolls,1);
+  assert.equal(await duringSave.tick(),false);assert.equal(actualPolls,2);
+
   const changingFolders=async()=>{const n=++sequence;return {async list(){return [{name:'состояние-'+n}]},async read(){throw new Error('не используется')}}};
   const reuseTransport=({service})=>{transports++;serviceRef=service;return {async step(){const x=await ask(service);assert.equal(x.ok,true);seen.push(x.items[0].name);return true;}}};
   const dynamic=createCoordinator({vault:{async load(){return copy(config)},async save(){}},anchor:fakeAnchor,folderFactory:changingFolders,transportFactory:reuseTransport,trustedUrl});

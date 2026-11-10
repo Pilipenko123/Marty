@@ -26,4 +26,20 @@ let aborted=false;
 const cancellable=createAgentRunner({idleMs:2,maxRetryMs:4,coordinator:{tick(signal){return new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>{aborted=true;reject(new Error('aborted'))},{once:true})})}}});
 const waiting=cancellable.start();await Promise.resolve();await cancellable.stop();await waiting;assert(aborted);
 let neverStarted=0;const immediate=createAgentRunner({idleMs:2,maxRetryMs:4,coordinator:{async tick(){neverStarted++}}});const run=immediate.start();await immediate.stop();await run;assert.equal(neverStarted,0);
+// Неверный ответ не считается успешно завершённым опросом и не даёт online.
+let offlineNotice;const offlineWait=new Promise(r=>{offlineNotice=r}), invalidStatuses=[];
+const invalid=createAgentRunner({idleMs:3,maxRetryMs:6,onStatus:s=>{invalidStatuses.push(s);if(s==='offline')offlineNotice()},coordinator:{async tick(){return undefined}}});
+const invalidRun=invalid.start();await offlineWait;await invalid.stop();await invalidRun;
+assert.deepEqual(invalidStatuses,['connecting','offline','stopped']);
+for(const maxRetryMs of [2147483648,Infinity,NaN]) assert.throws(()=>createAgentRunner({idleMs:1,maxRetryMs,coordinator:{tick(){}}}),/настройки/);
+// Если зависимость игнорирует остановку, новый цикл нельзя запускать до её
+// завершения. Поздний ответ не должен показывать успешное соединение.
+let entered,release, ticks=0;const enteredPromise=new Promise(r=>{entered=r});
+const statusesSlow=[];
+const slow=createAgentRunner({idleMs:2,maxRetryMs:4,onStatus:s=>statusesSlow.push(s),coordinator:{tick(){ticks++;entered();return new Promise(r=>{release=r})}}});
+const slowRun=slow.start();await enteredPromise;
+let stopFinished=false;const stopping=slow.stop().then(()=>{stopFinished=true});
+await Promise.resolve();assert.equal(stopFinished,false);assert.throws(()=>slow.start(),/уже работает/);
+release(true);await stopping;await slowRun;assert.deepEqual(statusesSlow,['connecting','stopped']);assert.equal(ticks,1);
+const newRun=slow.start();await slow.stop();await newRun;assert.equal(ticks,1);
 console.log('local-pc-runner: восстановление связи, остановка и отзыв проверены без автозапуска');
