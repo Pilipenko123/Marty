@@ -132,6 +132,25 @@ function planSync({enabled,online,peerOnline,baseConfirmed,leftComplete,rightCom
   }
   return actions;
 }
+// Первый запуск — отдельный режим, не восстановление потерянной общей базы.
+// Пустой базовый список ниже нужен только для моделирования объединения: он НЕ
+// объявляется подтверждённой историей и НЕ сохраняется. Флаги сообщает вызывающий
+// код, поэтому ни первое подключение, ни полнота снимков здесь не доказаны.
+function planInitialSync({newPairing,noPreviousBase,enabled,online,peerOnline,leftComplete,rightComplete,left,right,base} = {}) {
+  if(newPairing!==true || noPreviousBase!==true || base!==undefined) throw new Error('Начальная синхронизация не подтверждена');
+  const actions=planSync({enabled,online,peerOnline,baseConfirmed:true,leftComplete,rightComplete,base:[],left,right});
+  // В первом плане нельзя ни удалять, ни заменять существующую версию. Даже
+  // случайная будущая регрессия общего планировщика должна привести к отказу.
+  if(actions.some(a=>!['mkdir','copy','conflict'].includes(a.type) ||
+      (a.type==='copy' && (a.target!==null || a.replaceToTrash!==false)))) throw new Error('Неверный начальный план');
+  return actions;
+}
+// Сравнение с заново рассчитанным начальным планом, без разрешения на запись.
+function isInitialPlanActionCurrent({action,...options} = {}) {
+  const current=planInitialSync(options);
+  if(!action || !['copy','mkdir'].includes(action.type))return false;
+  return current.some(item=>item.type===action.type && isDeepStrictEqual(item,action));
+}
 // Сравнение с заново рассчитанным планом — только модель, не разрешение на
 // выполнение. Вызывающий код должен сам предоставить ту же подтверждённую базу,
 // новые полные снимки и актуальные признаки связи/согласия. Идентичное содержимое
@@ -156,4 +175,4 @@ function confirmSyncBase({enabled, online, peerOnline, leftComplete, rightComple
   return [...L.entries()].sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([path, entry]) => ({path, ...entry}));
 }
-module.exports = { planSync, isPlanActionCurrent, confirmSyncBase, MAX_ITEMS };
+module.exports = { planSync, planInitialSync, isInitialPlanActionCurrent, isPlanActionCurrent, confirmSyncBase, MAX_ITEMS };
