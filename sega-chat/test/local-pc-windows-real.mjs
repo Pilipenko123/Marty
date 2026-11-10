@@ -30,9 +30,19 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     assert((await folder.list('')).some(x=>x.name==='nested' && x.dir));
     assert(!(await folder.list('')).some(x=>['junction','hardlink.txt'].includes(x.name)));
     assert.equal((await folder.list('nested'))[0].name,'тест.txt');
+    assert.equal((await folder.listFailOnSkipped('nested'))[0].name,'тест.txt');
     await assert.rejects(folder.list('junction'));
     await assert.rejects(folder.read('junction/secret.txt',0,100));
     await assert.rejects(folder.read('hardlink.txt',0,100));
+    // Раздельно проверяем отказ при каждом запрещённом элементе; ни один
+    // неполный список не должен возвращаться как результат строгого режима.
+    await fs.unlink(path.join(root,'hardlink.txt'));
+    await assert.rejects(folder.listFailOnSkipped('')); // только junction
+    await fs.link(path.join(outside,'secret.txt'),path.join(root,'hardlink.txt'));
+    await fs.rmdir(path.join(root,'junction'));
+    await assert.rejects(folder.listFailOnSkipped('')); // только жёсткая ссылка
+    await fs.unlink(path.join(root,'hardlink.txt'));
+    assert.deepEqual((await folder.listFailOnSkipped('')).map(x=>x.name),['nested']);
     await assert.rejects(folder.read('../outside/secret.txt',0,100));
     const first=await folder.read('nested/тест.txt',0,4);
     const rest=await folder.read('nested/тест.txt',4,100,first.version);

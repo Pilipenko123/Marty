@@ -138,7 +138,16 @@ public static class SegaLocalGuard {
     public static IdentityResult Identify(string root) {
         using(Chain c=new Chain(root,null,null,new string[0])) return new IdentityResult {root=c.RootPath, dev=c.RootInfo.volume.ToString(), ino=Id(c.RootInfo)};
     }
+    // Даже строгий вариант не является атомарным снимком: он лишь не
+    // пропускает заведомо неподдерживаемые/недоступные элементы. Его нельзя
+    // передавать как полное состояние для удаления или синхронизации.
     public static ListResult List(string root,string dev,string ino,string relative) {
+        return ListCore(root,dev,ino,relative,false);
+    }
+    public static ListResult ListFailOnSkipped(string root,string dev,string ino,string relative) {
+        return ListCore(root,dev,ino,relative,true);
+    }
+    static ListResult ListCore(string root,string dev,string ino,string relative,bool failOnSkipped) {
         if(dev==null || ino==null || !Regex.IsMatch(dev,@"^\d+$") || !Regex.IsMatch(ino,@"^[1-9]\d*$"))throw new IOException("Неверная папка");
         string[] pieces=Parts(relative);
         using(Chain c=new Chain(root,dev,ino,pieces)) {
@@ -146,19 +155,25 @@ public static class SegaLocalGuard {
             foreach(string p in Directory.EnumerateFileSystemEntries(c.Current)) {
                 if(++seen>MAX_ENTRIES)throw new IOException("Слишком много файлов");
                 string name=Path.GetFileName(p);
-                if(!SafePart(name))continue;
+                if(!SafePart(name)) {
+                    if(failOnSkipped)throw new IOException("Не удалось проверить все элементы папки");
+                    continue;
+                }
                 try {
                     // OPEN_REPARSE_POINT не следует по символической ссылке.
                     // Тип сначала выбираем только для необходимого флага открытия;
                     // конечную проверку выполняет открытый дескриптор.
                     FileAttributes attrs=File.GetAttributes(p);
-                    if((attrs & FileAttributes.ReparsePoint)!=0)continue;
+                    if((attrs & FileAttributes.ReparsePoint)!=0) {
+                        if(failOnSkipped)throw new IOException("Не удалось проверить все элементы папки");
+                        continue;
+                    }
                     bool dir=(attrs & FileAttributes.Directory)!=0;
                     using(SafeFileHandle h=Open(p,false,dir)) {
                         c.CheckLeaf(h,p); INFO i=Info(h);
                         list.Add(new Entry{name=name,dir=dir,size=dir?0:Length(i),modified=Date(i)});
                     }
-                } catch(IOException) {continue;} catch(UnauthorizedAccessException) {continue;}
+                } catch(IOException) {if(failOnSkipped)throw;continue;} catch(UnauthorizedAccessException) {if(failOnSkipped)throw;continue;}
             }
             return new ListResult{items=list.ToArray()};
         }

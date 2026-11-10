@@ -9,6 +9,7 @@ try {
     Add-Type -Path (Join-Path $PSScriptRoot 'windows-safe-folder.cs')
     if($r.op -eq 'identity') { $result=[SegaLocalGuard]::Identify([string]$r.root) }
     elseif($r.op -eq 'list') { $result=[SegaLocalGuard]::List([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path) }
+    elseif($r.op -eq 'listFailOnSkipped') { $result=[SegaLocalGuard]::ListFailOnSkipped([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path) }
     elseif($r.op -eq 'read') {
         $version=$null; if($null -ne $r.version) { $version=[string]$r.version }
         $result=[SegaLocalGuard]::Read([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path,[long]$r.offset,[int]$r.length,$version)

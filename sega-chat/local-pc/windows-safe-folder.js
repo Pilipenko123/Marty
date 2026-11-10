@@ -41,17 +41,29 @@ function createWindowsFolderProvider({platform=process.platform,spawnProcess=spa
   }
   async function folder(input,id) {
     const root=rootPath(input), saved=identity(id);
-    async function list(relative='') {
+    async function listInternal(relative,op) {
       partsOf(relative);
-      const out=await call({op:'list',root,...saved,path:relative});
+      const out=await call({op,root,...saved,path:relative});
       if(!Array.isArray(out.items) || out.items.length>MAX_ENTRIES)throw new Error('Не удалось прочитать папку');
       const items=out.items.map(x=>{
         if(!x || typeof x.name!=='string' || partsOf(x.name).length!==1 || typeof x.dir!=='boolean'
            || !Number.isSafeInteger(x.size) || x.size<0 || typeof x.modified!=='string')throw new Error('Неверный ответ');
         return {name:x.name,dir:x.dir,size:x.size,modified:x.modified};
       });
+      if(op==='listFailOnSkipped') {
+        const names=new Set();
+        for(const item of items) {
+          const folded=item.name.normalize('NFC').toLowerCase();
+          if(names.has(folded))throw new Error('Имена совпадают');
+          names.add(folded);
+        }
+      }
       return items.sort((a,b)=>Number(b.dir)-Number(a.dir)||a.name.localeCompare(b.name,'ru'));
     }
+    async function list(relative='') { return listInternal(relative,'list'); }
+    // Этот отказ при известных пропусках НЕ гарантирует полный или атомарный
+    // снимок: папка может измениться во время перечисления или после него.
+    async function listFailOnSkipped(relative='') { return listInternal(relative,'listFailOnSkipped'); }
     async function read(relative,offset=0,length=MAX_READ,expectedVersion=null) {
       if(!partsOf(relative).length || !Number.isSafeInteger(offset) || offset<0 || !Number.isSafeInteger(length) || length<1 || length>MAX_READ
           || (expectedVersion!==null && (typeof expectedVersion!=='string' || !/^[a-f0-9]{64}$/.test(expectedVersion))))throw new Error('Неверный запрос');
@@ -62,7 +74,7 @@ function createWindowsFolderProvider({platform=process.platform,spawnProcess=spa
       if(data.toString('base64')!==out.data || data.length>length || data.length>Math.max(0,out.size-offset))throw new Error('Неверный ответ');
       return {data,size:out.size,modified:out.modified,version:out.version};
     }
-    return Object.freeze({list,read});
+    return Object.freeze({list,listFailOnSkipped,read});
   }
   return Object.freeze({anchor,folder});
 }
