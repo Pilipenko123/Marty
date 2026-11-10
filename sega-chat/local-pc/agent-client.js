@@ -2,6 +2,7 @@
 // Лабораторный клиент для исходящего TLS-соединения. Не устанавливает и не
 // запускает службу. Сервер в обычном режиме не содержит включённого API.
 const https = require('node:https');
+const {validateSignal,checkAborted,waitFor} = require('./abort');
 const ID = /^[a-f0-9]{32}$/, TOKEN = /^[a-f0-9]{64}$/;
 const MAX_RESPONSE = 512 * 1024;
 
@@ -51,18 +52,22 @@ function createAgentClient({ baseUrl, deviceId, token, service, ca, timeoutMs = 
     });
   }
   async function step(signal) {
+    validateSignal(signal);checkAborted(signal);
     const response = await post('/api/pc-lab/agent/poll', {}, signal);
+    checkAborted(signal);
     if (!response || typeof response !== 'object' || !Object.hasOwn(response,'job')) throw new Error('Неверный ответ сервера');
     const job = response.job;
     if (job === null) return false;
     if (!job || typeof job !== 'object' || !ID.test(job.requestId || '') || !ID.test(job.claim || '') || typeof job.packet !== 'string') throw new Error('Неверный запрос');
-    const packet = await service.handle(job.requestId,job.packet);
+    const packet = await waitFor(service.handle(job.requestId,job.packet,signal),signal);
+    checkAborted(signal);
     if (typeof packet!=='string' || !packet || Buffer.byteLength(packet,'utf8')>360000) throw new Error('Неверный ответ помощника');
     const accepted=await post('/api/pc-lab/agent/reply',{requestId:job.requestId,claim:job.claim,packet},signal);
     if (!accepted || accepted.ok !== true) throw new Error('Сервер не подтвердил ответ');
     return true;
   }
   async function claim(newTokenHash, signal) {
+    validateSignal(signal);checkAborted(signal);
     if (typeof newTokenHash !== 'string' || !/^[a-f0-9]{64}$/.test(newTokenHash)) throw new Error('Неверные параметры подключения');
     const response = await post('/api/pc-lab/agent/claim', {tokenHash:newTokenHash}, signal);
     if (!response || response.ok !== true) throw new Error('Не получилось завершить подключение');

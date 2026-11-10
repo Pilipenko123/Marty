@@ -94,12 +94,15 @@ function createCoordinator({vault, transportFactory, folderFactory, anchor, trus
     checkStopped();
     currentFolder=null;
     try {
-      const c=await load(), secret=validateConfig(c,trusted), a=await anchor(c.folder);
+      const c=await load();
+      checkStopped();
+      const secret=validateConfig(c,trusted), a=await anchor(c.folder,signal);
+      checkStopped();
       if (a.root !== c.folder || a.dev !== c.rootDevice || a.ino !== c.rootInode) {
         const e=new Error('Выбранная папка изменилась, подключение остановлено');
         e.code='LOCAL_FOLDER_CHANGED'; throw e;
       }
-      const folder=checkedFolder(await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode}));
+      const folder=checkedFolder(await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode},signal));
       checkStopped();
       currentFolder=folder;
       if (!transport) transport=await makeTransport(c,c.token,folderProxy,secret);

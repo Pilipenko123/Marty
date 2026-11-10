@@ -47,6 +47,17 @@ try {
   mode='normal';const countBefore=replies;
   const invalid=createAgentClient({baseUrl,deviceId,token,service:{async handle(){return null;}},ca:cert,timeoutMs:500});
   await assert.rejects(invalid.step(),/Неверный ответ помощника/);assert.equal(replies,countBefore);
+  // Даже если обработчик игнорирует отмену и завершится позже, клиент уже не
+  // должен отправить его ответ. Сам обработчик может продолжать работу.
+  let handlerStarted,finishHandler,observedSignal;
+  const ready=new Promise(resolve=>{handlerStarted=resolve});
+  const slow=createAgentClient({baseUrl,deviceId,token,ca:cert,timeoutMs:500,service:{handle(_id,_packet,signal){
+    observedSignal=signal;handlerStarted();return new Promise(resolve=>{finishHandler=resolve});
+  }}});
+  const stopHandler=new AbortController(), beforeReply=replies, work=slow.step(stopHandler.signal);
+  await ready;assert.equal(observedSignal,stopHandler.signal);stopHandler.abort();
+  await assert.rejects(work,e=>e.name==='AbortError');
+  finishHandler('answer');await new Promise(resolve=>setTimeout(resolve,30));assert.equal(replies,beforeReply);
   mode='badclaim';await assert.rejects(client.claim('1'.repeat(64)),/не получилось/i);
   mode='unauthorized';await assert.rejects(client.step(),e=>e.status===401 && !e.message.includes(token));
   mode='redirect';await assert.rejects(client.step(),e=>e.status===302);assert.equal(spyHits,0);

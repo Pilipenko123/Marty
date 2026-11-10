@@ -22,6 +22,19 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     await fs.symlink(outside,path.join(root,'junction'),'junction');
     await fs.link(path.join(outside,'secret.txt'),path.join(root,'hardlink.txt'));
     const provider=createWindowsFolderProvider({timeoutMs:60000});
+    // Настоящее завершение порождённого PowerShell после отмены, без сети.
+    // Выполняется только в чистой Windows CI и пока там не запускалось.
+    let processClosed;
+    const cancellingProvider=createWindowsFolderProvider({timeoutMs:60000,spawnProcess(name,args,opts){
+      const child=spawn(name,args,opts);
+      processClosed=new Promise(resolve=>child.once('close',resolve));
+      return child;
+    }});
+    const cancel=new AbortController(), cancelled=cancellingProvider.anchor(root,cancel.signal);
+    cancel.abort();await assert.rejects(cancelled,e=>e.name==='AbortError');
+    let timer;
+    try { await Promise.race([processClosed,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Процесс не завершился после остановки')),10000);})]); }
+    finally {clearTimeout(timer);}
     const alias=path.join(scratch,'root-alias');
     await fs.symlink(root,alias,'junction');
     try {await assert.rejects(provider.anchor(alias));} finally {await fs.rmdir(alias);}
