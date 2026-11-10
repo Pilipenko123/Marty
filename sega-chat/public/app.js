@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-152';
+const BUILD = 'pkg3-153';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -5420,6 +5420,11 @@ function drvSlotOf(id) { const m = /(\d+)$/.exec(String(id || '')); return m ? N
 function drvIcon(id) { return '☁'; }
 function drvName(kind, slot) { return 'Диск ' + (kind === 'google' ? 'G' : 'Y') + (Number(slot) || 1); }
 function drvDriveId(kind, slot) { return (kind === 'google' ? 'google' : 'yandex') + (Number(slot) > 1 ? String(slot) : ''); }
+function drvDisplayName(kind, slot) {
+  const id = drvDriveId(kind, slot);
+  const x = (drivesState().list || []).find(d => d && d.id === id && d.connected);
+  return (x && x.title) || drvName(kind, slot);
+}
 const DRV_ICON = { yandex: '☁', google: '☁' };
 const DK_MEDIA_RU = { audio: 'Музыка', image: 'Фото', video: 'Видео', doc: 'Документ', other: 'Файл', dir: 'Папка' };
 // pkg3-131: у «документов Google» своего файла нет — открываем их в окне
@@ -5514,7 +5519,6 @@ function drivesRailRows() {
       <div class="drive-ic">${drvIcon(x.id)}</div>
       <div class="ci-main">
         <div class="ci-name">${escapeHtml(x.title)}</div>
-        <div class="ci-last">${x.shared ? 'открыто: ' + x.shared : 'файлы лежат на вашем диске'}</div>
       </div>
     </div>`).join('');
   return rows + `<div class="chat-item drive-item drive-add" data-drive-add="1" title="Подключить Яндекс.Диск или другой диск">
@@ -5660,11 +5664,11 @@ function diskCrumbsHtml(path, root) {
   const st = diskState();
   const g = dkIsGoogle(path);
   const rootPath = dkRoot(st.drive);
-  const rootLabel = mine ? '☁ ' + drvName(drvKindOf(st.drive), drvSlotOf(st.drive)) : '☁ Общая папка';
+  const rootLabel = mine ? '☁ ' + drvDisplayName(drvKindOf(st.drive), drvSlotOf(st.drive)) : '☁ Общая папка';
   // У Google путь — это идентификаторы файлов, человеку их показывать нельзя:
   // поэтому крошки там — «Google Диск › имя папки».
   if (g) {
-    let out = `<button class="mini dk-crumb" data-disk-go="${rootPath}" title="Корень Google Диска">${rootLabel}</button>`;
+    let out = `<button class="mini dk-crumb" data-disk-go="${rootPath}" title="Корень Google Диска">${escapeHtml(rootLabel)}</button>`;
     const nm = String(st.curName || '');
     if (dkNorm(path) !== rootPath) out += `<span class="dk-sep">›</span><span class="dk-crumb cur">${escapeHtml(nm || 'папка')}</span>`;
     return out;
@@ -5683,7 +5687,7 @@ function diskCrumbsHtml(path, root) {
     return out;
   }
   let acc = rootPath;
-  let out = `<button class="mini dk-crumb" data-disk-go="${escapeHtml(rootPath)}" title="Корень диска">${rootLabel}</button>`;
+  let out = `<button class="mini dk-crumb" data-disk-go="${escapeHtml(rootPath)}" title="Корень диска">${escapeHtml(rootLabel)}</button>`;
   all.forEach(seg => {
     acc = (acc === rootPath ? rootPath : acc + '/') + seg;
     out += `<span class="dk-sep">›</span><button class="mini dk-crumb" data-disk-go="${escapeHtml(acc)}">${escapeHtml(seg)}</button>`;
@@ -5861,7 +5865,7 @@ async function diskPlayFile(it, of) {
   const tracks = items.map(x => ({ id: 'folder:' + x.path, kind: 'disk', path: x.path,
     title: x.name || x.path, cover: '', diskOf: owner }));
   const idx = tracks.findIndex(x => x.path === it.path);
-  MUS.folder = { id: MUS_FOLDER, name: st.curName || (st.path === dkRoot(st.drive) ? drvName(drvKindOf(st.drive), drvSlotOf(st.drive)) : st.path.split('/').filter(Boolean).pop()) || 'Папка', tracks, vis: 'folder' };
+  MUS.folder = { id: MUS_FOLDER, name: st.curName || (st.path === dkRoot(st.drive) ? drvDisplayName(drvKindOf(st.drive), drvSlotOf(st.drive)) : st.path.split('/').filter(Boolean).pop()) || 'Папка', tracks, vis: 'folder' };
   musicPlay(MUS.folder, idx);
   await openMusic(MUS_FOLDER);
 }
@@ -6108,7 +6112,7 @@ function diskFail(title, what, path, err) {
   const msg = String((err && err.message) || err || 'без объяснений');
   const drv = dkDriveOfPath(path);
   const slot = drvSlotOf(drv);
-  const name = drvName(drvKindOf(drv), slot);
+  const name = drvDisplayName(drvKindOf(drv), slot);
   const looksPerm = /права|прав[оа] записи|только чтение|403|отказал в доступе/i.test(msg);
   modal('Диск не дал ' + what, `<div class="disk-fail">
     <p class="tiny">Диск: <b>${escapeHtml(name)}</b> · путь: <code>${escapeHtml(String(path || ''))}</code></p>
@@ -6218,54 +6222,50 @@ function diskEmbedHtml(text) {
 async function driveConnectAsk() {
   await drivesLoad();
   const d = drivesState();
-  // pkg3-129: список приходит с сервера как есть — подключённые диски и по одной
-  // строке «свободный номер» на каждый вид. Рисуем все, ничего не выдумываем.
-  const rows = (d.list || []).map(x => {
-    const kind = x.kind || drvKindOf(x.id);
-    const slot = x.slot || drvSlotOf(x.id);
-    const ic = '☁';
-    const name = drvName(kind, slot);
-    const state = x.connected
-      ? (kind === 'google'
-        ? 'уже подключён · ' + (x.canWrite === false ? 'только чтение' : 'можно смотреть и менять')
-        : 'уже подключён' + (x.manual ? ' (токеном)' : ''))
-      : (x.needsKeys ? 'нужны ключи приложения' : (slot > 1 ? 'можно подключить ещё один' : 'не подключён'));
-    const btns = x.connected
-      ? `<button class="mini primary" data-drive-open="${escapeHtml(x.id)}">Открыть диск</button>`
-        + (kind === 'google' && x.canWrite === false ? `<button class="mini" data-gd-more="${slot}">Разрешить изменения</button>` : '')
-        + (kind === 'yandex' ? `<button class="mini" data-yd-wcheck="${slot}">Проверить запись</button>` : '')
-        + `<button class="mini danger" data-drv-off="${escapeHtml(x.id)}">Отключить</button>`
-      : (kind === 'google'
-        ? `<button class="mini primary" data-gd-login="${slot}">Войти через Google</button>`
-        : `<button class="mini primary" data-drv-token="${slot}">Вставить токен</button><button class="mini" data-drv-oauth="${slot}">Войти через Яндекс</button>`);
-    let hint = '';
-    if (kind === 'google') {
-      hint = x.connected
-        ? (x.canWrite === false
-          ? 'Доступ дан только на чтение: сервер не может ни изменить, ни удалить файлы. Нажмите «Разрешить изменения» — Google спросит право менять файлы, заходить под другим аккаунтом не нужно.'
-          : 'Доступ дан и на просмотр, и на изменения: сервер может создавать папки, загружать, переименовывать и убирать файлы в корзину Google. Ваши файлы остаются у Google.')
-        : (x.needsKeys
-          ? escapeHtml(x.keysHint || '')
-          : (slot > 1
-            ? 'Ещё один Google-аккаунт: у него будет своё начало пути (google' + slot + ':/…) и свои права. Нажмите «Войти через Google» — откроется страница Google.'
-            : 'Нажмите «Войти через Google» — откроется страница Google, где вы разрешите смотреть файлы и менять их (создавать папки, загружать, переименовывать, убирать в корзину).'));
-    } else {
-      hint = x.connected
-        ? 'Яндекс.Диск вашего аккаунта: сервер может читать, создавать папки, загружать, переименовывать и убирать в корзину. Файлы остаются на Диске.'
-        : (slot > 1
-          ? 'Ещё один Яндекс.Диск: подключите второй аккаунт — у него будет своё начало пути (disk' + slot + ':/…) и свои права.'
-          : 'Токен выдаёт сам Яндекс на полигоне Диска — модерация приложения не нужна. «Войти через Яндекс» работает, когда приложение сервера опубликовано.');
-    }
-    return `<div class="disk-drv" data-drv-row="${escapeHtml(x.id)}">
-      <div class="disk-drv-t"><b>${ic} ${escapeHtml(name)}</b> <span class="tiny muted">${escapeHtml(state)}</span></div>
-      <div class="disk-drv-a">${btns}</div>
-      <div class="tiny muted">${hint}</div>
-    </div>`;
-  }).join('');
+  const group = kind => {
+    const entries = (d.list || []).filter(x => (x.kind || drvKindOf(x.id)) === kind);
+    const connected = entries.filter(x => x.connected);
+    const free = entries.find(x => !x.connected && x.placeholder);
+    const inactive = entries.filter(x => !x.connected && !x.placeholder).map(x => `<div class="disk-connect-row"><span class="tiny muted">${escapeHtml(x.title || drvName(kind, x.slot))}: не удалось открыть подключение.</span><button class="mini danger" data-drv-off="${escapeHtml(x.id)}">Отключить</button></div>`).join('');
+    const rows = connected.map(x => {
+      const slot = x.slot || drvSlotOf(x.id);
+      const name = x.title || drvName(kind, slot);
+      return `<div class="disk-connect-row" data-drv-row="${escapeHtml(x.id)}">
+        <button class="mini disk-connect-open" data-drive-open="${escapeHtml(x.id)}">☁ ${escapeHtml(name)}</button>
+        <details class="disk-connect-menu"><summary aria-label="Действия с ${escapeHtml(name)}">⋮</summary>
+          <div class="disk-connect-actions">
+            <button class="mini" data-drv-rename="${escapeHtml(x.id)}">Переименовать диск</button>
+            ${kind === 'yandex' ? `<button class="mini" data-yd-wcheck="${slot}">Проверить запись</button>` : ''}
+            ${kind === 'google' && x.canWrite === false ? `<button class="mini" data-gd-more="${slot}">Разрешить изменения</button>` : ''}
+            <button class="mini danger" data-drv-off="${escapeHtml(x.id)}">Отключить диск</button>
+          </div>
+        </details>
+      </div>${kind === 'google' && x.canWrite === false ? '<div class="tiny muted">Только чтение: изменения можно разрешить в меню диска.</div>' : ''}`;
+    }).join('');
+    const add = free ? (kind === 'yandex'
+      ? `<button class="mini" data-drv-token="${free.slot}">＋ Подключить диск</button>`
+      : `<button class="mini" data-gd-login="${free.slot}">＋ Войти через Google</button>`)
+      : '<div class="tiny muted">Подключено максимум три диска.</div>';
+    const keyHint = kind === 'google' && free && free.needsKeys ? `<div class="tiny muted">${escapeHtml(free.keysHint || 'Для входа необходимо настроить Google на сервере.')}</div>` : '';
+    return `<section class="disk-connect-group"><b>Мои ${kind === 'yandex' ? 'Yandex' : 'Google'} диски</b>${rows}${inactive}${add}${keyHint}</section>`;
+  };
   modal('Подключить диск', `<div class="disk-connect">
-    ${rows}
-    <div class="tiny muted">Можно подключить до трёх дисков каждого вида — например, личный и рабочий. Файлы остаются на ваших дисках: сервер их не копирует и места на нём не занимает.</div>
+    <div class="disk-connect-info"><span>Можно подключить до трёх дисков Yandex и до трёх Google.</span> <button class="mini" data-drv-info="1">Узнать подробнее</button></div>
+    ${group('yandex')}${group('google')}
   </div>`);
+}
+function driveInfoAsk() {
+  const ovl = document.createElement('div');
+  ovl.className = 'ask-ovl';
+  ovl.innerHTML = `<div class="ask-card" role="dialog" aria-modal="true" aria-label="О подключении диска">
+    <div class="ask-t"><b>О подключении диска</b></div>
+    <p>Если подключаете диск, подумайте о безопасности. Рекомендуется придумать надёжный пароль и обновить его в настройках личного профиля мессенджера, а также привязать электронную почту для восстановления.</p>
+    <p>Файлами с диска можно при желании делиться прямо в мессенджере. Другие смогут изменять файлы, только если вы сами дадите им такое право.</p>
+    <p>Вы сможете создавать папки, загружать файлы, переименовывать и убирать в корзину, если подключённый диск разрешает изменения. Все файлы остаются на вашем диске.</p>
+    <div class="ask-b"><button class="mini primary" data-drv-info-close="1">Закрыть</button></div></div>`;
+  ovl.addEventListener('click', e => { if (e.target.closest('[data-drv-info-close]')) ovl.remove(); });
+  document.body.appendChild(ovl);
+  ovl.querySelector('button').focus();
 }
 /**
  * pkg3-134: «проверить запись» — сервер создаёт на ЭТОМ диске служебную папку и
@@ -6442,6 +6442,20 @@ document.addEventListener('click', async e => {
     catch (err) { pick.disabled = false; toast('Не получилось отправить: ' + (err.message || err), true); }
     return;
   }
+  const info = e.target.closest('[data-drv-info]');
+  if (info) { driveInfoAsk(); return; }
+  const renameDrive = e.target.closest('[data-drv-rename]');
+  if (renameDrive) {
+    const id = renameDrive.getAttribute('data-drv-rename');
+    const entry = (drivesState().list || []).find(x => x.id === id && x.connected);
+    if (!entry) return;
+    const name = prompt('Новое название диска:', entry.title || drvName(drvKindOf(id), drvSlotOf(id)));
+    if (name === null) return;
+    if (!name.trim() || name.trim().length > 80) { toast('Название должно содержать от 1 до 80 символов', true); return; }
+    try { await api('/api/drives/rename', { method: 'POST', body: { id, title: name.trim() } }); await driveConnectAsk(); }
+    catch (err) { toast('Не получилось переименовать: ' + (err.message || err), true); }
+    return;
+  }
   const drvOpen = e.target.closest('[data-drive-open]');
   if (drvOpen) { closeRail(); openDriveWindow(drvOpen.getAttribute('data-drive-open')); return; }
   const drvAdd = e.target.closest('[data-drive-add]');
@@ -6462,7 +6476,7 @@ document.addEventListener('click', async e => {
   if (gdOff) {
     const idOff = String(gdOff.getAttribute('data-drv-off') || '');
     const kindOff = drvKindOf(idOff), slotOff = drvSlotOf(idOff);
-    const what = drvName(kindOff, slotOff);
+    const what = drvDisplayName(kindOff, slotOff);
     if (!confirm('Отключить ' + what + '? Файлы на диске останутся, просто чат их больше не увидит.')) return;
     try {
       await api(kindOff === 'google' ? '/api/gdrive/disconnect' : '/api/yadisk/disconnect',
@@ -6476,9 +6490,9 @@ document.addEventListener('click', async e => {
   const wcheck = e.target.closest('[data-yd-wcheck]');
   if (wcheck) { driveWriteCheck(wcheck.getAttribute('data-yd-wcheck')); return; }
   const failOk = e.target.closest('[data-disk-fail-ok]');
-  if (failOk) { hide($('#modal')); return; }
+  if (failOk) { driveConnectAsk(); return; }
   const tokBtn = e.target.closest('[data-drv-token]');
-  if (tokBtn) { hide($('#modal')); driveTokenAsk(Number(tokBtn.getAttribute('data-drv-token') || 1) || 1); return; }
+  if (tokBtn) { driveTokenAsk(Number(tokBtn.getAttribute('data-drv-token') || 1) || 1); return; }
   const oauthBtn = e.target.closest('[data-drv-oauth]');
   if (oauthBtn) {
     const slotO = Number(oauthBtn.getAttribute('data-drv-oauth') || 1) || 1;
@@ -6757,7 +6771,7 @@ function musSourceRu(t) {
   if (musicIsWidget(t)) return 'Яндекс.Музыка';
   if (musicIsDisk(t)) {
     // pkg3-121: трек может быть с Диска другого участника — так и подписываем
-    return (t.diskOf && S.me && t.diskOf !== S.me.id) ? 'Диск участника' : drvName(dkIsGoogle(t.path) ? 'google' : 'yandex', dkSlotOfPath(t.path));
+    return (t.diskOf && S.me && t.diskOf !== S.me.id) ? 'Диск участника' : drvDisplayName(dkIsGoogle(t.path) ? 'google' : 'yandex', dkSlotOfPath(t.path));
   }
   if (t.site && MUS_SITE_TITLES[t.site]) return MUS_SITE_TITLES[t.site];
   try {
@@ -7321,7 +7335,7 @@ async function openMusic(wantId, diskSlot) {
   const isSearch = plId === MUS_SEARCH;   // pkg3-97: «псевдоплейлист» поиска музыки
   const st0 = musSearchState();
   const plName = isSearch ? ('Результаты поиска: ' + st0.results.length)
-    : isDisk ? ('☁ ' + drvName(isGDisk ? 'google' : 'yandex', diskSlot || (ydState().slots || {})[isGDisk ? 'google' : 'yandex'] || 1))
+    : isDisk ? ('☁ ' + drvDisplayName(isGDisk ? 'google' : 'yandex', diskSlot || (ydState().slots || {})[isGDisk ? 'google' : 'yandex'] || 1))
       : isFolder && pl ? ('☁ ' + pl.name)
       : pl ? (pl.name + ' · ' + (pl.vis === 'priv' ? 'только я' : 'публичный') + ' · ' + ((pl.tracks || []).length))
         : 'Плейлистов пока нет';
@@ -7406,7 +7420,7 @@ async function openMusic(wantId, diskSlot) {
         ${['yandex', 'google'].map(kind => {
           const cards = (drivesState().list || []).filter(x => x.kind === kind && x.connected && !x.placeholder);
           return `<details class="mus-drive-group"><summary class="mini">☁ ${kind === 'yandex' ? 'Yandex.диск' : 'Google.диск'} ▾</summary>
-            ${cards.map(c => `<div class="mus-plsrow"><button class="mini mus-plsopen" data-mus-drive="${kind}" data-mus-slot="${Number(c.slot) || 1}">☁ ${escapeHtml(drvName(kind, c.slot))}</button></div>`).join('') || '<div class="tiny muted">Нет подключённых дисков</div>'}</details>`;
+            ${cards.map(c => `<div class="mus-plsrow"><button class="mini mus-plsopen" data-mus-drive="${kind}" data-mus-slot="${Number(c.slot) || 1}">☁ ${escapeHtml(drvDisplayName(kind, c.slot))}</button></div>`).join('') || '<div class="tiny muted">Нет подключённых дисков</div>'}</details>`;
         }).join('')}
         ${all.map(p2 => `<div class="mus-plsrow${p2.id === plId ? ' cur' : ''}">
           <button class="mini mus-plsopen" data-mus-pl="${escapeHtml(p2.id)}">${escapeHtml(p2.name)} <span class="tiny muted">${p2.vis === 'priv' ? '· только я' : '· публичный'} · ${(p2.tracks || []).length}</span></button>
@@ -7713,7 +7727,7 @@ async function openMusic(wantId, diskSlot) {
     y0.slot = card0 ? (card0.slot || 1) : 1;
     y0.slots[kind0] = y0.slot;
     const head = document.getElementById('mus-pl-name');
-    if (head) head.textContent = '☁ ' + drvName(kind0, y0.slot);
+    if (head) head.textContent = '☁ ' + drvDisplayName(kind0, y0.slot);
     ydPaneStart().catch(() => {});
   }
 }

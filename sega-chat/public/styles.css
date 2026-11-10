@@ -2660,3 +2660,14 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 /* Источник — отдельная неподвижная часть строки рядом с кнопкой действия.
    Длинные имена источников переносятся, не прячась под названием трека. */
 .mus-v105 .mus-tr .mus-source{flex:0 0 auto;max-width:38%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;line-height:1.15;text-align:center;margin-left:0}
+/* Компактное подключение облачных дисков. */
+.disk-connect-info{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.disk-connect-group{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.disk-connect-group>button{align-self:flex-start}
+.disk-connect-row{display:flex;align-items:flex-start;gap:6px}
+.disk-connect-open{flex:1;text-align:left;min-width:0;overflow-wrap:anywhere}
+.disk-connect-menu{position:relative}
+.disk-connect-menu summary{cursor:pointer;list-style:none;border:1px solid var(--line,rgba(255,255,255,.2));border-radius:8px;padding:6px 12px;font-size:18px;line-height:1}
+.disk-connect-menu summary::-webkit-details-marker{display:none}
+.disk-connect-actions{position:absolute;z-index:5;right:0;top:100%;min-width:190px;display:flex;flex-direction:column;gap:4px;padding:6px;border:1px solid var(--line,#777);border-radius:8px;background:var(--panel,#222)}
+.disk-connect-actions button{text-align:left}

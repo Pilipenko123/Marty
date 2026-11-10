@@ -209,6 +209,15 @@ ok(row('yandex').prefix === 'disk:' && row('yandex2').prefix === 'disk2:', 'у �
 ok(!!row('google') && row('google').connected === false, 'Google-строки тоже на месте');
 ok(r.d.canAdd && r.d.canAdd.yandex === true, 'видно, что можно добавить третий диск');
 
+r = await call('/api/drives/rename', {method:'POST', body:{id:'yandex2', title:' Рабочий диск '}}, A.token);
+ok(r.status === 200 && r.d.title === 'Рабочий диск', 'владелец может переименовать второй диск');
+r = await call('/api/drives', {}, A.token);
+ok(r.d.drives.find(x => x.id === 'yandex2').title === 'Рабочий диск', 'имя возвращается на другие устройства');
+r = await call('/api/drives/rename', {method:'POST', body:{id:'yandex2', title:'Чужое имя'}}, K.token);
+ok(r.status === 404, 'другой участник не может переименовать чужой диск');
+r = await call('/api/drives/rename', {method:'POST', body:{id:'yandex2', title:'  '}}, A.token);
+ok(r.status === 400, 'пустое имя не принимается');
+
 r = await call('/api/yadisk/list?path=' + encodeURIComponent('disk:/') + '&limit=1&offset=1', {}, A.token);
 ok(r.status === 200 && r.d.offset === 1 && r.d.items.length === 1 && r.d.items[0].name === 'Папка-1', 'листание папки Яндекса передаёт отступ');
 
@@ -353,8 +362,8 @@ ok(!!fns && fns.dkNorm('disk2:') === 'disk2:/' && fns.dkNorm('google2:') === 'go
 ok(!!fns && fns.dkDriveOfPath('disk3:/x') === 'yandex3' && fns.dkDriveOfPath('google2:/abc') === 'google2', 'по пути видно, чей это диск');
 ok(!!fns && fns.dkParent('disk2:/a/b') === 'disk2:/a', 'родитель остаётся на том же диске');
 ok(!!fns && fns.dkIsGoogle('google2:/x') === true, 'второй Google узнаётся как Google');
-ok(/data-drv-token="\$\{slot\}"/.test(appJs) && /data-drv-oauth="\$\{slot\}"/.test(appJs), 'в окне подключения можно добавить «ещё один» диск');
-ok(/data-gd-login="\$\{slot\}"/.test(appJs), 'и «ещё один» Google');
+ok(/data-drv-token="\$\{free.slot\}"/.test(appJs) && /driveTokenAsk/.test(appJs), 'в окне подключения можно добавить «ещё один» диск');
+ok(/data-gd-login="\$\{free.slot\}"/.test(appJs), 'и «ещё один» Google');
 ok(/&slot=' \+ encodeURIComponent/.test(appJs), 'музыка передаёт номер диска');
 ok(/да трёх дисков каждого вида/.test(appJs) || /до трёх дисков/.test(appJs), 'в окне сказано про предел три');
 
@@ -364,7 +373,7 @@ const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || []
 ok(b2 === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска в клиенте и в тестах одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
 ok(/\| pkg3-146 \|/.test(read('README.md')), `в журнале README есть строка ${BUILD}`);
-ok(cache === 'sega-static-v146', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
+ok(cache === 'sega-static-v147', `кэш оформления поднят (${cache}) — устройства получат новые окна`);
 ok(read('package.json').includes('node test/ui129.mjs'), 'тест ui129 включён в цепочку npm test');
 
 console.log(`\n  ИТОГ: ${good} ✓, ${bad ? bad + ' провалов' : 'провалов нет'}\n`);
