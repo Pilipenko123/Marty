@@ -1,30 +1,31 @@
 'use strict';
-// Только экспериментальная точка входа. Не распространять и не запускать с
-// настоящими файлами, пока она не проверена на Windows 10 и безопасные границы
-// доступа к папке не завершены. Никакие файлы из интернета она не скачивает.
-const {createWindowsVault}=require('./windows-vault');
-const {showWizard}=require('./windows-wizard');
-const {createCoordinator}=require('./agent-coordinator');
-const {createAgentRunner}=require('./agent-runner');
-
-async function runHelper({platform=process.platform, vault, wizard=showWizard, coordinator, runnerFactory=createAgentRunner, onStatus=()=>{}}={}) {
+// Только лабораторный оркестратор для тестов с явно переданными зависимостями.
+// Прямой запуск запрещён до аудита, Windows-проверки и безопасных границ.
+// Этот файл не создаёт ни хранилище, ни файловый доступ, ни сетевой клиент;
+// импортирующий код обязан явно предоставить зависимости и не использовать реальные файлы.
+async function runHelper({platform=process.platform, vault, wizard, coordinator, runnerFactory, onStatus=()=>{}}={}) {
   if(platform!=='win32') throw new Error('Помощник работает только на Windows');
-  const store=vault || createWindowsVault();
-  const agent=coordinator || createCoordinator({vault:store});
-  const previous=await store.load();
+  if (!vault || typeof vault.load!=='function' || typeof wizard!=='function'
+      || !coordinator || typeof coordinator.prepare!=='function' || typeof coordinator.tick!=='function'
+      || typeof runnerFactory!=='function' || typeof onStatus!=='function') {
+    throw new Error('Помощник пока недоступен');
+  }
+  const previous=await vault.load();
   if(!previous) {
     const chosen=await wizard();
     if(!chosen)return 'cancelled';
-    await agent.prepare(chosen.code,chosen.folder);
+    await coordinator.prepare(chosen.code,chosen.folder);
   }
-  const runner=runnerFactory({coordinator:agent,onStatus});
-  const stop=()=>{runner.stop().catch(()=>{});};
+  const runner=runnerFactory({coordinator,onStatus});
+  if(!runner || typeof runner.start!=='function' || typeof runner.stop!=='function') throw new Error('Помощник пока недоступен');
+  const stop=()=>{try{Promise.resolve(runner.stop()).catch(()=>{});}catch(_){}};
   process.once('SIGINT',stop);process.once('SIGTERM',stop);
   try { await runner.start(); return 'stopped'; }
   finally { process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop); }
 }
 if(require.main===module) {
-  const labels={connecting:'Подключение…',online:'Компьютер подключён',offline:'Нет связи; повторяю',revoked:'Доступ отключён в мессенджере', 'folder-changed':'Папка изменилась; подключение остановлено',stopped:'Помощник остановлен'};
-  runHelper({onStatus:s=>{if(labels[s])console.log(labels[s]);}}).catch(()=>{console.error('Не удалось запустить помощник. Проверьте настройки и повторите.');process.exitCode=1;});
+  // Без обходного флага: черновик нельзя случайно запустить на чьих-либо файлах.
+  console.error('Помощник ещё в разработке и пока недоступен.');
+  process.exitCode=1;
 }
 module.exports={runHelper};

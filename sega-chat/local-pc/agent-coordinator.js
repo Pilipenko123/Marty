@@ -5,9 +5,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const pairing = require('./pairing');
-const {createFolder} = require('./folder');
 const {createReadService} = require('./read-service');
-const {createAgentClient} = require('./agent-client');
 const ID = /^[a-f0-9]{32}$/, TOKEN = /^[a-f0-9]{64}$/;
 const hash = token => crypto.createHash('sha256').update(token,'utf8').digest('hex');
 function validateConfig(c) {
@@ -26,15 +24,32 @@ function validateConfig(c) {
   return new Uint8Array(secret);
 }
 
+// Только для лабораторных тестов: realpath/stat НЕ защищают вложенные пути
+// от подмены. Не использовать как границу защиты настоящих файлов.
 async function anchorFolder(folderPath) {
   const root = await fs.realpath(folderPath);
   const st = await fs.stat(root,{bigint:true});
   if (!st.isDirectory() || st.ino === 0n) throw new Error('Не удалось надёжно проверить выбранную папку');
   return {root,dev:st.dev.toString(),ino:st.ino.toString()};
 }
-function createCoordinator({vault, transportFactory = createAgentClient, folderFactory = createFolder, anchor = anchorFolder, random = crypto.randomBytes} = {}) {
-  if (!vault || typeof vault.load !== 'function' || typeof vault.save !== 'function') throw new Error('Нужно защищённое хранилище');
-  let config=null, transport=null, busy=false;
+function createCoordinator({vault, transportFactory, folderFactory, anchor, random = crypto.randomBytes} = {}) {
+  // Никаких неявных настоящих файлов/сети по умолчанию. Переданные зависимости
+  // всё равно могут быть небезопасными — этот код остаётся только для лаборатории.
+  if (!vault || typeof vault.load !== 'function' || typeof vault.save !== 'function'
+      || typeof transportFactory !== 'function' || typeof folderFactory !== 'function'
+      || typeof anchor !== 'function' || typeof random !== 'function') throw new Error('Не заданы лабораторные зависимости');
+  let config=null, transport=null, busy=false, currentFolder=null;
+  // Транспорт и его кэш ответов живут между опросами. Поэтому сервис обращается
+  // к заново проверенному объекту текущего опроса, а не к первому объекту,
+  // случайно захваченному при создании транспорта. Это не устраняет гонки ОС.
+  const folderProxy=Object.freeze({
+    list(...args){if(!currentFolder)throw new Error('Папка недоступна');return currentFolder.list(...args);},
+    read(...args){if(!currentFolder)throw new Error('Папка недоступна');return currentFolder.read(...args);}
+  });
+  function checkedFolder(folder) {
+    if (!folder || typeof folder.list!=='function' || typeof folder.read!=='function') throw new Error('Папка недоступна');
+    return folder;
+  }
   async function locked(fn) {
     if (busy) throw new Error('Подключение уже обрабатывается');
     busy=true; try { return await fn(); } finally { busy=false; }
@@ -53,7 +68,7 @@ function createCoordinator({vault, transportFactory = createAgentClient, folderF
     if (typeof folderPath !== 'string' || !path.isAbsolute(folderPath)) throw new Error('Выберите папку на компьютере');
     const setup=pairing.parse(code,trustedUrl);
     const a=await anchor(folderPath);
-    await folderFactory(a.root,{dev:a.dev,ino:a.ino}); // до сохранения проверяем выбранную папку
+    checkedFolder(await folderFactory(a.root,{dev:a.dev,ino:a.ino})); // до сохранения проверяем выбранную папку
     const fresh=random(32);
     if (!Buffer.isBuffer(fresh) || fresh.length !== 32) throw new Error('Не удалось создать секрет');
     const next={version:1,state:'pending',url:setup.url,deviceId:setup.deviceId,folder:a.root,rootDevice:a.dev,rootInode:a.ino,
@@ -72,33 +87,37 @@ function createCoordinator({vault, transportFactory = createAgentClient, folderF
   async function tick(signal) { return locked(async () => {
     const checkStopped=()=>{if(signal && signal.aborted){const e=new Error('Остановлено');e.name='AbortError';throw e;}};
     checkStopped();
-    const c=await load(), secret=validateConfig(c), a=await anchor(c.folder);
-    if (a.root !== c.folder || a.dev !== c.rootDevice || a.ino !== c.rootInode) {
-      const e=new Error('Выбранная папка изменилась, подключение остановлено');
-      e.code='LOCAL_FOLDER_CHANGED'; throw e;
-    }
-    const folder=await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode});
-    checkStopped();
-    if (!transport) transport=await makeTransport(c,c.token,folder,secret);
-    if (c.state === 'pending') {
-      let accepted=false;
-      try {
-        // Если предыдущий ответ потерялся, новый токен уже может работать.
-        await transport.step(signal); accepted=true;
-      } catch (e) { if (!e || e.status !== 401) throw e; }
+    currentFolder=null;
+    try {
+      const c=await load(), secret=validateConfig(c), a=await anchor(c.folder);
+      if (a.root !== c.folder || a.dev !== c.rootDevice || a.ino !== c.rootInode) {
+        const e=new Error('Выбранная папка изменилась, подключение остановлено');
+        e.code='LOCAL_FOLDER_CHANGED'; throw e;
+      }
+      const folder=checkedFolder(await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode}));
       checkStopped();
-      if (!accepted) {
-        const setup=await makeTransport(c,c.setupToken,folder,secret);
-        await setup.claim(hash(c.token),signal);
+      currentFolder=folder;
+      if (!transport) transport=await makeTransport(c,c.token,folderProxy,secret);
+      if (c.state === 'pending') {
+        let accepted=false;
+        try {
+          // Если предыдущий ответ потерялся, новый токен уже может работать.
+          await transport.step(signal); accepted=true;
+        } catch (e) { if (!e || e.status !== 401) throw e; }
+        checkStopped();
+        if (!accepted) {
+          const setup=await makeTransport(c,c.setupToken,folderProxy,secret);
+          await setup.claim(hash(c.token),signal);
+        }
+        checkStopped();
+        const active={...c,state:'active'}; delete active.setupToken;
+        await saveConfig(active);
+        config=active;
       }
       checkStopped();
-      const active={...c,state:'active'}; delete active.setupToken;
-      await saveConfig(active);
-      config=active;
-    }
-    checkStopped();
-    return transport.step(signal);
+      return await transport.step(signal);
+    } finally { currentFolder=null; }
   }); }
   return Object.freeze({prepare,tick});
 }
-module.exports={createCoordinator};
+module.exports={createCoordinator,anchorFolder};

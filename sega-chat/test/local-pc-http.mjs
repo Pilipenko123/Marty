@@ -14,7 +14,7 @@ const {createApi} = require('../lib/api.js');
 const {createFolder} = require('../local-pc/folder.js');
 const {createReadService} = require('../local-pc/read-service.js');
 const {createAgentClient} = require('../local-pc/agent-client.js');
-const {createCoordinator} = require('../local-pc/agent-coordinator.js');
+const {createCoordinator,anchorFolder} = require('../local-pc/agent-coordinator.js');
 const {digest} = require('../local-pc/relay.js');
 const secure = require('../local-pc/secure-channel.js');
 const pairing = require('../local-pc/pairing.js');
@@ -143,7 +143,7 @@ try {
   assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:{...pair2.registration,title:'Тест ПК'}})).status,200);
   let vaultData=null;
   const vault={async load(){return vaultData&&{...vaultData}},async save(x){vaultData={...x}}}; // имитация, не DPAPI
-  const helper=createCoordinator({vault,transportFactory:opts=>createAgentClient({...opts,ca:cert})});
+  const helper=createCoordinator({vault,anchor:anchorFolder,folderFactory:createFolder,transportFactory:opts=>createAgentClient({...opts,ca:cert})});
   await helper.prepare(pair2.code,folderPath,tlsBase);
   assert.equal(vaultData.state,'pending');
   await helper.tick();

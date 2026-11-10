@@ -7,7 +7,9 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const pairing=require('../local-pc/pairing.js');
-const {createCoordinator}=require('../local-pc/agent-coordinator.js');
+const {createCoordinator,anchorFolder}=require('../local-pc/agent-coordinator.js');
+const {createFolder}=require('../local-pc/folder.js'); // только временная папка теста
+const channel=require('../local-pc/secure-channel.js');
 const subtle=crypto.webcrypto.subtle;
 const keys=await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
 const generated=await pairing.create({url:'https://chat.example',userId:'a'.repeat(18),privateKey:keys.privateKey,publicKey:keys.publicKey});
@@ -21,7 +23,9 @@ const factory=({token,service})=>({
   async claim(h){claims++; assert(saved && saved.state==='pending'); assert.equal(token,initial.token); if(activeHash && activeHash!==h) throw new Error('already claimed');activeHash=h;if(loseClaim){loseClaim=false;throw new Error('потерян ответ')}},
 });
 try {
-  const c=createCoordinator({vault,transportFactory:factory});
+  assert.throws(()=>createCoordinator({vault}),/лабораторные зависимости/);
+  assert.throws(()=>createCoordinator({vault,transportFactory:factory,folderFactory:createFolder}),/лабораторные зависимости/);
+  const c=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder});
   await assert.rejects(c.prepare(generated.code,root,'https://other.example'));
   assert.equal(saved,null);
   failSave=true;
@@ -35,17 +39,36 @@ try {
   await assert.rejects(c.tick(),/потерян ответ/);
   assert.equal(saved.state,'pending'); assert(activeHash);
   // Новый запуск после потери ответа: уже действующий токен проходит без новой привязки.
-  const restart=createCoordinator({vault,transportFactory:factory});
+  const restart=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder});
   assert.equal(await restart.tick(),false);
   assert.equal(saved.state,'active'); assert.equal(saved.setupToken,undefined); assert.equal(claims,1);
   assert.equal(await restart.tick(),false);
+  // Сохранённый транспорт обязан читать через объект текущего опроса, а не
+  // через объект, захваченный при первом запуске; вне опроса доступа нет.
+  const config=copy(saved), seen=[];let sequence=0, requestNo=100, serviceRef=null, changed=false, transports=0;
+  async function ask(service) {
+    const id=(requestNo++).toString(16).padStart(32,'0'), expires=Date.now()+30000;
+    const packet=await channel.seal(initial.secret,initial.deviceId,'request',id,expires,new TextEncoder().encode('{"op":"list","path":""}'));
+    const reply=await service.handle(id,packet);
+    const plain=await channel.open(initial.secret,reply,{channel:initial.deviceId,direction:'response',request:id,expires});
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+  const fakeAnchor=async()=>({root:config.folder,dev:config.rootDevice,ino:changed?'999':config.rootInode});
+  const changingFolders=async()=>{const n=++sequence;return {async list(){return [{name:'состояние-'+n}]},async read(){throw new Error('не используется')}}};
+  const reuseTransport=({service})=>{transports++;serviceRef=service;return {async step(){const x=await ask(service);assert.equal(x.ok,true);seen.push(x.items[0].name);return true;}}};
+  const dynamic=createCoordinator({vault:{async load(){return copy(config)},async save(){}},anchor:fakeAnchor,folderFactory:changingFolders,transportFactory:reuseTransport});
+  await dynamic.tick();await dynamic.tick();
+  assert.deepEqual(seen,['состояние-1','состояние-2']);assert.equal(transports,1);
+  assert.equal((await ask(serviceRef)).ok,false); // вне проверенного опроса папка закрыта
+  changed=true;await assert.rejects(dynamic.tick(),/папка изменилась/);
+  assert.equal((await ask(serviceRef)).ok,false);
   // Подмена корня папки не должна начинать сетевой запрос.
   await fs.rename(root,root+'-original'); await fs.mkdir(root);
   const oldCalls=calls;
   await assert.rejects(restart.tick(),/папка изменилась/); assert.equal(calls,oldCalls);
   await fs.rm(root,{recursive:true,force:true}); await fs.rename(root+'-original',root);
   // Повреждённая запись не должна подключаться.
-  saved.key='bad'; const broken=createCoordinator({vault,transportFactory:factory});
+  saved.key='bad'; const broken=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder});
   await assert.rejects(broken.tick(),/повреждены/);
   console.log('local-pc-coordinator: сохранение до привязки, потеря ответа, повтор и подмена корня проверены без Windows');
 } finally { await fs.rm(root,{recursive:true,force:true}); await fs.rm(root+'-original',{recursive:true,force:true}); }
