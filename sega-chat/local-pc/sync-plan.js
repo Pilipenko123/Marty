@@ -31,16 +31,29 @@ function same(a, b) {
 // Отсортированный по кодовым единицам индекс позволяет рассматривать только
 // потомков проверяемой папки, а не заново обходить все 20 000 элементов для
 // каждого удаления. Заблокированные поддеревья не пересекаются.
+function descendantsStart(ordered, prefix) {
+  let lo = 0, hi = ordered.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (ordered[mid] < prefix) lo = mid + 1; else hi = mid; }
+  return lo;
+}
 function unchangedTree(a, b, root, ordered) {
   if (!same(a.get(root), b.get(root))) return false;
   const prefix = root + '/';
-  let lo = 0, hi = ordered.length;
-  while (lo < hi) { const mid = (lo + hi) >>> 1; if (ordered[mid] < prefix) lo = mid + 1; else hi = mid; }
-  for (let i = lo; i < ordered.length && ordered[i].startsWith(prefix); i++) {
+  for (let i = descendantsStart(ordered,prefix); i < ordered.length && ordered[i].startsWith(prefix); i++) {
     const p = ordered[i];
     if (!same(a.get(p), b.get(p))) return false;
   }
   return true;
+}
+// Предварительное ожидаемое состояние целой папки, включая пустые каталоги.
+// Это только описание для повторной проверки, не разрешение что-либо удалять.
+function treeExpectation(map, root, ordered) {
+  const items=[{path:root,...map.get(root)}], prefix=root+'/';
+  for (let i=descendantsStart(ordered,prefix);i<ordered.length && ordered[i].startsWith(prefix);i++) {
+    const p=ordered[i], item=map.get(p);
+    if(item)items.push({path:p,...item});
+  }
+  return items;
 }
 function hasBlockedParent(p, blocked) {
   let i = p.lastIndexOf('/');
@@ -59,7 +72,12 @@ function expect(entry) { return entry ? { ...entry } : null; }
  * а также гарантировать перемещение в настоящую корзину Windows и восстановление
  * после обрыва. Спорные изменения никогда не разрешаются перезаписью.
  */
-function planSync({ base, left, right }) {
+function planSync({enabled,online,peerOnline,baseConfirmed,leftComplete,rightComplete,base,left,right} = {}) {
+  // Явное подтверждение вызывающего кода нужно даже для пустых списков. Эти
+  // флаги сами по себе не доказывают полноту и не защищают от устаревания.
+  if (enabled!==true || online!==true || peerOnline!==true || baseConfirmed!==true || leftComplete!==true || rightComplete!==true) {
+    throw new Error('Синхронизация или полные снимки не подтверждены');
+  }
   const B = parseSnapshot(base), L = parseSnapshot(left), R = parseSnapshot(right);
   // Нельзя молча объединять имена, которые Windows считает одним путём.
   const spellings = new Map();
@@ -79,7 +97,8 @@ function planSync({ base, left, right }) {
       if (!l && !r) { blocked.add(p); continue; }
       const surviving = l ? L : R, side = l ? 'left' : 'right';
       if (same(baseEntry, surviving.get(p)) && unchangedTree(B, surviving, p, ordered)) {
-        actions.push({ type:'trash', side, path:p, expected:expect(baseEntry), tree:true });
+        actions.push({ type:'trash', side, missingOn:side==='left'?'right':'left', path:p,
+          expected:expect(baseEntry), tree:true, expectedTree:treeExpectation(surviving,p,ordered) });
       } else {
         actions.push({ type:'conflict', path:p, reason:'Папка удалена на одном компьютере, но изменена на другом' });
       }
@@ -100,7 +119,7 @@ function planSync({ base, left, right }) {
     const from = lc ? 'left' : 'right', to = lc ? 'right' : 'left';
     const source = lc ? l : r, target = lc ? r : l;
     if (!source) {
-      if (target) actions.push({ type:'trash', side:to, path:p, expected:expect(target), tree:false });
+      if (target) actions.push({ type:'trash', side:to, missingOn:from, path:p, expected:expect(target), tree:false });
     } else if (source.type === 'dir') {
       if (target) { actions.push({ type:'conflict', path:p, reason:'Нельзя заменить папку автоматически' }); blocked.add(p); }
       else actions.push({ type:'mkdir', side:to, path:p });
@@ -116,8 +135,8 @@ function planSync({ base, left, right }) {
 // диске, ни полноту сканирования эти аргументы сами по себе не доказывают.
 // Вызывающая система обязана получать подтверждения с обоих ПК, фиксировать
 // изменения и атомарно сохранять базу; такой системы здесь пока нет.
-function confirmSyncBase({enabled, leftComplete, rightComplete, operationsComplete, left, right} = {}) {
-  if (enabled !== true || leftComplete !== true || rightComplete !== true || operationsComplete !== true) {
+function confirmSyncBase({enabled, online, peerOnline, leftComplete, rightComplete, operationsComplete, left, right} = {}) {
+  if (enabled !== true || online !== true || peerOnline !== true || leftComplete !== true || rightComplete !== true || operationsComplete !== true) {
     throw new Error('Состояние синхронизации не подтверждено');
   }
   const L = parseSnapshot(left), R = parseSnapshot(right);

@@ -15,7 +15,8 @@ assert.deepEqual(first.left,l); assert.deepEqual(first.right,r);
 assert.notEqual(first.left,l); assert.notEqual(first.right,r);
 const base={path:args.path,type:'file',hash:'3'.repeat(64),size:11};
 const parentEntry={path:'документы',type:'dir'};
-const pending=planSync({base:[parentEntry,base],left:[parentEntry,{path:args.path,...l}],right:[parentEntry,{path:args.path,...r}]});
+const pending=planSync({enabled:true,online:true,peerOnline:true,baseConfirmed:true,leftComplete:true,rightComplete:true,
+  base:[parentEntry,base],left:[parentEntry,{path:args.path,...l}],right:[parentEntry,{path:args.path,...r}]});
 assert.deepEqual(pending.map(x=>[x.type,x.path]),[['conflict',args.path]]);
 assert.equal(first.left.hash,l.hash); assert.equal(first.right.hash,r.hash);
 assert.equal(suggest({leftNames:['отчёт.txt','ОТЧЁТ (ДРУГАЯ ВЕРСИЯ).TXT']}).alternate,'документы/отчёт (другая версия - 2).txt');
