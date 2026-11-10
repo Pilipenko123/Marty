@@ -1,4 +1,4 @@
-# ТОЛЬКО ДЛЯ ИСПЫТАНИЙ: не включён в мессенджер и не предназначен для скачивания.
+﻿# ТОЛЬКО ДЛЯ ИСПЫТАНИЙ: не включён в мессенджер и не предназначен для скачивания.
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)

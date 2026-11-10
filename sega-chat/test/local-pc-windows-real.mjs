@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {spawnSync} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
   console.log('local-pc-windows-real: пропущено (нужна чистая Windows-машина CI)');
@@ -44,13 +44,14 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     // стресс-тест не является доказательством отсутствия всех возможных гонок.
     await fs.writeFile(path.join(root,'nested','secret.txt'),'внутри');
     const target=path.join(root,'nested'), parked=path.join(root,'nested-parked');
+    let swaps=0;
     async function swapRepeatedly() {
       for(let i=0;i<40;i++) {
         try {await fs.rename(target,parked);}
         catch(e) {if(['EACCES','EPERM','EBUSY'].includes(e.code))continue;throw e;}
         let linked=false;
         try {
-          await fs.symlink(outside,target,'junction'); linked=true;
+          await fs.symlink(outside,target,'junction'); linked=true; swaps++;
           await new Promise(resolve=>setTimeout(resolve,50));
         } finally {
           if(linked) await fs.rmdir(target);
@@ -63,7 +64,9 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
       catch(_) {return null;}
     });
     const [raceResults]=await Promise.all([Promise.all(reads),swapRepeatedly()]);
+    assert(swaps>0,'Не удалось выполнить ни одной пробной подмены');
     assert(raceResults.every(x=>x===null || x==='внутри'));
+    assert.equal((await folder.read('nested/secret.txt',0,100)).data.toString(),'внутри');
     // Замена корня по тому же пути должна приводить к отказу старой привязки.
     await fs.rename(root,root+'-old'); await fs.mkdir(root);
     await assert.rejects(folder.list(''));
@@ -79,16 +82,25 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     }
     await fs.rm(scratch,{recursive:true,force:true});
   }
-  const probe=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','[Console]::Out.Write([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData))'],{encoding:'utf8'});
-  assert.equal(probe.status,0);
-  const localRoot=probe.stdout.trim(); assert(localRoot && path.isAbsolute(localRoot));
-  const base=path.join(localRoot,'SEGA-CHAT'), testDir=path.join(base,'LocalDisk');
-  let created=false;
+  // DPAPI проверяем только в уникальном временном каталоге. Никогда не
+  // используем фактический SEGA-CHAT/LocalDisk, даже на машине с GITHUB_ACTIONS.
+  // Меняется ровно источник корня в копии скрипта; остальной код совпадает.
+  const vaultScratch=await fs.mkdtemp(path.join(os.tmpdir(),'sega-vault-test-'));
   try {
-    try { await fs.access(testDir); throw new Error('Настоящая установка существует — тест её не трогает'); }
-    catch(e) { if(e.code!=='ENOENT')throw e; }
-    created=true;
-    const vault=createWindowsVault();
+    const root=path.join(vaultScratch,'root'), testDir=path.join(root,'SEGA-CHAT','LocalDisk');
+    const original=path.resolve('local-pc','windows-vault.ps1');
+    const source=await fs.readFile(original,'utf8');
+    const rootLine='$root = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)';
+    assert.equal(source.split(rootLine).length,2,'Исходный скрипт изменился — проверку изоляции надо пересмотреть');
+    const testScript=path.join(vaultScratch,'test-vault.ps1');
+    await fs.mkdir(root);
+    await fs.writeFile(testScript,source.replace(rootLine,'$root = $env:SEGA_VAULT_TEST_ROOT'),'utf8');
+    const vault=createWindowsVault({spawnProcess(name,args,opts){
+      const idx=args.indexOf('-File');
+      assert(idx>=0 && path.resolve(args[idx+1])===original);
+      const isolated=[...args]; isolated[idx+1]=testScript;
+      return spawn(name,isolated,{...opts,env:{...process.env,SEGA_VAULT_TEST_ROOT:root}});
+    }});
     assert.equal(await vault.load(),null);
     const value={secret:'тест-' + 'a'.repeat(64),folder:'C:\\Личная папка',version:1};
     await vault.save(value);assert.deepEqual(await vault.load(),value);
@@ -97,13 +109,17 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     const value2={...value,version:2};await vault.save(value2);assert.deepEqual(await vault.load(),value2);
     const acl=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','[Console]::Out.Write((Get-Acl -LiteralPath $env:SEGA_TEST_DIR).AreAccessRulesProtected)'],{encoding:'utf8',env:{...process.env,SEGA_TEST_DIR:testDir}});
     assert.equal(acl.status,0); assert.equal(acl.stdout.trim(),'True');
-    for(const name of ['windows-vault.ps1','windows-wizard.ps1']) {
-      const script=path.resolve('local-pc',name);
-      const syntax=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','$e=$null;$t=$null;[System.Management.Automation.Language.Parser]::ParseFile($env:SEGA_TEST_SCRIPT,[ref]$t,[ref]$e)|Out-Null;if($e.Count){$e|Out-String|Write-Error;exit 1}'],{encoding:'utf8',env:{...process.env,SEGA_TEST_SCRIPT:script}});
-      assert.equal(syntax.status,0,`${name}: ${syntax.stderr}`);
-    }
-    console.log('local-pc-windows-real: DPAPI текущего пользователя, ACL, повторное сохранение и синтаксис PowerShell проверены на чистой Windows CI; форма и синхронизация не проверены');
-  } finally {
-    if(created) {await fs.rm(testDir,{recursive:true,force:true});try{await fs.rmdir(base)}catch(_) {}}
+    console.log('local-pc-windows-real: DPAPI и ACL проверены во временной копии скрипта с изолированным корнем');
+  } finally { await fs.rm(vaultScratch,{recursive:true,force:true}); }
+  for(const name of ['windows-vault.ps1','windows-wizard.ps1','windows-safe-folder.ps1']) {
+    const script=path.resolve('local-pc',name);
+    const syntax=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','$e=$null;$t=$null;[System.Management.Automation.Language.Parser]::ParseFile($env:SEGA_TEST_SCRIPT,[ref]$t,[ref]$e)|Out-Null;if($e.Count){$e|Out-String|Write-Error;exit 1}'],{encoding:'utf8',env:{...process.env,SEGA_TEST_SCRIPT:script}});
+    assert.equal(syntax.status,0,`${name}: ${syntax.stderr}`);
   }
+  // Проверяем не просто наличие кириллицы в байтах, а то, как её читает
+  // настоящий парсер Windows PowerShell при открытии файла формы.
+  const parseRussian="$e=$null;$t=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile($env:SEGA_TEST_SCRIPT,[ref]$t,[ref]$e);if($e.Count){exit 1};$a=$ast.FindAll({param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $n.Value -eq 'Выбрать папку'},$true);if($a.Count -ne 1){exit 1}";
+  const russian=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',parseRussian],{encoding:'utf8',env:{...process.env,SEGA_TEST_SCRIPT:path.resolve('local-pc','windows-wizard.ps1')}});
+  assert.equal(russian.status,0,`PowerShell не распознал русскую надпись: ${russian.stderr}`);
+  console.log('local-pc-windows-real: синтаксис и русская строка проверены парсером; форма и синхронизация не проверены');
 }
