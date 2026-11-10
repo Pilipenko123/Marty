@@ -25,6 +25,11 @@ await assert.rejects(p.recover({userId,deviceId:'c'.repeat(32),wrappedKey:genera
 const wrap=generated.registration.wrappedKey, tampered=(wrap[0]==='A'?'B':'A')+wrap.slice(1);
 await assert.rejects(p.recover({userId,deviceId:agent.deviceId,wrappedKey:tampered,privateKey:keys.privateKey,publicKey:keys.publicKey}));
 assert.throws(()=>p.parse(generated.code,'https://other.example'));
+assert.throws(()=>p.parse(generated.code,'https://chat.example:444'));
+assert.throws(()=>p.parse(generated.code,'https://chat.example/other'));
+assert.equal(p.parse(generated.code,'https://CHAT.EXAMPLE:443/').url,'https://chat.example');
+assert.throws(()=>p.normalizeUrl({toString:()=>url}));
+assert.throws(()=>p.normalizeUrl('https://chat.example/'+'a'.repeat(2048)));
 assert.throws(()=>p.parse('not-a-code'));
 for (const bad of ['http://chat.example','https://user:password@chat.example','https://chat.example/?token=secret','https://chat.example/#x']) await assert.rejects(p.create({url:bad,userId,privateKey:keys.privateKey,publicKey:keys.publicKey}));
 const separate=await p.create({url,userId,privateKey:keys.privateKey,publicKey:keys.publicKey});

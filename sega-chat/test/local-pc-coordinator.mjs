@@ -8,6 +8,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const pairing=require('../local-pc/pairing.js');
 const {createCoordinator,anchorFolder}=require('../local-pc/agent-coordinator.js');
+const trustedUrl='https://chat.example';
 const {createFolder}=require('../local-pc/folder.js'); // только временная папка теста
 const channel=require('../local-pc/secure-channel.js');
 const subtle=crypto.webcrypto.subtle;
@@ -25,7 +26,18 @@ const factory=({token,service})=>({
 try {
   assert.throws(()=>createCoordinator({vault}),/лабораторные зависимости/);
   assert.throws(()=>createCoordinator({vault,transportFactory:factory,folderFactory:createFolder}),/лабораторные зависимости/);
-  const c=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder});
+  assert.throws(()=>createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder}),/адрес/);
+  assert.throws(()=>createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder,trustedUrl:'http://chat.example'}),/защищённый/);
+  // Адрес из кода и адрес подтверждения не могут заменить независимо заданный.
+  let vaultLoads=0, anchors=0;
+  const untouched=createCoordinator({vault:{async load(){vaultLoads++;return null},async save(){throw new Error('не должно сохраняться')}},transportFactory:factory,folderFactory:createFolder,
+    anchor:async p=>{anchors++;return anchorFolder(p)},trustedUrl});
+  const alien=JSON.parse(Buffer.from(generated.code,'base64url').toString('utf8'));alien.u='https://evil.example';
+  const alienCode=Buffer.from(JSON.stringify(alien)).toString('base64url');
+  await assert.rejects(untouched.prepare(alienCode,root),/адрес/i);
+  await assert.rejects(untouched.prepare(generated.code,root,'https://evil.example'),/адрес/i);
+  assert.equal(vaultLoads,0);assert.equal(anchors,0);assert.equal(calls,0);assert.equal(claims,0);
+  const c=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder,trustedUrl});
   await assert.rejects(c.prepare(generated.code,root,'https://other.example'));
   assert.equal(saved,null);
   failSave=true;
@@ -39,10 +51,19 @@ try {
   await assert.rejects(c.tick(),/потерян ответ/);
   assert.equal(saved.state,'pending'); assert(activeHash);
   // Новый запуск после потери ответа: уже действующий токен проходит без новой привязки.
-  const restart=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder});
+  const restart=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder,trustedUrl});
   assert.equal(await restart.tick(),false);
   assert.equal(saved.state,'active'); assert.equal(saved.setupToken,undefined); assert.equal(claims,1);
   assert.equal(await restart.tick(),false);
+  // Подмена адреса в сохранённых настройках не должна начинать сетевой запрос
+  // или проверять файлы, даже когда учётные данные и папка иначе правильные.
+  let unsafeCalls=0;
+  const alienSaved={...saved,url:'https://evil.example'};
+  const alienRestart=createCoordinator({vault:{async load(){return copy(alienSaved)},async save(){}},
+    anchor:async()=>{unsafeCalls++;throw new Error('не должно открываться')},
+    folderFactory:async()=>{unsafeCalls++;throw new Error('не должно открываться')},
+    transportFactory:()=>{unsafeCalls++;throw new Error('не должно соединяться')},trustedUrl});
+  await assert.rejects(alienRestart.tick(),/адрес/i);assert.equal(unsafeCalls,0);
   // Сохранённый транспорт обязан читать через объект текущего опроса, а не
   // через объект, захваченный при первом запуске; вне опроса доступа нет.
   const config=copy(saved), seen=[];let sequence=0, requestNo=100, serviceRef=null, changed=false, transports=0;
@@ -56,7 +77,7 @@ try {
   const fakeAnchor=async()=>({root:config.folder,dev:config.rootDevice,ino:changed?'999':config.rootInode});
   const changingFolders=async()=>{const n=++sequence;return {async list(){return [{name:'состояние-'+n}]},async read(){throw new Error('не используется')}}};
   const reuseTransport=({service})=>{transports++;serviceRef=service;return {async step(){const x=await ask(service);assert.equal(x.ok,true);seen.push(x.items[0].name);return true;}}};
-  const dynamic=createCoordinator({vault:{async load(){return copy(config)},async save(){}},anchor:fakeAnchor,folderFactory:changingFolders,transportFactory:reuseTransport});
+  const dynamic=createCoordinator({vault:{async load(){return copy(config)},async save(){}},anchor:fakeAnchor,folderFactory:changingFolders,transportFactory:reuseTransport,trustedUrl});
   await dynamic.tick();await dynamic.tick();
   assert.deepEqual(seen,['состояние-1','состояние-2']);assert.equal(transports,1);
   assert.equal((await ask(serviceRef)).ok,false); // вне проверенного опроса папка закрыта
@@ -68,7 +89,7 @@ try {
   await assert.rejects(restart.tick(),/папка изменилась/); assert.equal(calls,oldCalls);
   await fs.rm(root,{recursive:true,force:true}); await fs.rename(root+'-original',root);
   // Повреждённая запись не должна подключаться.
-  saved.key='bad'; const broken=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder});
+  saved.key='bad'; const broken=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder,trustedUrl});
   await assert.rejects(broken.tick(),/повреждены/);
   console.log('local-pc-coordinator: сохранение до привязки, потеря ответа, повтор и подмена корня проверены без Windows');
 } finally { await fs.rm(root,{recursive:true,force:true}); await fs.rm(root+'-original',{recursive:true,force:true}); }

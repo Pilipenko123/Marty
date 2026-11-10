@@ -21,6 +21,7 @@
   }
   function hex(b) { return [...b].map(x=>x.toString(16).padStart(2,'0')).join(''); }
   function validateUrl(input) {
+    if (typeof input !== 'string' || !input || input.length>2048) throw new Error('Неверный адрес мессенджера');
     let u;
     try { u = new URL(input); } catch (_) { throw new Error('Неверный адрес мессенджера'); }
     if (u.protocol !== 'https:' || !u.hostname || u.username || u.password || u.search || u.hash || !/^\/[A-Za-z0-9/_-]*$/.test(u.pathname)) throw new Error('Нужен защищённый адрес мессенджера');
@@ -67,7 +68,7 @@
       return out;
     } catch (_) { throw new Error('Не удалось открыть ключ подключения'); }
   }
-  const exported=Object.freeze({create,parse,recover});
+  const exported=Object.freeze({create,parse,recover,normalizeUrl:validateUrl});
   if (typeof module !== 'undefined' && module.exports) module.exports=exported;
   else g.SegaLocalPairing=exported;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
