@@ -53,7 +53,7 @@ function createCoordinator({vault, transportFactory = createAgentClient, folderF
     if (typeof folderPath !== 'string' || !path.isAbsolute(folderPath)) throw new Error('Выберите папку на компьютере');
     const setup=pairing.parse(code,trustedUrl);
     const a=await anchor(folderPath);
-    await folderFactory(a.root); // до сохранения проверяем выбранную папку
+    await folderFactory(a.root,{dev:a.dev,ino:a.ino}); // до сохранения проверяем выбранную папку
     const fresh=random(32);
     if (!Buffer.isBuffer(fresh) || fresh.length !== 32) throw new Error('Не удалось создать секрет');
     const next={version:1,state:'pending',url:setup.url,deviceId:setup.deviceId,folder:a.root,rootDevice:a.dev,rootInode:a.ino,
@@ -77,7 +77,7 @@ function createCoordinator({vault, transportFactory = createAgentClient, folderF
       const e=new Error('Выбранная папка изменилась, подключение остановлено');
       e.code='LOCAL_FOLDER_CHANGED'; throw e;
     }
-    const folder=await folderFactory(c.folder);
+    const folder=await folderFactory(c.folder,{dev:c.rootDevice,ino:c.rootInode});
     checkStopped();
     if (!transport) transport=await makeTransport(c,c.token,folder,secret);
     if (c.state === 'pending') {

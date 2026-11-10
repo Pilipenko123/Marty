@@ -9,7 +9,76 @@ import {createRequire} from 'node:module';
 if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
   console.log('local-pc-windows-real: пропущено (нужна чистая Windows-машина CI)');
 } else {
-  const {createWindowsVault}=createRequire(import.meta.url)('../local-pc/windows-vault.js');
+  const require=createRequire(import.meta.url);
+  const {createWindowsVault}=require('../local-pc/windows-vault.js');
+  const {createWindowsFolderProvider}=require('../local-pc/windows-safe-folder.js');
+  // Отдельные временные данные. Ничего из пользовательских папок не читаем.
+  const scratch=await fs.mkdtemp(path.join(os.tmpdir(),'sega-guard-test-'));
+  try {
+    const root=path.join(scratch,'выбранная папка'), outside=path.join(scratch,'outside');
+    await fs.mkdir(root); await fs.mkdir(outside); await fs.mkdir(path.join(root,'nested'));
+    await fs.writeFile(path.join(root,'nested','тест.txt'),'безопасный текст');
+    await fs.writeFile(path.join(outside,'secret.txt'),'внешний секрет');
+    await fs.symlink(outside,path.join(root,'junction'),'junction');
+    await fs.link(path.join(outside,'secret.txt'),path.join(root,'hardlink.txt'));
+    const provider=createWindowsFolderProvider({timeoutMs:60000});
+    const alias=path.join(scratch,'root-alias');
+    await fs.symlink(root,alias,'junction');
+    try {await assert.rejects(provider.anchor(alias));} finally {await fs.rmdir(alias);}
+    const a=await provider.anchor(root), folder=await provider.folder(root,a);
+    assert.equal(a.root.toLowerCase(),root.toLowerCase());
+    assert((await folder.list('')).some(x=>x.name==='nested' && x.dir));
+    assert(!(await folder.list('')).some(x=>['junction','hardlink.txt'].includes(x.name)));
+    assert.equal((await folder.list('nested'))[0].name,'тест.txt');
+    await assert.rejects(folder.list('junction'));
+    await assert.rejects(folder.read('junction/secret.txt',0,100));
+    await assert.rejects(folder.read('hardlink.txt',0,100));
+    await assert.rejects(folder.read('../outside/secret.txt',0,100));
+    const first=await folder.read('nested/тест.txt',0,4);
+    const rest=await folder.read('nested/тест.txt',4,100,first.version);
+    assert.equal(Buffer.concat([first.data,rest.data]).toString(),'безопасный текст');
+    await fs.writeFile(path.join(root,'nested','тест.txt'),'изменено и длиннее прежнего');
+    await assert.rejects(folder.read('nested/тест.txt',4,100,first.version));
+    // Пытаемся одновременно подменить вложенную папку на junction. Никакое
+    // успешное чтение не должно содержать файл из внешнего каталога. Небольшой
+    // стресс-тест не является доказательством отсутствия всех возможных гонок.
+    await fs.writeFile(path.join(root,'nested','secret.txt'),'внутри');
+    const target=path.join(root,'nested'), parked=path.join(root,'nested-parked');
+    async function swapRepeatedly() {
+      for(let i=0;i<40;i++) {
+        try {await fs.rename(target,parked);}
+        catch(e) {if(['EACCES','EPERM','EBUSY'].includes(e.code))continue;throw e;}
+        let linked=false;
+        try {
+          await fs.symlink(outside,target,'junction'); linked=true;
+          await new Promise(resolve=>setTimeout(resolve,50));
+        } finally {
+          if(linked) await fs.rmdir(target);
+          await fs.rename(parked,target);
+        }
+      }
+    }
+    const reads=Array.from({length:6},async()=>{
+      try {return (await folder.read('nested/secret.txt',0,100)).data.toString();}
+      catch(_) {return null;}
+    });
+    const [raceResults]=await Promise.all([Promise.all(reads),swapRepeatedly()]);
+    assert(raceResults.every(x=>x===null || x==='внутри'));
+    // Замена корня по тому же пути должна приводить к отказу старой привязки.
+    await fs.rename(root,root+'-old'); await fs.mkdir(root);
+    await assert.rejects(folder.list(''));
+    await assert.rejects(folder.read('nested/тест.txt',0,100));
+    await fs.rmdir(root); await fs.rename(root+'-old',root);
+    // Запрет переименования и точек соединения требует отдельно тестировать
+    // под нагрузкой на Windows 10; эта проверка не доказывает отсутствие гонок.
+    console.log('local-pc-windows-real: изолированные чтение, ссылки и замена корня проверены');
+  } finally {
+    // Удаляем junction как ссылку, не обходя содержимое целевой папки.
+    for(const dir of ['выбранная папка','выбранная папка-old']) {
+      try {await fs.rmdir(path.join(scratch,dir,'junction'));} catch(e) {if(e.code!=='ENOENT')throw e;}
+    }
+    await fs.rm(scratch,{recursive:true,force:true});
+  }
   const probe=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','[Console]::Out.Write([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData))'],{encoding:'utf8'});
   assert.equal(probe.status,0);
   const localRoot=probe.stdout.trim(); assert(localRoot && path.isAbsolute(localRoot));
