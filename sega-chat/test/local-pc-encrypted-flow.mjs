@@ -10,6 +10,7 @@ const {createFolder} = req('../local-pc/folder.js');
 const {createRelay,digest} = req('../local-pc/relay.js');
 const secure = req('../local-pc/secure-channel.js');
 const {createReadService,MAX_READ} = req('../local-pc/read-service.js');
+const {transferToStage} = req('../local-pc/verified-transfer.js');
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'sega-local-flow-'));
 try {
   await fs.writeFile(path.join(root,'тайна.txt'),'Только моё');
@@ -43,6 +44,38 @@ try {
   const second=await roundTrip(6,{op:'read',path:'большой.bin',offset:MAX_READ,length:MAX_READ,version:first.version});
   assert.equal(second.ok,true); assert.equal(Buffer.from(second.data,'base64').length,99);
   assert.equal((await roundTrip(7,{op:'read',path:'большой.bin',offset:1,length:5})).ok,false);
+  // Передача в поддельную временную область через зашифрованные сообщения.
+  // Не является записью файла или запуском реальной синхронизации.
+  const expected=Buffer.alloc(MAX_READ+99,7), pieces=[];
+  const expectedHash=crypto.createHash('sha256').update(expected).digest('hex');
+  let transferId=20, aborted=false;
+  const transferRelay=createRelay({clock:()=>now}); transferRelay.register('owner',id,digest(token));
+  async function transferRoundTrip(request) {
+    const rid=(transferId++).toString(16).padStart(32,'0');
+    const packet=await secure.seal(secret,id,'request',rid,expiry,new TextEncoder().encode(JSON.stringify(request)));
+    transferRelay.request('owner',id,rid,packet);
+    const job=transferRelay.next(id,token);
+    const response=await agent.handle(job.requestId,job.packet);
+    transferRelay.reply(id,token,rid,job.claim,response);
+    const reply=transferRelay.result('owner',id,rid);
+    const plain=await secure.open(secret,reply.packet,{channel:id,direction:'response',request:rid,expires:expiry},now);
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+  const stage={
+    async write(data) {pieces.push(Buffer.from(data));},
+    async verify() {const b=Buffer.concat(pieces);return {size:b.length,hash:crypto.createHash('sha256').update(b).digest('hex')};},
+    async abort() {aborted=true;pieces.length=0;}
+  };
+  const saved=await transferToStage({allowed:true,size:expected.length,hash:expectedHash,stage,chunkSize:32768,
+    async read(offset,length,version) {
+      const request={op:'read',path:'большой.bin',offset,length};
+      if(version!==null)request.version=version;
+      const result=await transferRoundTrip(request);
+      if(!result.ok)throw new Error('Источник недоступен');
+      return {data:Buffer.from(result.data,'base64'),size:result.size,version:result.version};
+    }
+  });
+  assert.equal(saved.hash,expectedHash);assert.deepEqual(Buffer.concat(pieces),expected);assert.equal(aborted,false);
   await fs.writeFile(path.join(root,'большой.bin'), Buffer.alloc(MAX_READ+100,8));
   assert.equal((await roundTrip(8,{op:'read',path:'большой.bin',offset:MAX_READ,length:MAX_READ,version:first.version})).ok,false);
 
