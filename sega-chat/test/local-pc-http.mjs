@@ -89,6 +89,10 @@ try {
   assert.equal((await call(requestUrl,{auth:other,method:'POST',body:{requestId,packet}})).status,404);
   assert.equal((await call(requestUrl,{auth:owner,method:'POST',body:{requestId,packet:'plain'}})).status,400);
   assert.equal((await call(requestUrl,{auth:owner,method:'POST',body:{requestId,packet}})).status,200);
+  const ackUrl=`/api/pc-lab/devices/${id}/ack`;
+  assert.equal((await call(ackUrl,{auth:owner,method:'POST',body:{requestId}})).status,409);
+  assert.equal((await call(ackUrl,{auth:other,method:'POST',body:{requestId}})).status,404);
+  assert.equal((await call(ackUrl,{auth:owner,method:'POST',body:{requestId:'bad'}})).status,400);
   assert.equal((await call(resultUrl,{auth:other})).status,404);
   const task=(await call(pathAgent,{method:'POST',auth:agentAuth})).data.job;
   assert.equal(task.packet,packet);
@@ -101,6 +105,10 @@ try {
   assert(!result.data.packet.includes('своё.txt'));
   const plain=await secure.open(key,result.data.packet,{channel:id,direction:'response',request:requestId,expires:exp});
   assert.equal(JSON.parse(new TextDecoder().decode(plain)).items[0].name,'своё.txt');
+  assert.equal((await call(ackUrl,{auth:owner,method:'POST',body:{requestId}})).status,200);
+  assert.equal((await call(ackUrl,{auth:owner,method:'POST',body:{requestId}})).status,200);
+  assert.equal((await call(resultUrl,{auth:owner})).status,409);
+  assert.equal((await call(requestUrl,{auth:owner,method:'POST',body:{requestId,packet}})).status,409);
   // Реальное TLS-соединение агента с тестовым сервером.
   assert.throws(()=>createAgentClient({baseUrl:base,deviceId:id,token,service}));
   assert.throws(()=>createAgentClient({baseUrl:'https://user:pass@example.org',deviceId:id,token,service}));

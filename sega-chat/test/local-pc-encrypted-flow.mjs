@@ -38,15 +38,15 @@ try {
   assert.equal((await roundTrip(3,{op:'read',path:'../тайна.txt',offset:0,length:10})).ok,false);
   assert.equal((await roundTrip(4,{op:'delete',path:'тайна.txt'})).ok,false);
   assert.equal(await fs.readFile(path.join(root,'тайна.txt'),'utf8'),'Только моё');
-  await fs.writeFile(path.join(root,'большой.bin'), Buffer.alloc(MAX_READ+99,7));
+  await fs.writeFile(path.join(root,'большой.bin'), Buffer.alloc(MAX_READ*2+99,7));
   const first=await roundTrip(5,{op:'read',path:'большой.bin',offset:0,length:MAX_READ});
   assert.equal(first.ok,true); assert.match(first.version,/^[a-f0-9]{64}$/);
   const second=await roundTrip(6,{op:'read',path:'большой.bin',offset:MAX_READ,length:MAX_READ,version:first.version});
-  assert.equal(second.ok,true); assert.equal(Buffer.from(second.data,'base64').length,99);
+  assert.equal(second.ok,true); assert.equal(Buffer.from(second.data,'base64').length,MAX_READ);
   assert.equal((await roundTrip(7,{op:'read',path:'большой.bin',offset:1,length:5})).ok,false);
   // Передача в поддельную временную область через зашифрованные сообщения.
   // Не является записью файла или запуском реальной синхронизации.
-  const expected=Buffer.alloc(MAX_READ+99,7), pieces=[];
+  const expected=Buffer.alloc(MAX_READ*2+99,7), pieces=[];
   const expectedHash=crypto.createHash('sha256').update(expected).digest('hex');
   let transferId=20, aborted=false;
   const transferRelay=createRelay({clock:()=>now}); transferRelay.register('owner',id,digest(token));
@@ -59,7 +59,9 @@ try {
     transferRelay.reply(id,token,rid,job.claim,response);
     const reply=transferRelay.result('owner',id,rid);
     const plain=await secure.open(secret,reply.packet,{channel:id,direction:'response',request:rid,expires:expiry},now);
-    return JSON.parse(new TextDecoder().decode(plain));
+    const decoded=JSON.parse(new TextDecoder().decode(plain));
+    transferRelay.acknowledge('owner',id,rid);
+    return decoded;
   }
   const stage={
     async write(data) {pieces.push(Buffer.from(data));},
@@ -76,6 +78,7 @@ try {
     }
   });
   assert.equal(saved.hash,expectedHash);assert.deepEqual(Buffer.concat(pieces),expected);assert.equal(aborted,false);
+  assert.equal(transferId-20,9); // больше предела одновременно ожидающих запросов
   await fs.writeFile(path.join(root,'большой.bin'), Buffer.alloc(MAX_READ+100,8));
   assert.equal((await roundTrip(8,{op:'read',path:'большой.bin',offset:MAX_READ,length:MAX_READ,version:first.version})).ok,false);
 

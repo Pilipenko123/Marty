@@ -99,7 +99,7 @@ function createExperimentalApi() {
       me.localPcDevices = list.concat([rec]); save();
       return J(200,{ok:true});
     }
-    const match = /^\/api\/pc-lab\/devices\/([a-f0-9]{32})\/(request|result|revoke)$/.exec(req.path);
+    const match = /^\/api\/pc-lab\/devices\/([a-f0-9]{32})\/(request|result|ack|revoke)$/.exec(req.path);
     if (!match) return E(404,'Не найдено');
     const [,id,action] = match, rec = list.find(d => d.id === id);
     if (!rec) return E(404,'Подключение не найдено');
@@ -121,6 +121,12 @@ function createExperimentalApi() {
         const requestId = String(req.query.get('requestId') || '');
         if (!ID.test(requestId)) return E(400,'Неверный запрос');
         return J(200,relay.result(me.id,id,requestId));
+      }
+      if (action === 'ack' && req.method === 'POST') {
+        const requestId = (req.body || {}).requestId;
+        if (typeof requestId !== 'string' || !ID.test(requestId)) return E(400,'Неверный запрос');
+        relay.acknowledge(me.id,id,requestId);
+        return J(200,{ok:true});
       }
       return E(404,'Не найдено');
     } catch (_) { return E(409,'Запрос не выполнен или устарел'); }

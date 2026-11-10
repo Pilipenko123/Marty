@@ -7,6 +7,9 @@
 const crypto = require('node:crypto');
 const MAX_PACKET = 512 * 1024;
 const MAX_PENDING = 8;
+// Кратковременные отметки подтверждённых запросов ограничены отдельно от
+// восьми живых сообщений. Они не сохраняются при перезапуске сервера.
+const MAX_RECENT = 1024;
 const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_DEVICES = 100;
 const MAX_AGE = 60_000;
@@ -38,14 +41,17 @@ function createRelay(options = {}) {
   }
   function reap() {
     const now = clock();
-    for (const d of devices.values()) for (const [id, r] of d.requests) {
-      if (now >= r.created + MAX_AGE) { bytes -= r.bytes; d.requests.delete(id); }
+    for (const d of devices.values()) {
+      for (const [id, r] of d.requests) {
+        if (now >= r.created + MAX_AGE) { bytes -= r.bytes; d.requests.delete(id); }
+      }
+      for (const [id, created] of d.completed) if (now >= created + MAX_AGE) d.completed.delete(id);
     }
   }
   function register(owner, id, tokenHash) {
     if (typeof owner !== 'string' || !owner || owner.length > 200 || typeof id !== 'string' || !ID.test(id) || typeof tokenHash !== 'string' || !TOKEN.test(tokenHash)) fail('Неверные данные подключения');
     if (devices.has(id) || devices.size >= MAX_DEVICES) fail('Не удалось добавить подключение');
-    devices.set(id, { owner, tokenHash, seen:null, requests:new Map() });
+    devices.set(id, { owner, tokenHash, seen:null, requests:new Map(), completed:new Map() });
   }
   function revoke(owner, id) {
     const d = requireOwner(owner, id);
@@ -61,6 +67,7 @@ function createRelay(options = {}) {
     const d = requireOwner(owner, id);
     if (typeof requestId !== 'string' || !ID.test(requestId)) fail('Неверный номер запроса');
     validatePacket(packet);
+    if (d.completed.has(requestId)) fail('Запрос уже завершён');
     const prior = d.requests.get(requestId);
     if (prior) {
       if (prior.packet !== packet) fail('Номер запроса уже использован');
@@ -105,6 +112,21 @@ function createRelay(options = {}) {
     if (!r) fail('Запрос истёк');
     return r.response === null ? { ready:false } : { ready:true, packet:r.response };
   }
-  return Object.freeze({ register, revoke, status, request, next, reply, result });
+  // Владелец подтверждает только после получения и проверки ответа. При потере
+  // ответа самого подтверждения его можно повторить. Сохранение и повторы после
+  // рестарта не реализованы, поэтому это подходит только для лаборатории чтения.
+  function acknowledge(owner, id, requestId) {
+    reap();
+    const d = requireOwner(owner, id);
+    if (typeof requestId !== 'string' || !ID.test(requestId)) fail('Неверный номер запроса');
+    if (d.completed.has(requestId)) return;
+    const r = d.requests.get(requestId);
+    if (!r || r.response === null) fail('Ответ ещё не получен');
+    if (d.completed.size >= MAX_RECENT) fail('Слишком много завершённых запросов');
+    d.completed.set(requestId, r.created);
+    bytes -= r.bytes;
+    d.requests.delete(requestId);
+  }
+  return Object.freeze({ register, revoke, status, request, next, reply, result, acknowledge });
 }
-module.exports = { createRelay, digest, MAX_PACKET, MAX_PENDING, MAX_TOTAL_BYTES, MAX_DEVICES, MAX_AGE, LEASE, ONLINE_AGE };
+module.exports = { createRelay, digest, MAX_PACKET, MAX_PENDING, MAX_RECENT, MAX_TOTAL_BYTES, MAX_DEVICES, MAX_AGE, LEASE, ONLINE_AGE };

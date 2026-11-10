@@ -1,7 +1,7 @@
 // Изолированный тест почтового ящика, это не подключённый API.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const {createRelay,digest,MAX_PACKET,MAX_PENDING,MAX_AGE,LEASE,ONLINE_AGE} = createRequire(import.meta.url)('../local-pc/relay.js');
+const {createRelay,digest,MAX_PACKET,MAX_PENDING,MAX_RECENT,MAX_AGE,LEASE,ONLINE_AGE} = createRequire(import.meta.url)('../local-pc/relay.js');
 let now = 1_000_000;
 const r = createRelay({clock:()=>now});
 const dev = 'a'.repeat(32), tok = 'b'.repeat(64), id = 'c'.repeat(32), bad = 'd'.repeat(64);
@@ -17,6 +17,8 @@ r.request('owner',dev,id,'cipher');
 r.request('owner',dev,id,'cipher'); // повтор после обрыва не создаёт второй запрос
 assert.throws(()=>r.request('owner',dev,id,'other'));
 assert.deepEqual(r.result('owner',dev,id),{ready:false});
+assert.throws(()=>r.acknowledge('other',dev,id));
+assert.throws(()=>r.acknowledge('owner',dev,id)); // ответ ещё не готов
 const first = r.next(dev,tok);
 assert.equal(first.packet,'cipher'); assert.equal(first.requestId,id);
 assert.equal(r.next(dev,tok),null);
@@ -32,6 +34,12 @@ r.reply(dev,tok,id,second.claim,'reply');
 assert.throws(()=>r.reply(dev,tok,id,second.claim,'other'));
 assert.deepEqual(r.result('owner',dev,id),{ready:true,packet:'reply'});
 assert.deepEqual(r.result('owner',dev,id),{ready:true,packet:'reply'});
+assert.throws(()=>r.acknowledge('other',dev,id));
+r.acknowledge('owner',dev,id);r.acknowledge('owner',dev,id); // ответ подтверждения мог потеряться
+assert.throws(()=>r.result('owner',dev,id));
+assert.throws(()=>r.request('owner',dev,id,'cipher')); // повторный запрос не выполняется
+assert.throws(()=>r.request('owner',dev,id,'other'));
+assert.throws(()=>r.reply(dev,tok,id,second.claim,'reply'));
 now += ONLINE_AGE;
 assert.equal(r.status('owner',dev).online,false);
 now += MAX_AGE;
@@ -42,4 +50,20 @@ assert.throws(()=>r.revoke('other',dev));
 r.revoke('owner',dev);
 assert.throws(()=>r.next(dev,tok));
 assert.throws(()=>r.result('owner',dev,'0'.repeat(32)));
-console.log('local-pc-relay: отдельные владельцы, отзыв, ограничения, потеря связи и повтор проверены');
+// Ограничение числа отметок остаётся независимым от живой очереди.
+let time=2_000_000;
+const bounded=createRelay({clock:()=>time});bounded.register('owner',dev,digest(tok));
+for(let i=0;i<MAX_RECENT;i++) {
+  const n=i.toString(16).padStart(32,'0');
+  bounded.request('owner',dev,n,'x');const job=bounded.next(dev,tok);
+  bounded.reply(dev,tok,n,job.claim,'y');bounded.acknowledge('owner',dev,n);
+}
+time++;
+const last='f'.repeat(32);
+bounded.request('owner',dev,last,'x');const job=bounded.next(dev,tok);bounded.reply(dev,tok,last,job.claim,'y');
+assert.throws(()=>bounded.acknowledge('owner',dev,last));
+assert.deepEqual(bounded.result('owner',dev,last),{ready:true,packet:'y'}); // не потеряли ответ при переполнении
+time += MAX_AGE-1;
+bounded.acknowledge('owner',dev,last);
+assert.throws(()=>bounded.result('owner',dev,last));
+console.log('local-pc-relay: владельцы, отзыв, подтверждение, ограничения и повторы проверены в памяти');
