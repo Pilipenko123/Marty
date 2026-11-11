@@ -7,6 +7,7 @@
 // необходимо будет независимо доказать в будущем исполнителе.
 const {analyzeMultiSync}=require('./multi-sync-analysis');
 const {parseSnapshot}=require('./sync-plan');
+const {isDeepStrictEqual}=require('node:util');
 function reviewGroupDeletions(options={}){
   const analysis=analyzeMultiSync(options);
   const base=parseSnapshot(options.base);
@@ -30,4 +31,26 @@ function reviewGroupDeletions(options={}){
   }
   return {candidates,conflicts};
 }
-module.exports={reviewGroupDeletions};
+// Только повторный расчёт ранее замеченной сводки на новых входных данных.
+// Замыкание хранит собственную копию ожидаемой базы и состава группы, а не
+// доверяет последующей мутации аргументов. Это не доказательство их истинности,
+// истории удаления или защиты от замены объекта между проверкой и действием.
+// НЕЛЬЗЯ использовать результат для реальной операции в корзине.
+function createDeletionRecheck(options={}){
+  const initial=reviewGroupDeletions(options),base=parseSnapshot(options.base);
+  const members=options.members.map(m=>({id:m.id,kind:m.kind})).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+  const candidates=initial.candidates.map(c=>Object.freeze({path:c.path,entryType:c.entryType,
+    missingOn:Object.freeze([...c.missingOn]),presentOn:Object.freeze(c.presentOn.map(m=>Object.freeze({...m})))}));
+  Object.freeze(candidates);
+  const conflicts=Object.freeze(initial.conflicts.map(c=>Object.freeze({...c})));
+  function isCurrent(candidate,current){
+    // Сначала всегда проверяем новые флаги и снимки, даже если кандидат неверен.
+    const now=reviewGroupDeletions(current);
+    const currentBase=parseSnapshot(current.base);
+    const currentMembers=current.members.map(m=>({id:m.id,kind:m.kind})).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+    if(!isDeepStrictEqual(base,currentBase) || !isDeepStrictEqual(members,currentMembers))return false;
+    return candidates.some(c=>isDeepStrictEqual(c,candidate)) && now.candidates.some(c=>isDeepStrictEqual(c,candidate));
+  }
+  return Object.freeze({candidates,conflicts,isCurrent});
+}
+module.exports={reviewGroupDeletions,createDeletionRecheck};

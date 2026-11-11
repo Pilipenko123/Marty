@@ -24,9 +24,9 @@ assert.deepEqual(run(deleteEdit),[{path:'plain.txt',state:'conflict',changedBy:[
 const treeDelete=peers.map(p=>({...p,snapshot:p.id==='one'?base.filter(x=>!x.path.startsWith('docs')):p.snapshot}));
 assert.deepEqual(run(treeDelete),[{path:'docs',state:'changed',changedBy:['one']}]);
 const treeConflict=treeDelete.map(p=>({...p,snapshot:p.id==='cloud'?changed(base,'docs/note.txt',4):p.snapshot}));
-assert.deepEqual(run(treeConflict),[{path:'docs',state:'conflict',changedBy:['one']}]);
+assert.deepEqual(run(treeConflict),[{path:'docs',state:'conflict',changedBy:['one','cloud']}]);
 const treeAdded=treeDelete.map(p=>({...p,snapshot:p.id==='two'?[...base,file('docs/new.txt',9)]:p.snapshot}));
-assert.equal(run(treeAdded)[0].state,'conflict');
+assert.deepEqual(run(treeAdded),[{path:'docs',state:'conflict',changedBy:['one','two']}]);
 const treeType=treeDelete.map(p=>({...p,snapshot:p.id==='two'?[file('docs',5),file('plain.txt',1)]:p.snapshot}));
 assert.equal(run(treeType)[0].state,'conflict');
 const googleAndYandex=[...peers,peer('cloud2','yandex',base)];assert.deepEqual(run(googleAndYandex),[]);

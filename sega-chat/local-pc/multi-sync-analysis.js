@@ -52,9 +52,13 @@ function analyzeMultiSync({enabled,baseConfirmed,base,members}={}){
     let conflict=variants.size>1;
     // Структурные изменения каталога нельзя оценивать отдельно от детей.
     const structural=baseEntry?.type==='dir' && entries.some(e=>!e || e.type!=='dir');
-    if(structural && dirtyTrees.some((dirty,i)=>entries[i]?.type==='dir' && dirty.has(path)))conflict=true;
+    const subtreeChanges=structural?dirtyTrees.map((dirty,i)=>entries[i]?.type==='dir' && dirty.has(path)?i:-1).filter(i=>i!==-1):[];
+    if(subtreeChanges.length)conflict=true;
     if(structural || entries.some(e=>e?.type==='dir') && entries.some(e=>e && e.type!=='dir'))blocked.add(path);
-    result.push({path,state:conflict?'conflict':'changed',changedBy:changed.map(i=>members[i].id)});
+    // При конфликте папки участник, изменивший только вложенный файл, тоже
+    // должен быть указан, хотя сама запись каталога осталась прежней.
+    const contributors=new Set([...changed,...subtreeChanges]);
+    result.push({path,state:conflict?'conflict':'changed',changedBy:members.filter((_,i)=>contributors.has(i)).map(m=>m.id)});
   }
   return result;
 }
