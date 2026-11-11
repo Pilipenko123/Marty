@@ -10,6 +10,7 @@ try {
     if($r.op -eq 'identity') { $result=[SegaLocalGuard]::Identify([string]$r.root) }
     elseif($r.op -eq 'list') { $result=[SegaLocalGuard]::List([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path) }
     elseif($r.op -eq 'listFailOnSkipped') { $result=[SegaLocalGuard]::ListFailOnSkipped([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path) }
+    elseif($r.op -eq 'snapshotLocked') { $result=[SegaLocalGuard]::SnapshotLocked([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path) }
     elseif($r.op -eq 'hashLocked') { $result=[SegaLocalGuard]::HashLocked([string]$r.root,[string]$r.dev,[string]$r.ino,[string]$r.path) }
     elseif($r.op -eq 'read') {
         $version=$null; if($null -ne $r.version) { $version=[string]$r.version }

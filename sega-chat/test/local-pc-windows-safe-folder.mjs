@@ -83,6 +83,6 @@ await assert.rejects(folder.listFailOnSkipped(''),e=>!e.message.includes('лич
 const cs=fs.readFileSync(new URL('../local-pc/windows-safe-folder.cs',import.meta.url),'utf8');
 assert.match(cs,/OPEN_REPARSE/);assert.match(cs,/GetFinalPathNameByHandleW/);assert.match(cs,/SHARE_READ \| SHARE_WRITE/);
 assert.match(cs,/Id\(RootInfo\)!=ino/);assert.match(cs,/Ссылка или неверный тип/);
-assert.match(cs,/public static HashResult HashLocked/);assert.match(cs,/MAX_HASH_FILE = 8 \* 1024 \* 1024/);
+assert.match(cs,/public static SnapshotResult SnapshotLocked/);assert.match(cs,/public static HashResult HashLocked/);assert.match(cs,/MAX_HASH_FILE = 8 \* 1024 \* 1024/);
 assert.match(cs,/public static ListResult ListFailOnSkipped/);assert.match(cs,/if\(failOnSkipped\)throw/);
 console.log('local-pc-windows-safe-folder: вход и обработка ошибок проверены с заглушкой; реальная Windows и гонки не проверены');

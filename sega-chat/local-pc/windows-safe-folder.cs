@@ -37,6 +37,7 @@ public static class SegaLocalGuard {
     public sealed class ListResult { public Entry[] items; }
     public sealed class ReadResult { public string data; public long size; public string modified; public string version; }
     public sealed class HashResult { public string hash; public long size; public string modified; public string version; }
+    public sealed class SnapshotResult { public string data; public string hash; public long size; public string modified; public string version; }
 
     static INFO Info(SafeFileHandle h) {
         INFO value;
@@ -207,6 +208,38 @@ public static class SegaLocalGuard {
                     INFO after=Info(h);
                     if(Version(after)!=version)throw new IOException("Файл изменился");
                     return new HashResult{hash=hash,size=size,modified=Date(before),version=version};
+                }
+            }
+        }
+    }
+    // Только эксперимент: содержимое и хеш берутся из одной копии в памяти,
+    // пока файл открыт без разрешения обычной записи и удаления. Это НЕ
+    // подтверждает происхождение файла или атомарность содержимого Windows.
+    public static SnapshotResult SnapshotLocked(string root,string dev,string ino,string relative) {
+        if(dev==null || ino==null || !Regex.IsMatch(dev,@"^\d+$") || !Regex.IsMatch(ino,@"^[1-9]\d*$"))throw new IOException("Неверная папка");
+        string[] parts=Parts(relative);
+        if(parts.Length==0)throw new IOException("Неверный запрос");
+        string[] dirs=new string[parts.Length-1]; Array.Copy(parts,dirs,dirs.Length);
+        using(Chain c=new Chain(root,dev,ino,dirs)) {
+            string p=c.Current+"\\"+parts[parts.Length-1];
+            using(SafeFileHandle h=Open(p,true,false)) {
+                c.CheckLeaf(h,p);
+                INFO before=Info(h); long size=Length(before); string version=Version(before);
+                if(size>MAX_HASH_FILE)throw new IOException("Файл слишком большой");
+                byte[] buf=new byte[(int)size]; int read=0;
+                using(FileStream stream=new FileStream(h,FileAccess.Read,4096,false)) {
+                    while(read<buf.Length) {int n=stream.Read(buf,read,buf.Length-read);if(n<=0)break;read+=n;}
+                    if(read!=buf.Length)throw new IOException("Не удалось прочитать файл целиком");
+                    string hash;
+                    using(SHA256 sha=SHA256.Create()) {
+                        byte[] digest=sha.ComputeHash(buf); StringBuilder text=new StringBuilder(digest.Length*2);
+                        foreach(byte v in digest)text.Append(v.ToString("x2"));
+                        hash=text.ToString();
+                    }
+                    string data=Convert.ToBase64String(buf);
+                    INFO after=Info(h);
+                    if(Version(after)!=version)throw new IOException("Файл изменился");
+                    return new SnapshotResult{data=data,hash=hash,size=size,modified=Date(before),version=version};
                 }
             }
         }
