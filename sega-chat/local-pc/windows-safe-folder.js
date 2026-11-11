@@ -9,12 +9,18 @@ const {partsOf,MAX_ENTRIES}=require('./folder');
 const {abortError,validateSignal,checkAborted}=require('./abort');
 const MAX_READ=128*1024, MAX_RESPONSE=512*1024, MAX_HASH_FILE=8*1024*1024, MAX_SNAPSHOT_RESPONSE=12*1024*1024;
 function createWindowsFolderProvider({platform=process.platform,spawnProcess=spawn,timeoutMs=30000,enableLockedHash=false,enableLockedSnapshot=false,snapshotTtlMs=30000}={}) {
-  if(typeof enableLockedHash!=='boolean' || typeof enableLockedSnapshot!=='boolean' || !Number.isInteger(snapshotTtlMs) || snapshotTtlMs<100 || snapshotTtlMs>60000)throw new Error('Неверные параметры');
+  if(typeof spawnProcess!=='function' || !Number.isInteger(timeoutMs) || timeoutMs<100 || timeoutMs>60000
+    || typeof enableLockedHash!=='boolean' || typeof enableLockedSnapshot!=='boolean' || !Number.isInteger(snapshotTtlMs) || snapshotTtlMs<100 || snapshotTtlMs>60000)throw new Error('Неверные параметры');
   if(platform!=='win32') throw new Error('Доступно только на Windows');
   function rootPath(root) {
-    if(typeof root!=='string' || root.length>4096 || !/^[a-zA-Z]:\\/.test(root)) throw new Error('Выберите локальную папку');
-    const r=path.win32.normalize(root).replace(/\\+$/,'');
+    if(typeof root!=='string' || root.length>4096 || !/^[a-zA-Z]:\\/.test(root) || root.includes('/')) throw new Error('Выберите локальную папку');
+    const r=root.replace(/\\+$/,'');
     if(!/^[a-zA-Z]:\\.+/.test(r)) throw new Error('Выберите папку, не весь диск');
+    // Не нормализуем «..», «.» или пустые части в другой путь: такая папка
+    // может отличаться от выбранной человеком. Это предварительный фильтр,
+    // а не проверка настоящих дескрипторов или защиты от подмены.
+    const parts=r.slice(3).split('\\');
+    if(!parts.length || partsOf(parts.join('/')).length!==parts.length)throw new Error('Неверная папка');
     return r;
   }
   function identity(id) {
@@ -56,19 +62,16 @@ function createWindowsFolderProvider({platform=process.platform,spawnProcess=spa
       partsOf(relative);
       const out=await call({op,root,...saved,path:relative},signal);
       if(!Array.isArray(out.items) || out.items.length>MAX_ENTRIES)throw new Error('Не удалось прочитать папку');
+      const names=new Set();
       const items=out.items.map(x=>{
-        if(!x || typeof x.name!=='string' || partsOf(x.name).length!==1 || typeof x.dir!=='boolean'
-           || !Number.isSafeInteger(x.size) || x.size<0 || typeof x.modified!=='string')throw new Error('Неверный ответ');
+        if(!x || Object.keys(x).sort().join(',')!=='dir,modified,name,size' || typeof x.name!=='string' || partsOf(x.name).length!==1 || typeof x.dir!=='boolean'
+           || !Number.isSafeInteger(x.size) || x.size<0 || (x.dir && x.size!==0)
+           || typeof x.modified!=='string' || !x.modified || x.modified.length>100)throw new Error('Неверный ответ');
+        partsOf(relative ? relative+'/'+x.name : x.name);
+        const folded=x.name.normalize('NFC').toLowerCase();
+        if(names.has(folded))throw new Error('Имена совпадают');names.add(folded);
         return {name:x.name,dir:x.dir,size:x.size,modified:x.modified};
       });
-      if(op==='listFailOnSkipped') {
-        const names=new Set();
-        for(const item of items) {
-          const folded=item.name.normalize('NFC').toLowerCase();
-          if(names.has(folded))throw new Error('Имена совпадают');
-          names.add(folded);
-        }
-      }
       return items.sort((a,b)=>Number(b.dir)-Number(a.dir)||a.name.localeCompare(b.name,'ru'));
     }
     async function list(relative='',signal) { return listInternal(relative,'list',signal); }
@@ -79,10 +82,12 @@ function createWindowsFolderProvider({platform=process.platform,spawnProcess=spa
       if(!partsOf(relative).length || !Number.isSafeInteger(offset) || offset<0 || !Number.isSafeInteger(length) || length<1 || length>MAX_READ
           || (expectedVersion!==null && (typeof expectedVersion!=='string' || !/^[a-f0-9]{64}$/.test(expectedVersion))))throw new Error('Неверный запрос');
       const out=await call({op:'read',root,...saved,path:relative,offset,length,version:expectedVersion},signal);
-      if(typeof out.data!=='string' || out.data.length>Math.ceil(length/3)*4 || typeof out.version!=='string' || !/^[a-f0-9]{64}$/.test(out.version)
-         || !Number.isSafeInteger(out.size) || out.size<0 || typeof out.modified!=='string' || (expectedVersion && out.version!==expectedVersion))throw new Error('Неверный ответ');
+      if(!out || Object.keys(out).sort().join(',')!=='data,modified,size,version'
+         || typeof out.data!=='string' || out.data.length>Math.ceil(length/3)*4 || typeof out.version!=='string' || !/^[a-f0-9]{64}$/.test(out.version)
+         || !Number.isSafeInteger(out.size) || out.size<0 || typeof out.modified!=='string' || !out.modified || out.modified.length>100
+         || (expectedVersion && out.version!==expectedVersion))throw new Error('Неверный ответ');
       const data=Buffer.from(out.data,'base64');
-      if(data.toString('base64')!==out.data || data.length>length || data.length>Math.max(0,out.size-offset))throw new Error('Неверный ответ');
+      if(data.toString('base64')!==out.data || data.length!==Math.min(length,Math.max(0,out.size-offset)))throw new Error('Неверный ответ');
       return {data,size:out.size,modified:out.modified,version:out.version};
     }
     // Не включается по умолчанию и не подключён к помощнику. Одно открытие

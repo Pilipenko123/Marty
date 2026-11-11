@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import {createRequire} from 'node:module';
 const {createWindowsFolderProvider}=createRequire(import.meta.url)('../local-pc/windows-safe-folder.js');
 assert.throws(()=>createWindowsFolderProvider({platform:'linux'}));
-let invocation=null, requests=[], bad=false, fail=false, duplicate=false, hashResult=null;
+let invocation=null, requests=[], bad=false, fail=false, duplicate=false, hashResult=null, readResult=null, listResult=null;
 function spawnFake(name,args,opts){
   invocation={name,args,opts};const p=new EventEmitter();p.stdin=new PassThrough();p.stdout=new PassThrough();p.stderr=new PassThrough();p.kill=()=>{};
   const chunks=[];p.stdin.on('data',c=>chunks.push(c));p.stdin.on('end',()=>{
@@ -18,21 +18,27 @@ function spawnFake(name,args,opts){
     if(r.op==='identity')result={root:r.root,dev:'7',ino:'123'};
     else if(r.op==='list' || r.op==='listFailOnSkipped') {
       const item={name:'песня.mp3',dir:false,size:3,modified:'2026-01-01T00:00:00.000Z'};
-      result={items:bad?[{name:'../постороннее',dir:false,size:1,modified:''}]:duplicate?[item,{...item,name:'ПЕСНЯ.MP3'}]:[item]};
+      result=listResult || {items:bad?[{name:'../постороннее',dir:false,size:1,modified:''}]:duplicate?[item,{...item,name:'ПЕСНЯ.MP3'}]:[item]};
     }
     else if(r.op==='hashLocked')result=hashResult || {hash:'b'.repeat(64),size:3,modified:'2026-01-01T00:00:00.000Z',version:'a'.repeat(64)};
-    else result={data:bad?'AA?':'AQID',size:3,modified:'2026-01-01T00:00:00.000Z',version:'a'.repeat(64)};
+    else result=readResult || {data:bad?'AA?':'AQID',size:3,modified:'2026-01-01T00:00:00.000Z',version:'a'.repeat(64)};
     p.stdout.write(JSON.stringify({ok:true,result}));p.emit('close',0);
   });return p;
 }
 const provider=createWindowsFolderProvider({platform:'win32',spawnProcess:spawnFake,timeoutMs:1000});
 await assert.rejects(provider.anchor('C:\\'));
 await assert.rejects(provider.anchor('\\\\server\\share'));
-const a=await provider.anchor('C:\\Личное');assert.deepEqual(a,{root:'C:\\Личное',dev:'7',ino:'123'});
+const beforeRoots=requests.length;
+for(const root of ['C:\\Личное\\..\\Другое','C:\\Личное\\.\\Другое','C:\\Личное\\\\Другое','C:\\Личное/Другое','C:\\Личное\\CON','C:\\Личное:поток']){
+  await assert.rejects(provider.anchor(root));await assert.rejects(provider.folder(root,{dev:'7',ino:'123'}));
+}
+assert.equal(requests.length,beforeRoots); // ни один неоднозначный путь не отправлен процессу
+const a=await provider.anchor('C:\\Личное\\');assert.deepEqual(a,{root:'C:\\Личное',dev:'7',ino:'123'});
 assert.equal(invocation.name,'powershell.exe');assert(!invocation.args.join(' ').includes('Личное'));
 const folder=await provider.folder(a.root,a);
 assert.equal(folder.hashFile,undefined); // по умолчанию не включено
 assert.throws(()=>createWindowsFolderProvider({platform:'win32',enableLockedHash:'yes'}));
+for(const opts of [{timeoutMs:0},{timeoutMs:60001},{timeoutMs:Infinity},{timeoutMs:'1000'},{spawnProcess:null}])assert.throws(()=>createWindowsFolderProvider({platform:'win32',...opts}));
 const hashProvider=createWindowsFolderProvider({platform:'win32',spawnProcess:spawnFake,timeoutMs:1000,enableLockedHash:true});
 const hashFolder=await hashProvider.folder(a.root,a);
 assert.deepEqual(await hashFolder.hashFile('песня.mp3'),{hash:'b'.repeat(64),size:3,modified:'2026-01-01T00:00:00.000Z',version:'a'.repeat(64)});
@@ -51,8 +57,27 @@ await assert.rejects(hashFolder.hashFile('песня.mp3',stopped.signal),e=>e.n
 assert.equal((await folder.list(''))[0].name,'песня.mp3');
 assert.equal((await folder.listFailOnSkipped(''))[0].name,'песня.mp3');
 assert.equal(requests.at(-1).op,'listFailOnSkipped');
-duplicate=true;await assert.rejects(folder.listFailOnSkipped(''),/Имена совпадают/);duplicate=false;
+duplicate=true;await assert.rejects(folder.listFailOnSkipped(''),/Имена совпадают/);await assert.rejects(folder.list(''),/Имена совпадают/);duplicate=false;
+const validEntry={name:'песня.mp3',dir:false,size:3,modified:'2026-01-01T00:00:00.000Z'};
+for(const invalid of [{...validEntry,extra:1},{...validEntry,modified:''},{...validEntry,modified:'x'.repeat(101)},
+  {...validEntry,dir:true,size:3},{...validEntry,name:'../x'}]){
+  listResult={items:[invalid]};await assert.rejects(folder.list(''));await assert.rejects(folder.listFailOnSkipped(''));
+}
+listResult={items:[{...validEntry,name:'x'.repeat(255)}]};
+const deep=Array(16).fill('a'.repeat(240)).join('/');assert(deep.length<4096);
+await assert.rejects(folder.list(deep)); // корректное имя элемента, но общий путь слишком длинный
+listResult=null;
 const got=await folder.read('песня.mp3',0,4);assert.deepEqual([...got.data],[1,2,3]);assert.match(got.version,/^[a-f0-9]{64}$/);
+// Корректный base64, но слишком короткое содержимое не является успехом.
+const validRead={data:'AQID',size:3,modified:'2026-01-01T00:00:00.000Z',version:'a'.repeat(64)};
+for(const invalid of [{...validRead,data:''},{...validRead,data:'AQI='},{...validRead,data:'AQIDBA=='},
+  {...validRead,data:'AQI?'},{...validRead,modified:''},{...validRead,modified:'x'.repeat(101)},
+  {...validRead,extra:true},{...validRead,version:'b'.repeat(64)}]){
+  readResult=invalid;await assert.rejects(folder.read('песня.mp3',0,4,'a'.repeat(64)));
+}
+readResult={...validRead,data:'AgM='};assert.deepEqual([...(await folder.read('песня.mp3',1,4,'a'.repeat(64))).data],[2,3]);
+readResult={...validRead,data:''};assert.equal((await folder.read('песня.mp3',3,4)).data.length,0);
+assert.equal((await folder.read('песня.mp3',5,4)).data.length,0);readResult=null;
 assert.equal(requests.at(-1).root,'C:\\Личное'); assert.equal(requests.at(-1).dev,'7');
 const calls=requests.length;
 await assert.rejects(folder.read('../тайна',0,4));await assert.rejects(folder.list('диск/../другое'));
