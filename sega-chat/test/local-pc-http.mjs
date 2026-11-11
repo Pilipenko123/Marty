@@ -17,6 +17,7 @@ const {createFolder} = require('../local-pc/folder.js');
 const {createReadService} = require('../local-pc/read-service.js');
 const {createOwnerReadClient} = require('../local-pc/owner-read-client.js');
 const {createOwnerReadTransport} = require('../local-pc/owner-read-transport.js');
+const {createSnapshotSession} = require('../local-pc/snapshot-session.js');
 const {createAgentClient} = require('../local-pc/agent-client.js');
 const {createCoordinator,anchorFolder} = require('../local-pc/agent-coordinator.js');
 const {digest} = require('../local-pc/relay.js');
@@ -193,6 +194,35 @@ try {
   });
   worker.send({base:tlsBase,token:owner.slice(7),deviceId:id,secret:Array.from(key)});
   await workerDone;
+  // Сквозное HTTPS испытание последовательности с подтверждением, зашифрованной
+  // копией и закрытием. Источник здесь только фиктивные данные в памяти.
+  let snapshotDisposals=0,snapshotRequests=0;
+  const fakeBytes=Buffer.from('Личные данные'),fakeVersion='a'.repeat(64),fakeModified='2026-01-01';
+  const snapshots=createSnapshotSession({enabled:true,capture:async relative=>{
+    assert.equal(relative,'своё.txt');const copy=Buffer.from(fakeBytes);
+    return {info:()=>({size:copy.length,hash:crypto.createHash('sha256').update(copy).digest('hex'),version:fakeVersion,modified:fakeModified}),
+      read:async(offset,length)=>({data:Buffer.from(copy.subarray(offset,offset+length)),size:copy.length,version:fakeVersion,modified:fakeModified}),
+      dispose(){snapshotDisposals++;copy.fill(0);}};
+  }});
+  const snapshotService=createReadService({folder:await createFolder(folderPath),secret:key,deviceId:id,snapshotSession:snapshots});
+  const snapshotAgent=createAgentClient({baseUrl:tlsBase,deviceId:id,token,service:snapshotService,ca:cert});
+  const snapshotWorker=fork(fileURLToPath(new URL('./fixtures/local-pc-snapshot-worker.mjs',import.meta.url)),[],{
+    env:{...process.env,NODE_EXTRA_CA_CERTS:fileURLToPath(new URL('./fixtures/local-test-only-cert.pem',import.meta.url))},
+    stdio:['ignore','pipe','pipe','ipc']});
+  let snapshotError='';snapshotWorker.stderr.on('data',x=>{snapshotError+=x;});
+  const snapshotDone=new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{snapshotWorker.kill();reject(new Error('Тестовая передача зависла'));},15000);let done=false;
+    snapshotWorker.on('message',async msg=>{
+      try {
+        if(msg.step==='poll'){snapshotRequests++;assert.equal(await snapshotAgent.step(),true);snapshotWorker.send({step:'processed'});}
+        if(msg.step==='done')done=true;
+      } catch(e){snapshotWorker.kill();reject(e);}
+    });
+    snapshotWorker.on('error',reject);
+    snapshotWorker.on('exit',code=>{clearTimeout(timer);if(code===0 && done)resolve();else reject(new Error('Тестовая передача: '+snapshotError));});
+  });
+  snapshotWorker.send({base:tlsBase,token:owner.slice(7),deviceId:id,secret:Array.from(key)});
+  await snapshotDone;assert.equal(snapshotRequests,3);assert.equal(snapshotDisposals,1);
   await assert.rejects(createAgentClient({baseUrl:tlsBase,deviceId:id,token:hex(32),service,ca:cert}).step());
   const dbRaw=await fs.readFile(path.join(tmp,'data','db.json'),'utf8');
   assert(!dbRaw.includes(token)); assert(!dbRaw.includes(setupToken)); assert(!dbRaw.includes('своё.txt')); assert(dbRaw.includes(digest(token)));
