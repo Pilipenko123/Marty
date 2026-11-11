@@ -76,6 +76,29 @@ await assert.rejects(transferToStage(f.options),e=>e.name==='AbortError');assert
 f=fixture('abcdefgh');ac=new AbortController();f.options.signal=ac.signal;
 const originalWrite=f.stage.write;f.stage.write=async b=>{await originalWrite(b);ac.abort();};
 await assert.rejects(transferToStage(f.options),e=>e.name==='AbortError');assert.equal(f.stats().aborted,1);assert.equal(f.stats().verified,0);
+// Отмена до микрозадачи чтения не вызывает источник и очищает новую область.
+f=fixture('abcdefgh');ac=new AbortController();f.options.signal=ac.signal;const early=transferToStage(f.options);ac.abort();
+await assert.rejects(early,e=>e.name==='AbortError');assert.equal(f.calls.length,0);assert.equal(f.stats().aborted,1);
+// После первого куска источник может зависнуть и игнорировать сигнал. Его
+// поздний ответ/ошибка не записывается в область, ожидание и очистка завершаются.
+for(const lateError of [false,true]){
+  f=fixture('abcdefgh');ac=new AbortController();f.options.signal=ac.signal;
+  let enteredRead,finishRead,failRead;const ready=new Promise(r=>{enteredRead=r;}),originalRead=f.read;
+  f.options.read=(offset,...rest)=>offset===4?new Promise((resolve,reject)=>{finishRead=resolve;failRead=reject;enteredRead();}):originalRead(offset,...rest);
+  const activeRead=transferToStage(f.options);await ready;assert.equal(f.writes.length,1);ac.abort();
+  let timer;try{await assert.rejects(Promise.race([activeRead,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Ожидание зависло')),1000);})]),e=>e.name==='AbortError');}finally{clearTimeout(timer);}
+  assert.equal(f.stats().aborted,1);assert.equal(f.writes.length,0);
+  if(lateError)failRead(Error('поздняя ошибка'));else finishRead({data:Buffer.from('efgh'),size:8,version});
+  await new Promise(r=>setImmediate(r));assert.equal(f.writes.length,0);assert.equal(f.stats().aborted,1);
+  await assert.rejects(transferToStage(f.options),/уже использована/);
+}
+// Нельзя очищать область одновременно с ещё выполняющейся записью ИЛИ её
+// проверкой: внешний код может продолжить её использовать после отмены.
+f=fixture('abcdefgh');ac=new AbortController();f.options.signal=ac.signal;
+let verifyStarted,finishVerify;const verifying=new Promise(r=>{verifyStarted=r;});
+f.stage.verify=()=>new Promise(r=>{finishVerify=r;verifyStarted();});
+const duringVerify=transferToStage(f.options);await verifying;ac.abort();await new Promise(r=>setImmediate(r));assert.equal(f.stats().aborted,0);
+finishVerify({size:f.data.length,hash:sum(f.data)});await assert.rejects(duringVerify,e=>e.name==='AbortError');assert.equal(f.stats().aborted,1);
 
 // Готовую временную копию нельзя уничтожить вторым использованием того же
 // объекта. Новый объект также обязан означать НОВУЮ изолированную область —

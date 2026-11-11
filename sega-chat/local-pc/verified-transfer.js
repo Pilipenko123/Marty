@@ -4,7 +4,7 @@
 // Модуль не открывает файлы, не подключён к сети и НЕ публикует результат.
 // Безопасность временной области и разрешения устанавливает вызывающий код.
 const crypto = require('node:crypto');
-const {validateSignal,checkAborted} = require('./abort');
+const {validateSignal,checkAborted,waitFor} = require('./abort');
 // Одноразовое использование только в рамках этого экземпляра модуля и только
 // по идентичности объекта, не блокировка реального файла или другого процесса.
 const usedStages = new WeakSet();
@@ -40,7 +40,11 @@ async function transferToStage({allowed, size, hash, read, stage, signal, chunkS
     // Даже пустой файл проверяется у источника и получает метку версии.
     do {
       const length=size===0 ? 1 : Math.min(chunkSize,size-offset);
-      const part=await read(offset,length,version,signal);
+      // Ожидание чистого чтения можно прервать, не дожидаясь источника,
+      // игнорирующего сигнал. Источник может продолжить работу: по контракту
+      // ему запрещено менять временную область. Запись/проверку stage, напротив,
+      // необходимо дождаться до очистки, иначе они могут отработать после неё.
+      const part=await waitFor(Promise.resolve().then(()=>{checkAborted(signal);return read(offset,length,version,signal);}),signal);
       checkAborted(signal);
       if (!part || !Buffer.isBuffer(part.data) || part.size!==size || typeof part.version!=='string' || !HASH.test(part.version)
           || (version!==null && part.version!==version) || part.data.length!==Math.min(length,size-offset)) throw new Error('Файл изменился или передан не полностью');
