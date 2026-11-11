@@ -27,6 +27,7 @@
       const job=Object.freeze({requestId,packet,expires});jobs.set(job,{spec,accepted:null});return job;
     }
     async function list(path='') {paths.partsOf(path);return make({op:'list',path});}
+    async function fileHash(path) {if(!paths.partsOf(path).length)throw new Error('Неверный запрос файла');return make({op:'hash',path});}
     async function read(path,offset=0,length=MAX_READ,version=null) {
       if(!paths.partsOf(path).length || !Number.isSafeInteger(offset) || offset<0 || !Number.isSafeInteger(length) || length<1 || length>MAX_READ
         || (version!==null && (typeof version!=='string' || !HASH.test(version))) || (offset>0 && version===null)) throw new Error('Неверный запрос файла');
@@ -42,6 +43,11 @@
       if(keys(response)==='error,ok' && response.ok===false && typeof response.error==='string') {
         // Не переносим произвольную ошибку удалённого источника в интерфейс.
         result={ok:false,error:'Не удалось открыть файл или папку'};
+      } else if(record.spec.op==='hash') {
+        if(keys(response)!=='hash,modified,ok,size,version' || response.ok!==true || !Number.isSafeInteger(response.size) || response.size<0 || response.size>8*1024*1024
+          || typeof response.hash!=='string' || !HASH.test(response.hash) || typeof response.version!=='string' || !HASH.test(response.version)
+          || typeof response.modified!=='string' || !response.modified || response.modified.length>100)throw new Error('Неверный ответ файла');
+        result={ok:true,size:response.size,version:response.version,modified:response.modified,hash:response.hash};
       } else if(record.spec.op==='list') {
         if(keys(response)!=='items,ok' || response.ok!==true || !Array.isArray(response.items) || response.items.length>MAX_ITEMS)throw new Error('Неверный ответ папки');
         const names=new Set(), items=[];
@@ -67,7 +73,7 @@
       record.accepted=packet;
       return result;
     }
-    return Object.freeze({list,read,accept});
+    return Object.freeze({list,read,fileHash,accept});
   }
   const exported=Object.freeze({createOwnerReadClient,MAX_READ,MAX_ITEMS,LIFETIME});
   if(typeof module!=='undefined' && module.exports)module.exports=exported;

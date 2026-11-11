@@ -12,6 +12,7 @@
   }
   function copy(result) {
     if(!result.ok)return {ok:false,error:result.error};
+    if(typeof result.hash==='string')return {ok:true,size:result.size,version:result.version,modified:result.modified,hash:result.hash};
     if(Array.isArray(result.items))return {ok:true,items:result.items.map(x=>({...x}))};
     return {ok:true,data:new Uint8Array(result.data),size:result.size,modified:result.modified,version:result.version};
   }
@@ -20,6 +21,7 @@
     const reader=readerModule.createOwnerReadClient({secret,deviceId,clock}), jobs=new WeakMap();
     async function prepare(jobPromise){const job=await jobPromise;jobs.set(job,{phase:'prepared',busy:false,result:null});return job;}
     async function prepareList(path=''){return prepare(reader.list(path));}
+    async function prepareFileHash(path){return prepare(reader.fileHash(path));}
     async function prepareRead(path,offset=0,length=readerModule.MAX_READ,version=null){return prepare(reader.read(path,offset,length,version));}
     function checkTime(job){
       const now=clock();
@@ -63,7 +65,7 @@
       if(keys(confirmation)!=='ok' || confirmation.ok!==true)throw new Error('Ответ не подтверждён');
       state.phase='done';return copy(state.result);
     });}
-    return Object.freeze({prepareList,prepareRead,submit,receive});
+    return Object.freeze({prepareList,prepareRead,prepareFileHash,submit,receive});
   }
   const exported=Object.freeze({createOwnerReadTransport});
   if(typeof module!=='undefined' && module.exports)module.exports=exported;

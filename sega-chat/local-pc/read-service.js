@@ -5,11 +5,13 @@
 const crypto = require('node:crypto');
 const channel = require('./secure-channel');
 const {validateSignal,checkAborted,waitFor} = require('./abort');
+const {partsOf} = require('./path-rules');
+const {MAX_FILE:MAX_HASH_FILE} = require('./file-hash-candidate');
 const MAX_READ = 128 * 1024;
 const MAX_REPLIES = 500;
 
-function createReadService({ folder, secret, deviceId, clock = Date.now }) {
-  if (!folder || typeof folder.list !== 'function' || typeof folder.read !== 'function' || !(secret instanceof Uint8Array) || secret.length !== 32 || !/^[a-f0-9]{32}$/.test(deviceId)) throw new Error('Неверное подключение');
+function createReadService({ folder, secret, deviceId, clock = Date.now, hashFile }) {
+  if (!folder || typeof folder.list !== 'function' || typeof folder.read !== 'function' || !(secret instanceof Uint8Array) || secret.length !== 32 || !/^[a-f0-9]{32}$/.test(deviceId) || (hashFile!==undefined && typeof hashFile!=='function')) throw new Error('Неверное подключение');
   const key = new Uint8Array(secret); // вызывающий код не может заменить ключ во время работы
   const replies = new Map();
   async function execute(request,signal) {
@@ -21,6 +23,15 @@ function createReadService({ folder, secret, deviceId, clock = Date.now }) {
       return {ok:true, items};
     }
     const keys = Object.keys(request).sort().join(',');
+    // Отдельная возможность, не включается по умолчанию. Даже успешный ответ
+    // не гарантирует атомарный снимок и не подтверждает происхождение файла.
+    if(request.op==='hash' && keys==='op,path' && hashFile && partsOf(request.path).length) {
+      const r=await hashFile(request.path,signal);checkAborted(signal);
+      if(!r || Object.keys(r).sort().join(',')!=='hash,modified,size,version' || !Number.isSafeInteger(r.size) || r.size<0 || r.size>MAX_HASH_FILE
+        || typeof r.hash!=='string' || !/^[a-f0-9]{64}$/.test(r.hash) || typeof r.version!=='string' || !/^[a-f0-9]{64}$/.test(r.version)
+        || typeof r.modified!=='string' || !r.modified || r.modified.length>100)throw new Error('Неверный результат');
+      return {ok:true,size:r.size,version:r.version,modified:r.modified,hash:r.hash};
+    }
     if (request.op === 'read' && (keys === 'length,offset,op,path' || keys === 'length,offset,op,path,version')
         && Number.isSafeInteger(request.offset) && request.offset >= 0
         && Number.isSafeInteger(request.length) && request.length > 0 && request.length <= MAX_READ
@@ -47,7 +58,7 @@ function createReadService({ folder, secret, deviceId, clock = Date.now }) {
     }
     if (replies.size >= MAX_REPLIES) throw new Error('Слишком много запросов');
     // Размещаем обещание до первой операции, чтобы повтор параллельного запроса
-    // не выполнил действие дважды. На этом этапе разрешены лишь чтение и список.
+    // не выполнил действие дважды. Разрешены только чтение, список и явно включённый хеш.
     const response = (async () => {
       let out;
       try {

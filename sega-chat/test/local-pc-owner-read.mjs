@@ -78,6 +78,9 @@ assert.equal(done.filter(x=>x.status==='fulfilled').length,1);assert.equal(done.
 const context=vm.createContext({crypto:crypto.webcrypto,TextEncoder,TextDecoder,Uint8Array,atob,btoa});
 for(const file of ['path-rules.js','secure-channel.js','owner-read-client.js'])vm.runInContext(fs.readFileSync(new URL('../local-pc/'+file,import.meta.url),'utf8'),context);
 const browser=context.SegaLocalOwnerRead.createOwnerReadClient({secret,deviceId:dev,clock:()=>now});
+const browserHashJob=await browser.fileHash('письмо.txt');
+const browserHash=await signed(browserHashJob,{ok:true,size:text.length,version,modified,hash:'a'.repeat(64)});
+assert.equal((await browser.accept(browserHashJob,browserHash)).hash,'a'.repeat(64));
 const browserJob=await browser.read('письмо.txt',0,4);const browserReply=await processJob(browserJob);
 assert.deepEqual(Buffer.from((await browser.accept(browserJob,browserReply)).data),text.subarray(0,4));
 assert(count>0);

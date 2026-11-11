@@ -26,12 +26,14 @@
    * из owner-read-transport. expectedHash и size должны приходить независимо из
    * доверенного источника, который ещё не создан. allowed обязан означать
    * разрешение для этой операции, а не просто доступность файла. */
-  async function checkOwnerFile({allowed,size,expectedHash,read,signal,chunkSize=MAX_CHUNK}={}){
+  async function checkOwnerFile({allowed,size,expectedHash,expectedVersion=null,expectedModified=null,read,signal,chunkSize=MAX_CHUNK}={}){
     if(allowed!==true)throw new Error('Передача не разрешена');
     if(!crypto || !Number.isSafeInteger(size) || size<0 || size>MAX_FILE || typeof expectedHash!=='string' || !HASH.test(expectedHash)
+      || (expectedVersion!==null && (typeof expectedVersion!=='string' || !HASH.test(expectedVersion)))
+      || (expectedModified!==null && (typeof expectedModified!=='string' || !expectedModified || expectedModified.length>100))
       || typeof read!=='function' || !Number.isSafeInteger(chunkSize) || chunkSize<1 || chunkSize>MAX_CHUNK)throw new Error('Неверные данные файла');
     validateSignal(signal);
-    const result=new Uint8Array(size);let offset=0,version=null,modified=null;
+    const result=new Uint8Array(size);let offset=0,version=expectedVersion,modified=expectedModified;
     try {
       do {
         validateSignal(signal);
@@ -43,7 +45,7 @@
         if(ok!==true || !(data instanceof Uint8Array) || partSize!==size || typeof partVersion!=='string' || !HASH.test(partVersion)
           || (version!==null && version!==partVersion) || typeof partModified!=='string' || !partModified || partModified.length>100
           || (modified!==null && modified!==partModified) || data.byteLength!==Math.min(length,size-offset))throw new Error('Файл изменился или передан не полностью');
-        if(version===null){version=partVersion;modified=partModified;}
+        if(version===null)version=partVersion;if(modified===null)modified=partModified;
         result.set(data,offset);offset+=data.byteLength;
       } while(offset<size);
       validateSignal(signal);
