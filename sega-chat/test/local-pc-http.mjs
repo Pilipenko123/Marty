@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
+import {fork} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {createFileStore} = require('../lib/store-file.js');
@@ -170,6 +172,27 @@ try {
   await assert.rejects(ownerTransport.receive(transportJob),/связаться/);
   const beforeRetry=httpGets,transportResult=await ownerTransport.receive(transportJob);
   assert.equal(httpGets,beforeRetry);assert.equal(Buffer.from(transportResult.data).toString(),'Личные данные');
+  // Браузерный HTTP-черновик говорит с настоящим лабораторным API по TLS.
+  // Подпроцесс дополнительно доверяет общедоступному тестовому сертификату, а его
+  // обёртка адресов имитирует относительный fetch (это не настоящий браузер).
+  const worker=fork(fileURLToPath(new URL('./fixtures/local-pc-owner-http-worker.mjs',import.meta.url)),[],{
+    env:{...process.env,NODE_EXTRA_CA_CERTS:fileURLToPath(new URL('./fixtures/local-test-only-cert.pem',import.meta.url))},
+    stdio:['ignore','pipe','pipe','ipc']});
+  let workerError='';worker.stderr.on('data',x=>{workerError+=x;});
+  const workerDone=new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{worker.kill();reject(new Error('Тестовый клиент завис'));},10000);
+    let done=false;
+    worker.on('message',async msg=>{
+      try {
+        if(msg.step==='submitted'){assert.equal(await agent.step(),true);worker.send({step:'processed'});}
+        if(msg.step==='done')done=true;
+      } catch(e){worker.kill();reject(e);}
+    });
+    worker.on('error',reject);
+    worker.on('exit',code=>{clearTimeout(timer);if(code===0 && done)resolve();else reject(new Error('Тестовый клиент: '+workerError));});
+  });
+  worker.send({base:tlsBase,token:owner.slice(7),deviceId:id,secret:Array.from(key)});
+  await workerDone;
   await assert.rejects(createAgentClient({baseUrl:tlsBase,deviceId:id,token:hex(32),service,ca:cert}).step());
   const dbRaw=await fs.readFile(path.join(tmp,'data','db.json'),'utf8');
   assert(!dbRaw.includes(token)); assert(!dbRaw.includes(setupToken)); assert(!dbRaw.includes('своё.txt')); assert(dbRaw.includes(digest(token)));
