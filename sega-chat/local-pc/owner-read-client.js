@@ -28,6 +28,14 @@
     }
     async function list(path='') {paths.partsOf(path);return make({op:'list',path});}
     async function fileHash(path) {if(!paths.partsOf(path).length)throw new Error('Неверный запрос файла');return make({op:'hash',path});}
+    async function snapshotOpen(path) {if(!paths.partsOf(path).length)throw new Error('Неверный запрос файла');return make({op:'snapshotOpen',path});}
+    async function snapshotRead(snapshotId,offset,length,version) {
+      if(typeof snapshotId!=='string' || !ID.test(snapshotId) || !Number.isSafeInteger(offset) || offset<0 || !Number.isSafeInteger(length) || length<1 || length>MAX_READ
+        || typeof version!=='string' || !HASH.test(version))throw new Error('Неверный запрос файла');
+      // Версия хранится только у владельца для проверки ответа, не отправляется.
+      const job=await make({op:'snapshotRead',snapshotId,offset,length});jobs.get(job).expectedVersion=version;return job;
+    }
+    async function snapshotClose(snapshotId) {if(typeof snapshotId!=='string' || !ID.test(snapshotId))throw new Error('Неверный запрос файла');return make({op:'snapshotClose',snapshotId});}
     async function read(path,offset=0,length=MAX_READ,version=null) {
       if(!paths.partsOf(path).length || !Number.isSafeInteger(offset) || offset<0 || !Number.isSafeInteger(length) || length<1 || length>MAX_READ
         || (version!==null && (typeof version!=='string' || !HASH.test(version))) || (offset>0 && version===null)) throw new Error('Неверный запрос файла');
@@ -43,6 +51,14 @@
       if(keys(response)==='error,ok' && response.ok===false && typeof response.error==='string') {
         // Не переносим произвольную ошибку удалённого источника в интерфейс.
         result={ok:false,error:'Не удалось открыть файл или папку'};
+      } else if(record.spec.op==='snapshotOpen') {
+        if(keys(response)!=='hash,modified,ok,size,snapshotId,version' || response.ok!==true || !Number.isSafeInteger(response.size) || response.size<0 || response.size>8*1024*1024
+          || typeof response.snapshotId!=='string' || !ID.test(response.snapshotId) || typeof response.hash!=='string' || !HASH.test(response.hash)
+          || typeof response.version!=='string' || !HASH.test(response.version) || typeof response.modified!=='string' || !response.modified || response.modified.length>100)throw new Error('Неверный ответ файла');
+        result={ok:true,snapshotId:response.snapshotId,size:response.size,hash:response.hash,version:response.version,modified:response.modified};
+      } else if(record.spec.op==='snapshotClose') {
+        if(keys(response)!=='ok,snapshotId' || response.ok!==true || response.snapshotId!==record.spec.snapshotId)throw new Error('Неверный ответ файла');
+        result={ok:true,snapshotId:response.snapshotId};
       } else if(record.spec.op==='hash') {
         if(keys(response)!=='hash,modified,ok,size,version' || response.ok!==true || !Number.isSafeInteger(response.size) || response.size<0 || response.size>8*1024*1024
           || typeof response.hash!=='string' || !HASH.test(response.hash) || typeof response.version!=='string' || !HASH.test(response.version)
@@ -61,19 +77,22 @@
         result={ok:true,items};
       } else {
         const q=record.spec;
-        if(keys(response)!=='data,modified,ok,size,version' || response.ok!==true || !Number.isSafeInteger(response.size) || response.size<0
-           || typeof response.version!=='string' || !HASH.test(response.version) || (q.version && q.version!==response.version)
+        const isSnapshot=q.op==='snapshotRead';
+        if(keys(response)!==(isSnapshot?'data,modified,ok,size,snapshotId,version':'data,modified,ok,size,version') || response.ok!==true || !Number.isSafeInteger(response.size) || response.size<0
+           || (isSnapshot && (response.snapshotId!==q.snapshotId || response.size>8*1024*1024))
+           || typeof response.version!=='string' || !HASH.test(response.version) || ((q.version || record.expectedVersion) && (q.version || record.expectedVersion)!==response.version)
            || typeof response.modified!=='string' || !response.modified || response.modified.length>100)throw new Error('Неверный ответ файла');
         const data=bytesFromBase64(response.data);
         if(data.length!==Math.min(q.length,Math.max(0,response.size-q.offset)))throw new Error('Неверный ответ файла');
         result={ok:true,data,size:response.size,modified:response.modified,version:response.version};
+        if(isSnapshot)result.snapshotId=response.snapshotId;
       }
       // Параллельные ответы с одним номером не могут подменять проверенный.
       if(record.accepted!==null && record.accepted!==packet)throw new Error('Ответ уже проверен');
       record.accepted=packet;
       return result;
     }
-    return Object.freeze({list,read,fileHash,accept});
+    return Object.freeze({list,read,fileHash,snapshotOpen,snapshotRead,snapshotClose,accept});
   }
   const exported=Object.freeze({createOwnerReadClient,MAX_READ,MAX_ITEMS,LIFETIME});
   if(typeof module!=='undefined' && module.exports)module.exports=exported;

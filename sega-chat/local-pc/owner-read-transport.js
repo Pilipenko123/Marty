@@ -12,9 +12,10 @@
   }
   function copy(result) {
     if(!result.ok)return {ok:false,error:result.error};
-    if(typeof result.hash==='string')return {ok:true,size:result.size,version:result.version,modified:result.modified,hash:result.hash};
+    if(typeof result.hash==='string')return {ok:true,size:result.size,version:result.version,modified:result.modified,hash:result.hash,...(result.snapshotId?{snapshotId:result.snapshotId}:{})};
+    if(result.snapshotId && !result.data)return {ok:true,snapshotId:result.snapshotId};
     if(Array.isArray(result.items))return {ok:true,items:result.items.map(x=>({...x}))};
-    return {ok:true,data:new Uint8Array(result.data),size:result.size,modified:result.modified,version:result.version};
+    return {ok:true,data:new Uint8Array(result.data),size:result.size,modified:result.modified,version:result.version,...(result.snapshotId?{snapshotId:result.snapshotId}:{})};
   }
   function createOwnerReadTransport({secret,deviceId,clock=Date.now,sendRequest,getResult,acknowledge}={}) {
     if(!readerModule || !channel || typeof sendRequest!=='function' || typeof getResult!=='function' || typeof acknowledge!=='function')throw new Error('Не заданы действия подключения');
@@ -22,6 +23,9 @@
     async function prepare(jobPromise){const job=await jobPromise;jobs.set(job,{phase:'prepared',busy:false,result:null});return job;}
     async function prepareList(path=''){return prepare(reader.list(path));}
     async function prepareFileHash(path){return prepare(reader.fileHash(path));}
+    async function prepareSnapshotOpen(path){return prepare(reader.snapshotOpen(path));}
+    async function prepareSnapshotRead(snapshotId,offset,length,version){return prepare(reader.snapshotRead(snapshotId,offset,length,version));}
+    async function prepareSnapshotClose(snapshotId){return prepare(reader.snapshotClose(snapshotId));}
     async function prepareRead(path,offset=0,length=readerModule.MAX_READ,version=null){return prepare(reader.read(path,offset,length,version));}
     function checkTime(job){
       const now=clock();
@@ -65,7 +69,7 @@
       if(keys(confirmation)!=='ok' || confirmation.ok!==true)throw new Error('Ответ не подтверждён');
       state.phase='done';return copy(state.result);
     });}
-    return Object.freeze({prepareList,prepareRead,prepareFileHash,submit,receive});
+    return Object.freeze({prepareList,prepareRead,prepareFileHash,prepareSnapshotOpen,prepareSnapshotRead,prepareSnapshotClose,submit,receive});
   }
   const exported=Object.freeze({createOwnerReadTransport});
   if(typeof module!=='undefined' && module.exports)module.exports=exported;

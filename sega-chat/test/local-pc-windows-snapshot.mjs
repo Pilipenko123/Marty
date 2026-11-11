@@ -21,7 +21,7 @@ function spawnFake(){
 const make=(extra={})=>createWindowsFolderProvider({platform:'win32',spawnProcess:spawnFake,timeoutMs:1000,...extra});
 const no=await make().folder('C:\\test',{dev:'1',ino:'2'});assert.equal(no.captureSnapshot,undefined);
 for(const options of [{enableLockedSnapshot:'yes'},{snapshotTtlMs:0},{snapshotTtlMs:60001}])assert.throws(()=>make(options));
-const provider=make({enableLockedSnapshot:true,snapshotTtlMs:1000});
+const provider=make({enableLockedSnapshot:true,snapshotTtlMs:5000});
 const folder=await provider.folder('C:\\test',{dev:'1',ino:'2'}),other=await provider.folder('C:\\other',{dev:'1',ino:'3'});
 const before=calls;await assert.rejects(folder.captureSnapshot('../secret'));await assert.rejects(folder.captureSnapshot(''));assert.equal(calls,before);
 const snap=await folder.captureSnapshot('file.txt');assert.deepEqual(snap.info(),{hash:hash(input),size:input.length,version,modified});
@@ -49,6 +49,28 @@ output={data:input.toString('base64'),size:input.length,hash:hash(input),version
 const expiredProvider=make({enableLockedSnapshot:true,snapshotTtlMs:100}),expiredFolder=await expiredProvider.folder('C:\\test',{dev:'1',ino:'2'});
 const exp=await expiredFolder.captureSnapshot('file.txt');await new Promise(r=>setTimeout(r,150));assert.throws(()=>exp.info(),/закрыта|истёк/);
 const next=await expiredFolder.captureSnapshot('file.txt');next.dispose();
+// Связь новой сессии с Windows-мостом и шифрованным обменом проверяется
+// только с поддельным PowerShell, никаких настоящих файлов не открываем.
+const {createSnapshotSession}=require('../local-pc/snapshot-session.js');
+const {createReadService}=require('../local-pc/read-service.js');
+const {createOwnerReadTransport}=require('../local-pc/owner-read-transport.js');
+const {createRelay,digest}=require('../local-pc/relay.js');
+const id='1'.repeat(32),token='2'.repeat(64),secret=Uint8Array.from(crypto.randomBytes(32));
+const relay=createRelay();relay.register('owner',id,digest(token));
+const session=createSnapshotSession({enabled:true,capture:folder.captureSnapshot,ttlMs:4000});
+const agent=createReadService({secret,deviceId:id,folder,snapshotSession:session});
+const owner=createOwnerReadTransport({secret,deviceId:id,
+  async sendRequest({requestId,packet}){relay.request('owner',id,requestId,packet);const job=relay.next(id,token);
+    const answer=await agent.handle(requestId,job.packet);relay.reply(id,token,requestId,job.claim,answer);return {ok:true};},
+  async getResult({requestId}){return relay.result('owner',id,requestId);},
+  async acknowledge({requestId}){relay.acknowledge('owner',id,requestId);return {ok:true};}
+});
+const opened=await owner.prepareSnapshotOpen('file.txt');await owner.submit(opened);const mark=await owner.receive(opened);
+const combined=await checkOwnerFile({allowed:true,size:mark.size,expectedHash:mark.hash,expectedVersion:mark.version,expectedModified:mark.modified,
+  async read({offset,length,version}){const req=await owner.prepareSnapshotRead(mark.snapshotId,offset,length,version);await owner.submit(req);const part=await owner.receive(req);
+    const {data,size,modified,version:v}=part;return {ok:true,data,size,modified,version:v};}});
+assert.deepEqual(Buffer.from(combined.data),input);
+const closeJob=await owner.prepareSnapshotClose(mark.snapshotId);await owner.submit(closeJob);assert.equal((await owner.receive(closeJob)).ok,true);
 // Ожидающее создание резервирует единственное место, отмена не выдаёт копию;
 // остановка ОС процесса здесь только имитируется.
 defer=true;const ready=new Promise(r=>{entered=r;}),abort=new AbortController();
