@@ -7,7 +7,7 @@
 const crypto=require('node:crypto');
 const {isDeepStrictEqual}=require('node:util');
 const {partsOf}=require('./folder');
-const {validateSignal,checkAborted}=require('./abort');
+const {validateSignal,checkAborted,waitFor}=require('./abort');
 const {MAX_ITEMS}=require('./sync-plan');
 const CHUNK=128*1024, MAX_BYTES=256*1024*1024;
 const revisionRx=/^[a-f0-9]{64}$/;
@@ -24,12 +24,19 @@ async function snapshotCandidate({enabled, list, read, signal, maxItems=MAX_ITEM
   if(typeof list!=='function' || typeof read!=='function' || !Number.isSafeInteger(maxItems) || maxItems<0 || maxItems>MAX_ITEMS
     || !Number.isSafeInteger(maxBytes) || maxBytes<0 || maxBytes>MAX_BYTES) throw new Error('Неверные параметры снимка');
   validateSignal(signal);checkAborted(signal);
+  // Можно прекратить ожидание даже для заглушки, игнорирующей сигнал. Это не
+  // останавливает сам источник. Проверка перед вызовом исключает новый запуск
+  // после отмены между планированием микрозадачи и её выполнением.
+  function callSource(fn){
+    checkAborted(signal);
+    return waitFor(Promise.resolve().then(()=>{checkAborted(signal);return fn();}),signal);
+  }
   async function inventory() {
     const pending=[''], records=[], directoryVersions=[], names=new Set();
     let bytes=0;
     while(pending.length) {
       checkAborted(signal);
-      const parent=pending.pop(), page=await list(parent,signal);
+      const parent=pending.pop(), page=await callSource(()=>list(parent,signal));
       checkAborted(signal);
       if(!page || page.complete!==true || typeof page.revision!=='string' || !revisionRx.test(page.revision) || !Array.isArray(page.entries)) throw new Error('Список папки не подтверждён');
       directoryVersions.push({path:parent,revision:page.revision});
@@ -64,7 +71,7 @@ async function snapshotCandidate({enabled, list, read, signal, maxItems=MAX_ITEM
     do {
       checkAborted(signal);
       const length=item.size===0?1:Math.min(CHUNK,item.size-offset);
-      const part=await read(item.path,offset,length,item.revision,signal);
+      const part=await callSource(()=>read(item.path,offset,length,item.revision,signal));
       checkAborted(signal);
       if(!part || !Buffer.isBuffer(part.data) || part.size!==item.size || part.version!==item.revision
         || part.data.length!==Math.min(length,item.size-offset))throw new Error('Файл изменился или прочитан не полностью');

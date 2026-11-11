@@ -45,6 +45,14 @@ for(const modify of [
 ]) {f=fixture();modify(f.pages['']);await assert.rejects(snapshotCandidate(f.options));}
 f=fixture();f.options.list=async()=>{throw new Error('нет доступа')};
 await assert.rejects(snapshotCandidate(f.options),/нет доступа/);
+// Исчезнувший файл и прерванное повторное перечисление не возвращают частичный
+// снимок, в том числе если предыдущие файлы уже успели прочитаться.
+f=fixture();const originalReadLost=f.options.read;
+f.options.read=async(...args)=>{if(args[0]==='пусто')throw Error('файл исчез');return originalReadLost(...args);};
+await assert.rejects(snapshotCandidate(f.options),/файл исчез/);assert.equal(f.calls.filter(x=>x[0]==='list').length,2);
+f=fixture();const originalListLost=f.options.list;let rootChecks=0;
+f.options.list=async(...args)=>{if(args[0]==='' && ++rootChecks===2)throw Error('повторный список оборван');return originalListLost(...args);};
+await assert.rejects(snapshotCandidate(f.options),/список оборван/);assert.equal(f.calls.filter(x=>x[0]==='read').length,2);
 // Короткий кусок, изменение метки, размера или типа данных отменяет весь результат.
 for(const modify of [p=>({...p,data:p.data.subarray(1)}),p=>({...p,version:w}),p=>({...p,size:p.size+1}),p=>({...p,data:'не байты'})]) {
   f=fixture();const read=f.options.read;f.options.read=async(...args)=>modify(await read(...args));
@@ -79,4 +87,47 @@ f=fixture();ac=new AbortController();const read=f.options.read;
 f.options.read=async(...args)=>{const r=await read(...args);ac.abort();return r};
 await assert.rejects(snapshotCandidate({...f.options,signal:ac.signal}),e=>e.name==='AbortError');
 assert.equal(f.calls.filter(x=>x[0]==='list').length,2);
-console.log('local-pc-snapshot-candidate: двойная проверка и хеширование на заглушках; полнота и Windows не проверены');
+
+// Даже когда источник игнорирует signal и продолжает работу, отменённое
+// ожидание должно завершаться без результата; это НЕ останавливает источник.
+const tick=()=>new Promise(r=>setImmediate(r));
+async function abortPromptly(p,controller){
+  controller.abort();let timer;
+  try{await assert.rejects(Promise.race([p,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Отмена зависла')),1000);})]),e=>e.name==='AbortError');}
+  finally{clearTimeout(timer);}
+}
+for(const stage of ['first-list','read','second-list']){
+  f=fixture();ac=new AbortController();let calls=0,release,rejectLate;
+  const originalList=f.options.list,originalRead=f.options.read;
+  const deferred=()=>new Promise((resolve,reject)=>{release=resolve;rejectLate=reject;});
+  f.options.list=async(...args)=>{calls++;if(stage==='first-list' && calls===1 || stage==='second-list' && args[0]==='' && calls===3)return deferred();return originalList(...args);};
+  f.options.read=async(...args)=>stage==='read'?deferred():originalRead(...args);
+  const resultPromise=snapshotCandidate({...f.options,signal:ac.signal});
+  for(let n=0;n<30 && !release;n++)await tick();assert(release,'ожидаем зависший источник '+stage);
+  const count=f.calls.length;await abortPromptly(resultPromise,ac);
+  if(stage==='read')rejectLate(Error('поздняя ошибка'));else release({complete:true,revision:v,entries:[]});
+  await tick();assert.equal(f.calls.length,count,'после отмены новые обращения недопустимы');
+}
+// Отмена, возникшая внутри синхронного обработчика до возврата Promise,
+// также завершает сбор, даже если сам обработчик не завершился.
+f=fixture();ac=new AbortController();let releaseSync;
+f.options.list=()=>{ac.abort();return new Promise(r=>{releaseSync=r;});};
+await assert.rejects(snapshotCandidate({...f.options,signal:ac.signal}),e=>e.name==='AbortError');releaseSync({});await tick();
+f=fixture();ac=new AbortController();f.options.list=()=>{ac.abort();throw Error('ошибка после отмены');};
+await assert.rejects(snapshotCandidate({...f.options,signal:ac.signal}),e=>e.name==='AbortError');
+f=fixture();ac=new AbortController();const early=snapshotCandidate({...f.options,signal:ac.signal});ac.abort();
+await assert.rejects(early,e=>e.name==='AbortError');await tick();assert.equal(f.calls.length,0);
+// Слушатели отмены удаляются на успехе, ошибке и отмене, в том числе после
+// двух обходов и чтения нескольких файлов.
+for(const outcome of ['ok','error','abort']){
+  f=fixture();ac=new AbortController();let listeners=0;
+  const signal={get aborted(){return ac.signal.aborted;},addEventListener(...args){listeners++;ac.signal.addEventListener(...args);},removeEventListener(...args){listeners--;ac.signal.removeEventListener(...args);}};
+  if(outcome==='error')f.options.list=async()=>{throw Error('список недоступен');};
+  if(outcome==='abort')f.options.list=()=>new Promise(()=>{});
+  const operation=snapshotCandidate({...f.options,signal});
+  if(outcome==='abort')await abortPromptly(operation,ac);
+  else if(outcome==='error')await assert.rejects(operation,/список недоступен/);
+  else await operation;
+  assert.equal(listeners,0,outcome);
+}
+console.log('local-pc-snapshot-candidate: двойная проверка, хеширование и отмена ожидания на заглушках; полнота и Windows не проверены');
