@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const { syncStatus, syncItemStatus } = createRequire(import.meta.url)('../local-pc/sync-status.js');
-const itemState = (item, changes={}) => syncItemStatus({online:true,peerOnline:true,enabled:true,scanned:true,scanVerified:true,item,...changes});
+const itemState = (item, changes={}) => syncItemStatus({online:true,peerOnline:true,enabled:true,scanned:true,scanVerified:true,item:item && {type:'file',...item},...changes});
 const state = (items, changes={}) => syncStatus({online:true,peerOnline:true,enabled:true,scanned:true,scanVerified:true,items,...changes});
 const verified = {state:'synced',verified:true};
 assert.equal(syncStatus().state,'offline');
@@ -26,6 +26,8 @@ assert.equal(state([{state:'running'}]).canForce,false);
 assert.equal(state([{state:'error'}]).state,'error');
 assert.equal(state([{state:'conflict'}]).state,'conflict');
 assert.equal(state([{state:'conflict'},{state:'running'}]).icon,'warning');
+assert.equal(state([{state:'conflict'},{state:'running'}]).canForce,false);
+assert.equal(state([{state:'error'},{state:'running'}]).canForce,false);
 assert.equal(state([{state:'pending'}]).canForce,true);
 // Для всего окна используется только предоставленный измеренный общий прогресс;
 // произвольно выводить его из неполных данных отдельных строк нельзя.
@@ -54,4 +56,8 @@ assert.equal(itemState(active,{online:false}).label,'Нет соединения
 assert.equal(itemState(active,{peerOnline:false}).state,'peer-offline');
 assert.equal(itemState(null).state,'checking');
 assert.equal(itemState({state:'conflict'}).state,'conflict');
+assert.equal(itemState({...verified,type:'dir'}).state,'checking'); // нет дерева потомков
+assert.equal(itemState({...verified,type:'dir',subtreeVerified:true}).state,'checking');
+assert.equal(itemState({type:'dir',state:'pending'}).state,'pending');
+assert.equal(itemState({...verified,type:'unknown'}).state,'checking');
 console.log('local-pc-sync-status: модель строк, общего хода, связи и проверенной галочки; к интерфейсу не подключена');
