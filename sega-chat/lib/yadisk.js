@@ -116,12 +116,19 @@ function httpJSON(urlStr, opts = {}) {
     }, res => {
       const chunks = [];
       let size = 0;
+      // Частичное тело после успешных заголовков — неопределённый результат,
+      // а не окончательный ответ Яндекса. Ошибка req при этом не гарантирована.
+      const incomplete = () => reject(new Error('Ответ Яндекса прерван'));
+      res.on('aborted', incomplete);
+      res.on('error', incomplete);
+      res.on('close', () => { if (!res.complete) incomplete(); });
       res.on('data', c => {
         size += c.length;
         if (size > 2 * 1024 * 1024) { req.destroy(); reject(new Error('Слишком большой ответ')); return; }
         chunks.push(c);
       });
       res.on('end', () => {
+        if (!res.complete) return incomplete();
         const text = Buffer.concat(chunks).toString('utf8');
         let json = null;
         try { json = JSON.parse(text); } catch (e) { /* не JSON — маршруты посмотрят на text */ }

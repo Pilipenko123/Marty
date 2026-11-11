@@ -130,12 +130,19 @@ function httpJSON(urlStr, opts = {}) {
     const req = mod.request(u, { method: opts.method || (body ? 'POST' : 'GET'), headers, timeout: Number(opts.timeout || 10000) }, res => {
       const chunks = [];
       let size = 0;
+      // Сокет может оборваться после заголовков и части тела: ошибка req
+      // не всегда приходит. Незавершённый ответ нельзя считать успешным.
+      const incomplete = () => reject(new Error('Ответ Google прерван'));
+      res.on('aborted', incomplete);
+      res.on('error', incomplete);
+      res.on('close', () => { if (!res.complete) incomplete(); });
       res.on('data', c => {
         size += c.length;
         if (size > 2 * 1024 * 1024) { req.destroy(); reject(new Error('Слишком большой ответ')); return; }
         chunks.push(c);
       });
       res.on('end', () => {
+        if (!res.complete) return incomplete();
         const text = Buffer.concat(chunks).toString('utf8');
         let json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
