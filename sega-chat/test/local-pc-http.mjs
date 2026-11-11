@@ -136,7 +136,22 @@ try {
   assert.equal((await call(`/api/pc-lab/devices/${id}/revoke`,{auth:other,method:'POST'})).status,404);
   assert.equal((await call(`/api/pc-lab/devices/${id}/revoke`,{auth:owner,method:'POST'})).status,200);
   assert.equal((await call(pathAgent,{method:'POST',auth:agentAuth})).status,401);
+  assert.equal((await call(claimPath,{method:'POST',auth:setupAuth,body:{tokenHash:digest(token)}})).status,401);
   assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,0);
+  assert.equal((await call(requestUrl,{auth:owner,method:'POST',body:{requestId,packet}})).status,404);
+  // Случайная повторная регистрация старого кода не оживляет отозванный ПК,
+  // в том числе после штатного закрытия и открытия тестового хранилища.
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:register})).status,409);
+  assert.equal((await call('/api/pc-lab/devices',{auth:other,method:'POST',body:register})).status,409);
+  let savedUser=(await store.load()).users.find(u=>u.id===userId);
+  assert.deepEqual(savedUser.localPcDevices.find(d=>d.id===id),{id,state:'revoked'});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,0);
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:register})).status,409);
+  assert.equal((await call(pathAgent,{method:'POST',auth:agentAuth})).status,401);
+  assert.equal((await call(claimPath,{method:'POST',auth:setupAuth,body:{tokenHash:digest(token)}})).status,401);
+  savedUser=(await store.load()).users.find(u=>u.id===userId);
+  assert.deepEqual(savedUser.localPcDevices.find(d=>d.id===id),{id,state:'revoked'});
   // Полный лабораторный сценарий помощника: код, сохранение, claim, TLS, файл.
   const pair2=await pairing.create({url:tlsBase,userId,privateKey:keys.privateKey,publicKey:keys.publicKey});
   const parsed2=pairing.parse(pair2.code,tlsBase);

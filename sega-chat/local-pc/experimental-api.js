@@ -6,6 +6,10 @@ const crypto = require('node:crypto');
 const { createRelay, digest, MAX_PACKET } = require('./relay');
 const { MAX_FUTURE, CLOCK_SKEW } = require('./secure-channel');
 const ID = /^[a-f0-9]{32}$/, HASH = /^[a-f0-9]{64}$/;
+// Отозванные номера сохраняются без токенов и ключей, чтобы случайное повторное
+// использование того же кода не оживило старый ПК. При заполнении отказать в
+// новых регистрациях, но по-прежнему позволять отзыв существующих устройств.
+const MAX_DEVICE_RECORDS = 1024;
 const J = (status,json) => ({status,json});
 const E = (status,error) => J(status,{error});
 
@@ -50,7 +54,7 @@ function createExperimentalApi() {
     const expectedHash = HASH.test(claimHash || '') ? claimHash : '0'.repeat(64);
     const gotHash = digest(m ? m[2] : '0'.repeat(64));
     const ok = crypto.timingSafeEqual(Buffer.from(expectedHash,'hex'), Buffer.from(gotHash,'hex'));
-    if (!m || !found || !ok || (found.user.bannedUntil && found.user.bannedUntil > Date.now())) {
+    if (!m || !found || rec.state === 'revoked' || !ok || (found.user.bannedUntil && found.user.bannedUntil > Date.now())) {
       return E(badLogin(req.ip) ? 429 : 401, 'Подключение недоступно');
     }
     try {
@@ -84,7 +88,7 @@ function createExperimentalApi() {
     const list = Array.isArray(me.localPcDevices) ? me.localPcDevices : [];
     if (req.path === '/api/pc-lab/devices' && req.method === 'GET') {
       try {
-        return J(200,{devices:list.map(d => {
+        return J(200,{devices:list.filter(d=>d && d.state!=='revoked').map(d => {
           if (d.state !== 'active') return {id:d.id,title:d.title,wrappedKey:d.wrappedKey,online:false,state:Date.now()>d.claimUntil?'expired':'pending'};
           ensure(me.id,d); return {id:d.id,title:d.title,wrappedKey:d.wrappedKey,online:relay.status(me.id,d.id).online,state:'active'};
         })});
@@ -95,19 +99,21 @@ function createExperimentalApi() {
       if (typeof id !== 'string' || !ID.test(id) || typeof tokenHash !== 'string' || !HASH.test(tokenHash)
           || typeof wrappedKey !== 'string' || !/^[A-Za-z0-9+/_=-]{40,2048}$/.test(wrappedKey)
           || !title || title.length > 80 || /[\x00-\x1f\x7f]/.test(title)) return E(400,'Неверные данные подключения');
-      if (list.length >= 3 || find(db,id)) return E(409,'Не удалось добавить подключение');
+      if (list.length >= MAX_DEVICE_RECORDS || list.filter(d=>d && d.state!=='revoked').length >= 3 || find(db,id)) return E(409,'Не удалось добавить подключение');
       const rec = {id,tokenHash,wrappedKey,title,state:'pending',claimUntil:Date.now()+600000};
       me.localPcDevices = list.concat([rec]); save();
       return J(200,{ok:true});
     }
     const match = /^\/api\/pc-lab\/devices\/([a-f0-9]{32})\/(request|result|ack|revoke)$/.exec(req.path);
     if (!match) return E(404,'Не найдено');
-    const [,id,action] = match, rec = list.find(d => d.id === id);
+    const [,id,action] = match, rec = list.find(d => d && d.id === id && d.state!=='revoked');
     if (!rec) return E(404,'Подключение не найдено');
     try {
       if (action === 'revoke' && req.method === 'POST') {
         if (loaded.has(id)) { relay.revoke(me.id,id); loaded.delete(id); }
-        me.localPcDevices = list.filter(d => d.id !== id); save();
+        // Сохраняем только номер; прежние токены и обёрнутый ключ удаляются из
+        // текущей записи. Исторические резервные копии при этом не очищаются.
+        me.localPcDevices = list.map(d => d && d.id === id ? {id,state:'revoked'} : d); save();
         return J(200,{ok:true});
       }
       if (rec.state !== 'active') return E(409,'Подключение ещё не завершено');
@@ -134,4 +140,4 @@ function createExperimentalApi() {
   }
   return {agent,owner};
 }
-module.exports = { createExperimentalApi };
+module.exports = { createExperimentalApi, MAX_DEVICE_RECORDS };
