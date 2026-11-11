@@ -74,6 +74,18 @@ try {
   assert.equal(a.status,200);
   const invited=await call('/api/register',{method:'POST',body:{...creds('Другой'),inviteToken:a.data.invite.id+'.'+secretInvite}});
   assert.equal(invited.status,200); const other='Bearer '+invited.data.token;
+  // Доступ по умолчанию закрыт; решение принимается только администратором.
+  assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'none');
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner})).status,403);
+  assert.equal((await call('/api/pc-lab/access/admin',{auth:other})).status,403);
+  assert.equal((await call('/api/pc-lab/access/decision',{auth:other,method:'POST',body:{userId,requestId:hex(),decision:'approve'}})).status,403);
+  assert.equal((await call('/api/pc-lab/access/request',{auth:owner,method:'POST'})).data.state,'pending');
+  assert.equal((await call('/api/pc-lab/access/request',{auth:other,method:'POST'})).data.state,'pending');
+  let requests=await call('/api/pc-lab/access/admin',{auth:owner});assert.equal(requests.data.requests.length,2);
+  for(const request of requests.data.requests){
+    assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId:request.userId,requestId:request.requestId,decision:'approve'}})).data.state,'approved');
+  }
+  assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'approved');
   const keys=await crypto.webcrypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
   const prepared=await pairing.create({url:tlsBase,userId,privateKey:keys.privateKey,publicKey:keys.publicKey});
   const setup=pairing.parse(prepared.code,tlsBase), id=setup.deviceId, setupToken=setup.token, key=setup.secret, token=hex(32);
@@ -303,6 +315,31 @@ try {
   await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
   assert.equal((await call(pathAgent,{auth:newAuth3,method:'POST'})).status,401);
   assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:reg3})).status,409);
+  // Отзыв разрешения после регистрации блокирует агента и удаляет ключи старой
+  // привязки, а повторное разрешение не оживляет бывшее подключение.
+  const id4=hex(),old4=hex(32),new4=hex(32);
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:{id:id4,tokenHash:digest(old4),wrappedKey:'A'.repeat(60),title:'Отзыв доступа'}})).status,200);
+  assert.equal((await call(claimPath,{auth:`Local ${id4}:${old4}`,method:'POST',body:{tokenHash:digest(new4)}})).status,200);
+  assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,200);
+  const approvals=(await call('/api/pc-lab/access/admin',{auth:owner})).data.approved;
+  const ownerApproval=approvals.find(x=>x.userId===userId);assert(ownerApproval);
+  assert.equal((await call('/api/pc-lab/access/decision',{auth:other,method:'POST',body:{userId,requestId:ownerApproval.requestId,decision:'revoke'}})).status,403);
+  let failAccessFlush=true;const saveAccessFlush=store.flush.bind(store);
+  store.flush=async(...args)=>{if(failAccessFlush){failAccessFlush=false;throw Error('ошибка диска');}return saveAccessFlush(...args);};
+  assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:ownerApproval.requestId,decision:'revoke'}})).status,503);
+  const diskAfterFailure=JSON.parse(await fs.readFile(path.join(tmp,'data','db.json'),'utf8')).users.find(u=>u.id===userId);
+  assert.equal(diskAfterFailure.localPcAccess.state,'approved'); // в памяти уже отозвано, на диске ещё нет
+  assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'revoked'); // повторная запись перед ответом
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner})).status,403);
+  assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'revoked');
+  assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
+  assert.equal((await call('/api/pc-lab/access/request',{auth:owner,method:'POST'})).data.state,'pending');
+  const current=(await call('/api/pc-lab/access/admin',{auth:owner})).data.requests.find(x=>x.userId===userId);
+  assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:ownerApproval.requestId,decision:'approve'}})).status,409);
+  assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:current.requestId,decision:'approve'}})).status,200);
+  assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
   console.log('local-pc-http: лабораторные HTTP и TLS, привязка, сессии, чтение, перезапуск и отзыв проверены; режим выключен по умолчанию');
 } finally {
   if(tlsServer) await new Promise(resolve=>tlsServer.close(resolve));

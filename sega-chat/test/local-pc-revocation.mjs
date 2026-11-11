@@ -7,8 +7,9 @@ const makeId=n=>n.toString(16).padStart(32,'0'), token='b'.repeat(64), setup='c'
 const record=(n,state='active')=>({id:makeId(n),state,tokenHash:digest(token),claimHash:digest(setup),claimUntil:Date.now()+60000,title:'ПК',wrappedKey:'X'.repeat(60)});
 const reg=n=>({id:makeId(n),tokenHash:digest(setup),wrappedKey:'A'.repeat(60),title:'ПК'});
 const req=(path,method='GET',body={})=>({path,method,body,query:new URLSearchParams(),headers:{},ip:'test'});
+const approved=()=>({id:makeId(999),state:'approved',requestedAt:1,decidedAt:2,by:'admin'});
 let saves=0;const save=()=>{saves++};
-const api=createExperimentalApi(), user={id:'owner',localPcDevices:[record(1)]}, other={id:'other',localPcDevices:[]}, db={users:[user,other]};
+const api=createExperimentalApi(), user={id:'owner',localPcAccess:approved(),localPcDevices:[record(1)]}, other={id:'other',localPcAccess:approved(),localPcDevices:[]}, db={users:[user,other]};
 const owner=(path,method='GET',body={},me=user)=>api.owner(req(path,method,body),db,me,save);
 const device='/api/pc-lab/devices/';
 const auth=(id,t,path='/api/pc-lab/agent/poll',body={})=>api.agent({...req(path,'POST',body),headers:{authorization:`Local ${id}:${t}`}},db,save);
@@ -30,7 +31,7 @@ assert.equal(owner(device+makeId(2)+'/revoke','POST').status,200);
 assert.equal(owner('/api/pc-lab/devices','POST',reg(5)).status,200);
 assert.equal(owner('/api/pc-lab/devices').json.devices.length,3);
 // Память отметок ограничена, но отзыв уже существующего ПК всегда доступен.
-const fullApi=createExperimentalApi(), fullUser={id:'full',localPcDevices:[]};
+const fullApi=createExperimentalApi(), fullUser={id:'full',localPcAccess:approved(),localPcDevices:[]};
 for(let i=0;i<MAX_DEVICE_RECORDS-1;i++)fullUser.localPcDevices.push({id:makeId(10000+i),state:'revoked'});
 fullUser.localPcDevices.push(record(90000));const fullDb={users:[fullUser]};let fullSaves=0;
 const full=(path,method='GET',body={})=>fullApi.owner(req(path,method,body),fullDb,fullUser,()=>{fullSaves++});

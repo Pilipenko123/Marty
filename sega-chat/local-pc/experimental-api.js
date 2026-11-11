@@ -25,6 +25,56 @@ function createExperimentalApi() {
       loaded.set(rec.id, owner);
     } else if (loaded.get(rec.id) !== owner) throw new Error('Неверное подключение');
   }
+  // Разрешение относится только к этой лаборатории, не выдаёт доступ к
+  // настоящим папкам. Полученные от клиента роли/идентификаторы не доверяются:
+  // me и db должны быть предоставлены аутентифицирующим API из серверной базы.
+  function access(user) {
+    const rec=user && user.localPcAccess;
+    if (rec === undefined || rec === null) return null;
+    if (!rec || typeof rec!=='object' || Array.isArray(rec) || typeof rec.id!=='string' || !ID.test(rec.id)
+      || !['pending','approved','denied','revoked'].includes(rec.state)
+      || !Number.isSafeInteger(rec.requestedAt) || rec.requestedAt<=0
+      || (rec.state!=='pending' && (typeof rec.by!=='string' || !rec.by || !Number.isSafeInteger(rec.decidedAt) || rec.decidedAt<=0))) return false;
+    return rec;
+  }
+  function permitted(user) { const a=access(user);return !!a && a.state==='approved'; }
+  function clearDevices(user) {
+    const devices=Array.isArray(user.localPcDevices)?user.localPcDevices:[];
+    for(const d of devices) if(d && typeof d.id==='string' && loaded.get(d.id)===user.id) {
+      relay.revoke(user.id,d.id);loaded.delete(d.id);
+    }
+    // Старые коды и токены не оживают, даже если впоследствии разрешат заново.
+    user.localPcDevices=devices.map(d=>d && ID.test(d.id || '')?{id:d.id,state:'revoked'}:d);
+  }
+  function accessRoutes(req,db,me,save) {
+    if(req.path==='/api/pc-lab/access' && req.method==='GET') {
+      const a=access(me);return a===false?E(503,'Состояние разрешения повреждено'):J(200,{state:a?a.state:'none'});
+    }
+    if(req.path==='/api/pc-lab/access/request' && req.method==='POST') {
+      const a=access(me);if(a===false)return E(503,'Состояние разрешения повреждено');
+      if(a && (a.state==='pending' || a.state==='approved'))return J(200,{state:a.state});
+      clearDevices(me); // Старые лабораторные коды не должны пережить новое разрешение.
+      me.localPcAccess={id:crypto.randomBytes(16).toString('hex'),state:'pending',requestedAt:Date.now()};save();
+      return J(200,{state:'pending'});
+    }
+    if(req.path==='/api/pc-lab/access/admin' && req.method==='GET') {
+      if(me.isAdmin!==true)return E(403,'Только для администратора');
+      const record=(u,a)=>({userId:u.id,name:u.name,requestId:a.id,requestedAt:a.requestedAt});
+      return J(200,{requests:(db.users || []).flatMap(u=>{const a=access(u);return a && a.state==='pending'?[record(u,a)]:[];}),
+        approved:(db.users || []).flatMap(u=>{const a=access(u);return a && a.state==='approved'?[record(u,a)]:[];})});
+    }
+    if(req.path==='/api/pc-lab/access/decision' && req.method==='POST') {
+      if(me.isAdmin!==true)return E(403,'Только для администратора');
+      const b=req.body || {}, target=typeof b.userId==='string' && (db.users || []).find(u=>u.id===b.userId);
+      if(!target || typeof b.requestId!=='string' || !ID.test(b.requestId) || !['approve','deny','revoke'].includes(b.decision))return E(400,'Неверное решение');
+      const a=access(target);
+      if(!a || a.id!==b.requestId || (b.decision==='revoke'?a.state!=='approved':a.state!=='pending'))return E(409,'Запрос устарел или уже рассмотрен');
+      if(b.decision==='revoke')clearDevices(target);
+      target.localPcAccess={...a,state:b.decision==='approve'?'approved':b.decision==='deny'?'denied':'revoked',by:me.id,decidedAt:Date.now()};save();
+      return J(200,{state:target.localPcAccess.state});
+    }
+    return E(404,'Не найдено');
+  }
   function badLogin(ip) {
     const now = Date.now(), key = String(ip || 'unknown');
     for (const [k,v] of failures) if (now - v.at > 600000) failures.delete(k);
@@ -54,7 +104,7 @@ function createExperimentalApi() {
     const expectedHash = HASH.test(claimHash || '') ? claimHash : '0'.repeat(64);
     const gotHash = digest(m ? m[2] : '0'.repeat(64));
     const ok = crypto.timingSafeEqual(Buffer.from(expectedHash,'hex'), Buffer.from(gotHash,'hex'));
-    if (!m || !found || rec.state === 'revoked' || !ok || (found.user.bannedUntil && found.user.bannedUntil > Date.now())) {
+    if (!m || !found || rec.state === 'revoked' || !ok || !permitted(found.user) || (found.user.bannedUntil && found.user.bannedUntil > Date.now())) {
       return E(badLogin(req.ip) ? 429 : 401, 'Подключение недоступно');
     }
     try {
@@ -85,6 +135,11 @@ function createExperimentalApi() {
     }
   }
   function owner(req, db, me, save) {
+    if(req.path.startsWith('/api/pc-lab/access'))return accessRoutes(req,db,me,save);
+    // Отзыв своих подключений разрешён и после отзыва администратором; всё
+    // остальное, включая старые привязки, закрыто без явного разрешения.
+    const ownRevoke=req.method==='POST' && /^\/api\/pc-lab\/devices\/[a-f0-9]{32}\/revoke$/.test(req.path);
+    if(!permitted(me) && !ownRevoke)return E(403,'Нужно разрешение администратора');
     const list = Array.isArray(me.localPcDevices) ? me.localPcDevices : [];
     if (req.path === '/api/pc-lab/devices' && req.method === 'GET') {
       try {
