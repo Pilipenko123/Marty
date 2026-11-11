@@ -1,5 +1,5 @@
 ﻿// Экспериментальная Windows-граница для чтения. НЕ подключена к обычному запуску.
-// До компиляции, проверки на Windows 10 и независимого аудита не использовать
+// До компиляции и проверки на Windows 10 и независимого аудита не использовать
 // на настоящих файлах. Здесь НЕТ записи, переименования или удаления.
 using System;
 using System.Collections.Generic;
@@ -183,7 +183,7 @@ public static class SegaLocalGuard {
     // Эксперимент: одно открытие на весь расчёт с запретом обычных
     // параллельных открытий для записи/удаления. Это НЕ атомарный снимок:
     // отображения в память, особенности ФС, доверие пути и гонки не доказаны.
-    // Нужны компиляция, проверка на Windows 10 и независимый аудит.
+    // Нужны компиляция и проверка на Windows 10 и независимый аудит.
     public static HashResult HashLocked(string root,string dev,string ino,string relative) {
         if(dev==null || ino==null || !Regex.IsMatch(dev,@"^\d+$") || !Regex.IsMatch(ino,@"^[1-9]\d*$"))throw new IOException("Неверная папка");
         string[] parts=Parts(relative);
