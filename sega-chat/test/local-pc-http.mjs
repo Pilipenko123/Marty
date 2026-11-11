@@ -18,6 +18,15 @@ const {createCoordinator,anchorFolder} = require('../local-pc/agent-coordinator.
 const {digest} = require('../local-pc/relay.js');
 const secure = require('../local-pc/secure-channel.js');
 const pairing = require('../local-pc/pairing.js');
+// Эксперимент не допускает фоновую запись: её отставание может ложным образом
+// подтвердить привязку или отзыв. Обычный режим сюда не меняется.
+const previousBackground=process.env.FILE_FLUSH_BG;
+try {
+  process.env.FILE_FLUSH_BG='1';
+  assert.throws(()=>createApi({name:'file'},{localPcExperimental:true}),/фоновым сохранением/);
+} finally {
+  if(previousBackground===undefined)delete process.env.FILE_FLUSH_BG;else process.env.FILE_FLUSH_BG=previousBackground;
+}
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(),'sega-local-http-'));
 const hex = (n=16) => crypto.randomBytes(n).toString('hex');
 let server, tlsServer, store;
@@ -180,6 +189,31 @@ try {
   assert.equal((await call('/api/pc-lab/agent/claim',{auth:`Local ${id2}:${t2}`,method:'POST',body:{tokenHash:digest(new2)}})).status,401);
   assert.equal((await call(`/api/pc-lab/devices/${id2}/revoke`,{auth:owner,method:'POST'})).status,200);
   assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,0);
+  // Сбой записи в тестовой базе: память уже изменена, но на диске ещё старое
+  // состояние. Повтор должен заново записать его до ответа, даже если сам
+  // запрос выглядит как повтор уже совершённого действия.
+  const id3=hex(), old3=hex(32), token3=hex(32), reg3={id:id3,tokenHash:digest(old3),wrappedKey:'A'.repeat(60),title:'Проверка сбоя'};
+  let failNext=false;const actualFlush=store.flush.bind(store);
+  store.flush=async(...args)=>{if(failNext){failNext=false;throw new Error('секретный текст ошибки');}return actualFlush(...args)};
+  const onDisk=async()=>JSON.parse(await fs.readFile(path.join(tmp,'data','db.json'),'utf8')).users.find(u=>u.id===userId).localPcDevices.find(d=>d.id===id3);
+  failNext=true;let failed=await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:reg3});
+  assert.equal(failed.status,503);assert(!failed.data.error.includes('секретный'));assert.equal(await onDisk(),undefined);
+  // Повтор регистрации не выдаёт успех за новое устройство; его результат
+  // фиксирует оставшееся в памяти состояние, если новая запись удалась.
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:reg3})).status,409);
+  assert.equal((await onDisk()).state,'pending');
+  const auth3=`Local ${id3}:${old3}`, newAuth3=`Local ${id3}:${token3}`;
+  failNext=true;failed=await call(claimPath,{auth:auth3,method:'POST',body:{tokenHash:digest(token3)}});
+  assert.equal(failed.status,503);assert.equal((await onDisk()).state,'pending');
+  assert.equal((await call(claimPath,{auth:auth3,method:'POST',body:{tokenHash:digest(token3)}})).status,200);
+  assert.equal((await onDisk()).state,'active');assert.equal((await onDisk()).tokenHash,digest(token3));
+  failNext=true;failed=await call(`/api/pc-lab/devices/${id3}/revoke`,{auth:owner,method:'POST'});
+  assert.equal(failed.status,503);assert.equal((await onDisk()).state,'active');
+  assert.equal((await call(`/api/pc-lab/devices/${id3}/revoke`,{auth:owner,method:'POST'})).status,404);
+  assert.deepEqual(await onDisk(),{id:id3,state:'revoked'});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  assert.equal((await call(pathAgent,{auth:newAuth3,method:'POST'})).status,401);
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:reg3})).status,409);
   console.log('local-pc-http: лабораторные HTTP и TLS, привязка, сессии, чтение, перезапуск и отзыв проверены; режим выключен по умолчанию');
 } finally {
   if(tlsServer) await new Promise(resolve=>tlsServer.close(resolve));

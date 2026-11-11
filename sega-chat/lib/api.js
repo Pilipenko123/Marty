@@ -32,6 +32,12 @@ const BUILD = 'pkg3-153';
 const BACKUP_DL_MAX = 3.2 * MB;
 
 function createApi(store, opts = {}) {
+  // Лабораторной привязке нельзя подтверждать результат до записи в хранилище.
+  // Фоновая волна может перезаписать новый снимок старым, поэтому сочетание
+  // с ней запрещено целиком. Это не гарантия сохранения при потере питания.
+  if (opts.localPcExperimental === true && store.name === 'file' && String(process.env.FILE_FLUSH_BG || '') === '1') {
+    throw new Error('Лабораторное подключение несовместимо с фоновым сохранением');
+  }
   // Эксперимент доступен только тестам, передавшим явный флаг; ни server.js,
   // ни облачная функция его не включают. Файловое хранилище и один процесс.
   const localPcLab = opts.localPcExperimental === true && store.name === 'file'
@@ -5497,7 +5503,14 @@ function createApi(store, opts = {}) {
       if (e && e.statusCode) return { status: e.statusCode, json: { error: e.message } };
       throw e;
     }
-    if (dirty || store.dirty) {
+    // Даже повтор или чтение лабораторного состояния сбрасывает его на диск.
+    // После неудачной предыдущей записи память уже могла измениться, хотя
+    // клиенту вернулся 503; нельзя ответить об успехе без новой попытки записи.
+    const flushLab = localPcLab && typeof req.path === 'string' && req.path.startsWith('/api/pc-lab/');
+    if (flushLab) {
+      try { await store.flush(db); }
+      catch (e) { return { status: 503, json: { error: 'Не удалось сохранить данные лабораторного подключения' } }; }
+    } else if (dirty || store.dirty) {
       if (BG_FLUSH) {
         // pkg3-84: ответ не держим — изменения подберёт фоновая волна
         // (на выходе службу дожмёт синхронный финальный сброс)
