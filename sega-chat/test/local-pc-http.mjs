@@ -335,8 +335,21 @@ try {
   await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
   assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'revoked');
   assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
-  assert.equal((await call('/api/pc-lab/access/request',{auth:owner,method:'POST'})).data.state,'pending');
-  const current=(await call('/api/pc-lab/access/admin',{auth:owner})).data.requests.find(x=>x.userId===userId);
+  // При сбое создания заявки данные уже в памяти, но ещё не на диске.
+  // Индикатор не должен получить успешный список, пока и его сохранение
+  // не удалось; после восстановления список и диск снова согласованы.
+  const originalFlush=store.flush.bind(store);let diskUnavailable=true,flushAttempts=0;
+  store.flush=async(...args)=>{flushAttempts++;if(diskUnavailable)throw Error('ошибка тестового диска');return originalFlush(...args);};
+  assert.equal((await call('/api/pc-lab/access/request',{auth:owner,method:'POST'})).status,503);
+  const diskAccess=async()=>JSON.parse(await fs.readFile(path.join(tmp,'data','db.json'),'utf8')).users.find(u=>u.id===userId).localPcAccess;
+  assert.equal((await diskAccess()).state,'revoked');
+  const unavailableList=await call('/api/pc-lab/access/admin',{auth:owner});assert.equal(unavailableList.status,503);
+  assert.equal(unavailableList.data.requests,undefined);assert.equal((await diskAccess()).state,'revoked');
+  diskUnavailable=false;
+  const recoveredList=await call('/api/pc-lab/access/admin',{auth:owner});assert.equal(recoveredList.status,200);
+  const current=recoveredList.data.requests.find(x=>x.userId===userId);assert(current);
+  assert.equal((await diskAccess()).id,current.requestId);assert.equal((await diskAccess()).state,'pending');
+  assert.equal(flushAttempts,3);store.flush=originalFlush;
   assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:ownerApproval.requestId,decision:'approve'}})).status,409);
   assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:current.requestId,decision:'approve'}})).status,200);
   assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);

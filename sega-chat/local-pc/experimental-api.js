@@ -63,9 +63,17 @@ function createExperimentalApi() {
     }
     if(req.path==='/api/pc-lab/access/admin' && req.method==='GET') {
       if(me.isAdmin!==true)return E(403,'Только для администратора');
-      const record=(u,a)=>({userId:u.id,name:u.name,requestId:a.id,requestedAt:a.requestedAt});
-      return J(200,{requests:(db.users || []).flatMap(u=>{const a=access(u);return a && a.state==='pending'?[record(u,a)]:[];}),
-        approved:(db.users || []).flatMap(u=>{const a=access(u);return a && a.state==='approved'?[record(u,a)]:[];})});
+      const requests=[],approved=[];
+      for(const u of db.users || []) {
+        const a=access(u);
+        // Повреждённое состояние нельзя незаметно исключить: иначе опрос
+        // ошибочно покажет, что ожидающих заявок или разрешений нет.
+        if(a===false)return E(503,'Состояние разрешения повреждено');
+        if(!a || (a.state!=='pending' && a.state!=='approved'))continue;
+        const record={userId:u.id,name:u.name,requestId:a.id,requestedAt:a.requestedAt};
+        (a.state==='pending'?requests:approved).push(record);
+      }
+      return J(200,{requests,approved});
     }
     if(req.path==='/api/pc-lab/access/decision' && req.method==='POST') {
       if(me.isAdmin!==true)return E(403,'Только для администратора');

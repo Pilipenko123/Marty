@@ -41,5 +41,11 @@ assert.equal(decide(admin,'alice',second,'approve').status,409);assert.equal(dec
 assert.equal(agent2().status,401);assert.equal(act(alice,devices,'POST',registration).status,409);
 // Повреждённая запись не выдаёт право и не перезаписывается автоматически.
 bob.localPcAccess={state:'approved'};assert.equal(status(bob).status,503);assert.equal(act(bob,devices).status,403);assert.equal(request(bob).status,503);
-assert(!JSON.stringify(adminList(admin).json).includes(token2));assert(saves>=6);
+// Нельзя выдать неполный список как пустой или корректный. Ошибка не
+// раскрывает ни идентификатор повреждённого пользователя, ни секреты.
+const corruptList=adminList(admin);assert.equal(corruptList.status,503);
+assert.equal(corruptList.json.requests,undefined);assert.equal(corruptList.json.approved,undefined);
+assert(!JSON.stringify(corruptList.json).includes(token2));assert(!JSON.stringify(corruptList.json).includes('bob'));
+assert.equal(adminList(bob).status,403);delete bob.localPcAccess;
+assert.equal(adminList(admin).status,200);assert.equal(adminList(admin).json.approved.length,1);assert(saves>=6);
 console.log('local-pc-access-approval: запрос, отказ, новое рассмотрение и отзыв проверены только в лабораторной модели');
