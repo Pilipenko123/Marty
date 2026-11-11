@@ -47,7 +47,7 @@ const FILES = [
   { id: RENAME_ID, name: 'Старое имя.txt', mimeType: 'text/plain', size: '10', parents: [rootFolderId], trashed: false }
 ];
 const seen = { mkdir: [], rename: [], trash: [], sessions: [], uploads: [] };
-let newId = 0;
+let newId = 0, falseTrashReply = false;
 
 const mock = http.createServer((rq, rs) => {
   const u = new URL(rq.url, 'http://mock');
@@ -122,6 +122,7 @@ const mock = http.createServer((rq, rs) => {
       if (!f) return jsend(404, { error: { message: 'File not found', errors: [{ reason: 'notFound' }] } });
       if (rq.method === 'PATCH') {
         if (body && typeof body.name === 'string') { seen.rename.push({ id, from: f.name, to: body.name }); f.name = body.name; }
+        if (body && body.trashed === true && falseTrashReply) return jsend(200, meta(f));
         if (body && body.trashed === true) { seen.trash.push({ id, name: f.name }); f.trashed = true; }
         return jsend(200, meta(f));
       }
@@ -215,6 +216,11 @@ r = await call('/api/yadisk/list?path=' + encodeURIComponent('google:/root'), {}
 ok((r.d.items || []).some(x => x.path === 'google:/' + RENAME_ID && x.name === 'Новое имя.txt'), 'новое имя видно в списке');
 
 console.log('\n  4. Удаление — в корзину Google');
+falseTrashReply = true;
+r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', path: 'google:/' + RENAME_ID } }, A.token);
+ok(r.status === 502 && /не подтвердил/.test(String(r.d.error || '')), 'неподтверждённый перенос не считается успешным');
+ok(seen.trash.length === 0, 'файл остался на игрушечном диске без подтверждения');
+falseTrashReply = false;
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', path: 'google:/' + RENAME_ID } }, A.token);
 ok(r.status === 200, 'удалить можно');
 ok(seen.trash.length === 1 && seen.trash[0].id === RENAME_ID, 'Google получил «в корзину», а не «навсегда»');

@@ -655,12 +655,25 @@ async function trashPath(token, googlePath, c) {
   const id = idOf(googlePath);
   if (!id || id === 'root') { const e = new Error('Неверный путь к файлу на Google Диске'); e.status = 400; throw e; }
   const q = new URLSearchParams({ supportsAllDrives: 'true', fields: 'id,name,trashed' });
-  const r = await httpJSON(conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
-    method: 'PATCH',
-    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-    json: { trashed: true }
-  });
-  if (r.status !== 200 || !r.json) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
+  // Ошибка сети может произойти уже после того, как Google принял изменение.
+  // Не повторяем запрос автоматически и не выдаём такой исход за отказ или успех.
+  const unknown = () => {
+    const e = new Error('Google не подтвердил перенос в корзину. Проверьте состояние файла и корзину перед повторной попыткой.');
+    e.status = 502; return e;
+  };
+  let r;
+  try {
+    r = await httpJSON(conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
+      method: 'PATCH',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      json: { trashed: true }
+    });
+  } catch (_) { throw unknown(); }
+  if ((r.status < 400 && r.status !== 200) || r.status >= 500 || r.status === 408 || r.status === 429 ||
+      (r.status === 200 && (!r.json || r.json.id !== id || r.json.trashed !== true))) throw unknown();
+  if (r.status !== 200) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
+  // Это только ответ текущей операции, не защита от гонок и не доказательство
+  // согласованной групповой синхронизации или права менять содержимое папки.
   return { ok: true, path: 'google:/' + id };
 }
 
