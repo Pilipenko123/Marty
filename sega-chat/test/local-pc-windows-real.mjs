@@ -1,6 +1,7 @@
 // Настоящий DPAPI и синтаксис скриптов: только одноразовая виртуальная машина CI.
 // НИКОГДА не перезаписывает существующую пользовательскую установку.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -39,6 +40,8 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     await fs.symlink(root,alias,'junction');
     try {await assert.rejects(provider.anchor(alias));} finally {await fs.rmdir(alias);}
     const a=await provider.anchor(root), folder=await provider.folder(root,a);
+    const hashProvider=createWindowsFolderProvider({timeoutMs:60000,enableLockedHash:true});
+    const hashFolder=await hashProvider.folder(root,a);
     assert.equal(a.root.toLowerCase(),root.toLowerCase());
     assert((await folder.list('')).some(x=>x.name==='nested' && x.dir));
     assert(!(await folder.list('')).some(x=>['junction','hardlink.txt'].includes(x.name)));
@@ -47,6 +50,8 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     await assert.rejects(folder.list('junction'));
     await assert.rejects(folder.read('junction/secret.txt',0,100));
     await assert.rejects(folder.read('hardlink.txt',0,100));
+    await assert.rejects(hashFolder.hashFile('junction/secret.txt'));
+    await assert.rejects(hashFolder.hashFile('hardlink.txt'));
     // Раздельно проверяем отказ при каждом запрещённом элементе; ни один
     // неполный список не должен возвращаться как результат строгого режима.
     await fs.unlink(path.join(root,'hardlink.txt'));
@@ -57,6 +62,22 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
     await fs.unlink(path.join(root,'hardlink.txt'));
     assert.deepEqual((await folder.listFailOnSkipped('')).map(x=>x.name),['nested']);
     await assert.rejects(folder.read('../outside/secret.txt',0,100));
+    // Будущая проверка целого файла в одно открытие; в Linux не запускается.
+    const testFile=path.join(root,'nested','тест.txt'),original=await fs.readFile(testFile);
+    const stamped=await hashFolder.hashFile('nested/тест.txt');
+    assert.equal(stamped.hash,crypto.createHash('sha256').update(original).digest('hex'));
+    assert.equal(stamped.size,original.length);
+    assert.equal((await folder.read('nested/тест.txt',0,4)).version,stamped.version);
+    await assert.rejects(hashFolder.hashFile('../outside/secret.txt'));
+    await fs.writeFile(path.join(root,'nested','empty.bin'),Buffer.alloc(0));
+    const emptyHash=await hashFolder.hashFile('nested/empty.bin');
+    assert.equal(emptyHash.hash,crypto.createHash('sha256').update(Buffer.alloc(0)).digest('hex'));
+    await fs.writeFile(path.join(root,'nested','oversized.bin'),Buffer.alloc(8*1024*1024+1));
+    await assert.rejects(hashFolder.hashFile('nested/oversized.bin'));
+    await fs.unlink(path.join(root,'nested','empty.bin'));await fs.unlink(path.join(root,'nested','oversized.bin'));
+    const writer=await fs.open(testFile,'r+');
+    try {await assert.rejects(hashFolder.hashFile('nested/тест.txt'));} finally {await writer.close();}
+    assert.equal((await hashFolder.hashFile('nested/тест.txt')).hash,stamped.hash);
     const first=await folder.read('nested/тест.txt',0,4);
     const rest=await folder.read('nested/тест.txt',4,100,first.version);
     assert.equal(Buffer.concat([first.data,rest.data]).toString(),'безопасный текст');

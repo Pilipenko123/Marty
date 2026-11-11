@@ -5,8 +5,9 @@ const path=require('node:path');
 const {spawn}=require('node:child_process');
 const {partsOf,MAX_ENTRIES}=require('./folder');
 const {abortError,validateSignal,checkAborted}=require('./abort');
-const MAX_READ=128*1024, MAX_RESPONSE=512*1024;
-function createWindowsFolderProvider({platform=process.platform,spawnProcess=spawn,timeoutMs=30000}={}) {
+const MAX_READ=128*1024, MAX_RESPONSE=512*1024, MAX_HASH_FILE=8*1024*1024;
+function createWindowsFolderProvider({platform=process.platform,spawnProcess=spawn,timeoutMs=30000,enableLockedHash=false}={}) {
+  if(typeof enableLockedHash!=='boolean')throw new Error('Неверные параметры');
   if(platform!=='win32') throw new Error('Доступно только на Windows');
   function rootPath(root) {
     if(typeof root!=='string' || root.length>4096 || !/^[a-zA-Z]:\\/.test(root)) throw new Error('Выберите локальную папку');
@@ -81,7 +82,17 @@ function createWindowsFolderProvider({platform=process.platform,spawnProcess=spa
       if(data.toString('base64')!==out.data || data.length>length || data.length>Math.max(0,out.size-offset))throw new Error('Неверный ответ');
       return {data,size:out.size,modified:out.modified,version:out.version};
     }
-    return Object.freeze({list,listFailOnSkipped,read});
+    // Не включается по умолчанию и не подключён к помощнику. Одно открытие
+    // удерживается до конца вычисления, но это ещё не доказанный снимок Windows.
+    async function hashFile(relative,signal) {
+      if(!enableLockedHash || !partsOf(relative).length)throw new Error('Проверка файла недоступна');
+      const out=await call({op:'hashLocked',root,...saved,path:relative},signal);
+      if(!out || Object.keys(out).sort().join(',')!=='hash,modified,size,version' || !Number.isSafeInteger(out.size) || out.size<0 || out.size>MAX_HASH_FILE
+        || typeof out.hash!=='string' || !/^[a-f0-9]{64}$/.test(out.hash) || typeof out.version!=='string' || !/^[a-f0-9]{64}$/.test(out.version)
+        || typeof out.modified!=='string' || !out.modified || out.modified.length>100)throw new Error('Неверный ответ');
+      return {hash:out.hash,size:out.size,modified:out.modified,version:out.version};
+    }
+    return Object.freeze(enableLockedHash?{list,listFailOnSkipped,read,hashFile}:{list,listFailOnSkipped,read});
   }
   return Object.freeze({anchor,folder});
 }
