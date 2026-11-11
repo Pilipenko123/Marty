@@ -1,0 +1,35 @@
+/* Неподключённый черновик: не входит в оформление мессенджера. */
+.local-pc-disk-view {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #f5f7fa;
+  color: #1b2b3e;
+  font: 15px/1.45 system-ui, sans-serif;
+}
+.local-pc-disk-view *, .local-pc-disk-view *::before, .local-pc-disk-view *::after { box-sizing: border-box; }
+.local-pc-disk-view header { background: #fff; padding: 14px 18px 8px; border-bottom: 1px solid #dce3ea; }
+.local-pc-disk-view h2 { margin: 0; font-size: 19px; }
+.local-pc-disk-view header p { margin: 6px 0; }
+.local-pc-disk-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.local-pc-disk-view button { font: inherit; cursor: pointer; }
+.local-pc-disk-toolbar button { border: 1px solid #c9d5df; border-radius: 6px; background: #fff; padding: 7px 12px; }
+.local-pc-disk-view button:focus-visible { outline: 3px solid #2076c4; outline-offset: 2px; }
+.local-pc-disk-view button:disabled { opacity: .55; cursor: default; }
+.local-pc-disk-location { overflow-wrap: anywhere; color: #42576a; }
+.local-pc-disk-status { margin: 0; padding: 10px 18px; min-height: 42px; }
+.local-pc-disk-items { flex: 1; min-height: 0; margin: 0; padding: 0 10px 18px; overflow-y: auto; list-style: none; }
+.local-pc-disk-item { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 45px; padding: 8px; text-align: left; border: 1px solid transparent; border-radius: 5px; color: inherit; background: transparent; }
+.local-pc-disk-item:hover:not(:disabled) { background: #e7f2fc; border-color: #c5dff2; }
+.local-pc-disk-icon { flex: none; font-size: 22px; }
+.local-pc-disk-name { min-width: 0; overflow-wrap: anywhere; flex: 1; }
+.local-pc-disk-type { color: #607386; font-size: 13px; flex: none; }
+@media (max-width: 600px) {
+  .local-pc-disk-view header { padding: 10px 12px 6px; }
+  .local-pc-disk-status { padding: 8px 12px; }
+  .local-pc-disk-item { min-height: 52px; }
+}
