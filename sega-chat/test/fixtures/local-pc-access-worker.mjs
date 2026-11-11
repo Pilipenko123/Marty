@@ -9,6 +9,7 @@ const {createAccessRequestView,disposeAccessRequestView}=require('../../local-pc
 const {createAdminAccessView,disposeAdminAccessView}=require('../../local-pc/admin-access-view');
 const {createAdminRequestMonitor}=require('../../local-pc/admin-request-monitor');
 const {createAdminRequestIndicator}=require('../../local-pc/admin-request-indicator');
+const {createAdminSession}=require('../../local-pc/admin-session');
 const message=()=>new Promise(r=>process.once('message',r));
 const tick=()=>new Promise(r=>setTimeout(r,10));
 async function until(f){for(let n=0;n<200;n++){if(f())return;await tick();}throw Error('Окно не обновилось');}
@@ -20,35 +21,43 @@ try{
   else{
     const ah=make(alice),bh=make(bob),mh=make(admin);
     await assert.rejects(ah.listRequests());
-    let pollsFinished=0,decisions=0,manage,openCount=0;
+    let pollsFinished=0,decisions=0,sessionToken=admin;
     const redirect=createAccessHttp({getToken:()=>alice,prefix:'/redirect',timeoutMs:1000});await assert.rejects(redirect.getStatus());
     const dom=new JSDOM('<!doctype html><body></body>'),doc=dom.window.document;
-    const nonAdmin=createAdminRequestIndicator(doc,{createMonitor:createAdminRequestMonitor,listRequests:ah.listRequests,onOpen(){}});
-    nonAdmin.start();await until(()=>nonAdmin.root.textContent.includes('Количество неизвестно'));nonAdmin.dispose();
-    const indicator=createAdminRequestIndicator(doc,{createMonitor:createAdminRequestMonitor,
-      listRequests:async s=>{try{return await mh.listRequests(s);}finally{pollsFinished++;}},
-      onOpen:()=>{openCount++;manage=createAdminAccessView(doc,{...mh,decide:async(...args)=>{decisions++;return mh.decide(...args);},onClose(){}});doc.body.appendChild(manage);}});
-    const own=createAccessRequestView(doc,{...ah,onClose(){}});doc.body.append(own,indicator.root);
-    assert.equal(pollsFinished,0);indicator.start();await until(()=>indicator.root.textContent.includes('Ожидают решения по последней проверке: 0.'));
-    indicator.root.querySelector('[data-action=open]').click();await until(()=>manage && !own.querySelector('[data-action=request]').disabled && manage.textContent.includes('Нет ожидающих заявок'));
-    assert.equal(openCount,1);
+    const deps={getToken:()=>sessionToken,createMonitor:createAdminRequestMonitor,createIndicator:createAdminRequestIndicator,
+      createAdminView:createAdminAccessView,disposeAdminView:disposeAdminAccessView,
+      createAccessHttp:opts=>{const http=createAccessHttp({...opts,timeoutMs:3000});return {...http,
+        listRequests:async s=>{try{return await http.listRequests(s);}finally{pollsFinished++;}},
+        decide:async(...args)=>{decisions++;return http.decide(...args);}};}};
+    const session=createAdminSession(doc,deps);
+    const own=createAccessRequestView(doc,{...ah,onClose(){}});doc.body.append(own,session.root);
+    assert.equal(pollsFinished,0);assert(session.start());await until(()=>session.root.textContent.includes('Ожидают решения по последней проверке: 0.'));
+    session.root.querySelector('[data-action=open]').click();await until(()=>session.root.querySelector('[role=dialog]') && !own.querySelector('[data-action=request]').disabled && session.root.textContent.includes('Нет ожидающих заявок'));
+    const manage=session.root.querySelector('[role=dialog]');assert.equal(session.root.querySelectorAll('[role=dialog]').length,1);
     own.querySelector('[data-action=request]').click();await until(()=>own.textContent.includes('Ожидаем решения'));
-    assert(indicator.refresh());await until(()=>indicator.root.textContent.includes('Ожидают решения по последней проверке: 1.'));
-    assert(indicator.refresh());await until(()=>pollsFinished===3);await tick();assert(indicator.root.textContent.includes('Ожидают решения по последней проверке: 1.'));
+    assert(session.refresh());await until(()=>session.root.textContent.includes('Ожидают решения по последней проверке: 1.'));
+    assert(session.refresh());await until(()=>pollsFinished===3);await tick();assert(session.root.textContent.includes('Ожидают решения по последней проверке: 1.'));
     manage.querySelector('[data-action=refresh]').click();await until(()=>manage.textContent.includes('Алиса') && !!manage.querySelector('[data-decision=approve]'));
     // Сервер принял первое решение, но намеренно оборвал ответ. Окно не
     // повторяет запрос и предлагает проверить список.
     manage.querySelector('[data-decision=approve]').click();await until(()=>manage.textContent.includes('Не удалось подтвердить состояние'));
     assert.equal(decisions,1);assert.equal(manage.querySelector('[data-decision]'),null);
     manage.querySelector('[data-action=refresh]').click();await until(()=>manage.querySelector('[aria-label="Разрешено"]').textContent.includes('Алиса'));
-    assert(indicator.refresh());await until(()=>indicator.root.textContent.includes('Ожидают решения по последней проверке: 0.'));
+    assert(session.refresh());await until(()=>session.root.textContent.includes('Ожидают решения по последней проверке: 0.'));
     own.querySelector('[data-action=refresh]').click();await until(()=>own.textContent.includes('Администратор разрешил функцию'));
     const ownBob=createAccessRequestView(doc,{...bh,onClose(){}});doc.body.appendChild(ownBob);
     await until(()=>!ownBob.querySelector('[data-action=request]').disabled);ownBob.querySelector('[data-action=request]').click();await until(()=>ownBob.textContent.includes('Ожидаем решения'));
     manage.querySelector('[data-action=refresh]').click();await until(()=>manage.textContent.includes('Борис') && !!manage.querySelector('[data-decision=deny]'));
     manage.querySelector('[data-decision=deny]').click();await until(()=>manage.textContent.includes('Решение принято. Список обновлён.'));
     ownBob.querySelector('[data-action=refresh]').click();await until(()=>ownBob.textContent.includes('Администратор отклонил запрос'));
-    assert.equal(decisions,2);indicator.dispose();disposeAccessRequestView(own);disposeAccessRequestView(ownBob);disposeAdminAccessView(manage);dom.window.close();
+    assert.equal(decisions,2);
+    // Смена учётной записи не передаёт новый токен старому окну.
+    const oldClose=manage.querySelector('[data-action=close]');sessionToken=alice;assert(!session.checkSession());
+    assert.equal(session.root.textContent,'');assert.equal(manage.textContent,'');assert(oldClose.disabled);oldClose.click();
+    const nonAdmin=createAdminSession(doc,deps);doc.body.appendChild(nonAdmin.root);assert(nonAdmin.start());
+    await until(()=>nonAdmin.root.textContent.includes('Количество неизвестно'));nonAdmin.root.querySelector('[data-action=open]').click();
+    await until(()=>nonAdmin.root.textContent.includes('Не удалось получить список'));assert(!nonAdmin.root.querySelector('[data-decision]'));nonAdmin.dispose();
+    disposeAccessRequestView(own);disposeAccessRequestView(ownBob);dom.window.close();
     process.send({step:'done'});process.disconnect();
   }
 }catch(e){console.error(e);process.exitCode=1;process.disconnect();}
