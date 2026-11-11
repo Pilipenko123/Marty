@@ -13,6 +13,7 @@ const {createFileStore} = require('../lib/store-file.js');
 const {createApi} = require('../lib/api.js');
 const {createFolder} = require('../local-pc/folder.js');
 const {createReadService} = require('../local-pc/read-service.js');
+const {createOwnerReadClient} = require('../local-pc/owner-read-client.js');
 const {createAgentClient} = require('../local-pc/agent-client.js');
 const {createCoordinator,anchorFolder} = require('../local-pc/agent-coordinator.js');
 const {digest} = require('../local-pc/relay.js');
@@ -134,6 +135,16 @@ try {
   const plain2=await secure.open(key,res2.data.packet,{channel:id,direction:'response',request:rid2,expires:exp2});
   assert.equal(Buffer.from(JSON.parse(new TextDecoder().decode(plain2)).data,'base64').toString(),'Личные данные');
   assert.equal(await agent.step(),false);
+  // Клиент владельца проверяет шифрованный ответ до подтверждения. Ничего не
+  // записывается на устройство; тест использует только локальный сервер.
+  const ownerReader=createOwnerReadClient({secret:key,deviceId:id});
+  const ownerJob=await ownerReader.list('');
+  assert.equal((await call(requestUrl,{auth:owner,method:'POST',body:{requestId:ownerJob.requestId,packet:ownerJob.packet}})).status,200);
+  assert.equal(await agent.step(),true);
+  const ownerResult=await call(`/api/pc-lab/devices/${id}/result?requestId=${ownerJob.requestId}`,{auth:owner});
+  const checked=await ownerReader.accept(ownerJob,ownerResult.data.packet);
+  assert.equal(checked.ok,true);assert.equal(checked.items[0].name,'своё.txt');
+  assert.equal((await call(ackUrl,{auth:owner,method:'POST',body:{requestId:ownerJob.requestId}})).status,200);
   await assert.rejects(createAgentClient({baseUrl:tlsBase,deviceId:id,token:hex(32),service,ca:cert}).step());
   const dbRaw=await fs.readFile(path.join(tmp,'data','db.json'),'utf8');
   assert(!dbRaw.includes(token)); assert(!dbRaw.includes(setupToken)); assert(!dbRaw.includes('своё.txt')); assert(dbRaw.includes(digest(token)));

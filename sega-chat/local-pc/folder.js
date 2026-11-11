@@ -8,22 +8,10 @@ const constants = require('node:fs').constants;
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {validateSignal,checkAborted} = require('./abort');
+const {partsOf} = require('./path-rules');
 
 const MAX_CHUNK = 256 * 1024;
 const MAX_ENTRIES = 5000;
-const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\..*)?$/i;
-
-function partsOf(relative) {
-  if (typeof relative !== 'string' || relative.length > 4096) throw new Error('Неверный путь');
-  if (relative === '') return [];
-  if (relative.startsWith('/') || relative.endsWith('/') || /[\\\x00-\x1f\x7f:]/.test(relative)) throw new Error('Неверный путь');
-  const parts = relative.split('/');
-  if (parts.some(p => !p || p === '.' || p === '..' || p.length > 255 || /[<>"|?*]/.test(p) || /[. ]$/.test(p) || WINDOWS_DEVICE.test(p))) {
-    throw new Error('Неверный путь');
-  }
-  return parts;
-}
-
 async function createFolder(root) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('Выберите папку на компьютере');
   // Пользователь выбирает корень лично. Закрепляем его настоящий путь; ссылки
