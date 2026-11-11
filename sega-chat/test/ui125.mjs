@@ -36,6 +36,7 @@ const PHOTO_ITEMS = [
   { name: 'beach.jpg', path: 'disk:/Фото/beach.jpg', type: 'file', size: 204800, mime_type: 'image/jpeg', media_type: 'image', preview: 'https://downloader.disk.yandex.ru/preview/beach' },
   { name: 'clip.mp4', path: 'disk:/Фото/clip.mp4', type: 'file', size: 9437184, mime_type: 'video/mp4', media_type: 'video', preview: 'https://downloader.disk.yandex.ru/preview/clip' }
 ];
+let deleteMode = 'sync', deleteRequests = 0;
 const ROOT_ITEMS = [{ name: 'Фото', path: 'disk:/Фото', type: 'dir' }];
 
 const mock = http.createServer((rq, rs) => {
@@ -53,7 +54,12 @@ const mock = http.createServer((rq, rs) => {
     return jsend(200, { path: p, type: 'dir', _embedded: { items, total: items.length } });
   }
   if (rq.method === 'PUT' && u.pathname === '/v1/disk/resources') return jsend(201, {});
-  if (rq.method === 'DELETE' && u.pathname === '/v1/disk/resources') { rs.writeHead(204); return rs.end(); }
+  if (rq.method === 'DELETE' && u.pathname === '/v1/disk/resources') {
+    deleteRequests++;
+    if (deleteMode !== 'sync') return jsend(202, { href: mockBase + '/v1/disk/operations?id=op125', method: 'GET', templated: false });
+    rs.writeHead(204); return rs.end();
+  }
+  if (rq.method === 'GET' && u.pathname === '/v1/disk/operations') return jsend(200, { status: deleteMode === 'async-success' ? 'success' : 'in-progress' });
   if (rq.method === 'POST' && u.pathname === '/v1/disk/resources/move') return jsend(201, {});
   if (rq.method === 'GET' && u.pathname === '/v1/disk/resources/upload') {
     return jsend(200, { href: 'https://uploader.disk.yandex.ru/put/abc?sign=125', method: 'PUT' });
@@ -158,6 +164,14 @@ r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'rename', of: A.i
 ok(r.status === 200, 'переименование внутри папки проходит');
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', of: A.id, path: 'disk:/Фото/Другая' } }, B.token);
 ok(r.status === 200, 'удаление внутри папки проходит (файл уходит в корзину Диска)');
+deleteMode = 'async-success';
+r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', of: A.id, path: 'disk:/Фото/Другая' } }, B.token);
+ok(r.status === 200, 'асинхронный перенос подтверждён тестовым Яндексом');
+deleteMode = 'async-pending'; const beforePending = deleteRequests;
+r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', of: A.id, path: 'disk:/Фото/Другая' } }, B.token);
+ok(r.status === 502 && /не подтвердил/.test(String(r.d.error || '')), 'незавершённая операция не объявлена успешной');
+ok(deleteRequests === beforePending + 1, 'удаление не повторяется автоматически');
+deleteMode = 'sync';
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', of: A.id, path: 'disk:/Фото' } }, B.token);
 ok(r.status === 403, 'саму открытую папку удалить нельзя');
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', of: A.id, path: 'disk:/Чужое' } }, B.token);

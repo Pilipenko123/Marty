@@ -33,9 +33,8 @@ try {
   assert.equal(requests[1].method,'PATCH');assert.deepEqual(JSON.parse(requests[1].body),{trashed:true});
   const n=requests.length;await assert.rejects(removePath('TEST-Y','disk:/',c));await assert.rejects(trashPath('TEST-G','google:/root',c));assert.equal(requests.length,n);
   mode='deny';await assert.rejects(removePath('TEST-Y','disk:/file',c));await assert.rejects(trashPath('TEST-G','google:/fakeID',c));
-  // Яндекс 202 всё ещё принимается общим методом без ожидания завершения:
-  // нельзя использовать его ok как подтверждение групповой синхронизации.
-  mode='async';assert.equal((await removePath('TEST-Y','disk:/file',c)).ok,true);
+  // 202 без достоверной ссылки — неподтверждённый исход, не успех.
+  mode='async';await assert.rejects(removePath('TEST-Y','disk:/file',c),e=>e.status===502 && /не подтвердил/.test(e.message));
   // Неоднозначные ответы Google и обрыв после отправки не объявляем успехом;
   // запрос не повторяется автоматически, исход требует перепроверки вручную.
   for(const state of ['false','string','missing-id','missing-trashed','wrong-id','bad-json','lost','server-error','redirect']){

@@ -370,17 +370,57 @@ async function writeCheck(token, c) {
   return { canWrite: true, status: 200, error: '', cleaned };
 }
 
-/** pkg3-125: удалить файл или папку (в корзину Диска, без «навсегда»). */
+// Адрес статуса приходит в ответе удалённого сервиса. Прежде чем посылать по
+// нему токен, разрешаем только тот же настроенный origin и документированные
+// формы пути операции; никаких redirect, дополнительных параметров или userinfo.
+function trashOperationUrl(link, apiBase) {
+  if (!link || link.method !== 'GET' || link.templated !== false || typeof link.href !== 'string' || link.href.length > 2048) return '';
+  try {
+    const base = new URL(apiBase), u = new URL(link.href);
+    if (!['https:', 'http:'].includes(base.protocol) || base.username || base.password || u.origin !== base.origin || u.username || u.password || u.hash) return '';
+    const id = '[A-Za-z0-9_-]{1,512}';
+    if (u.pathname === '/v1/disk/operations') {
+      const entries = [...u.searchParams];
+      if (entries.length !== 1 || entries[0][0] !== 'id' || !(new RegExp('^' + id + '$')).test(entries[0][1])) return '';
+    } else if (!(new RegExp('^/v1/disk/operations/' + id + '$')).test(u.pathname) || u.search) return '';
+    return u.href;
+  } catch (_) { return ''; }
+}
+function unknownTrashResult() {
+  const e = new Error('Яндекс не подтвердил перенос в корзину. Проверьте состояние файла и корзину перед повторной попыткой.');
+  e.status = 502; return e;
+}
+/** Убрать в корзину, не удаляя навсегда. 202 — только начало операции; ждём
+ * несколько ответов о статусе и не запускаем удаление повторно. Это не механизм
+ * синхронизации и не защита от замены файла или изменения содержимого папки. */
 async function removePath(token, diskPath, c) {
   const conf = c || cfg();
   const p = apiPath(safePath(diskPath));
   if (!p || p === 'disk:/') { const e = new Error('Корень Диска удалить нельзя'); e.status = 400; throw e; }
   const q = new URLSearchParams({ path: p, permanently: 'false' });
-  const r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
-    method: 'DELETE', headers: { Authorization: 'OAuth ' + token }
-  });
-  if (r.status !== 204 && r.status !== 200 && r.status !== 202) { const e = new Error(writeErrorText(r, 'del')); e.status = r.status; throw e; }
-  return { ok: true, path: p };
+  let r;
+  try {
+    r = await httpJSON(conf.apiBase + '/v1/disk/resources?' + q.toString(), {
+      method: 'DELETE', headers: { Authorization: 'OAuth ' + token }
+    });
+  } catch (_) { throw unknownTrashResult(); }
+  if (r.status === 204) return { ok: true, path: p };
+  if (r.status === 202) {
+    const operation = trashOperationUrl(r.json, conf.apiBase);
+    if (!operation) throw unknownTrashResult();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise(resolve => setTimeout(resolve, 250));
+      let result;
+      try { result = await httpJSON(operation, { headers: { Authorization: 'OAuth ' + token }, timeout: 2000 }); }
+      catch (_) { throw unknownTrashResult(); }
+      if (result.status !== 200 || !result.json) throw unknownTrashResult();
+      if (result.json.status === 'success') return { ok: true, path: p };
+      if (result.json.status !== 'in-progress') throw unknownTrashResult();
+    }
+    throw unknownTrashResult();
+  }
+  if ((r.status < 400) || r.status >= 500 || r.status === 408 || r.status === 429) throw unknownTrashResult();
+  const e = new Error(writeErrorText(r, 'del')); e.status = r.status; throw e;
 }
 
 /** pkg3-125: переименовать/перенести (POST /v1/disk/resources/move). */
