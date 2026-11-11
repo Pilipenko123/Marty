@@ -34,6 +34,18 @@ const oneTarget=build();oneTarget.slice(0,-1).forEach(m=>drop(m,'b'));
 assert.deepEqual(run(oneTarget).candidates[0].presentOn,[{id:'m6',kind:'yandex'}]);
 assert.deepEqual(run(oneTarget).candidates[0].missingOn,['m1','m2','m3','m4','m5']);
 const additions=build();additions[0].snapshot.push(file('new'));assert.deepEqual(run(additions),{candidates:[],conflicts:[]});
+// Без данных об идентичности перенос или переименование выглядит как потеря
+// старого пути и появление нового. Не выдавать такое за кандидат удаления.
+const renamed=build();drop(renamed[0],'b');renamed[0].snapshot.push(file('renamed',1));
+assert.deepEqual(run(renamed),{candidates:[],conflicts:[{path:'b'}]});
+const renamedTree=build();drop(renamedTree[1],'docs');renamedTree[1].snapshot.push(dir('papers'),dir('papers/sub'),file('papers/sub/a'));
+assert.deepEqual(run(renamedTree),{candidates:[],conflicts:[{path:'docs'}]});
+// Даже независимое добавление задерживает другие удаления: это ограничение
+// опыта, а не желаемое поведение будущего продукта.
+const unrelatedNew=build();drop(unrelatedNew[0],'b');unrelatedNew[3].snapshot.push(file('unrelated'));
+assert.deepEqual(run(unrelatedNew),{candidates:[],conflicts:[{path:'b'}]});
+const beforeRename=createDeletionRecheck({enabled:true,baseConfirmed:true,base,members:(()=>{const m=build();drop(m[0],'b');return m;})()});
+assert.equal(beforeRename.isCurrent(beforeRename.candidates[0],{enabled:true,baseConfirmed:true,base,members:renamed}),false);
 assert.deepEqual(run(build()),{candidates:[],conflicts:[]});
 const offline=build();drop(offline[0],'b');offline[4].online=false;assert.throws(()=>run(offline));
 const incomplete=build();drop(incomplete[0],'b');incomplete[5].complete=false;assert.throws(()=>run(incomplete));

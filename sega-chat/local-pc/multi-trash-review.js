@@ -29,6 +29,16 @@ function reviewGroupDeletions(options={}){
     if(!missing.length || !present.length || item.changedBy.some(id=>!missing.includes(id)))continue;
     candidates.push({path:item.path,entryType:old.type,missingOn:missing,presentOn:present});
   }
+  // Смена пути может выглядеть как исчезновение старого и появление нового.
+  // Без доверенной истории не пытаемся сопоставить их по содержимому: любое
+  // новое имя откладывает ВСЕ кандидаты удаления, даже не связанные с ним.
+  // Это консервативная модель и не доказывает, что остальные случаи безопасны.
+  const hasAddedPath=maps.some(map=>[...map.keys()].some(path=>!base.has(path)));
+  if(hasAddedPath){
+    for(const candidate of candidates)conflicts.push({path:candidate.path});
+    candidates.length=0;
+    conflicts.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
+  }
   return {candidates,conflicts};
 }
 // Только повторный расчёт ранее замеченной сводки на новых входных данных.
