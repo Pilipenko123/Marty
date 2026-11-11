@@ -175,4 +175,4 @@ function confirmSyncBase({enabled, online, peerOnline, leftComplete, rightComple
   return [...L.entries()].sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([path, entry]) => ({path, ...entry}));
 }
-module.exports = { planSync, planInitialSync, isInitialPlanActionCurrent, isPlanActionCurrent, confirmSyncBase, MAX_ITEMS };
+module.exports = { planSync, planInitialSync, isInitialPlanActionCurrent, isPlanActionCurrent, confirmSyncBase, MAX_ITEMS, parseSnapshot };
