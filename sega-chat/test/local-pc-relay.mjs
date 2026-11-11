@@ -1,7 +1,7 @@
 // Изолированный тест почтового ящика, это не подключённый API.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const {createRelay,digest,MAX_PACKET,MAX_PENDING,MAX_RECENT,MAX_AGE,REPLAY_WINDOW,LEASE,ONLINE_AGE} = createRequire(import.meta.url)('../local-pc/relay.js');
+const {createRelay,digest,MAX_PACKET,MAX_PENDING,MAX_RECENT,MAX_DEVICES,MAX_TOTAL_BYTES,MAX_AGE,REPLAY_WINDOW,LEASE,ONLINE_AGE} = createRequire(import.meta.url)('../local-pc/relay.js');
 const {MAX_FUTURE,CLOCK_SKEW} = createRequire(import.meta.url)('../local-pc/secure-channel.js');
 assert.equal(REPLAY_WINDOW,MAX_FUTURE+CLOCK_SKEW+1);
 let now = 1_000_000;
@@ -96,4 +96,21 @@ for(const rid of [expired,completed,unacked])replay.request('owner',dev,rid,'н�
 // Это ограничение живёт только в памяти. Перезапуск/отзыв стирает отметки.
 const restarted=createRelay({clock:()=>replayTime});restarted.register('owner',dev,digest(tok));
 assert.doesNotThrow(()=>restarted.request('owner',dev,expired,'новый'));
+// Глобальные пределы реле общие для всех пользователей и НЕ означают,
+// что система выдержит такую нагрузку на настоящем VPS.
+const many=createRelay(),mk=n=>n.toString(16).padStart(32,'0');
+for(let n=1;n<=MAX_DEVICES;n++)many.register('owner'+n,mk(n),digest(tok));
+assert.throws(()=>many.register('next',mk(MAX_DEVICES+1),digest(tok)));
+many.revoke('owner2',mk(2));many.register('next',mk(MAX_DEVICES+1),digest(tok));
+assert.throws(()=>many.next(mk(2),tok));assert.equal(many.next(mk(MAX_DEVICES+1),tok),null);
+const capacity=createRelay();capacity.register('one',mk(1),digest(tok));capacity.register('two',mk(2),digest(tok));
+const packet='x'.repeat(MAX_PACKET);assert.equal(MAX_TOTAL_BYTES,2*MAX_PENDING*MAX_PACKET);
+for(const d of [1,2])for(let i=0;i<MAX_PENDING;i++)capacity.request(d===1?'one':'two',mk(d),mk(i),packet);
+capacity.register('three',mk(3),digest(tok));
+assert.throws(()=>capacity.request('three',mk(3),mk(101),packet),/много/); // общий лимит занят
+capacity.revoke('one',mk(1));
+// При освобождении общего лимита ограничение очереди конкретного устройства
+// по-прежнему действует; новое устройство получает освобождённую память.
+assert.throws(()=>capacity.request('two',mk(2),mk(100),packet));
+capacity.request('three',mk(3),mk(101),packet);
 console.log('local-pc-relay: владельцы, отзыв, подтверждение, ограничения и повторы проверены в памяти');

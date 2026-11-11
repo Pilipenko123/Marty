@@ -1,7 +1,7 @@
 // Только экспериментальный API и поддельная база в памяти, не реальный отзыв.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-const {createExperimentalApi,MAX_DEVICE_RECORDS}=createRequire(import.meta.url)('../local-pc/experimental-api.js');
+const {createExperimentalApi,MAX_DEVICE_RECORDS,MAX_ACTIVE_DEVICES}=createRequire(import.meta.url)('../local-pc/experimental-api.js');
 const {digest}=createRequire(import.meta.url)('../local-pc/relay.js');
 const makeId=n=>n.toString(16).padStart(32,'0'), token='b'.repeat(64), setup='c'.repeat(64);
 const record=(n,state='active')=>({id:makeId(n),state,tokenHash:digest(token),claimHash:digest(setup),claimUntil:Date.now()+60000,title:'ПК',wrappedKey:'X'.repeat(60)});
@@ -23,13 +23,16 @@ assert.equal(owner(device+makeId(1)+'/revoke','POST').status,404);
 assert.equal(owner('/api/pc-lab/devices').json.devices.length,0);
 assert.equal(owner('/api/pc-lab/devices','POST',reg(1)).status,409);
 assert.equal(owner('/api/pc-lab/devices','POST',reg(1),other).status,409);
-// Отозванные записи не занимают три живых слота; новые коды имеют новые номера.
-for(const n of [2,3,4])assert.equal(owner('/api/pc-lab/devices','POST',reg(n)).status,200);
-assert.equal(owner('/api/pc-lab/devices').json.devices.length,3);
-assert.equal(owner('/api/pc-lab/devices','POST',reg(5)).status,409);
+// Подключаются более четырёх, но установлен явный предел лаборатории.
+// Отозванная запись не занимает активный слот; прежний код не перерегистрировать.
+assert(MAX_ACTIVE_DEVICES>=5);
+for(let n=2;n<MAX_ACTIVE_DEVICES+2;n++)assert.equal(owner('/api/pc-lab/devices','POST',reg(n)).status,200);
+assert.equal(owner('/api/pc-lab/devices').json.devices.length,MAX_ACTIVE_DEVICES);
+assert.equal(owner('/api/pc-lab/devices','POST',reg(MAX_ACTIVE_DEVICES+2)).status,409);
 assert.equal(owner(device+makeId(2)+'/revoke','POST').status,200);
-assert.equal(owner('/api/pc-lab/devices','POST',reg(5)).status,200);
-assert.equal(owner('/api/pc-lab/devices').json.devices.length,3);
+assert.equal(owner('/api/pc-lab/devices','POST',reg(2)).status,409);
+assert.equal(owner('/api/pc-lab/devices','POST',reg(MAX_ACTIVE_DEVICES+2)).status,200);
+assert.equal(owner('/api/pc-lab/devices').json.devices.length,MAX_ACTIVE_DEVICES);
 // Память отметок ограничена, но отзыв уже существующего ПК всегда доступен.
 const fullApi=createExperimentalApi(), fullUser={id:'full',localPcAccess:approved(),localPcDevices:[]};
 for(let i=0;i<MAX_DEVICE_RECORDS-1;i++)fullUser.localPcDevices.push({id:makeId(10000+i),state:'revoked'});

@@ -10,6 +10,10 @@ const ID = /^[a-f0-9]{32}$/, HASH = /^[a-f0-9]{64}$/;
 // использование того же кода не оживило старый ПК. При заполнении отказать в
 // новых регистрациях, но по-прежнему позволять отзыв существующих устройств.
 const MAX_DEVICE_RECORDS = 1024;
+// Только ограничение лабораторного прототипа на учётную запись. Глобальный
+// предел реле и доступная память отдельно ограничивают одновременную работу;
+// это не обещание вместимости или максимального числа устройств продукта.
+const MAX_ACTIVE_DEVICES = 32;
 const J = (status,json) => ({status,json});
 const E = (status,error) => J(status,{error});
 
@@ -154,7 +158,7 @@ function createExperimentalApi() {
       if (typeof id !== 'string' || !ID.test(id) || typeof tokenHash !== 'string' || !HASH.test(tokenHash)
           || typeof wrappedKey !== 'string' || !/^[A-Za-z0-9+/_=-]{40,2048}$/.test(wrappedKey)
           || !title || title.length > 80 || /[\x00-\x1f\x7f]/.test(title)) return E(400,'Неверные данные подключения');
-      if (list.length >= MAX_DEVICE_RECORDS || list.filter(d=>d && d.state!=='revoked').length >= 3 || find(db,id)) return E(409,'Не удалось добавить подключение');
+      if (list.length >= MAX_DEVICE_RECORDS || list.filter(d=>d && d.state!=='revoked').length >= MAX_ACTIVE_DEVICES || find(db,id)) return E(409,'Не удалось добавить подключение');
       const rec = {id,tokenHash,wrappedKey,title,state:'pending',claimUntil:Date.now()+600000};
       me.localPcDevices = list.concat([rec]); save();
       return J(200,{ok:true});
@@ -195,4 +199,4 @@ function createExperimentalApi() {
   }
   return {agent,owner};
 }
-module.exports = { createExperimentalApi, MAX_DEVICE_RECORDS };
+module.exports = { createExperimentalApi, MAX_DEVICE_RECORDS, MAX_ACTIVE_DEVICES };

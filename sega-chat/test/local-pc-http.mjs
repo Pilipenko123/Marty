@@ -340,7 +340,40 @@ try {
   assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:ownerApproval.requestId,decision:'approve'}})).status,409);
   assert.equal((await call('/api/pc-lab/access/decision',{auth:owner,method:'POST',body:{userId,requestId:current.requestId,decision:'approve'}})).status,200);
   assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
-  console.log('local-pc-http: лабораторные HTTP и TLS, привязка, сессии, чтение, перезапуск и отзыв проверены; режим выключен по умолчанию');
+  // Пять отдельных виртуальных ПК одного владельца через локальный HTTP;
+  // это тест изоляции очередей, не реальная синхронизация ПК или облака.
+  const sameRequest=hex(),expiresMany=Date.now()+60000,many=[];
+  for(let n=0;n<5;n++){
+    const dev=hex(),bootstrap=hex(32),agent=hex(32),secret=crypto.randomBytes(32);
+    assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:{id:dev,tokenHash:digest(bootstrap),wrappedKey:'A'.repeat(60),title:'ПК '+n}})).status,200);
+    assert.equal((await call(claimPath,{auth:`Local ${dev}:${bootstrap}`,method:'POST',body:{tokenHash:digest(agent)}})).status,200);
+    const packet=await secure.seal(secret,dev,'request',sameRequest,expiresMany,new TextEncoder().encode('вопрос '+n));
+    many.push({dev,agent,secret,packet,n});
+  }
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,5);
+  // Даже при совпадении номера запросы не переходят между ПК/владельцами.
+  for(const m of many){
+    const url=`/api/pc-lab/devices/${m.dev}/request`;
+    assert.equal((await call(url,{auth:other,method:'POST',body:{requestId:sameRequest,packet:m.packet}})).status,404);
+    assert.equal((await call(url,{auth:owner,method:'POST',body:{requestId:sameRequest,packet:m.packet}})).status,200);
+  }
+  const removed=many[2];assert.equal((await call(`/api/pc-lab/devices/${removed.dev}/revoke`,{auth:owner,method:'POST'})).status,200);
+  assert.equal((await call(pathAgent,{auth:`Local ${removed.dev}:${removed.agent}`,method:'POST'})).status,401);
+  for(const m of many.filter(x=>x!==removed)){
+    const auth=`Local ${m.dev}:${m.agent}`;
+    const job=(await call(pathAgent,{auth,method:'POST'})).data.job;assert.equal(job.packet,m.packet);
+    assert.equal(Buffer.from(await secure.open(m.secret,job.packet,{channel:m.dev,direction:'request',request:sameRequest,expires:expiresMany})).toString(),'вопрос '+m.n);
+    const reply=await secure.seal(m.secret,m.dev,'response',sameRequest,expiresMany,new TextEncoder().encode('ответ '+m.n));
+    assert.equal((await call('/api/pc-lab/agent/reply',{auth,method:'POST',body:{requestId:sameRequest,claim:job.claim,packet:reply}})).status,200);
+    const result=(await call(`/api/pc-lab/devices/${m.dev}/result?requestId=${sameRequest}`,{auth:owner})).data;
+    assert.equal(Buffer.from(await secure.open(m.secret,result.packet,{channel:m.dev,direction:'response',request:sameRequest,expires:expiresMany})).toString(),'ответ '+m.n);
+    assert.equal((await call(`/api/pc-lab/devices/${m.dev}/ack`,{auth:owner,method:'POST',body:{requestId:sameRequest}})).status,200);
+  }
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,4);
+  assert.equal((await call(pathAgent,{auth:`Local ${removed.dev}:${removed.agent}`,method:'POST'})).status,401);
+  for(const m of many.filter(x=>x!==removed))assert.equal((await call(pathAgent,{auth:`Local ${m.dev}:${m.agent}`,method:'POST'})).status,200);
+  console.log('local-pc-http: лабораторные HTTP и TLS, пять виртуальных ПК, изоляция, перезапуск и отзыв проверены; режим выключен по умолчанию');
 } finally {
   if(tlsServer) await new Promise(resolve=>tlsServer.close(resolve));
   if(server) await new Promise(resolve=>server.close(resolve));
