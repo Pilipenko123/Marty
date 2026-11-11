@@ -1,0 +1,18 @@
+/* Изолированный черновик, не подключён к стилям мессенджера. */
+.local-file-preview { position: fixed; inset: 0; z-index: 1100; display: flex; flex-direction: column; min-height: 0; background: #eef1f4; color: #1d2936; font: 15px/1.5 system-ui, sans-serif; }
+.local-file-preview *, .local-file-preview *::before, .local-file-preview *::after { box-sizing: border-box; }
+.local-file-preview header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; background: #fff; border-bottom: 1px solid #d9e0e6; }
+.local-file-preview-title { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: 17px; }
+.local-file-preview button { border: 1px solid #cbd5df; border-radius: 6px; background: #fff; padding: 7px 10px; color: inherit; font: inherit; cursor: pointer; }
+.local-file-preview button:disabled { opacity: .45; cursor: default; }
+.local-file-preview button:focus-visible { outline: 3px solid #2076c4; outline-offset: 2px; }
+.local-file-preview-status { margin: 0; padding: 5px 14px; }
+.local-file-preview-status:empty { display: none; }
+.local-file-preview-content { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; touch-action: pan-y; }
+.local-file-preview-paper { flex: 1 0 auto; width: 100%; margin: 0; padding: 24px; background: #fff; color: #1d2936; white-space: pre-wrap; overflow-wrap: anywhere; font: 16px/1.6 system-ui, sans-serif; }
+.local-file-preview-image { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+@media (max-width: 600px) {
+  .local-file-preview header { padding: 8px; gap: 5px; }
+  .local-file-preview button { min-height: 42px; }
+  .local-file-preview-paper { padding: 16px; }
+}

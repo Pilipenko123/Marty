@@ -105,12 +105,42 @@ connection.querySelector('[data-action=open]').click();assert.equal(offlineCalls
 offlineRelease(tree['']);await tick();assert.equal(connection.querySelectorAll('[data-action=file]').length,0);
 connected=true;dom.window.dispatchEvent(new dom.window.Event('online'));
 assert.match(connection.querySelector('[role=status]').textContent,/Соединение восстановлено/);assert.equal(offlineCalls,1);disposeOwnerDiskView(connection);
+// Пробный просмотр открывается поверх той же папки и закрывается обратно в неё.
+// Байты поставляет только заглушка; сохранение файла не реализовано.
+let previewLoads=[],previewClosed=0,previewRevoked=[],downloadPrompts=0,latePreviewRelease,latePreviewSignal;
+const images=[{name:'первый.png',dir:false,size:8,modified},{name:'текст.txt',dir:false,size:5,modified},{name:'второй.jpg',dir:false,size:3,modified}];
+const previewDisk=createOwnerDiskView(doc,{listDirectory:async p=>p===''?[{name:'Фото',dir:true,size:0,modified}]:images,
+  transfer:{async transfer(){throw Error('must not download');}},confirmDownload:()=>{downloadPrompts++;return false;},onClose(){previewClosed++;},
+  loadPreview:async(p,signal)=>{previewLoads.push(p);if(p.endsWith('.png'))return Uint8Array.from([137,80,78,71,13,10,26,10]);
+    if(p.endsWith('.jpg'))return Uint8Array.from([255,216,255]);return new TextEncoder().encode('Текст');},
+  createPreviewUrl:()=>`blob:example/${previewLoads.length}`,revokePreviewUrl:u=>previewRevoked.push(u)});
+doc.body.appendChild(previewDisk);previewDisk.querySelector('[data-action=open]').click();await until(()=>!!previewDisk.querySelector('[data-action=directory]'));
+previewDisk.querySelector('[data-action=directory]').click();await until(()=>previewDisk.querySelectorAll('[data-action=file]').length===3);
+previewDisk.querySelector('[data-action=file]').click();await until(()=>!!doc.querySelector('.local-file-preview img'));
+assert.equal(previewLoads[0],'Фото/первый.png');assert.equal(previewDisk.getAttribute('aria-hidden'),'true');assert.equal(downloadPrompts,0);
+doc.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));await until(()=>previewLoads.includes('Фото/второй.jpg'));
+doc.querySelector('.local-file-preview [data-action=close]').click();assert.equal(doc.querySelector('.local-file-preview'),null);
+assert.equal(previewDisk.hasAttribute('aria-hidden'),false);assert(previewDisk.textContent.includes('Фото'));assert.equal(previewClosed,0);assert(previewRevoked.length>=2);
+previewDisk.querySelectorAll('[data-action=file]')[1].click();await until(()=>!!doc.querySelector('.local-file-preview pre'));
+assert.equal(doc.querySelector('.local-file-preview pre').textContent,'Текст');doc.querySelector('.local-file-preview [data-action=close]').click();
+previewDisk.querySelector('[data-action=get-file]').click();await until(()=>previewDisk.querySelector('[role=status]').textContent==='Скачивание отменено.');assert.equal(downloadPrompts,1);
+disposeOwnerDiskView(previewDisk);previewDisk.remove();
+// Закрытие диска отменяет открытый просмотр, даже если источник не слушает сигнал.
+const closing=createOwnerDiskView(doc,{listDirectory:async()=>[images[0]],transfer:{async transfer(){}},confirmDownload:()=>false,onClose(){},
+  loadPreview:(_p,signal)=>{latePreviewSignal=signal;return new Promise(r=>{latePreviewRelease=r;});},createPreviewUrl:()=>{throw Error('late');},revokePreviewUrl(){}});
+doc.body.appendChild(closing);closing.querySelector('[data-action=open]').click();await until(()=>!!closing.querySelector('[data-action=file]'));
+closing.querySelector('[data-action=file]').click();await until(()=>!!latePreviewRelease);disposeOwnerDiskView(closing);assert(latePreviewSignal.aborted);
+const latePreviewBytes=Uint8Array.from([137,80,78,71,13,10,26,10]);latePreviewRelease(latePreviewBytes);await tick();assert(latePreviewBytes.every(x=>x===0));assert.equal(doc.querySelector('.local-file-preview'),null);closing.remove();
 assert.throws(()=>createOwnerDiskView(doc,{}));
 // Проверка разметки, мобильного заполнения экрана и выполнения как браузерного скрипта.
 const css=fs.readFileSync(new URL('../local-pc/owner-disk-view.css',import.meta.url),'utf8');assert.match(css,/position:\s*fixed/);assert.match(css,/inset:\s*0/);assert.match(css,/@media/);
-const ctx=vm.createContext({AbortController,Uint8Array});
-for(const f of ['path-rules.js','owner-disk-view.js'])vm.runInContext(fs.readFileSync(new URL('../local-pc/'+f,import.meta.url),'utf8'),ctx);
+const ctx=vm.createContext({AbortController,Uint8Array,TextDecoder});
+for(const f of ['path-rules.js','file-preview-view.js','owner-disk-view.js'])vm.runInContext(fs.readFileSync(new URL('../local-pc/'+f,import.meta.url),'utf8'),ctx);
 const vmView=ctx.SegaLocalOwnerDiskView.createOwnerDiskView(doc,{listDirectory:async()=>[],transfer:{async transfer(){}},confirmDownload:()=>false,onClose(){}});
 assert.equal(vmView.getAttribute('role'),'dialog');ctx.SegaLocalOwnerDiskView.disposeOwnerDiskView(vmView);
+const vmDisk=ctx.SegaLocalOwnerDiskView.createOwnerDiskView(doc,{listDirectory:async()=>[images[1]],transfer:{async transfer(){}},confirmDownload:()=>false,onClose(){},
+  loadPreview:async()=>new TextEncoder().encode('Русский текст')});doc.body.appendChild(vmDisk);vmDisk.querySelector('[data-action=open]').click();
+await until(()=>!!vmDisk.querySelector('[data-action=file]'));vmDisk.querySelector('[data-action=file]').click();await until(()=>!!doc.querySelector('.local-file-preview pre'));
+assert.equal(doc.querySelector('.local-file-preview pre').textContent,'Русский текст');doc.querySelector('.local-file-preview [data-action=close]').click();ctx.SegaLocalOwnerDiskView.disposeOwnerDiskView(vmDisk);
 dom.window.close();
 console.log('local-pc-owner-disk-view: папки, согласие, остановка и пробное чтение проверены в DOM; настоящего скачивания и Windows нет');
