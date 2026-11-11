@@ -1,0 +1,15 @@
+/* Неподключённое оформление лабораторного окна, не стили мессенджера. */
+.local-pc-admin-access { position: fixed; inset: 0; z-index: 1100; overflow: auto; box-sizing: border-box; padding: 18px; background: #f5f7fa; color: #172b3d; font: 15px/1.5 system-ui, sans-serif; }
+.local-pc-admin-access *, .local-pc-admin-access *::before, .local-pc-admin-access *::after { box-sizing: border-box; }
+.local-pc-admin-access h2, .local-pc-admin-access h3 { margin: 8px 0; }
+.local-pc-admin-access p { margin: 8px 0; }
+.local-pc-admin-access [role="status"] { min-height: 1.5em; }
+.local-pc-admin-list { list-style: none; padding: 0; margin: 8px 0 18px; }
+.local-pc-admin-list li { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px; margin-bottom: 6px; border: 1px solid #d9e1e8; border-radius: 7px; background: #fff; }
+.local-pc-admin-identity { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.local-pc-admin-id { display: block; color: #52697d; overflow-wrap: anywhere; }
+.local-pc-admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.local-pc-admin-access button { padding: 8px 12px; margin-right: 6px; border: 1px solid #bacad7; border-radius: 6px; color: inherit; background: #fff; font: inherit; cursor: pointer; }
+.local-pc-admin-access button:disabled { opacity: .5; cursor: default; }
+.local-pc-admin-access button:focus-visible { outline: 3px solid #2076c4; outline-offset: 2px; }
+@media (max-width: 600px) { .local-pc-admin-access { padding: 12px; } .local-pc-admin-access button { min-height: 44px; } }
