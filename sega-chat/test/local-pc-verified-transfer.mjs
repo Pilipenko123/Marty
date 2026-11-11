@@ -39,8 +39,8 @@ assert.deepEqual(Buffer.concat(f.writes),f.data);assert.equal(result.hash,sum(f.
 f=fixture('secret',{allowed:false});
 await assert.rejects(transferToStage(f.options),/не разрешена/);
 assert.equal(f.calls.length,0);assert.deepEqual(f.stats(),{aborted:0,verified:0});
-for(const overrides of [{size:-1},{size:1.5},{hash:'x'},{chunkSize:MAX_CHUNK+1},{chunkSize:0},{stage:null}]) {
-  f=fixture('abc',overrides);await assert.rejects(transferToStage(f.options));assert.equal(f.calls.length,0);
+for(const overrides of [{size:-1},{size:1.5},{hash:'x'},{chunkSize:MAX_CHUNK+1},{chunkSize:0},{stage:null},{signal:null},{signal:{aborted:false}}]) {
+  f=fixture('abc',overrides);await assert.rejects(transferToStage(f.options));assert.equal(f.calls.length,0);assert.equal(f.stats().aborted,0);
 }
 
 // Любое изменение версии, пропуск или порча куска — отказ и очистка.
@@ -68,6 +68,7 @@ await assert.rejects(transferToStage(f.options),/проверка не удал�
 f=fixture('abcdefgh');f.stage.write=async()=>{throw new Error('ошибка записи');};
 f.stage.abort=async()=>{throw new Error('ошибка очистки');};
 await assert.rejects(transferToStage(f.options),e=>e instanceof AggregateError && e.errors.length===2);
+await assert.rejects(transferToStage(f.options),/уже использована/); // очистка не удалась: повтор той же области запрещён
 
 // Отмена до начала и во время передачи не позволяет принять копию.
 f=fixture('abcdefgh');let ac=new AbortController();ac.abort();f.options.signal=ac.signal;
@@ -75,4 +76,32 @@ await assert.rejects(transferToStage(f.options),e=>e.name==='AbortError');assert
 f=fixture('abcdefgh');ac=new AbortController();f.options.signal=ac.signal;
 const originalWrite=f.stage.write;f.stage.write=async b=>{await originalWrite(b);ac.abort();};
 await assert.rejects(transferToStage(f.options),e=>e.name==='AbortError');assert.equal(f.stats().aborted,1);assert.equal(f.stats().verified,0);
+
+// Готовую временную копию нельзя уничтожить вторым использованием того же
+// объекта. Новый объект также обязан означать НОВУЮ изолированную область —
+// такую гарантию данный код по одной идентичности объекта не проверяет.
+f=fixture('сохранить');result=await transferToStage(f.options);const retained=Buffer.concat(f.writes);
+await assert.rejects(transferToStage(f.options),/уже использована/);
+assert.deepEqual(Buffer.concat(f.writes),retained);assert.equal(f.stats().aborted,0);
+const fresh=fixture('сохранить');assert.equal((await transferToStage(fresh.options)).hash,result.hash);
+// Одна область занята, пока ожидаем запись или очистку. Повтор не должен ни
+// писать, ни вызывать abort у уже выполняющейся попытки.
+const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r});return {promise,resolve}};
+f=fixture('abcdefgh');ac=new AbortController();f.options.signal=ac.signal;
+const entered=deferred(), release=deferred(), write=f.stage.write;
+f.stage.write=async bytes=>{entered.resolve();await release.promise;await write(bytes)};
+const active=transferToStage(f.options);await entered.promise;
+await assert.rejects(transferToStage(f.options),/уже использована/);assert.equal(f.stats().aborted,0);
+const independent=fixture('другая область');await transferToStage(independent.options);
+assert.deepEqual(Buffer.concat(independent.writes),independent.data);assert.equal(f.stats().aborted,0);
+ac.abort();await assert.rejects(transferToStage(f.options),/уже использована/);assert.equal(f.stats().aborted,0);
+release.resolve();await assert.rejects(active,e=>e.name==='AbortError');assert.equal(f.stats().aborted,1);
+await assert.rejects(transferToStage(f.options),/уже использована/);assert.equal(f.stats().aborted,1);
+// Зависший abort также не даёт другой попытке использовать тот же объект.
+f=fixture('abcdef');const cleaning=deferred(), finishCleaning=deferred();let cleans=0;
+f.options.read=async()=>{throw new Error('обрыв')};f.stage.abort=async()=>{cleans++;cleaning.resolve();await finishCleaning.promise};
+const failing=transferToStage(f.options);await cleaning.promise;
+await assert.rejects(transferToStage(f.options),/уже использована/);assert.equal(cleans,1);
+finishCleaning.resolve();await assert.rejects(failing,/обрыв/);
+await assert.rejects(transferToStage(f.options),/уже использована/);assert.equal(cleans,1);
 console.log('local-pc-verified-transfer: проверка временной копии, повреждений и остановки на заглушках; настоящие файлы не затронуты');
