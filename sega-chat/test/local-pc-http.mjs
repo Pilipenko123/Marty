@@ -14,6 +14,7 @@ const {createApi} = require('../lib/api.js');
 const {createFolder} = require('../local-pc/folder.js');
 const {createReadService} = require('../local-pc/read-service.js');
 const {createOwnerReadClient} = require('../local-pc/owner-read-client.js');
+const {createOwnerReadTransport} = require('../local-pc/owner-read-transport.js');
 const {createAgentClient} = require('../local-pc/agent-client.js');
 const {createCoordinator,anchorFolder} = require('../local-pc/agent-coordinator.js');
 const {digest} = require('../local-pc/relay.js');
@@ -145,6 +146,30 @@ try {
   const checked=await ownerReader.accept(ownerJob,ownerResult.data.packet);
   assert.equal(checked.ok,true);assert.equal(checked.items[0].name,'своё.txt');
   assert.equal((await call(ackUrl,{auth:owner,method:'POST',body:{requestId:ownerJob.requestId}})).status,200);
+  // Транспорт с тестовыми HTTP-обработчиками: ответа двух запросов как будто
+  // не дошли до владельца, хотя сервер уже выполнил действия.
+  let lostSend=true,lostAck=true, httpGets=0;
+  async function checkedCall(url,options) {
+    const r=await call(url,{...options,auth:owner});
+    if(r.status!==200)throw new Error('HTTP error');return r.data;
+  }
+  const ownerTransport=createOwnerReadTransport({secret:key,deviceId:id,
+    sendRequest:async ({requestId,packet})=>{
+      const result=await checkedCall(requestUrl,{method:'POST',body:{requestId,packet}});
+      if(lostSend){lostSend=false;throw new Error('lost');}return result;
+    },
+    getResult:async ({requestId})=>{httpGets++;return checkedCall(`/api/pc-lab/devices/${id}/result?requestId=${requestId}`);},
+    acknowledge:async ({requestId})=>{
+      const result=await checkedCall(ackUrl,{method:'POST',body:{requestId}});
+      if(lostAck){lostAck=false;throw new Error('lost');}return result;
+    }
+  });
+  const transportJob=await ownerTransport.prepareRead('своё.txt',0,100);
+  await assert.rejects(ownerTransport.submit(transportJob),/связаться/);
+  await ownerTransport.submit(transportJob);assert.equal(await agent.step(),true);
+  await assert.rejects(ownerTransport.receive(transportJob),/связаться/);
+  const beforeRetry=httpGets,transportResult=await ownerTransport.receive(transportJob);
+  assert.equal(httpGets,beforeRetry);assert.equal(Buffer.from(transportResult.data).toString(),'Личные данные');
   await assert.rejects(createAgentClient({baseUrl:tlsBase,deviceId:id,token:hex(32),service,ca:cert}).step());
   const dbRaw=await fs.readFile(path.join(tmp,'data','db.json'),'utf8');
   assert(!dbRaw.includes(token)); assert(!dbRaw.includes(setupToken)); assert(!dbRaw.includes('своё.txt')); assert(dbRaw.includes(digest(token)));
