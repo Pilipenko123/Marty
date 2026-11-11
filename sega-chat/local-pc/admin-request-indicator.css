@@ -1,0 +1,7 @@
+/* Только опытный индикатор; к рабочему приложению не подключён. */
+.local-pc-admin-indicator { box-sizing: border-box; max-width: 32rem; padding: 12px; border: 1px solid #b9cad7; border-radius: 8px; color: #172b3d; background: #f5f7fa; font: 15px/1.5 system-ui, sans-serif; }
+.local-pc-admin-indicator p { margin: 6px 0; overflow-wrap: anywhere; }
+.local-pc-admin-indicator button { min-height: 44px; padding: 8px 12px; margin: 4px 6px 0 0; border: 1px solid #8199ab; border-radius: 6px; color: inherit; background: #fff; font: inherit; cursor: pointer; }
+.local-pc-admin-indicator button:disabled { opacity: .5; cursor: default; }
+.local-pc-admin-indicator button:focus-visible { outline: 3px solid #2076c4; outline-offset: 2px; }
+.local-pc-admin-indicator-error { color: #8c2424; }
