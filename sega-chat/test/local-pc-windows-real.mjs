@@ -125,11 +125,19 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') {
       return spawn(name,isolated,{...opts,env:{...process.env,SEGA_VAULT_TEST_ROOT:root}});
     }});
     assert.equal(await vault.load(),null);
+    // Каталог вместо файла не считается отсутствующей привязкой. Проверка
+    // выполняется исключительно во временном изолированном корне.
+    await fs.mkdir(testDir,{recursive:true});const fakeFile=path.join(testDir,'connection.dat');
+    await fs.mkdir(fakeFile);await assert.rejects(vault.load());await fs.rmdir(fakeFile);
+    assert.equal(await vault.load(),null);
     const value={secret:'тест-' + 'a'.repeat(64),folder:'C:\\Личная папка',version:1};
     await vault.save(value);assert.deepEqual(await vault.load(),value);
     const raw=await fs.readFile(path.join(testDir,'connection.dat'));
     assert(!raw.includes(Buffer.from(value.secret,'utf8')));
     const value2={...value,version:2};await vault.save(value2);assert.deepEqual(await vault.load(),value2);
+    // Повреждённый файл не превращается в отсутствующую запись.
+    await fs.writeFile(fakeFile,Buffer.from('повреждено'));await assert.rejects(vault.load());
+    await vault.save(value2);assert.deepEqual(await vault.load(),value2);
     const acl=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','[Console]::Out.Write((Get-Acl -LiteralPath $env:SEGA_TEST_DIR).AreAccessRulesProtected)'],{encoding:'utf8',env:{...process.env,SEGA_TEST_DIR:testDir}});
     assert.equal(acl.status,0); assert.equal(acl.stdout.trim(),'True');
     console.log('local-pc-windows-real: DPAPI и ACL проверены во временной копии скрипта с изолированным корнем');

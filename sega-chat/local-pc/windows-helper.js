@@ -11,7 +11,8 @@ async function runHelper({platform=process.platform, vault, wizard, coordinator,
     throw new Error('Помощник пока недоступен');
   }
   const previous=await vault.load();
-  if(!previous) {
+  if(previous!==null && (!previous || typeof previous!=='object' || Array.isArray(previous))) throw new Error('Настройки подключения повреждены');
+  if(previous===null) {
     const chosen=await wizard();
     if(!chosen)return 'cancelled';
     await coordinator.prepare(chosen.code,chosen.folder);

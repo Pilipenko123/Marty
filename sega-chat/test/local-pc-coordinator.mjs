@@ -37,6 +37,24 @@ try {
   await assert.rejects(untouched.prepare(alienCode,root),/адрес/i);
   await assert.rejects(untouched.prepare(generated.code,root,'https://evil.example'),/адрес/i);
   assert.equal(vaultLoads,0);assert.equal(anchors,0);assert.equal(calls,0);assert.equal(claims,0);
+  // Только null означает отсутствие записи; ошибки и ложные значения не
+  // позволяют начать новую привязку или читать папку.
+  for(const previous of [undefined,false,0,'',[],{}]) {
+    let touched=0;
+    const invalidVault=createCoordinator({vault:{async load(){return previous},async save(){touched++}},
+      anchor:async()=>{touched++;throw new Error('не должно открываться')},folderFactory:createFolder,transportFactory:factory,trustedUrl});
+    await assert.rejects(invalidVault.prepare(generated.code,root),/хранилище|настроено/);assert.equal(touched,0);
+  }
+  // Неопределённый исход записи: если данные сохранились, а ответ об ошибке
+  // потерялся, повторная prepare не должна генерировать новый токен. Никаких
+  // гарантий реальной атомарности и защиты от сбоя питания этот тест не даёт.
+  let ambiguous=null, failsOnce=true, randomCalls=0, wasClaimed=false;
+  const uncertainVault={async load(){return copy(ambiguous)},async save(x){ambiguous=copy(x);if(failsOnce){failsOnce=false;throw new Error('ответ записи потерян')}}};
+  const uncertain=createCoordinator({vault:uncertainVault,anchor:anchorFolder,folderFactory:createFolder,trustedUrl,
+    random(n){randomCalls++;return Buffer.alloc(n,9)},transportFactory:()=>({async step(){if(!wasClaimed){const e=new Error();e.status=401;throw e}return false},async claim(){wasClaimed=true}})});
+  await assert.rejects(uncertain.prepare(generated.code,root),/потерян/);assert.equal(ambiguous.state,'pending');
+  await assert.rejects(uncertain.prepare(generated.code,root),/уже настроено/);assert.equal(randomCalls,1);
+  assert.equal(await uncertain.tick(),false);assert.equal(ambiguous.state,'active');assert(wasClaimed);
   const c=createCoordinator({vault,transportFactory:factory,folderFactory:createFolder,anchor:anchorFolder,trustedUrl});
   await assert.rejects(c.prepare(generated.code,root,'https://other.example'));
   assert.equal(saved,null);
@@ -67,6 +85,12 @@ try {
   // Сохранённый транспорт обязан читать через объект текущего опроса, а не
   // через объект, захваченный при первом запуске; вне опроса доступа нет.
   const config=copy(saved), seen=[];let sequence=0, requestNo=100, serviceRef=null, changed=false, transports=0;
+  for(const malformed of [{...config,extra:'секрет'}, {...config,setupToken:'a'.repeat(64)}, {...config,version:2}, {...config,state:'pending'}, []]) {
+    let opened=0;
+    const badConfig=createCoordinator({vault:{async load(){return malformed},async save(){opened++}},trustedUrl,
+      anchor:async()=>{opened++;throw new Error('не должно открываться')},folderFactory:async()=>{opened++},transportFactory:()=>{opened++}});
+    await assert.rejects(badConfig.tick(),e=>/повреждены/.test(e.message) && !e.message.includes('секрет'));assert.equal(opened,0);
+  }
   async function ask(service) {
     const id=(requestNo++).toString(16).padStart(32,'0'), expires=Date.now()+30000;
     const packet=await channel.seal(initial.secret,initial.deviceId,'request',id,expires,new TextEncoder().encode('{"op":"list","path":""}'));

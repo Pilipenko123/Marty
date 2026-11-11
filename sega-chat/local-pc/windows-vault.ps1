@@ -12,7 +12,14 @@ try {
     $file = Join-Path $dir 'connection.dat'
     $entropy = [System.Text.Encoding]::UTF8.GetBytes('SEGA-CHAT LocalDisk v1')
     if ($Mode -eq 'load') {
-        if (-not [System.IO.File]::Exists($file)) { [Console]::Out.Write('{"exists":false}'); exit 0 }
+        # File.Exists возвращает false и при некоторых ошибках доступа. Это
+        # нельзя считать признаком чистой установки. Только явно отсутствующий
+        # файл/каталог допускает ответ exists:false; остальные ошибки — отказ.
+        try { $attributes = [System.IO.File]::GetAttributes($file) }
+        catch [System.IO.FileNotFoundException] { [Console]::Out.Write('{"exists":false}'); exit 0 }
+        catch [System.IO.DirectoryNotFoundException] { [Console]::Out.Write('{"exists":false}'); exit 0 }
+        if (($attributes -band [System.IO.FileAttributes]::Directory) -or
+            ($attributes -band [System.IO.FileAttributes]::ReparsePoint)) { throw 'bad storage file' }
         $blob = [System.IO.File]::ReadAllBytes($file)
         if ($blob.Length -gt 65536) { throw 'bad data' }
         $bytes = [System.Security.Cryptography.ProtectedData]::Unprotect($blob, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)

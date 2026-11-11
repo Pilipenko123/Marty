@@ -10,7 +10,12 @@ const {validateSignal,checkAborted} = require('./abort');
 const ID = /^[a-f0-9]{32}$/, TOKEN = /^[a-f0-9]{64}$/;
 const hash = token => crypto.createHash('sha256').update(token,'utf8').digest('hex');
 function validateConfig(c, trustedUrl) {
-  if (!c || c.version !== 1 || !['pending','active'].includes(c.state) || typeof c.url !== 'string'
+  const activeFields=['deviceId','folder','key','rootDevice','rootInode','state','token','url','version'];
+  if (!c || typeof c!=='object' || Array.isArray(c) || !['active','pending'].includes(c.state)
+      || Object.keys(c).sort().join(',') !== (c.state==='pending'?[...activeFields,'setupToken'].sort():activeFields).join(',')) {
+    throw new Error('Настройки подключения повреждены');
+  }
+  if (c.version !== 1 || !['pending','active'].includes(c.state) || typeof c.url !== 'string'
       || !ID.test(c.deviceId || '') || !TOKEN.test(c.token || '') || typeof c.folder !== 'string' || !path.isAbsolute(c.folder)
       || typeof c.key !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(c.key)
       || (c.state === 'pending' && !TOKEN.test(c.setupToken || ''))
@@ -82,7 +87,11 @@ function createCoordinator({vault, transportFactory, folderFactory, anchor, trus
     if (confirmationUrl !== undefined && pairing.normalizeUrl(confirmationUrl)!==trusted) throw new Error('Адрес мессенджера не совпадает');
     const setup=pairing.parse(code,trusted);
     if (typeof folderPath !== 'string' || !path.isAbsolute(folderPath)) throw new Error('Выберите папку на компьютере');
-    if (config || await vault.load()) throw new Error('Подключение уже настроено');
+    // Только явный null означает отсутствие записи. Ошибка или повреждённое
+    // значение не должно превращаться в разрешение на создание новой привязки.
+    if (config) throw new Error('Подключение уже настроено');
+    const previous=await vault.load();
+    if (previous !== null) throw new Error('Подключение уже настроено или хранилище повреждено');
     const a=await anchor(folderPath);
     checkedFolder(await folderFactory(a.root,{dev:a.dev,ino:a.ino})); // до сохранения проверяем выбранную папку
     const fresh=random(32);

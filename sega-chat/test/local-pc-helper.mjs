@@ -19,4 +19,8 @@ assert.equal(await runHelper({platform:'win32',vault,coordinator,runnerFactory,w
 assert.equal(prepared,1);assert.equal(started,1);
 assert.equal(await runHelper({platform:'win32',vault:{async load(){return {configured:true}}},coordinator,runnerFactory,wizard:async()=>{throw new Error('unexpected')}}),'stopped');
 assert.equal(prepared,1);assert.equal(started,2);assert.equal(stopped,0);
+for(const invalid of [undefined,false,'',0,[]]) {
+  await assert.rejects(runHelper({platform:'win32',vault:{async load(){return invalid}},coordinator,runnerFactory,wizard:async()=>{wizard++;return null}}),/повреждены/);
+}
+assert.equal(prepared,1);assert.equal(started,2);assert.equal(wizard,2);
 console.log('local-pc-helper: отмена и повторный запуск проверены с заглушками, не на Windows');
