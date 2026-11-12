@@ -2664,6 +2664,8 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 .disk-connect-info{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .disk-connect-group{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .disk-connect-group>button{align-self:flex-start}
+.local-disk-info summary{cursor:pointer;font-size:13px}
+.local-disk-info p{font-size:13px;line-height:1.4;margin:8px 0}
 .disk-connect-row{display:flex;align-items:flex-start;gap:6px}
 .disk-connect-open{flex:1;text-align:left;min-width:0;overflow-wrap:anywhere}
 .disk-connect-menu{position:relative}

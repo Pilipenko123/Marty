@@ -26,6 +26,17 @@ const tick=()=>new Promise(resolve=>setTimeout(resolve,30));
 assert.match(q('#modal-body').textContent,/Мои Yandex диски/);
 assert.match(q('#modal-body').textContent,/Мои Google диски/);
 assert.match(q('#modal-body').textContent,/Настройте Google/);
+// Раздел пока только информационный: никакой запрос на подключение не уходит.
+const local=q('[aria-labelledby="local-disk-title"]');
+assert(local);assert.match(local.textContent,/Пока недоступно/);
+const request=local.querySelector('button');assert.equal(request.disabled,true);
+assert.match(request.textContent,/Запросить подключение моей папки/);
+assert.equal(request.getAttribute('aria-describedby'),'local-disk-unavailable');
+const info=local.querySelector('details');assert(info);assert.match(info.querySelector('summary').textContent,/Узнать подробнее/);
+info.open=true;assert.match(info.textContent,/Одобрение не выбирает папку/);
+assert.match(info.textContent,/включаться отдельно/);assert.match(info.textContent,/Установщика и отправки запросов сейчас нет/);
+const priorCalls=calls.length;request.click();await tick();assert.equal(calls.length,priorCalls);
+
 assert.equal(q('[data-drv-token]').getAttribute('data-drv-token'),'2');
 assert.equal(q('[data-gd-login]').getAttribute('data-gd-login'),'2');
 assert(q('[data-gd-more="1"]'));

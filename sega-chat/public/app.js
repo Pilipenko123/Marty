@@ -6252,6 +6252,16 @@ async function driveConnectAsk() {
   modal('Подключить диск', `<div class="disk-connect">
     <div class="disk-connect-info"><span>Можно подключить до трёх дисков Yandex и до трёх Google.</span> <button class="mini" data-drv-info="1">Узнать подробнее</button></div>
     ${group('yandex')}${group('google')}
+    <section class="disk-connect-group" aria-labelledby="local-disk-title">
+      <b id="local-disk-title">Мои локальные диски</b>
+      <div class="tiny muted" id="local-disk-unavailable">Пока недоступно: запрос, установка и подключение папки ещё не работают.</div>
+      <button type="button" class="mini" disabled aria-describedby="local-disk-unavailable">Запросить подключение моей папки</button>
+      <details class="local-disk-info"><summary>Узнать подробнее</summary>
+        <p>Планируется доступ к выбранной папке Windows с других устройств после запроса и разрешения администратора. Одобрение не выбирает папку и не открывает её другим людям.</p>
+        <p>Синхронизация между несколькими ПК и папкой Google или Яндекс Диска будет включаться отдельно. Удаления должны переноситься в корзины, а конфликтующие изменения — сохраняться без потери версий.</p>
+        <p>Это описание будущей функции, не инструкция к работающему подключению. Установщика и отправки запросов сейчас нет.</p>
+      </details>
+    </section>
   </div>`);
 }
 function driveInfoAsk() {
