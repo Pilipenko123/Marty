@@ -4575,7 +4575,7 @@ function createApi(store, opts = {}) {
           if (op === 'rename') {
             const nm = String(b.name || (b.to ? String(b.to).split('/').pop() : '') || '');
             const res = await gdrive.renameFile(gt.access_token, target, nm);
-            return J(200, { ok: true, drive: 'google', path: res.path, name: res.name });
+            return J(200, { ok: true, drive: 'google', path: tagPath(drives.prefixFor('google', gdrive.slotOf(target)), res.path), name: res.name });
           }
           await gdrive.trashPath(gt.access_token, target);
           return J(200, { ok: true, drive: 'google' });

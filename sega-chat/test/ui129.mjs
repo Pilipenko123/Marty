@@ -46,7 +46,7 @@ const created = [];      // что просили создать у Яндекс
 const moves = []; // тестовый учёт запросов на переименование
 let mockRequests = 0;
 const googleSeen = [];   // какие токены Google дёргали: { path, token }
-const G_FILES = { g1tok: [{ id: 'gf1aaa', name: 'g-one.mp3', mimeType: 'audio/mpeg', size: '5' }], g2tok: [{ id: 'gf2bbb', name: 'g-two.mp3', mimeType: 'audio/mpeg', size: '6' }] };
+const G_FILES = { g1tok: [{ id: 'gf1aaa', name: 'g-one.mp3', mimeType: 'audio/mpeg', size: '5' }], g2tok: [{ id: 'gf2bbb', name: 'g-two.mp3', mimeType: 'audio/mpeg', size: '6' }], g3tok: [{ id: 'gf3ccc', name: 'g-three.mp3', mimeType: 'audio/mpeg', size: '7' }] };
 
 const ydItem = (x, base) => ({
   name: x.name, path: x.path, type: x.type,
@@ -120,7 +120,7 @@ const mock = http.createServer((rq, rs) => {
     // ── Google ────────────────────────────────────────────
     if (rq.method === 'POST' && u.pathname === '/token') {
       const code = String((form && form.code) || '');
-      const at = code === 'g2code' ? 'g2tok' : 'g1tok';
+      const at = code === 'g3code' ? 'g3tok' : code === 'g2code' ? 'g2tok' : 'g1tok';
       return jsend(200, { access_token: at, refresh_token: 'rt' + at, expires_in: 3600, scope: 'https://www.googleapis.com/auth/drive' });
     }
     if (u.pathname === '/drive/v3/about') return jsend(200, { storageQuota: { limit: '1000', usage: '10' } });
@@ -134,13 +134,14 @@ const mock = http.createServer((rq, rs) => {
     const fm = /^\/drive\/v3\/files\/([^/]+)$/.exec(u.pathname);
     if (fm) {
       const id = fm[1];
-      googleSeen.push({ path: u.pathname, token });
+      googleSeen.push({ path: u.pathname, token, method: rq.method });
       if (u.searchParams.get('alt') === 'media') {
         const body = 'SOUND-' + token + '-' + id;
         rs.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': String(body.length) });
         return rs.end(body);
       }
       const f = (G_FILES[token] || []).find(x => x.id === id) || { id, name: 'файл', mimeType: 'audio/mpeg', size: '5' };
+      if (rq.method === 'PATCH' && form && typeof form.name === 'string') f.name = form.name;
       return jsend(200, { id: f.id, name: f.name, mimeType: f.mimeType, size: f.size, parents: ['root'] });
     }
     jsend(404, { error: { message: 'не найдено' } });
@@ -301,6 +302,23 @@ const bytes = await up2.text();
 ok(bytes === 'SOUND-g2tok-gf2bbb', 'пропуск правда берёт токен ВТОРОГО Google-диска');
 r = await call('/api/yadisk/href?path=' + encodeURIComponent('google:/gf1aaa'), {}, A.token);
 ok((await (await fetch(base + r.d.href)).text()) === 'SOUND-g1tok-gf1aaa', 'первый Google-диск остаётся на своём токене');
+googleSeen.length=0;
+r = await call('/api/yadisk/op', { method:'POST', body:{op:'rename',path:'google2:/gf2bbb',name:'переименован.mp3'} }, A.token);
+ok(r.status===200 && r.d.path==='google2:/gf2bbb' && r.d.name==='переименован.mp3', 'переименование второго Google сохраняет номер диска в ответе');
+ok(googleSeen.some(x=>x.method==='PATCH' && x.path.endsWith('/gf2bbb') && x.token==='g2tok'), 'переименование отправлено с токеном второго Google');
+if (r.status===200 && r.d.path) {
+  const follow=await call('/api/yadisk/href?path='+encodeURIComponent(r.d.path),{},A.token);
+  ok(follow.status===200 && (await (await fetch(base+follow.d.href)).text())==='SOUND-g2tok-gf2bbb', 'возвращённый путь открывает файл со второго Google');
+}
+r = await call('/api/yadisk/op', { method:'POST', body:{op:'rename',path:'google:/gf1aaa',name:'первый.mp3'} }, A.token);
+ok(r.status===200 && r.d.path==='google:/gf1aaa', 'путь первого Google по-прежнему без номера');
+ok(/Google Диск подключён/.test(await gconnect(A, 'g3code', 3)), 'третий Google-Диск подключён');
+googleSeen.length=0;
+r = await call('/api/yadisk/op', { method:'POST', body:{op:'rename',path:'google3:/gf3ccc',name:'третий.mp3'} }, A.token);
+ok(r.status===200 && r.d.path==='google3:/gf3ccc', 'переименование третьего Google сохраняет номер диска');
+ok(googleSeen.some(x=>x.method==='PATCH' && x.token==='g3tok' && x.path.endsWith('/gf3ccc')), 'переименование третьего Google использует его токен');
+
+
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', path: 'google2:/root/Второй' } }, A.token);
 ok(r.status !== 500, 'правки второго Google не путают сервер (ответ — не «ошибка сервера»)');
 
