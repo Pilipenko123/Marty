@@ -33,7 +33,7 @@ const request=local.querySelector('button');assert.equal(request.disabled,true);
 assert.match(request.textContent,/Запросить подключение моей папки/);
 assert.equal(request.getAttribute('aria-describedby'),'local-disk-unavailable');
 const info=local.querySelector('details');assert(info);assert.match(info.querySelector('summary').textContent,/Узнать подробнее/);
-info.open=true;assert.match(info.textContent,/Одобрение не выбирает папку/);
+info.open=true;assert.match(info.textContent,/разрешения владельца сервера/);assert.match(info.textContent,/Одобрение не выбирает папку/);
 assert.match(info.textContent,/включаться отдельно/);assert.match(info.textContent,/Установщика и отправки запросов сейчас нет/);
 const priorCalls=calls.length;request.click();await tick();assert.equal(calls.length,priorCalls);
 

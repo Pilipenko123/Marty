@@ -10,12 +10,12 @@
     const title=doc.createElement('h2');title.textContent='Личная папка на ПК';root.appendChild(title);
     const intro=doc.createElement('p');intro.textContent='Можно будет выбрать папку на своём компьютере и открывать её с других устройств. Синхронизацию с несколькими ПК и папкой Google или Яндекс Диска нужно будет включить отдельно.';root.appendChild(intro);
     const details=doc.createElement('p');details.textContent='После включения синхронизации изменения распространяются между подключёнными копиями. Удалённые файлы и папки должны попадать в корзины устройств и облачного диска. Другим людям менять файлы можно только с вашего разрешения.';root.appendChild(details);
-    const draft=doc.createElement('p');draft.textContent='Черновик: подключение пока не работает. Сначала запросите разрешение администратора; запрос сам по себе не выбирает папку и не запускает синхронизацию.';root.appendChild(draft);
+    const draft=doc.createElement('p');draft.textContent='Черновик: подключение пока не работает. Сначала запросите разрешение владельца сервера; запрос сам по себе не выбирает папку и не запускает синхронизацию.';root.appendChild(draft);
     const status=doc.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');root.appendChild(status);
     const ask=doc.createElement('button');ask.type='button';ask.dataset.action='request';ask.textContent='Запросить подключение моей папки';root.appendChild(ask);
     const refresh=doc.createElement('button');refresh.type='button';refresh.dataset.action='refresh';refresh.textContent='Проверить статус';root.appendChild(refresh);
     const close=doc.createElement('button');close.type='button';close.dataset.action='close';close.textContent='Закрыть';root.appendChild(close);
-    const messages={none:'Разрешение администратора ещё не запрошено.',pending:'Запрос отправлен. Ожидаем решения администратора.',approved:'Администратор разрешил функцию. Подключение пока не готово.',denied:'Администратор отклонил запрос. Можно обратиться повторно.',revoked:'Разрешение отозвано. Можно обратиться повторно.'};
+    const messages={none:'Разрешение владельца сервера ещё не запрошено.',pending:'Запрос отправлен. Ожидаем решения владельца сервера.',approved:'Владелец сервера разрешил функцию. Подключение пока не готово.',denied:'Владелец сервера отклонил запрос. Можно обратиться повторно.',revoked:'Разрешение отозвано. Можно обратиться повторно.'};
     let disposed=false,epoch=0,controller=null,current=null,busy=false;
     function controls(){ask.disabled=disposed || busy || !['none','denied','revoked'].includes(current);refresh.disabled=disposed || busy;close.disabled=disposed;}
     function cancel(){epoch++;if(controller){controller.abort();controller=null;}}

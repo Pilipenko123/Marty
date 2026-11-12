@@ -40,7 +40,7 @@ try{
   }
   const creds=name=>({name,saltAuth:hex(),authKey:hex(32),saltWrap:hex(),wrappedKeyByPass:'w:'+hex(),pub:'pub:'+hex(),wrappedPriv:'priv:'+hex()});
   let setup=await call('/api/setup',{method:'POST',body:{...creds('Администратор'),codeProofSalt:hex(),codeProof:hex(32),codeSalt:hex(),wrappedKeyByCode:'k:'+hex()}});
-  assert.equal(setup.status,200);const admin=setup.data.token;
+  assert.equal(setup.status,200);const admin=setup.data.token,adminId=setup.data.user.id;
   async function invite(name){
     const secret=hex(24),secretHash=crypto.createHash('sha256').update(secret).digest('hex');
     const inv=await call('/api/invites',{method:'POST',token:admin,body:{invSalt:hex(),wrappedRoomKey:'k:'+hex(),secretHash}});assert.equal(inv.status,200);
@@ -49,7 +49,7 @@ try{
   const aliceUser=await invite('Алиса'),bobUser=await invite('Борис');
   const alice=aliceUser.token,bob=bobUser.token,aliceId=aliceUser.user.id;
   assert.equal((await call('/api/pc-lab/access',{token:alice})).status,404); // обычный сервер не включает API
-  app=createApi(store,{localPcExperimental:true});
+  app=createApi(store,{localPcExperimental:true,localPcOwnerId:adminId});
   async function worker(untrusted){
     const child=fork(fileURLToPath(new URL('./fixtures/local-pc-access-worker.mjs',import.meta.url)),[],{
       env:{...process.env,NODE_EXTRA_CA_CERTS:untrusted?'':certPath},stdio:['ignore','pipe','pipe','ipc']});
@@ -58,11 +58,11 @@ try{
       const timer=setTimeout(()=>{child.kill();reject(Error('Тестовый клиент завис'));},15000);
       child.on('error',e=>{clearTimeout(timer);reject(e);});child.on('exit',code=>{clearTimeout(timer);if(code===0&&done)resolve();else reject(Error('Тестовый клиент: '+err));});
     });
-    child.send({base:tlsBase,admin,alice,bob,aliceId,untrusted});await exited;
+    child.send({base:tlsBase,admin,alice,bob,adminId,aliceId,untrusted});await exited;
   }
   await worker(true);await worker(false);assert.equal(spyHits,0);assert.equal(decisionHits,2);
   assert.equal((await call('/api/pc-lab/access',{token:alice})).data.state,'approved');assert.equal((await call('/api/pc-lab/access',{token:bob})).data.state,'denied');
-  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true,localPcOwnerId:adminId});
   assert.equal((await call('/api/pc-lab/access',{token:alice})).data.state,'approved');assert.equal((await call('/api/pc-lab/access',{token:bob})).data.state,'denied');
   console.log('local-pc-access-http-flow: окна и разрешения через локальный TLS, обрыв, запрет перенаправления и перезапуск проверены; настоящих уведомлений нет');
 }finally{

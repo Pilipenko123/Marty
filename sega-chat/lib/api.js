@@ -41,7 +41,7 @@ function createApi(store, opts = {}) {
   // Эксперимент доступен только тестам, передавшим явный флаг; ни server.js,
   // ни облачная функция его не включают. Файловое хранилище и один процесс.
   const localPcLab = opts.localPcExperimental === true && store.name === 'file'
-    ? require('../local-pc/experimental-api').createExperimentalApi() : null;
+    ? require('../local-pc/experimental-api').createExperimentalApi({ownerId:opts.localPcOwnerId}) : null;
   const STORAGE_LIMIT = Number(opts.storageLimit || process.env.STORAGE_LIMIT || 250 * MB);
   // pkg3-141: 30 дней вместо 60. Украденная сессия не должна жить два месяца,
   // а человек, который заходит раз в отпуск, всё равно продлевает её входом.

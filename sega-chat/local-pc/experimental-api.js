@@ -17,7 +17,15 @@ const MAX_ACTIVE_DEVICES = 32;
 const J = (status,json) => ({status,json});
 const E = (status,error) => J(status,{error});
 
-function createExperimentalApi() {
+function createExperimentalApi({ownerId}={}) {
+  // Только явный ID из доверенной конфигурации тестовой среды. Не выбираем
+  // первого администратора или пользователя: это не доказывает владельца.
+  const configuredOwner=typeof ownerId==='string' && ownerId.length>0 && ownerId.length<=200 && !/[\x00-\x1f\x7f-\x9f]/.test(ownerId) ? ownerId : null;
+  function ownerPermission(me) {
+    if (!configuredOwner) return E(503,'Владелец не определён');
+    if (!me || me.id!==configuredOwner || me.isAdmin!==true) return E(403,'Только для владельца');
+    return null;
+  }
   const relay = createRelay(), loaded = new Map(), failures = new Map();
   function all(db) {
     return (db.users || []).flatMap(user => (Array.isArray(user.localPcDevices) ? user.localPcDevices : []).map(record => ({user,record})));
@@ -62,7 +70,7 @@ function createExperimentalApi() {
       return J(200,{state:'pending'});
     }
     if(req.path==='/api/pc-lab/access/admin' && req.method==='GET') {
-      if(me.isAdmin!==true)return E(403,'Только для администратора');
+      const denied=ownerPermission(me);if(denied)return denied;
       const requests=[],approved=[];
       for(const u of db.users || []) {
         const a=access(u);
@@ -76,7 +84,7 @@ function createExperimentalApi() {
       return J(200,{requests,approved});
     }
     if(req.path==='/api/pc-lab/access/decision' && req.method==='POST') {
-      if(me.isAdmin!==true)return E(403,'Только для администратора');
+      const denied=ownerPermission(me);if(denied)return denied;
       const b=req.body || {}, target=typeof b.userId==='string' && (db.users || []).find(u=>u.id===b.userId);
       if(!target || typeof b.requestId!=='string' || !ID.test(b.requestId) || !['approve','deny','revoke'].includes(b.decision))return E(400,'Неверное решение');
       const a=access(target);

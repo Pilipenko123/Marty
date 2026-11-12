@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const {createExperimentalApi}=createRequire(import.meta.url)('../local-pc/experimental-api');
 const {digest}=createRequire(import.meta.url)('../local-pc/relay');
-const api=createExperimentalApi(),admin={id:'admin',name:'Админ',isAdmin:true},alice={id:'alice',name:'Алиса'},bob={id:'bob',name:'Боб'},db={users:[admin,alice,bob]};
+const api=createExperimentalApi({ownerId:'admin'}),admin={id:'admin',name:'Админ',isAdmin:true},alice={id:'alice',name:'Алиса'},bob={id:'bob',name:'Боб'},db={users:[admin,alice,bob]};
 let saves=0;const save=()=>{saves++};
 const req=(path,method='GET',body={})=>({path,method,body,query:new URLSearchParams(),headers:{},ip:'test'});
 const act=(who,path,method='GET',body={})=>api.owner(req(path,method,body),db,who,save);
@@ -19,7 +19,20 @@ assert.equal(adminList(alice).status,403);assert.equal(decide(alice,'alice','a'.
 assert.equal(act(admin,devices).status,403);assert.equal(request(alice).json.state,'pending');const first=alice.localPcAccess.id;
 assert.equal(request(alice).json.state,'pending');assert.equal(alice.localPcAccess.id,first);
 assert.equal(act(alice,devices).status,403);assert.equal(decide(bob,'alice',first,'approve').status,403);
-assert.deepEqual(adminList(admin).json.requests.map(x=>x.userId),['alice']);assert.equal(decide(admin,'alice',first,'deny').json.state,'denied');
+assert.deepEqual(adminList(admin).json.requests.map(x=>x.userId),['alice']);
+// Второй администратор не владелец: он не видит заявки и не может
+// одобрить, отклонить или отозвать разрешение, даже со свежим ID.
+const secondAdmin={id:'other-admin',isAdmin:true,name:'Второй администратор'};db.users.push(secondAdmin);
+assert.equal(adminList(secondAdmin).status,403);
+for(const decision of ['approve','deny','revoke'])assert.equal(decide(secondAdmin,'alice',first,decision).status,403);
+assert.equal(status(alice).json.state,'pending');
+const noOwner=createExperimentalApi();
+for(const endpoint of ['/api/pc-lab/access/admin','/api/pc-lab/access/decision']) {
+  const result=noOwner.owner(req(endpoint,endpoint.endsWith('decision')?'POST':'GET',{userId:'alice',requestId:first,decision:'approve'}),db,admin,save);
+  assert.equal(result.status,503);
+}
+admin.isAdmin=false;assert.equal(adminList(admin).status,403);admin.isAdmin=true;
+assert.equal(decide(admin,'alice',first,'deny').json.state,'denied');
 assert.equal(status(alice).json.state,'denied');assert.equal(act(alice,devices).status,403);
 assert.equal(request(alice).json.state,'pending');const second=alice.localPcAccess.id;assert.notEqual(second,first);
 assert.equal(decide(admin,'alice',first,'approve').status,409);assert.equal(status(alice).json.state,'pending');

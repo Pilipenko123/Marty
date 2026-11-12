@@ -8,7 +8,7 @@ const {createAccessRequestView,disposeAccessRequestView}=require('../local-pc/ac
 const {createAdminAccessView,disposeAdminAccessView}=require('../local-pc/admin-access-view');
 const {createExperimentalApi}=require('../local-pc/experimental-api');
 const alice={id:'alice',name:'Алиса'},admin={id:'admin',name:'Админ',isAdmin:true},db={users:[alice,admin]};
-const lab=createExperimentalApi(),save=()=>{};
+const lab=createExperimentalApi({ownerId:'admin'}),save=()=>{};
 function call(me,path,method='GET',body={}){
   const r=lab.owner({path,method,body,headers:{},query:new URLSearchParams(),ip:'test'},db,me,save);
   if(r.status!==200)throw Error('API '+r.status);
@@ -33,7 +33,7 @@ assert.equal(alice.localPcAccess.state,'pending');assert.equal(manager.querySele
 manager.querySelector('[data-action=refresh]').click();await until(()=>!!manager.querySelector('[data-decision=approve]'));
 manager.querySelector('[data-decision=approve]').click();await until(()=>manager.textContent.includes('Решение принято. Список обновлён.'));
 assert.equal(alice.localPcAccess.state,'approved');assert(manager.querySelector('[aria-label="Разрешено"]').textContent.includes('Алиса'));
-own.querySelector('[data-action=refresh]').click();await until(()=>own.textContent.includes('Администратор разрешил функцию'));
+own.querySelector('[data-action=refresh]').click();await until(()=>own.textContent.includes('Владелец сервера разрешил функцию'));
 assert(own.textContent.includes('Подключение пока не готово'));assert(own.querySelector('[data-action=request]').disabled);
 disposeAccessRequestView(own);disposeAdminAccessView(manager);dom.window.close();
 console.log('local-pc-access-views-flow: запрос, устаревшее решение и одобрение испытаны с лабораторным API в памяти; реальных уведомлений нет');

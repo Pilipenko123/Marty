@@ -68,7 +68,7 @@ try {
   let a=await call('/api/setup',{method:'POST',body:{...creds('Основатель'),codeProofSalt:hex(),codeProof:hex(32),codeSalt:hex(),wrappedKeyByCode:'k:'+hex()}});
   assert.equal(a.status,200); const owner='Bearer '+a.data.token, userId=a.data.user.id;
   assert.equal((await call('/api/pc-lab/devices',{auth:owner})).status,404);
-  app=createApi(store,{localPcExperimental:true});
+  app=createApi(store,{localPcExperimental:true,localPcOwnerId:userId});
   const secretInvite=hex(24), secretHash=crypto.createHash('sha256').update(secretInvite).digest('hex');
   a=await call('/api/invites',{auth:owner,method:'POST',body:{invSalt:hex(),wrappedRoomKey:'k:'+hex(),secretHash}});
   assert.equal(a.status,200);
@@ -239,7 +239,7 @@ try {
   const dbRaw=await fs.readFile(path.join(tmp,'data','db.json'),'utf8');
   assert(!dbRaw.includes(token)); assert(!dbRaw.includes(setupToken)); assert(!dbRaw.includes('своё.txt')); assert(dbRaw.includes(digest(token)));
   // Новый экземпляр: привязка сохраняется, очередь и статус нет.
-  await store.close(); store=createFileStore({dataDir:path.join(tmp,'data')}); await store.open(); app=createApi(store,{localPcExperimental:true});
+  await store.close(); store=createFileStore({dataDir:path.join(tmp,'data')}); await store.open(); app=createApi(store,{localPcExperimental:true,localPcOwnerId:userId});
   list=await call('/api/pc-lab/devices',{auth:owner}); assert.equal(list.data.devices[0].online,false);
   assert.equal((await call(pathAgent,{method:'POST',auth:agentAuth})).status,200);
   assert.equal((await call(resultUrl,{auth:owner})).status,409);
@@ -255,7 +255,7 @@ try {
   assert.equal((await call('/api/pc-lab/devices',{auth:other,method:'POST',body:register})).status,409);
   let savedUser=(await store.load()).users.find(u=>u.id===userId);
   assert.deepEqual(savedUser.localPcDevices.find(d=>d.id===id),{id,state:'revoked'});
-  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true,localPcOwnerId:userId});
   assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,0);
   assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:register})).status,409);
   assert.equal((await call(pathAgent,{method:'POST',auth:agentAuth})).status,401);
@@ -312,7 +312,7 @@ try {
   assert.equal(failed.status,503);assert.equal((await onDisk()).state,'active');
   assert.equal((await call(`/api/pc-lab/devices/${id3}/revoke`,{auth:owner,method:'POST'})).status,404);
   assert.deepEqual(await onDisk(),{id:id3,state:'revoked'});
-  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true,localPcOwnerId:userId});
   assert.equal((await call(pathAgent,{auth:newAuth3,method:'POST'})).status,401);
   assert.equal((await call('/api/pc-lab/devices',{auth:owner,method:'POST',body:reg3})).status,409);
   // Отзыв разрешения после регистрации блокирует агента и удаляет ключи старой
@@ -332,7 +332,7 @@ try {
   assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'revoked'); // повторная запись перед ответом
   assert.equal((await call('/api/pc-lab/devices',{auth:owner})).status,403);
   assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
-  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true,localPcOwnerId:userId});
   assert.equal((await call('/api/pc-lab/access',{auth:owner})).data.state,'revoked');
   assert.equal((await call(pathAgent,{auth:`Local ${id4}:${new4}`,method:'POST'})).status,401);
   // При сбое создания заявки данные уже в памяти, но ещё не на диске.
@@ -382,7 +382,7 @@ try {
     assert.equal(Buffer.from(await secure.open(m.secret,result.packet,{channel:m.dev,direction:'response',request:sameRequest,expires:expiresMany})).toString(),'ответ '+m.n);
     assert.equal((await call(`/api/pc-lab/devices/${m.dev}/ack`,{auth:owner,method:'POST',body:{requestId:sameRequest}})).status,200);
   }
-  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true});
+  await store.close();store=createFileStore({dataDir:path.join(tmp,'data')});await store.open();app=createApi(store,{localPcExperimental:true,localPcOwnerId:userId});
   assert.equal((await call('/api/pc-lab/devices',{auth:owner})).data.devices.length,4);
   assert.equal((await call(pathAgent,{auth:`Local ${removed.dev}:${removed.agent}`,method:'POST'})).status,401);
   for(const m of many.filter(x=>x!==removed))assert.equal((await call(pathAgent,{auth:`Local ${m.dev}:${m.agent}`,method:'POST'})).status,200);
