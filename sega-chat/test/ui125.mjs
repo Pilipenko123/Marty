@@ -36,7 +36,7 @@ const PHOTO_ITEMS = [
   { name: 'beach.jpg', path: 'disk:/Фото/beach.jpg', type: 'file', size: 204800, mime_type: 'image/jpeg', media_type: 'image', preview: 'https://downloader.disk.yandex.ru/preview/beach' },
   { name: 'clip.mp4', path: 'disk:/Фото/clip.mp4', type: 'file', size: 9437184, mime_type: 'video/mp4', media_type: 'video', preview: 'https://downloader.disk.yandex.ru/preview/clip' }
 ];
-let deleteMode = 'sync', deleteRequests = 0;
+let deleteMode = 'sync', deleteRequests = 0, moveMode = 'sync', moveRequests = 0;
 const ROOT_ITEMS = [{ name: 'Фото', path: 'disk:/Фото', type: 'dir' }];
 
 const mock = http.createServer((rq, rs) => {
@@ -60,7 +60,11 @@ const mock = http.createServer((rq, rs) => {
     rs.writeHead(204); return rs.end();
   }
   if (rq.method === 'GET' && u.pathname === '/v1/disk/operations') return jsend(200, { status: deleteMode === 'async-success' ? 'success' : 'in-progress' });
-  if (rq.method === 'POST' && u.pathname === '/v1/disk/resources/move') return jsend(201, {});
+  if (rq.method === 'POST' && u.pathname === '/v1/disk/resources/move') {
+    moveRequests++;
+    if (moveMode === 'pending') return jsend(202, { href: mockBase + '/v1/disk/operations?id=op125', method: 'GET', templated: false });
+    return jsend(201, {});
+  }
   if (rq.method === 'GET' && u.pathname === '/v1/disk/resources/upload') {
     return jsend(200, { href: 'https://uploader.disk.yandex.ru/put/abc?sign=125', method: 'PUT' });
   }
@@ -162,6 +166,11 @@ r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', of: A.id
 ok(r.status === 200, 'Клава создаёт папку ВНУТРИ открытой ей папки');
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'rename', of: A.id, path: 'disk:/Фото/Новая папка', to: 'disk:/Фото/Другая' } }, B.token);
 ok(r.status === 200, 'переименование внутри папки проходит');
+moveMode = 'pending'; const beforeMove = moveRequests;
+r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'rename', of: A.id, path: 'disk:/Фото/Новая папка', to: 'disk:/Фото/Другая' } }, B.token);
+ok(r.status === 502 && /не подтвердил переименование/.test(String(r.d.error || '')), 'незавершённое переименование не объявлено успешным');
+ok(moveRequests === beforeMove + 1, 'переименование не повторяется автоматически');
+moveMode = 'sync';
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'del', of: A.id, path: 'disk:/Фото/Другая' } }, B.token);
 ok(r.status === 200, 'удаление внутри папки проходит (файл уходит в корзину Диска)');
 deleteMode = 'async-success';

@@ -47,7 +47,7 @@ const FILES = [
   { id: RENAME_ID, name: 'Старое имя.txt', mimeType: 'text/plain', size: '10', parents: [rootFolderId], trashed: false }
 ];
 const seen = { mkdir: [], rename: [], trash: [], sessions: [], uploads: [] };
-let newId = 0, falseTrashReply = false;
+let newId = 0, falseTrashReply = false, falseRenameReply = false;
 
 const mock = http.createServer((rq, rs) => {
   const u = new URL(rq.url, 'http://mock');
@@ -121,6 +121,7 @@ const mock = http.createServer((rq, rs) => {
       }
       if (!f) return jsend(404, { error: { message: 'File not found', errors: [{ reason: 'notFound' }] } });
       if (rq.method === 'PATCH') {
+        if (body && typeof body.name === 'string' && falseRenameReply) return jsend(200, {id, name: 'неподтверждённое имя'});
         if (body && typeof body.name === 'string') { seen.rename.push({ id, from: f.name, to: body.name }); f.name = body.name; }
         if (body && body.trashed === true && falseTrashReply) return jsend(200, meta(f));
         if (body && body.trashed === true) { seen.trash.push({ id, name: f.name }); f.trashed = true; }
@@ -212,6 +213,10 @@ console.log('\n  3. Переименование');
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'rename', path: 'google:/' + RENAME_ID, name: 'Новое имя.txt' } }, A.token);
 ok(r.status === 200, 'переименовать можно');
 ok(seen.rename.length === 1 && seen.rename[0].to === 'Новое имя.txt', 'у Google имя действительно изменилось');
+falseRenameReply = true;
+r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'rename', path: 'google:/' + RENAME_ID, name: 'Другое имя.txt' } }, A.token);
+ok(r.status === 502 && /не подтвердил переименование/.test(String(r.d.error || '')), 'неподтверждённое имя не объявлено успешным');
+falseRenameReply = false;
 r = await call('/api/yadisk/list?path=' + encodeURIComponent('google:/root'), {}, A.token);
 ok((r.d.items || []).some(x => x.path === 'google:/' + RENAME_ID && x.name === 'Новое имя.txt'), 'новое имя видно в списке');
 

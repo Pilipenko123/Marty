@@ -384,7 +384,7 @@ async function writeCheck(token, c) {
 // Адрес статуса приходит в ответе удалённого сервиса. Прежде чем посылать по
 // нему токен, разрешаем только тот же настроенный origin и документированные
 // формы пути операции; никаких redirect, дополнительных параметров или userinfo.
-function trashOperationUrl(link, apiBase) {
+function operationUrl(link, apiBase) {
   if (!link || link.method !== 'GET' || link.templated !== false || typeof link.href !== 'string' || link.href.length > 2048) return '';
   try {
     const base = new URL(apiBase), u = new URL(link.href);
@@ -396,6 +396,21 @@ function trashOperationUrl(link, apiBase) {
     } else if (!(new RegExp('^/v1/disk/operations/' + id + '$')).test(u.pathname) || u.search) return '';
     return u.href;
   } catch (_) { return ''; }
+}
+// Только чтение статуса; ссылке извне нельзя доверять токен до проверки origin.
+async function confirmOperation(link, conf, token, unknown) {
+  const operation = operationUrl(link, conf.apiBase);
+  if (!operation) throw unknown();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise(resolve => setTimeout(resolve, 250));
+    let result;
+    try { result = await httpJSON(operation, { headers: { Authorization: 'OAuth ' + token }, timeout: 2000 }); }
+    catch (_) { throw unknown(); }
+    if (result.status !== 200 || !result.json) throw unknown();
+    if (result.json.status === 'success') return;
+    if (result.json.status !== 'in-progress') throw unknown();
+  }
+  throw unknown();
 }
 function unknownTrashResult() {
   const e = new Error('Яндекс не подтвердил перенос в корзину. Проверьте состояние файла и корзину перед повторной попыткой.');
@@ -417,18 +432,8 @@ async function removePath(token, diskPath, c) {
   } catch (_) { throw unknownTrashResult(); }
   if (r.status === 204) return { ok: true, path: p };
   if (r.status === 202) {
-    const operation = trashOperationUrl(r.json, conf.apiBase);
-    if (!operation) throw unknownTrashResult();
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt) await new Promise(resolve => setTimeout(resolve, 250));
-      let result;
-      try { result = await httpJSON(operation, { headers: { Authorization: 'OAuth ' + token }, timeout: 2000 }); }
-      catch (_) { throw unknownTrashResult(); }
-      if (result.status !== 200 || !result.json) throw unknownTrashResult();
-      if (result.json.status === 'success') return { ok: true, path: p };
-      if (result.json.status !== 'in-progress') throw unknownTrashResult();
-    }
-    throw unknownTrashResult();
+    await confirmOperation(r.json, conf, token, unknownTrashResult);
+    return { ok: true, path: p };
   }
   if ((r.status < 400) || r.status >= 500 || r.status === 408 || r.status === 429) throw unknownTrashResult();
   const e = new Error(writeErrorText(r, 'del')); e.status = r.status; throw e;
@@ -440,11 +445,20 @@ async function movePath(token, fromPath, toPath, c) {
   const from = apiPath(safePath(fromPath)), to = apiPath(safePath(toPath));
   if (!from || !to || from === 'disk:/' || to === 'disk:/') { const e = new Error('Неверный путь для переименования'); e.status = 400; throw e; }
   const q = new URLSearchParams({ from: from, path: to, overwrite: 'false' });
-  const r = await httpJSON(conf.apiBase + '/v1/disk/resources/move?' + q.toString(), {
-    method: 'POST', headers: { Authorization: 'OAuth ' + token }
-  });
-  if (r.status !== 201 && r.status !== 200 && r.status !== 202) { const e = new Error(writeErrorText(r, 'rename')); e.status = r.status; throw e; }
-  return { ok: true, path: to };
+  const unknown = () => { const e = new Error('Яндекс не подтвердил переименование. Проверьте оба пути перед повторной попыткой.'); e.status = 502; return e; };
+  let r;
+  try {
+    r = await httpJSON(conf.apiBase + '/v1/disk/resources/move?' + q.toString(), {
+      method: 'POST', headers: { Authorization: 'OAuth ' + token }
+    });
+  } catch (_) { throw unknown(); }
+  if (r.status === 201) return { ok: true, path: to };
+  if (r.status === 202) {
+    await confirmOperation(r.json, conf, token, unknown);
+    return { ok: true, path: to };
+  }
+  if (r.status < 400 || r.status >= 500 || r.status === 408 || r.status === 429) throw unknown();
+  const e = new Error(writeErrorText(r, 'rename')); e.status = r.status; throw e;
 }
 
 /** pkg3-125: адрес для загрузки файла. Сам файл идёт с устройства ПРЯМО в

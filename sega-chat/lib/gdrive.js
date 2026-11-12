@@ -651,13 +651,19 @@ async function renameFile(token, googlePath, newName, c) {
   const name = cellName(newName);
   if (!name) { const e = new Error('Неверное имя: название без косой черты'); e.status = 400; throw e; }
   const q = new URLSearchParams({ supportsAllDrives: 'true', fields: 'id,name' });
-  const r = await httpJSON(conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
-    method: 'PATCH',
-    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-    json: { name }
-  });
-  if (r.status !== 200 || !r.json) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
-  return { path: 'google:/' + id, name: String(r.json.name || name) };
+  const unknown = () => { const e = new Error('Google не подтвердил переименование. Проверьте имя файла перед повторной попыткой.'); e.status = 502; return e; };
+  let r;
+  try {
+    r = await httpJSON(conf.apiBase + '/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
+      method: 'PATCH',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      json: { name }
+    });
+  } catch (_) { throw unknown(); }
+  if ((r.status < 400 && r.status !== 200) || r.status >= 500 || r.status === 408 || r.status === 429 ||
+      (r.status === 200 && (!r.json || r.json.id !== id || r.json.name !== name))) throw unknown();
+  if (r.status !== 200) { const e = new Error(googleErrorText(r)); e.status = r.status; throw e; }
+  return { path: 'google:/' + id, name };
 }
 
 /** Убрать файл или папку в корзину Google (навсегда не удаляем — вернуть можно). */
