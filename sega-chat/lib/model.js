@@ -40,6 +40,7 @@ function emptyDb() {
     backups: [],    // следы резервных копий в облачном хранилище: { key, bytes, rows, at, by }
     dmSaved49: false, // pkg3-49: разовый перенос старых личных чатов в «сохранённые» выполнен
     serverSecret: null,
+    sync: { pairs: {}, devices: {}, folders: {}, queue: {}, blobs: {}, commands: {}, shares: {}, seq: 0 }, // pkg3-154: папки ПК
     stats: { bytes: 0, count: 0, chats: {} } // счётчики вместо пересчёта всей истории
   };
 }
@@ -74,6 +75,11 @@ function migrate(db) {
   if (!Array.isArray(db.changes)) db.changes = [];
   if (!Array.isArray(db.backups)) db.backups = [];
   if (!Array.isArray(db.resets)) db.resets = [];   // pkg3-135: ссылки сброса пароля
+  // pkg3-154: синхронизация папок. Старые базы получают пустые коллекции без
+  // переноса переписки; ключи папок сюда не попадают (только зашифрованные свёртки).
+  if (!db.sync || typeof db.sync !== 'object') db.sync = { pairs: {}, devices: {}, folders: {}, queue: {}, blobs: {}, commands: {}, shares: {}, seq: 0 };
+  for (const k of ['pairs', 'devices', 'folders', 'queue', 'blobs', 'commands', 'shares']) if (!db.sync[k]) db.sync[k] = {};
+  if (!db.sync.seq) db.sync.seq = 0;
 
   const legacyId = 'legacy-group';
   if (db.messages.some(m => m.ch !== undefined && m.chat === undefined)) {

@@ -142,10 +142,12 @@ function eventContext(event) {
   if (!event || typeof event.id !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(event.id)) fail('event-id', 'Неверная метка события');
   if (typeof event.folderId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(event.folderId)) fail('event-folder', 'Неверная метка папки');
   if (typeof event.deviceId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(event.deviceId)) fail('event-device', 'Неверная метка компьютера');
-  if (event.op !== 'put' && event.op !== 'delete') fail('event-op', 'Неизвестное действие');
+  if (event.op !== 'put' && event.op !== 'delete' && event.op !== 'mkdir') fail('event-op', 'Неизвестное действие');
+  const keyRev = event.keyRev === undefined ? 1 : event.keyRev;
+  if (!Number.isSafeInteger(keyRev) || keyRev < 1 || keyRev > 1000000) fail('event-key-rev', 'Неверная версия ключа папки');
   const p = normalizePath(event.path);
   // Имя файла не показываем серверу даже в контексте: только контрольная сумма пути.
-  return { v: PROTOCOL_VERSION, folderId: event.folderId, eventId: event.id, deviceId: event.deviceId, op: event.op,
+  return { v: PROTOCOL_VERSION, folderId: event.folderId, eventId: event.id, deviceId: event.deviceId, op: event.op, keyRev,
     pathHash: crypto.createHash('sha256').update(p, 'utf8').digest('hex') };
 }
 
@@ -167,7 +169,8 @@ function openEvent(key, envelope) {
   if (!envelope || envelope.v !== PROTOCOL_VERSION || envelope.alg !== 'A256GCM') fail('envelope-version', 'Неизвестный формат события');
   const ctx = envelope.context;
   if (!ctx || ctx.v !== PROTOCOL_VERSION || typeof ctx.folderId !== 'string' || typeof ctx.eventId !== 'string'
-    || typeof ctx.deviceId !== 'string' || (ctx.op !== 'put' && ctx.op !== 'delete')
+    || typeof ctx.deviceId !== 'string' || (ctx.op !== 'put' && ctx.op !== 'delete' && ctx.op !== 'mkdir')
+    || !Number.isSafeInteger(ctx.keyRev) || ctx.keyRev < 1
     || typeof ctx.pathHash !== 'string' || !/^[a-f0-9]{64}$/.test(ctx.pathHash)) fail('envelope-context', 'Повреждён контекст события');
   const iv = Buffer.from(String(envelope.iv || ''), 'base64');
   const raw = Buffer.from(String(envelope.ct || ''), 'base64');
@@ -185,8 +188,97 @@ function openEvent(key, envelope) {
   return event;
 }
 
+const CHUNK_PLAIN = 512 * 1024;
+function chunkAAD(folderId, eventId, index) {
+  return Buffer.from('sega-sync-chunk-v1|' + folderId + '|' + eventId + '|' + index, 'utf8');
+}
+function sealChunk(key, folderId, eventId, index, plain) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) fail('key-length', 'Ключ папки должен быть 32 байта');
+  const b = Buffer.isBuffer(plain) ? plain : Buffer.from(plain);
+  if (b.length > CHUNK_PLAIN) fail('chunk-large', 'Кусок файла слишком большой');
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  c.setAAD(chunkAAD(folderId, eventId, index));
+  const body = Buffer.concat([c.update(b), c.final()]);
+  return { v: 1, iv: iv.toString('base64'), ct: Buffer.concat([body, c.getAuthTag()]).toString('base64') };
+}
+function openChunk(key, folderId, eventId, index, envelope) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) fail('key-length', 'Ключ папки должен быть 32 байта');
+  if (!envelope || envelope.v !== 1) fail('chunk-version', 'Неизвестный формат куска');
+  const iv = Buffer.from(String(envelope.iv || ''), 'base64');
+  const raw = Buffer.from(String(envelope.ct || ''), 'base64');
+  if (iv.length !== 12 || raw.length < 17 || raw.length > CHUNK_PLAIN + 16) fail('chunk-size', 'Повреждён кусок файла');
+  const d = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  d.setAAD(chunkAAD(folderId, eventId, index));
+  d.setAuthTag(raw.subarray(raw.length - 16));
+  try { return Buffer.concat([d.update(raw.subarray(0, raw.length - 16)), d.final()]); }
+  catch (e) { return fail('chunk-auth', 'Кусок файла повреждён или ключ не подходит'); }
+}
+
+/** Непрозрачный блок для сервера: состояние помощника и названия файлов внутри
+ * шифруются ключом папки. Формат тот же, что aesEncryptBytes в браузере. */
+function sealOpaque(key, value) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) fail('key-length', 'Ключ папки должен быть 32 байта');
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const plain = Buffer.from(JSON.stringify(value), 'utf8');
+  if (plain.length > MAX_EVENT_BYTES) fail('opaque-large', 'Состояние слишком большое');
+  const ct = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+  return Buffer.concat([iv, ct]).toString('base64');
+}
+function openOpaque(key, blob) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) fail('key-length', 'Ключ папки должен быть 32 байта');
+  const raw = Buffer.from(String(blob || ''), 'base64');
+  if (raw.length < 29 || raw.length > MAX_EVENT_BYTES + 28) fail('opaque-size', 'Повреждённое состояние');
+  const d = crypto.createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
+  d.setAuthTag(raw.subarray(raw.length - 16));
+  try {
+    const plain = Buffer.concat([d.update(raw.subarray(12, raw.length - 16)), d.final()]);
+    return JSON.parse(plain.toString('utf8'));
+  } catch (e) { return fail('opaque-auth', 'Состояние повреждено или ключ не подходит'); }
+}
+
+/** Пара ключей компьютера P-256. Открытая точка — как в переписке SEGA-CHAT. */
+function generateDeviceKeys() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const jwk = publicKey.export({ format: 'jwk' });
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
+  return { pub: raw.toString('base64'), priv: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() };
+}
+function publicKeyFromRaw(raw) {
+  const b = Buffer.from(String(raw || ''), 'base64');
+  if (b.length !== 65 || b[0] !== 4) fail('pub-format', 'Неверный открытый ключ компьютера');
+  return crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: b.subarray(1, 33).toString('base64url'), y: b.subarray(33).toString('base64url') }, format: 'jwk' });
+}
+function pairKey(privPem, pubRaw) {
+  try {
+    const priv = crypto.createPrivateKey(privPem);
+    const pub = publicKeyFromRaw(pubRaw);
+    const shared = crypto.diffieHellman({ privateKey: priv, publicKey: pub });
+    if (shared.length !== 32) fail('pair-length', 'Неверная длина общего ключа');
+    return shared;
+  } catch (e) { if (e instanceof SyncError) throw e; return fail('pair-fail', 'Ключи компьютера не подошли'); }
+}
+function sealFor(privPem, pubRaw, keyBytes) {
+  const k = pairKey(privPem, pubRaw);
+  if (!Buffer.isBuffer(keyBytes) || keyBytes.length !== 32) fail('key-length', 'Ключ папки должен быть 32 байта');
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', k, iv);
+  return Buffer.concat([iv, c.update(keyBytes), c.final(), c.getAuthTag()]).toString('base64');
+}
+function openFor(privPem, pubRaw, blob) {
+  const k = pairKey(privPem, pubRaw);
+  const raw = Buffer.from(String(blob || ''), 'base64');
+  if (raw.length !== 60) fail('wrap-size', 'Повреждённая свёртка ключа');
+  const d = crypto.createDecipheriv('aes-256-gcm', k, raw.subarray(0, 12));
+  d.setAuthTag(raw.subarray(44));
+  try { return Buffer.concat([d.update(raw.subarray(12, 44)), d.final()]); }
+  catch (e) { return fail('wrap-auth', 'Ключ папки не открылся'); }
+}
+
 module.exports = {
-  PROTOCOL_VERSION, MAX_PATH, MAX_COMPONENT, MAX_DEPTH, MAX_EVENT_BYTES, DEFAULT_IGNORES,
+  PROTOCOL_VERSION, MAX_PATH, MAX_COMPONENT, MAX_DEPTH, MAX_EVENT_BYTES, DEFAULT_IGNORES, CHUNK_PLAIN,
   SyncError, normalizePath, pathKey, detectCollisions, ignoreMatcher, isFingerprint,
-  classifyChange, conflictName, canonicalJson, eventContext, sealEvent, openEvent
+  classifyChange, conflictName, canonicalJson, eventContext, sealEvent, openEvent, sealChunk, openChunk,
+  sealOpaque, openOpaque, generateDeviceKeys, publicKeyFromRaw, pairKey, sealFor, openFor
 };

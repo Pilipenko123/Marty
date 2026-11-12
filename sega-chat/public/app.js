@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-153';
+const BUILD = 'pkg3-154';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -8136,6 +8136,8 @@ function renderRail() {
   // pkg3-124: «☁ Мои диски» — отдельным разделом В САМОМ НИЗУ, под всеми чатами
   // и своими разделами. Здесь же строка «Подключить диск» (плюс пункт в меню «+»).
   html += foldHead('drives', '☁ Мои диски', []) + (openSec('drives') ? drivesRailRows() : '');
+  // pkg3-154: отдельная строка «Папка с ПК» — синхронизация с помощником Windows
+  html += `<div class="chat-item drive-item" data-foldsync="1" title="Синхронизация папки между компьютерами"><div class="drive-ic">${SV(ICONS.folder)}</div><div class="ci-main"><div class="ci-name">Папка с ПК</div><div class="ci-last">синхронизация между компьютерами</div></div></div>`;
 
   // pkg3-48/49: раздела «Написать лично» со всеми участниками больше нет —
   // мессенджер не показывает весь список людей каждому. Новый собеседник
@@ -10008,6 +10010,7 @@ $('#plus-menu').addEventListener('click', e => {
   if (act === 'section') return openCreateSection();
   if (act === 'music') return openMusic();   // pkg3-87: плашка прямо в первом меню
   if (act === 'disk') return driveConnectAsk();   // pkg3-124: подключить свой диск
+  if (act === 'foldsync') return window.openFolderSync && window.openFolderSync();   // pkg3-154
 });
 document.addEventListener('click', e => {
   if (!e.target.closest('#plus-menu') && !e.target.closest('#btn-plus')) plusMenu(false);
@@ -11493,6 +11496,7 @@ function modal(title, html, opts) {
   // на следующем окне и папка откроется «на весь экран»
   md.classList.remove('dsk-modal');
   md.classList.remove('dsk-view');
+  md.classList.remove('sync-modal');   // pkg3-154
   if (opts && opts.cls) md.classList.add(opts.cls);
   // pkg3-114: высоты, посчитанные числом для плеера на телефоне, другим окнам не нужны
   const bx = md.querySelector('.modal-box'), bd = md.querySelector('.modal-body');

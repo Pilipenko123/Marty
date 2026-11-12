@@ -184,6 +184,26 @@ function createFileStore(opts = {}) {
       const full = path.join(archiveDir, file);
       if (full.startsWith(archiveDir)) fs.rmSync(full, { force: true });
     },
+
+    // pkg3-154: зашифрованные куски очереди синхронизации папок. Плоские файлы,
+    // чтобы резервная копия видела их на одном уровне с прочими вложениями.
+    async putSyncBlob(key, buf) {
+      if (!/^[a-f0-9]{32,64}$/.test(String(key))) throw new Error('bad sync key');
+      const dir = path.join(dataDir, 'sync-blobs');
+      fs.mkdirSync(dir, { recursive: true });
+      const full = path.join(dir, key), tmp = full + '.tmp';
+      fs.writeFileSync(tmp, buf);
+      fs.renameSync(tmp, full);
+    },
+    async getSyncBlob(key) {
+      if (!/^[a-f0-9]{32,64}$/.test(String(key))) return null;
+      const full = path.join(dataDir, 'sync-blobs', key);
+      try { return fs.readFileSync(full); } catch (e) { return null; }
+    },
+    async delSyncBlob(key) {
+      if (!/^[a-f0-9]{32,64}$/.test(String(key))) return;
+      fs.rmSync(path.join(dataDir, 'sync-blobs', key), { force: true });
+    },
     async countArchiveParts(file) {
       return fs.existsSync(path.join(archiveDir, file)) ? 1 : 0;
     },
@@ -212,7 +232,9 @@ function createFileStore(opts = {}) {
           const rel = prefix ? prefix + '/' + f : f;
           // pkg3-51: папка standby/ — это дорожная сумка канала «основной →
           // запасной» (принятые слепки), а не данные мессенджера: в копию не идёт
-          if (st.isDirectory()) { if (depth > 0 && f !== 'standby') walk(full, rel, depth - 1); continue; }
+          // pkg3-154: очередь папок ПК — временные зашифрованные куски, не история
+          // переписки. В резервную копию не берём (иначе копия распухнет на ровном месте).
+          if (st.isDirectory()) { if (depth > 0 && f !== 'standby' && f !== 'sync-blobs') walk(full, rel, depth - 1); continue; }
           if (f.endsWith('.tmp') || f.endsWith('.broken')) continue;
           try { files[rel] = fs.readFileSync(full, 'utf8'); } catch (e) {}
           const group = rel.split('/')[0].replace(/-[\w.]+$/, '');
@@ -238,6 +260,9 @@ function createFileStore(opts = {}) {
      */
     async restoreFiles(payload) {
       const files = payload.files || {};
+      // pkg3-154: временная очередь папок не переезжает из копии — помощники
+      // сверят папки заново. Сами папки/компьютеры/ключи остаются в базе.
+      fs.rmSync(path.join(dataDir, 'sync-blobs'), { recursive: true, force: true });
       let written = 0;
       for (const [rel, text] of Object.entries(files)) {
         const full = path.join(dataDir, rel);
@@ -249,6 +274,10 @@ function createFileStore(opts = {}) {
       db = payload.db && typeof payload.db === 'object' ? payload.db : emptyDb();
       if (!db.serverSecret) db.serverSecret = crypto.randomBytes(32).toString('hex');
       migrate(db);
+      if (db.sync) {
+        db.sync.queue = {}; db.sync.blobs = {}; db.sync.commands = {}; db.sync.pairs = {};
+        for (const f of Object.values(db.sync.folders || {})) { f.events = {}; f.deviceRev = (f.deviceRev || 1) + 1; }
+      }
       recomputeStats(db);
       writeNow();
       return { dropped: null, written };

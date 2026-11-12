@@ -70,9 +70,10 @@ function createLocalFolder(opts) {
         || !map(journal.applied) || !map(journal.pending) || !map(journal.conflicts)) {
         throw new Error('bad journal');
       }
+      if (!map(journal.dirs)) journal.dirs = {};
     } catch (e) {
       if (e.code !== 'ENOENT') throw new core.SyncError('journal', 'Журнал синхронизации повреждён — автоматическая замена остановлена');
-      journal = { v: 1, folderId, deviceId, bases: {}, applied: {}, pending: {}, conflicts: {}, updatedAt: 0 };
+      journal = { v: 1, folderId, deviceId, bases: {}, dirs: {}, applied: {}, pending: {}, conflicts: {}, updatedAt: 0 };
       await saveJournal();
     }
     return api;
@@ -94,11 +95,22 @@ function createLocalFolder(opts) {
     let fh;
     try { fh = await fsp.open(lockFile, 'wx', 0o600); }
     catch (e) {
-      if (e.code === 'EEXIST') throw new core.SyncError('busy', 'Эта папка уже открыта другим помощником');
-      throw e;
+      if (e.code !== 'EEXIST') throw e;
+      let stale = false;
+      try {
+        const old = JSON.parse(await fsp.readFile(lockFile, 'utf8'));
+        if (old && old.host === os.hostname() && Number.isInteger(old.pid) && old.pid > 0) {
+          try { process.kill(old.pid, 0); } catch (x) { stale = x.code === 'ESRCH'; }
+        }
+      } catch (x) { stale = true; }
+      if (!stale) throw new core.SyncError('busy', 'Эта папка уже открыта другим помощником');
+      await fsp.unlink(lockFile).catch(() => {});
+      try { fh = await fsp.open(lockFile, 'wx', 0o600); }
+      catch (x) { throw new core.SyncError('busy', 'Эта папка уже открыта другим помощником'); }
     }
     try { await fh.writeFile(JSON.stringify({ pid: process.pid, host: os.hostname(), at: now() })); await fh.sync(); }
-    finally { await fh.close(); }
+    catch (e) { await fh.close().catch(() => {}); await fsp.unlink(lockFile).catch(() => {}); throw e; }
+    await fh.close();
     locked = true;
   }
 
@@ -113,7 +125,7 @@ function createLocalFolder(opts) {
     return p ? p.split('/') : [];
   }
 
-  async function assertDirChain(parts) {
+  async function assertDirChain(parts, create = true) {
     let cur = rootReal;
     for (const part of parts) {
       cur = path.join(cur, part);
@@ -121,6 +133,7 @@ function createLocalFolder(opts) {
       try { st = await fsp.lstat(cur); }
       catch (e) {
         if (e.code !== 'ENOENT') throw e;
+        if (!create) throw e;
         await fsp.mkdir(cur);
         st = await fsp.lstat(cur);
       }
@@ -129,11 +142,11 @@ function createLocalFolder(opts) {
     return cur;
   }
 
-  async function targetPath(rel) {
+  async function targetPath(rel, create = true) {
     const parts = safeParts(rel);
     if (!parts.length) throw new core.SyncError('path-root', 'Нельзя заменить саму папку');
     const name = parts.pop();
-    const dir = await assertDirChain(parts);
+    const dir = await assertDirChain(parts, create);
     const full = path.join(dir, name);
     const relCheck = path.relative(rootReal, full);
     if (!relCheck || relCheck.startsWith('..') || path.isAbsolute(relCheck)) throw new core.SyncError('escape', 'Путь вышел из выбранной папки');
@@ -149,9 +162,10 @@ function createLocalFolder(opts) {
   }
 
   async function fingerprintAt(rel) {
-    const full = await targetPath(rel);
-    try { return await fingerprint(full); }
-    catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+    try {
+      const full = await targetPath(rel, false);
+      return await fingerprint(full);
+    } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
   }
 
   async function scan() {
@@ -252,6 +266,15 @@ function createLocalFolder(opts) {
     const rel = core.normalizePath(event.path);
     if (journal.applied[event.id]) return { action: 'noop', reason: 'already-applied', path: rel };
 
+    if (event.op === 'mkdir') {
+      const parts = core.normalizePath(event.path).split('/');
+      await assertDirChain(parts);
+      journal.dirs[rel] = { at: now() };
+      journal.applied[event.id] = { at: now(), action: 'mkdir', path: rel };
+      await saveJournal();
+      return { action: 'mkdir', path: rel };
+    }
+
     if (event.op === 'delete') {
       const expectedHash = event.file && event.file.hash || event.baseHash;
       if (!/^[a-f0-9]{64}$/.test(String(expectedHash || ''))) throw new core.SyncError('delete-hash', 'Для удаления нужна контрольная сумма версии');
@@ -262,6 +285,7 @@ function createLocalFolder(opts) {
         await saveJournal();
         return { action: 'confirm-delete', reason: decision.reason, path: rel, pendingId: event.id };
       }
+      journal.bases[rel] = { deleted: true, hash: expectedHash };
       journal.applied[event.id] = { at: now(), action: 'noop', path: rel };
       await saveJournal();
       return { action: 'noop', reason: 'already-absent', path: rel };
@@ -367,7 +391,7 @@ function createLocalFolder(opts) {
     if (local && local.hash !== p.expectedHash) throw new core.SyncError('stale-delete', 'Файл изменился после запроса — удаление отменено');
     let saved = null;
     if (local) {
-      const full = await targetPath(rel);
+      const full = await targetPath(rel, false);
       const dir = path.join(stateDir, 'trash', pendingId);
       await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
       saved = path.join(dir, path.basename(rel));
@@ -375,6 +399,8 @@ function createLocalFolder(opts) {
       catch (e) { if (e.code !== 'EEXIST') throw e; }
       const check = await fingerprint(saved);
       if (check.hash !== local.hash) throw new core.SyncError('trash-check', 'Служебная копия не совпала');
+      const again = await fingerprintAt(rel);
+      if (!again || again.hash !== local.hash) throw new core.SyncError('stale-delete', 'Файл изменился перед удалением — удаление отменено');
       await fsp.unlink(full);
     }
     journal.bases[rel] = { deleted: true, hash: p.expectedHash };
@@ -390,9 +416,72 @@ function createLocalFolder(opts) {
     journal.bases[p] = Object.assign({}, fp);
     await saveJournal();
   }
+  async function setDeleted(rel, hash) {
+    const p = core.normalizePath(rel);
+    if (!/^[a-f0-9]{64}$/.test(String(hash || ''))) throw new core.SyncError('base', 'Неверная сумма удалённой версии');
+    journal.bases[p] = { deleted: true, hash };
+    await saveJournal();
+  }
+  async function noteLocalDelete(rel, expectedHash) {
+    const p = core.normalizePath(rel);
+    if (!/^[a-f0-9]{64}$/.test(String(expectedHash || ''))) throw new core.SyncError('delete-hash', 'Нужна сумма прежней версии');
+    const id = 'local-' + crypto.createHash('sha256').update(p + '|' + expectedHash).digest('hex').slice(0, 32);
+    if (!journal.pending[id]) {
+      journal.pending[id] = { kind: 'local-delete', eventId: id, path: p, expectedHash, at: now(), from: deviceId };
+      await saveJournal();
+    }
+    return id;
+  }
+  async function approveLocalDelete(pendingId) {
+    const p = journal && journal.pending[pendingId];
+    if (!p || p.kind !== 'local-delete') throw new core.SyncError('pending', 'Нет такого запроса на удаление');
+    const rel = core.normalizePath(p.path);
+    const local = await fingerprintAt(rel);
+    if (local) throw new core.SyncError('stale-delete', 'Файл вернулся на место — удаление отменено');
+    journal.bases[rel] = { deleted: true, hash: p.expectedHash };
+    journal.applied[pendingId] = { at: now(), action: 'local-delete-approved', path: rel };
+    delete journal.pending[pendingId];
+    await saveJournal();
+    return { action: 'local-delete-approved', path: rel, expectedHash: p.expectedHash };
+  }
+  async function approveRestore(pendingId, openContent) {
+    const p = journal && journal.pending[pendingId];
+    if (!p || p.kind !== 'restore') throw new core.SyncError('pending', 'Нет такого запроса на восстановление');
+    const ev = p.event, rel = core.normalizePath(ev.path);
+    const local = await fingerprintAt(rel);
+    if (local && local.hash === ev.file.hash) {
+      journal.bases[rel] = Object.assign({}, ev.file);
+      journal.applied[ev.id] = { at: now(), action: 'noop', path: rel };
+      delete journal.pending[pendingId]; await saveJournal();
+      return { action: 'noop', path: rel };
+    }
+    const item = await writeTemp(rel, openContent, ev.file);
+    try {
+      if (local) {
+        const copy = core.conflictName(rel, ev.deviceId, ev.id, x => fs.existsSync(path.join(rootReal, x)));
+        await commitNoReplace(item, await targetPath(copy));
+        journal.conflicts[ev.id] = { path: rel, copy, hash: item.hash, at: now() };
+        journal.applied[ev.id] = { at: now(), action: 'conflict', path: rel, copy };
+        delete journal.pending[pendingId]; await saveJournal();
+        return { action: 'conflict', path: rel, copy };
+      }
+      await commitNoReplace(item, item.full);
+      journal.bases[rel] = Object.assign({}, ev.file);
+      journal.applied[ev.id] = { at: now(), action: 'restore-approved', path: rel };
+      delete journal.pending[pendingId]; await saveJournal();
+      return { action: 'restore-approved', path: rel };
+    } catch (e) { await fsp.unlink(item.tmp).catch(() => {}); throw e; }
+  }
+  async function markDir(rel) {
+    const p = core.normalizePath(rel);
+    await assertDirChain(p.split('/'));
+    journal.dirs[p] = { at: now() };
+    await saveJournal();
+  }
 
   const api = {
-    init, acquire, release, scan, apply, approveDelete, setBase,
+    init, acquire, release, scan, apply, approveDelete, approveLocalDelete, approveRestore,
+    setBase, setDeleted, noteLocalDelete, markDir,
     fingerprintAt,
     get journal() { return journal; },
     get root() { return rootReal || root; },
