@@ -44,9 +44,10 @@ try{
   async function invite(name){
     const secret=hex(24),secretHash=crypto.createHash('sha256').update(secret).digest('hex');
     const inv=await call('/api/invites',{method:'POST',token:admin,body:{invSalt:hex(),wrappedRoomKey:'k:'+hex(),secretHash}});assert.equal(inv.status,200);
-    const user=await call('/api/register',{method:'POST',body:{...creds(name),inviteToken:inv.data.invite.id+'.'+secret}});assert.equal(user.status,200);return user.data.token;
+    const user=await call('/api/register',{method:'POST',body:{...creds(name),inviteToken:inv.data.invite.id+'.'+secret}});assert.equal(user.status,200);return user.data;
   }
-  const alice=await invite('Алиса'),bob=await invite('Борис');
+  const aliceUser=await invite('Алиса'),bobUser=await invite('Борис');
+  const alice=aliceUser.token,bob=bobUser.token,aliceId=aliceUser.user.id;
   assert.equal((await call('/api/pc-lab/access',{token:alice})).status,404); // обычный сервер не включает API
   app=createApi(store,{localPcExperimental:true});
   async function worker(untrusted){
@@ -57,7 +58,7 @@ try{
       const timer=setTimeout(()=>{child.kill();reject(Error('Тестовый клиент завис'));},15000);
       child.on('error',e=>{clearTimeout(timer);reject(e);});child.on('exit',code=>{clearTimeout(timer);if(code===0&&done)resolve();else reject(Error('Тестовый клиент: '+err));});
     });
-    child.send({base:tlsBase,admin,alice,bob,untrusted});await exited;
+    child.send({base:tlsBase,admin,alice,bob,aliceId,untrusted});await exited;
   }
   await worker(true);await worker(false);assert.equal(spyHits,0);assert.equal(decisionHits,2);
   assert.equal((await call('/api/pc-lab/access',{token:alice})).data.state,'approved');assert.equal((await call('/api/pc-lab/access',{token:bob})).data.state,'denied');

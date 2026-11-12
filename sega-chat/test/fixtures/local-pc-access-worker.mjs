@@ -14,7 +14,7 @@ const message=()=>new Promise(r=>process.once('message',r));
 const tick=()=>new Promise(r=>setTimeout(r,10));
 async function until(f){for(let n=0;n<200;n++){if(f())return;await tick();}throw Error('Окно не обновилось');}
 try{
-  const {base,admin,alice,bob,untrusted}=await message();globalThis.location=new URL(base);
+  const {base,admin,alice,bob,aliceId,untrusted}=await message();globalThis.location=new URL(base);
   const nativeFetch=globalThis.fetch;globalThis.fetch=(url,opts)=>nativeFetch(new URL(url,base),opts);
   const make=token=>createAccessHttp({getToken:()=>token,timeoutMs:3000});
   if(untrusted){await assert.rejects(make(alice).getStatus());process.send({step:'done'});process.disconnect();}
@@ -54,9 +54,24 @@ try{
     // Смена учётной записи не передаёт новый токен старому окну.
     const oldClose=manage.querySelector('[data-action=close]');sessionToken=alice;assert(!session.checkSession());
     assert.equal(session.root.textContent,'');assert.equal(manage.textContent,'');assert(oldClose.disabled);oldClose.click();
+    // Другой администратор отзывает роль при том же токене: проверяем
+    // настоящий тестовый API, а не только имитацию ошибки в jsdom.
+    async function setAdmin(value){
+      const response=await nativeFetch(base+'/api/admin/users/'+encodeURIComponent(aliceId)+'/admin',{method:'POST',headers:{Authorization:'Bearer '+admin,'Content-Type':'application/json'},body:JSON.stringify({value})});
+      assert.equal(response.status,200);
+    }
+    await setAdmin(true);
+    const demoted=createAdminSession(doc,deps);doc.body.appendChild(demoted.root);assert(demoted.start());
+    await until(()=>demoted.root.textContent.includes('последней проверке: 0.'));
+    demoted.root.querySelector('[data-action=open]').click();await until(()=>demoted.root.textContent.includes('Алиса'));
+    const stale=demoted.root.querySelector('[role=dialog]');await setAdmin(false);
+    assert(demoted.refresh());await until(()=>demoted.root.children.length===0);
+    assert.equal(stale.textContent,'');assert(!demoted.checkSession());
     const nonAdmin=createAdminSession(doc,deps);doc.body.appendChild(nonAdmin.root);assert(nonAdmin.start());
-    await until(()=>nonAdmin.root.textContent.includes('Количество неизвестно'));nonAdmin.root.querySelector('[data-action=open]').click();
-    await until(()=>nonAdmin.root.textContent.includes('Не удалось получить список'));assert(!nonAdmin.root.querySelector('[data-decision]'));nonAdmin.dispose();
+    // 403 от настоящего лабораторного API закрывает административную
+    // сессию, не показывая устаревший список пользователю без роли.
+    await until(()=>nonAdmin.root.children.length===0);assert(!nonAdmin.checkSession());
+    assert(!nonAdmin.root.querySelector('[data-action=open]'));nonAdmin.dispose();
     disposeAccessRequestView(own);disposeAccessRequestView(ownBob);dom.window.close();
     process.send({step:'done'});process.disconnect();
   }

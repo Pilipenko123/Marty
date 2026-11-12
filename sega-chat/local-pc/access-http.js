@@ -32,7 +32,11 @@
         const init={method,headers:{Authorization:'Bearer '+token},signal:controller.signal,redirect:'error',mode:'same-origin',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'};
         if(method==='POST'){init.headers['Content-Type']='application/json';init.body=JSON.stringify(body);}
         const res=await g.fetch(base+path,init);if(stopped)throw abortError();
-        if(!res || res.status!==200 || res.redirected || res.type==='opaqueredirect')throw new Error('Сервер не подтвердил запрос');
+        if(!res || res.redirected || res.type==='opaqueredirect')throw new Error('Сервер не подтвердил запрос');
+        if(res.status===401 || res.status===403){
+          const e=new Error('Сервер отклонил доступ');e.code='ACCESS_DENIED';throw e;
+        }
+        if(res.status!==200)throw new Error('Сервер не подтвердил запрос');
         if(!res.headers || !/^application\/json(?:\s*;|\s*$)/i.test(res.headers.get('content-type')||''))throw new Error('Неверный ответ сервера');
         const declared=res.headers.get('content-length');
         if(declared && (!/^\d+$/.test(declared) || Number(declared)>MAX_RESPONSE))throw new Error('Ответ слишком большой');

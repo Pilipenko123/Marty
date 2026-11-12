@@ -29,6 +29,12 @@ for(const make of [()=>new Response('{}',{status:403}),()=>response('{}',{header
   ()=>response('[]'),()=>response({state:'unknown'})]){
   handler=async()=>make();await assert.rejects(client.getStatus());
 }
+// Только подтверждённые HTTP 401/403 помечаются как отказ в доступе.
+for(const code of [401,403]){
+  handler=async()=>new Response('{}',{status:code});
+  await assert.rejects(client.listRequests(),e=>e.code==='ACCESS_DENIED' && !e.message.includes(token));
+}
+handler=async()=>new Response('{}',{status:503});await assert.rejects(client.listRequests(),e=>e.code!=='ACCESS_DENIED');
 handler=async()=>response({state:'pending'});await assert.rejects(client.decide({userId:'alice',requestId:rid,decision:'approve'}));
 handler=async()=>response({requests:'wrong',approved:[]});await assert.rejects(client.listRequests());
 // Время ожидания ограничено даже если fetch игнорирует сигнал остановки.

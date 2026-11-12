@@ -33,8 +33,19 @@
         // Геттер повторно проверяется и при старте и при завершении каждого
         // запроса HTTP-клиента; старый объект не может взять токен нового входа.
         const http=createAccessHttp({getToken:()=>current()?token:null});
-        const listRequests=async signal=>{ensure();const data=await http.listRequests(signal);ensure();return data;};
-        const decide=async (input,signal)=>{ensure();const data=await http.decide(input,signal);ensure();return data;};
+        async function guarded(call){
+          ensure();
+          try {const data=await call();ensure();return data;}
+          catch(error){
+            // Явный отказ сервера означает, что старые данные больше нельзя
+            // показывать, даже если токен не изменился. Не считаем сетевой
+            // сбой или 5xx доказательством смены роли.
+            if(error && error.code==='ACCESS_DENIED')dispose();
+            throw error;
+          }
+        }
+        const listRequests=signal=>guarded(()=>http.listRequests(signal));
+        const decide=(input,signal)=>guarded(()=>http.decide(input,signal));
         indicator=createIndicator(doc,{createMonitor,listRequests,onOpen:()=>{
           ensure();if(dialog)return;
           const view=createAdminView(doc,{listRequests,decide,onClose:()=>{closeDialog();if(current() && indicator)indicator.refresh();}});

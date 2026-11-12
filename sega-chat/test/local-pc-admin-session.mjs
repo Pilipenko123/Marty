@@ -37,6 +37,26 @@ assert(swapped.start());swapped.root.querySelector('[data-action=open]').click()
 token=A;let sent=0;const guarded=createAdminSession(doc,{...deps,createAccessHttp:()=>({listRequests:async()=>({requests:[entry],approved:[]}),decide:async()=>{sent++;return {state:'approved'};}})});
 assert(guarded.start());guarded.root.querySelector('[data-action=open]').click();await until(()=>!!guarded.root.querySelector('[data-decision=approve]'));token=B;
 guarded.root.querySelector('[data-decision=approve]').click();await until(()=>guarded.root.children.length===0);assert.equal(sent,0);
+// Сервер отозвал роль при неизменном токене. Следующий опрос закрывает
+// окно и очищает имена, даже если оболочка не заметила изменение роли.
+token=A;let allowed=true;
+const denied=()=>Object.assign(Error('роль отозвана'),{code:'ACCESS_DENIED'});
+const demoted=createAdminSession(doc,{...deps,createAccessHttp:()=>({listRequests:async()=>{if(!allowed)throw denied();return {requests:[entry],approved:[]};},decide:async()=>({state:'approved'})})});
+assert(demoted.start());await until(()=>demoted.root.textContent.includes('последней проверке: 1'));
+demoted.root.querySelector('[data-action=open]').click();await until(()=>demoted.root.textContent.includes('Алиса'));
+const staleDialog=demoted.root.querySelector('[role=dialog]'),staleButton=staleDialog.querySelector('[data-decision]');
+allowed=false;assert(demoted.refresh());await until(()=>demoted.root.children.length===0);
+assert.equal(staleDialog.textContent,'');assert(staleButton.disabled);assert(!demoted.checkSession());assert(!demoted.start());
+// Явный отказ непосредственно на решении также очищает окно и не повторяет его.
+let rejectedDecisions=0;
+const revokedDuringDecision=createAdminSession(doc,{...deps,createAccessHttp:()=>({listRequests:async()=>({requests:[entry],approved:[]}),decide:async()=>{rejectedDecisions++;throw denied();}})});
+assert(revokedDuringDecision.start());revokedDuringDecision.root.querySelector('[data-action=open]').click();
+await until(()=>!!revokedDuringDecision.root.querySelector('[data-decision]'));
+revokedDuringDecision.root.querySelector('[data-decision]').click();await until(()=>revokedDuringDecision.root.children.length===0);
+assert.equal(rejectedDecisions,1);assert(!revokedDuringDecision.checkSession());
+// Сбой сервера не является доказательством отзыва прав.
+const offline=createAdminSession(doc,{...deps,createAccessHttp:()=>({listRequests:async()=>{throw Error('нет ответа');},decide(){}})});
+assert(offline.start());await until(()=>offline.root.textContent.includes('Количество неизвестно'));assert(offline.checkSession());offline.dispose();
 // Поздний ответ, не поддерживающий abort, после выхода не выводит данные.
 token=A;let resolveList,readSignal;
 const delayed=createAdminSession(doc,{...deps,createAccessHttp:()=>({listRequests:s=>{readSignal=s;return new Promise(r=>{resolveList=r;});},decide(){throw Error('не вызывать');}})});
