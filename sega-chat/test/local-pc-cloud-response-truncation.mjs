@@ -18,6 +18,8 @@ const server=http.createServer((req,res)=>{
     if(mode==='general-cut')return cut(200,{ok:true});
     if(mode==='chunked-cut'){res.writeHead(200,{'Content-Type':'application/json'});res.write('{"ok":true}');setTimeout(()=>res.destroy(),20);return;}
     if(mode==='large'){res.writeHead(200,{'Content-Type':'application/json'});res.end(Buffer.alloc(2*1024*1024+1,32));return;}
+    if(mode==='slow'){res.writeHead(200,{'Content-Type':'application/json'});res.write('{');const timer=setInterval(()=>res.write(' '),25);res.on('close',()=>clearInterval(timer));return;}
+    if(mode==='slow-ok'){res.writeHead(200,{'Content-Type':'application/json'});res.write('{');const timer=setTimeout(()=>res.end('\"ok\":true}'),40);res.on('close',()=>clearTimeout(timer));return;}
     return json(200,{ok:true});
   }
   if(u.pathname==='/drive/v3/files/fileID'){
@@ -48,6 +50,10 @@ try{
   // полное тело, два вида обрыва и ограничение размера для каждого из них.
   for(const client of [googleHttp,yandexHttp]){
     mode='normal';assert.deepEqual((await bounded(client(base+'/general'))).json,{ok:true});
+    // Каждый байт сбрасывает таймаут бездействия сокета, но не должен
+    // удерживать запрос вечно. Ответ никогда не завершится сам.
+    mode='slow';await assert.rejects(bounded(client(base+'/general',{timeout:160})),e=>!/ожидание ответа зависло/.test(e.message));
+    mode='slow-ok';assert.deepEqual((await bounded(client(base+'/general',{timeout:500}))).json,{ok:true});
     for(const state of ['general-cut','chunked-cut','large']){
       mode=state;await assert.rejects(bounded(client(base+'/general')),e=>state==='large'?/большой ответ/.test(e.message):/прерван/.test(e.message),state);
     }

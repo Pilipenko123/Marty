@@ -97,6 +97,7 @@ function openToken(key, blob) {
  * ЛЮБОМ коде ответа (4xx/5xx — не исключение: маршрут сам решит, что сказать);
  * исключение — только когда Яндекс вовсе не откликся (сеть/таймаут). */
 function httpJSON(urlStr, opts = {}) {
+  let deadline;
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(urlStr); } catch (e) { return reject(new Error('Неверный адрес запроса')); }
@@ -135,11 +136,14 @@ function httpJSON(urlStr, opts = {}) {
         resolve({ status: res.statusCode || 0, json, text });
       });
     });
+    // Таймаут сокета отсчитывает бездействие; медленный поток может
+    // постоянно его сбрасывать. Ограничиваем и полное время запроса.
+    deadline = setTimeout(() => req.destroy(new Error('Яндекс не ответил вовремя')), Number(opts.timeout || 10000));
     req.on('timeout', () => { req.destroy(new Error('Яндекс не отвечает (таймаут)')); });
     req.on('error', e => reject(new Error('Яндекс не отвечает: ' + (e.message || e))));
     if (body) req.write(body);
     req.end();
-  });
+  }).finally(() => clearTimeout(deadline));
 }
 
 /** Ссылка на страницу согласия Яндекса. Собирается ТОЛЬКО из своего oauthBase

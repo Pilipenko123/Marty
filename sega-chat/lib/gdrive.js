@@ -107,6 +107,7 @@ function openToken(key, blob) {
 /** Маленький HTTP-клиент без зависимостей: отвечает {status, json} на любой код;
  * исключение — только когда Google вовсе не откликнулся. */
 function httpJSON(urlStr, opts = {}) {
+  let deadline;
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(urlStr); } catch (e) { return reject(new Error('Неверный адрес запроса')); }
@@ -149,11 +150,14 @@ function httpJSON(urlStr, opts = {}) {
         resolve({ status: res.statusCode || 0, json, text, headers: res.headers || {} });
       });
     });
+    // Таймаут сокета отсчитывает бездействие; медленный поток может
+    // постоянно его сбрасывать. Ограничиваем и полное время запроса.
+    deadline = setTimeout(() => req.destroy(new Error('Google не ответил вовремя')), Number(opts.timeout || 10000));
     req.on('timeout', () => { req.destroy(new Error('Google не ответил вовремя')); });
     req.on('error', e => reject(e));
     if (body) req.write(body);
     req.end();
-  });
+  }).finally(() => clearTimeout(deadline));
 }
 
 /** Человеческий текст ошибки Google (по-русски, без английских простыней). */
