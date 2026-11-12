@@ -27,6 +27,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { URL, URLSearchParams } = require('url');
+const drives = require('./drives');
 
 const DEF_OAUTH_BASE = 'https://oauth.yandex.ru';
 const DEF_API_BASE = 'https://cloud-api.yandex.net';
@@ -442,8 +443,13 @@ async function removePath(token, diskPath, c) {
 /** pkg3-125: переименовать/перенести (POST /v1/disk/resources/move). */
 async function movePath(token, fromPath, toPath, c) {
   const conf = c || cfg();
-  const from = apiPath(safePath(fromPath)), to = apiPath(safePath(toPath));
-  if (!from || !to || from === 'disk:/' || to === 'disk:/') { const e = new Error('Неверный путь для переименования'); e.status = 400; throw e; }
+  const fromSafe = safePath(fromPath), toSafe = safePath(toPath);
+  const fromDrive = fromSafe && drives.parsePath(fromSafe), toDrive = toSafe && drives.parsePath(toSafe);
+  if (!fromDrive || !toDrive || fromDrive.kind !== 'yandex' || toDrive.kind !== 'yandex' || fromDrive.slot !== toDrive.slot) {
+    const e = new Error('Переименование возможно только внутри одного подключённого Диска'); e.status = 400; throw e;
+  }
+  const from = apiPath(fromSafe), to = apiPath(toSafe);
+  if (from === 'disk:/' || to === 'disk:/') { const e = new Error('Неверный путь для переименования'); e.status = 400; throw e; }
   const q = new URLSearchParams({ from: from, path: to, overwrite: 'false' });
   const unknown = () => { const e = new Error('Яндекс не подтвердил переименование. Проверьте оба пути перед повторной попыткой.'); e.status = 502; return e; };
   let r;

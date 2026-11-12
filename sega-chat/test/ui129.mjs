@@ -43,6 +43,8 @@ const YD_FILES = {
   [TOK2]: [{ name: 'second.mp3', path: 'disk:/second.mp3', type: 'file', size: 22 }, { name: 'Папка-2', path: 'disk:/Папка-2', type: 'dir' }]
 };
 const created = [];      // что просили создать у Яндекса: { token, path }
+const moves = []; // тестовый учёт запросов на переименование
+let mockRequests = 0;
 const googleSeen = [];   // какие токены Google дёргали: { path, token }
 const G_FILES = { g1tok: [{ id: 'gf1aaa', name: 'g-one.mp3', mimeType: 'audio/mpeg', size: '5' }], g2tok: [{ id: 'gf2bbb', name: 'g-two.mp3', mimeType: 'audio/mpeg', size: '6' }] };
 
@@ -56,6 +58,7 @@ const ydItem = (x, base) => ({
 });
 
 const mock = http.createServer((rq, rs) => {
+  mockRequests++;
   const u = new URL(rq.url, 'http://mock');
   const chunks = [];
   rq.on('data', c => chunks.push(c));
@@ -73,6 +76,10 @@ const mock = http.createServer((rq, rs) => {
     const token = auth.replace(/^(OAuth|Bearer)\s+/i, '');
 
     // ── Яндекс ─────────────────────────────────────────────
+    if (u.pathname === '/v1/disk/resources/move' && rq.method === 'POST') {
+      moves.push({token,from:u.searchParams.get('from'),to:u.searchParams.get('path')});
+      return jsend(201, {});
+    }
     if (u.pathname === '/v1/disk/resources' && rq.method === 'PUT') {
       const p = String(u.searchParams.get('path') || '');
       if (!YD_FILES[token]) return jsend(401, { message: 'нет токена' });
@@ -240,6 +247,15 @@ ok(r.status === 200, 'папка создаётся на втором диске
 ok(created.length === 1 && created[0].token === TOK2 && created[0].path === 'disk:/Новая', 'у Яндекса запрос с токеном второго диска и обычным путём disk:/…');
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', path: 'disk:/Ещё' } }, A.token);
 ok(created.length === 2 && created[1].token === TOK1, 'первый диск по-прежнему ходит своим токеном');
+r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'rename', path: 'disk2:/second.mp3', to: 'disk2:/renamed.mp3' } }, A.token);
+ok(r.status === 200 && r.d.path === 'disk2:/renamed.mp3', 'переименование внутри второго диска возвращает правильный слот');
+ok(moves.length === 1 && moves[0].token === TOK2 && moves[0].from === 'disk:/second.mp3' && moves[0].to === 'disk:/renamed.mp3', 'запрос отправлен с токеном второго диска');
+for (const [from,to] of [['disk:/first.mp3','disk2:/new.mp3'],['disk2:/second.mp3','disk:/new.mp3'],['disk2:/second.mp3','disk4:/new.mp3'],['disk4:/old.mp3','disk4:/new.mp3']]) {
+  const before=moves.length, beforeHttp=mockRequests;
+  r=await call('/api/yadisk/op',{method:'POST',body:{op:'rename',path:from,to}},A.token);
+  ok(r.status===400 && moves.length===before && mockRequests===beforeHttp, 'разные или неверные слоты отклоняются до обращения к облаку: ' + from + ' → ' + to);
+}
+
 r = await call('/api/yadisk/op', { method: 'POST', body: { op: 'mkdir', path: 'disk2:/' } }, A.token);
 ok(r.status === 400, 'корень второго диска удалить/переименовать нельзя так же, как первого');
 

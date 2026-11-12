@@ -56,5 +56,11 @@ try {
     if(state==='pending')assert.equal(polls,3);
   }
   assert.equal(leaked,0);await assert.rejects(y('403'),e=>e.status===403);
+  for(const [from,to] of [['disk:/a','disk2:/b'],['disk2:/a','disk:/b'],['disk2:/a','disk4:/b'],['disk4:/a','disk4:/b'],['disk0:/a','disk0:/b'],['disk:/','disk:/b'],['disk:/a','disk:/']]){
+    calls=[];await assert.rejects(movePath('TEST-SECRET',from,to,config),e=>e.status===400);assert.equal(calls.length,0);
+  }
+  calls=[];mode='201';assert.equal((await movePath('TEST-SECRET','disk2:/a','disk2:/b',config)).ok,true);
+  assert.equal(calls[0].u.searchParams.get('from'),'disk:/a');assert.equal(calls[0].u.searchParams.get('path'),'disk:/b');
+  calls=[];assert.equal((await movePath('TEST-SECRET','disk1:/a','disk:/b',config)).ok,true);assert.equal(calls.length,1);
 } finally {server.closeAllConnections?.();attacker.closeAllConnections?.();await new Promise(r=>server.close(r));await new Promise(r=>attacker.close(r));}
 console.log('local-pc-cloud-rename-confirmation: подтверждения и неопределённые исходы проверены локальным HTTP; реальные облака не проверены');

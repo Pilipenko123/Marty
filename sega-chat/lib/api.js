@@ -4596,6 +4596,13 @@ function createApi(store, opts = {}) {
         if (to && !(to === root || to.startsWith(root + '/'))) return E(403, 'Нельзя выйти за пределы открытой папки');
       }
       const slotOp = drives.slotOf(path);   // pkg3-134: в ответе видно, какой Диск
+      if (op === 'rename') {
+        const fromDrive = drives.parsePath(path), toDrive = to && drives.parsePath(to);
+        // Номер слота удаляется перед запросом Яндексу. Без этой проверки
+        // переименование может затронуть исходный диск, но вернуть чужой слот.
+        if (!fromDrive || !toDrive || fromDrive.kind !== 'yandex' || toDrive.kind !== 'yandex' || fromDrive.slot !== toDrive.slot)
+          return E(400, 'Переименование возможно только внутри одного подключённого Диска');
+      }
       try {
         const tokO = await ydFreshToken(owner, yadisk.loadKeys(), slotOp);
         if (!tokO) return E(409, 'Яндекс.Диск у владельца не подключён');
