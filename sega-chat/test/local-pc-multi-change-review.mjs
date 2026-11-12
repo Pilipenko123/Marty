@@ -39,6 +39,19 @@ const unknown=build();remove(unknown[0],'old');unknown[0].snapshot.push(file('ne
 assert.deepEqual(run(unknown).renames,[]);assert.deepEqual(run(unknown).deletions,{candidates:[],conflicts:[{path:'old'}]});
 // И независимое добавление консервативно откладывает удаление.
 const addition=build();remove(addition[0],'old');addition[5].snapshot.push(file('extra',11));assert.equal(run(addition).deletions.candidates.length,0);
+// Замена объекта на прежнем пути и с теми же байтами незаметна анализу
+// только по путям и хешам. ID фиктивные: это лишь консервативный сигнал.
+const replacement=build();remove(replacement[0],'old');
+replacement[1].snapshot=replacement[1].snapshot.map(x=>x.path==='old'?{...x,objectId:id(99)}:x);
+assert.deepEqual(reviewGroupDeletions(opts(replacement)).candidates.map(x=>x.path),['old']);
+assert.deepEqual(run(replacement).deletions,{candidates:[],conflicts:[{path:'old'}]});
+// Даже замена другого элемента откладывает удаление без истории группы.
+const unrelatedReplacement=build();remove(unrelatedReplacement[0],'old');
+unrelatedReplacement[4].snapshot=unrelatedReplacement[4].snapshot.map(x=>x.path==='other'?{...x,objectId:id(100)}:x);
+assert.deepEqual(run(unrelatedReplacement).deletions,{candidates:[],conflicts:[{path:'old'}]});
+// Замена без удаления не создаёт ложный кандидат или конфликт удаления.
+const justReplacement=build();justReplacement[2].snapshot=justReplacement[2].snapshot.map(x=>x.path==='old'?{...x,objectId:id(101)}:x);
+assert.deepEqual(run(justReplacement).deletions,{candidates:[],conflicts:[]});
 // Отсутствие без нового пути остаётся лишь наблюдением, не доказательством
 // удаления и не правом трогать корзину, даже если флаги говорят «полный».
 const deletion=build();remove(deletion[0],'old');const only=run(deletion);assert.equal(only.deletions.candidates.length,1);assert(!('execute' in only.deletions.candidates[0]));
