@@ -41,6 +41,9 @@ assert.equal(decide(admin,'alice',second,'approve').status,409);assert.equal(dec
 assert.equal(agent2().status,401);assert.equal(act(alice,devices,'POST',registration).status,409);
 // Повреждённая запись не выдаёт право и не перезаписывается автоматически.
 bob.localPcAccess={state:'approved'};assert.equal(status(bob).status,503);assert.equal(act(bob,devices).status,403);assert.equal(request(bob).status,503);
+const beforeCorrupt=structuredClone(bob.localPcAccess),savesBeforeCorrupt=saves;
+for(const decision of ['approve','deny','revoke'])assert.equal(decide(admin,'bob','a'.repeat(32),decision).status,503);
+assert.deepEqual(bob.localPcAccess,beforeCorrupt);assert.equal(saves,savesBeforeCorrupt);
 // Нельзя выдать неполный список как пустой или корректный. Ошибка не
 // раскрывает ни идентификатор повреждённого пользователя, ни секреты.
 const corruptList=adminList(admin);assert.equal(corruptList.status,503);

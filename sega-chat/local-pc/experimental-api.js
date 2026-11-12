@@ -80,6 +80,7 @@ function createExperimentalApi() {
       const b=req.body || {}, target=typeof b.userId==='string' && (db.users || []).find(u=>u.id===b.userId);
       if(!target || typeof b.requestId!=='string' || !ID.test(b.requestId) || !['approve','deny','revoke'].includes(b.decision))return E(400,'Неверное решение');
       const a=access(target);
+      if(a===false)return E(503,'Состояние разрешения повреждено');
       if(!a || a.id!==b.requestId || (b.decision==='revoke'?a.state!=='approved':a.state!=='pending'))return E(409,'Запрос устарел или уже рассмотрен');
       if(b.decision==='revoke')clearDevices(target);
       target.localPcAccess={...a,state:b.decision==='approve'?'approved':b.decision==='deny'?'denied':'revoked',by:me.id,decidedAt:Date.now()};save();
