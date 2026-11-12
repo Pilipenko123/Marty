@@ -6,7 +6,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {createRequire} from 'node:module';
-const {transferToStage}=createRequire(import.meta.url)('../local-pc/verified-transfer');
+const require=createRequire(import.meta.url);
+const {transferToStage}=require('../local-pc/verified-transfer');
+const {createFolder}=require('../local-pc/folder');
 const sum=b=>crypto.createHash('sha256').update(b).digest('hex'),version='a'.repeat(64);
 const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'sega-transfer-files-'));
 // Эксклюзивное создание тестового файла не является безопасным адаптером для
@@ -59,6 +61,31 @@ try {
     s=await stageAt('cleanup-fail.stage',{failWrite:true,failCleanup:true});
     await assert.rejects(transferToStage({...args,stage:s.stage}),e=>e instanceof AggregateError && e.errors.length===2);
     assert((await fs.stat(s.target)).size>0);assert.deepEqual(await fs.readFile(sourcePath),original);await s.close();
+    // Связка с реальным читателем лабораторной папки на временных файлах.
+    // Она не доказывает безопасность folder.js: путь может быть подменён,
+    // а тест работает лишь на текущей ОС без сетевого доступа и публикации.
+    const folder=await createFolder(tmp);
+    s=await stageAt('folder.stage');
+    await transferToStage({...args,stage:s.stage,read:(offset,length,expected,signal)=>folder.read('исходник.bin',offset,length,expected,signal)});
+    assert.deepEqual(await fs.readFile(s.target),original);await s.close();
+    // Источник действительно меняется между чтениями при прежнем размере.
+    // Метка версии должна остановить передачу, а временный файл удалиться.
+    s=await stageAt('folder-changed.stage');let folderReads=0;
+    const edited=Buffer.from(original);edited[0]^=1;
+    await assert.rejects(transferToStage({...args,stage:s.stage,read:async(offset,length,expected,signal)=>{
+      if(++folderReads===2)await fs.writeFile(sourcePath,edited);
+      return folder.read('исходник.bin',offset,length,expected,signal);
+    }}),/изменился/);
+    assert.equal(folderReads,2);await assert.rejects(fs.access(s.target),e=>e.code==='ENOENT');
+    assert.deepEqual(await fs.readFile(sourcePath),edited);
+    // Исчезновение пути между частями тоже не должно оставлять копию.
+    await fs.writeFile(sourcePath,original);s=await stageAt('folder-missing.stage');folderReads=0;
+    await assert.rejects(transferToStage({...args,stage:s.stage,read:async(offset,length,expected,signal)=>{
+      if(++folderReads===2)await fs.rename(sourcePath,path.join(tmp,'переименован.bin'));
+      return folder.read('исходник.bin',offset,length,expected,signal);
+    }}),e=>e.code==='ENOENT');
+    assert.equal(folderReads,2);await assert.rejects(fs.access(s.target),e=>e.code==='ENOENT');
+    assert.deepEqual(await fs.readFile(path.join(tmp,'переименован.bin')),original);
     // Пустой источник тоже проходит чтение и проверку временного файла.
     const emptyPath=path.join(tmp,'empty.source');await fs.writeFile(emptyPath,Buffer.alloc(0));
     s=await stageAt('empty.stage');const empty=await transferToStage({allowed:true,size:0,hash:sum(Buffer.alloc(0)),stage:s.stage,
