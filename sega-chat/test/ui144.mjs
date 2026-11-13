@@ -166,7 +166,7 @@ const appBuild = (/const BUILD = '([^']+)'/.exec(appJs) || [])[1];
 const cache = (/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1];
 ok(appBuild === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(read('lib/api.js')) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok(cache === 'sega-static-v147', `кэш оформления поднят (${cache}) — устройства получат новое окно`);
+ok(cache === 'sega-static-v148', `кэш оформления поднят (${cache}) — устройства получат новое окно`);
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui144.mjs'), 'тест ui144 включён в цепочку npm test');
 

@@ -2671,3 +2671,12 @@ input:focus,textarea:focus{border-color:rgba(var(--glow-rgb),.75);
 .disk-connect-menu summary::-webkit-details-marker{display:none}
 .disk-connect-actions{position:absolute;z-index:5;right:0;top:100%;min-width:190px;display:flex;flex-direction:column;gap:4px;padding:6px;border:1px solid var(--line,#777);border-radius:8px;background:var(--panel,#222)}
 .disk-connect-actions button{text-align:left}
+
+/* pkg3-154 · окно «Папка с ПК» */
+#modal.sync-modal .modal-box{max-width:720px;width:96vw}
+.sync-card{border:1px solid var(--line,#444);border-radius:10px;padding:10px;margin:8px 0}
+.sync-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.sync-dev{padding:4px 0;border-bottom:1px solid var(--line-2,#333)}
+.sync-pending{margin:4px 0;padding:4px;border-radius:6px;background:var(--panel-2,#2a2a2a)}
+.sync-code{font-family:monospace;font-size:18px;word-break:break-all;margin:8px 0}
+.sync-cloud-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}

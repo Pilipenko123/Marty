@@ -113,7 +113,7 @@ ok(appJs.includes('S.jamendoOn = st.jamendo !== false;') && css2().includes('.mu
   'pkg3-100: пока ключа нет, фишка у всех участников тихая и неактивная — без служебных надписей');
 ok(appJs.includes('Этот источник музыки включает владелец сервера'),
   'pkg3-100: не-админу клик по тихой фишке объясняет по-человечески, админу — подсказывает файл ключа');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v147';"), 'кэш статики поднят до v93');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v148';"), 'кэш статики поднят до v93');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music100.mjs'), 'тест music100 включён в цепочку npm test');
 ok(readme.includes('| pkg3-100 |'), 'в журнале README есть строка выпуска pkg3-100');

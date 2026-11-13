@@ -150,7 +150,7 @@ ok(appJs.includes("audiobooks: 'аудиокниги (ru)'") && appJs.includes("
 ok(appJs.includes('function musSourceOff(') && appJs.includes('MUS_SOURCE_KEYFILE'), 'тихие фишки источников с файлом-ключом обобщены (Jamendo и подкасты)');
 ok(appJs.includes('let modalDownInside = false;') && appJs.includes('if (modalDownInside) return;'),
   'pkg3-103: выделение текста не сворачивает окно — сворачиваем только если нажатие началось мимо');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v147';"), 'кэш статики поднят до v96');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v148';"), 'кэш статики поднят до v96');
 ok(appJs.includes("const BUILD = '" + BUILD + "';") && apiJs.includes("const BUILD = '" + BUILD + "';"), 'BUILD ' + BUILD + ' совпадает в клиенте и на сервере');
 ok(pkg.includes('node test/music103.mjs'), 'тест music103 включён в цепочку npm test');
 ok(readme.includes('| pkg3-103 |'), 'в журнале README есть строка выпуска pkg3-103');

@@ -690,6 +690,27 @@ async function uploadSession(token, googlePath, o = {}, c) {
   return { url: loc, method: 'PUT', name: np.name, mime, size };
 }
 
+/** pkg3-154: обновление существующего файла Google потоком байтов.
+ * Сеанс resumable открывает сервер, а сам файл помощник отправляет ПРЯМО в
+ * Google по адресу из Location — без токена владельца в помощнике. */
+async function updateSession(token, googlePath, o = {}, c) {
+  const conf = c || cfg();
+  const id = idOf(googlePath);
+  if (!id || id === 'root') { const e = new Error('Неверный путь к файлу Google'); e.status = 400; throw e; }
+  const mime = String(o.mime || 'application/octet-stream').slice(0, 120) || 'application/octet-stream';
+  const size = Math.max(0, Number(o.size) || 0);
+  const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json', 'X-Upload-Content-Type': mime };
+  if (size) headers['X-Upload-Content-Length'] = String(size);
+  const q = new URLSearchParams({ uploadType: 'resumable', supportsAllDrives: 'true', fields: 'id,name,size,mimeType' });
+  const r = await httpJSON(conf.apiBase + '/upload/drive/v3/files/' + encodeURIComponent(id) + '?' + q.toString(), {
+    method: 'PATCH', headers, json: {}
+  });
+  const loc = String((r.headers && (r.headers.location || r.headers.Location)) || '');
+  if ((r.status !== 200 && r.status !== 201) || !loc) { const e = new Error(googleErrorText(r)); e.status = r.status || 502; throw e; }
+  if (!/^https?:\/\//i.test(loc)) { const e = new Error('Google вернул неверный адрес загрузки'); e.status = 502; throw e; }
+  return { url: loc, method: 'PUT', mime, size };
+}
+
 module.exports = { decodeExport, unzipFirstEntry, 
   cfg, loadKeys, KEYS_HINT, tokenKey, sealToken, openToken, httpJSON,
   buildAuthUrl, exchangeCode, refreshTokens,
@@ -697,5 +718,5 @@ module.exports = { decodeExport, unzipFirstEntry,
   aboutSpace, listFolder, listAudio, fileMeta, parentsOf, mediaOf, mediaUrl, safeGoogleUrl, exportFile, EXPORT_CAP,
   googleErrorText, FOLDER_MIME, PREFIX,
   SCOPE, SCOPE_READONLY, scopeWrite, cellName, newItemPath,
-  mkdir, renameFile, trashPath, uploadSession
+  mkdir, renameFile, trashPath, uploadSession, updateSession
 };

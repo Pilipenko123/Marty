@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-153';
+const BUILD = 'pkg3-154';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -44,6 +44,7 @@ function createApi(store, opts = {}) {
   const UP_CHUNK = 900000;                                               // символов в одном куске загрузки
 
   let db = null;
+  let folderSync = null;   // pkg3-154: один маршрутизатор папок на процесс (кэш прав Google)
 
   // pkg3-77: «пишет / загружает» — короткоживущие сигналы ТОЛЬКО в памяти.
   // Сервер не записывает их в базу и не читает содержимое сообщений: он просто
@@ -2378,6 +2379,18 @@ function createApi(store, opts = {}) {
       } catch (e) {
         return ydPage('Не получилось подключить', (e && e.message) || 'Неизвестная ошибка', false);
       }
+    }
+
+    // pkg3-154: папки ПК. Маршруты помощника используют собственный пропуск
+    // компьютера, поэтому стоят ДО общего входа участника; браузерные маршруты
+    // внутри sync.js сами вызывают auth(req).
+    if (pathname.startsWith('/api/sync/')) {
+      if (!folderSync) folderSync = require('./sync').createSync({
+        getDb: () => db, auth, save, J, E, throttle, store, BUILD,
+        helperDir: require('path').join(__dirname, '..', 'helper'),
+        yadisk, gdrive, drives, driveRec, ydFreshToken, gdFreshToken, resolvedSlot
+      });
+      return folderSync.handle(req, pathname, query, method);
     }
 
     // ------------------------------------------------ дальше только с токеном
