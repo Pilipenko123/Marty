@@ -1,6 +1,9 @@
-# SEGA-CHAT · установка помощника синхронизации папок (Windows 10/11, без администратора)
+﻿# SEGA-CHAT · установка помощника синхронизации папок (Windows 10/11, без администратора)
+# ВАЖНО: файл сохранён в UTF-8 с BOM. Windows PowerShell 5.1 без BOM читает скрипт
+# как ANSI, русские строки ломают кавычки и парсер падает ещё до установки.
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $src = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dest = Join-Path $env:LOCALAPPDATA 'SEGA-CHAT-Sync'
 $app = Join-Path $dest 'app'

@@ -1,4 +1,6 @@
+﻿# Файл сохранён в UTF-8 с BOM для Windows PowerShell 5.1.
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 $dest = Join-Path $env:LOCALAPPDATA 'SEGA-CHAT-Sync'
 $startup = [Environment]::GetFolderPath('Startup')
 Remove-Item (Join-Path $startup 'SEGA-CHAT-Sync.vbs') -Force -ErrorAction SilentlyContinue

@@ -181,7 +181,7 @@ ok(/входов: /.test(appJs) && /Строки собраны по устро�
 ok(!/data-close-session/.test(appJs), 'старая разметка «строка на вход» убрана');
 ok((/const BUILD = '([^']+)'/.exec(appJs) || [])[1] === BUILD && /^pkg3-1\d\d$/.test(BUILD), `отметка выпуска одна (${BUILD})`);
 ok(((/const BUILD = '([^']+)'/.exec(apiJs) || [])[1]) === BUILD, 'BUILD в lib/api.js тот же');
-ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v148', 'кэш оформления поднят до v137');
+ok((/const STATIC_CACHE = '([^']+)'/.exec(read('public/sw.js')) || [])[1] === 'sega-static-v149', 'кэш оформления поднят до v137');
 ok(/\| pkg3-146 \|/.test(read('README.md')), 'в журнале README есть строка pkg3-146');
 ok(read('package.json').includes('node test/ui143.mjs'), 'тест ui143 включён в цепочку npm test');
 
