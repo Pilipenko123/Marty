@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-155';
+const BUILD = 'pkg3-156';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -1343,23 +1343,16 @@ function renderCacheState() {
   el.textContent = 'Локальная память: включена, кэш запишется после первой полной загрузки.';
 }
 // ── цикл опроса: «тихий час» ──────────────────────────────────────────
-// pkg3-40: опрос подешевел в разы. Главный доставщик новинок — пуш: как
-// только сообщение (или ход) ложится в облако, служебный воркер получает
-// «звонок» и будит окно за 0,15 с — ждать следующего опроса не нужно.
-// Поэтому бодрствующее окно спрашивает ленту раз в 15 с (открытая партия —
-// раз в 10 с), а через 30 с бездействия окно ЗАСЫПАЕТ: запросы прекращаются
-// вовсе, остаётся одна редкая проверка «есть кто?» (раз в 5 минут) на случай,
-// если пуш не сработал. Любое касание и любой пуш будят окно МГНОВЕННО.
-// Доска больше не держит окно бодрым вечно: ушёл игрок пить чай — окно спит,
-// а ход соперника разбудит его сам. Страховка только для браузеров без пуша
-// (pushReady === false): там доска, как раньше, не даёт окну уснуть.
-// В облаке каждое обращение к ленте — деньги, поэтому сон экономит их
-// на порядок, а новинки прилетают даже быстрее, чем при старом опросе.
+// pkg3-156: видимая вкладка синхронизируется раз в 2,5 с — иначе звук Web Push
+// опережает сообщение/ход в ленте, а статус «в сети» отстаёт примерно на пол-шага
+// 15-секундного опроса. В скрытой вкладке сохраняем тихий режим: пуш будит окно,
+// иначе остаётся редкая проверка раз в 5 минут. Так быстрая синхронизация не
+// расходует запросы, когда чат закрыт или браузер свёрнут.
 let lastTouch = Date.now();
 const POLL_QS = new URLSearchParams(location.search);
 const AWAKE_MS = Math.max(1000, Number(POLL_QS.get('awake')) || 30000);  // сколько бодрствуем после касания
-const FAST_MS = Math.max(1000, Number(POLL_QS.get('fast')) || 15000);    // опрос в бодрствовании (пуш приносит новинки раньше)
-const GAME_MS = Math.max(1000, Number(POLL_QS.get('game')) || 10000);    // опрос в бодрствовании при открытой доске
+const FAST_MS = Math.max(1000, Number(POLL_QS.get('fast')) || 2500);     // отзывчивый видимый чат, включая присутствие
+const GAME_MS = Math.max(1000, Number(POLL_QS.get('game')) || 2500);     // ходы игры обновляются с тем же шагом
 // pkg3-57: в «Морском бою» на выстрел отвечает устройство соперника, а не
 // человек, — задержки опроса складываются вдвое и партия ощущается вязкой.
 // При открытой доске морского боя спрашиваем ленту заметно чаще.
@@ -1370,7 +1363,7 @@ let prevMode = 'awake';
 const pollStats = { fast: 0, ticks: 0, wakes: 0, sleeps: 0 };
 Object.defineProperty(pollStats, 'mode', { get: pollMode, enumerable: true });
 window.__segaPoll = pollStats;          // видно в демо и в консоли браузера
-function pollMode() { return Date.now() < wakeUntil ? 'awake' : 'asleep'; }
+function pollMode() { return (!!S.token && !document.hidden) || Date.now() < wakeUntil ? 'awake' : 'asleep'; }
 function wake(why) {
   const was = pollMode();
   wakeUntil = Date.now() + AWAKE_MS;
@@ -1759,7 +1752,6 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
   // друзья пишут — продлеваем бодрствование (спящее окно будит и этот путь)
   if (!initial && (freshAll.length || touched)) wake('новое в ленте');
 
-  if (freshAll.length && !initial && !suppressNotify) { playGameSounds(freshAll); notifyNewMessages(freshAll); }
   if (!initial) repairGroupKeys();
   if (!initial) {
     notifyReactions();
@@ -1778,6 +1770,13 @@ const invSig = (data.invites || []).map(x => x.id).join(',');
   if (data.usage && typeof data.usage.bytes === 'number') S.usage = data.usage;
   if (S.view && !chatById(S.view)) { S.view = null; S.threadId = null; }
   renderAll();
+  if (freshAll.length && !initial && !suppressNotify) {
+    // Сначала даём браузеру отрисовать сам ход/сообщение, затем играем звук:
+    // звук не должен предварять обновление ленты в видимой вкладке.
+    const ring = () => { playGameSounds(freshAll); notifyNewMessages(freshAll); };
+    if (!document.hidden && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(ring, 0));
+    else ring();
+  }
   if (!document.hidden) markRead();
   if ($('#search').value.trim()) runSearch();
   // pkg3-69: обмен прежними ключами на КАЖДОМ опросе (а не только при старте и
