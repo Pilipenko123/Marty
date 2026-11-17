@@ -11,6 +11,9 @@ self.addEventListener('push', event => {
     if (wins.some(c => c.visibilityState === 'visible')) return;
     return self.registration.showNotification(data.title || 'SEGA-CHAT', {
       body: data.body || 'Новое сообщение', icon: './icon-192.png', badge: './favicon.png',
+      // Открытое приложение само озвучит письмо после синхронизации и отрисовки.
+      // Не подаём более ранний системный сигнал, если окно лишь скрыто.
+      silent: wins.length > 0,
       tag: data.tag || 'sega-chat', data: { url: data.url || './' }, renotify: true
     });
   })());
@@ -26,7 +29,7 @@ self.addEventListener('notificationclick', event => {
 /* Кэш статики для быстрого холодного старта: страница, стили, скрипт, иконки.
    Стратегия «кэш сразу + обновление в фоне»: открытие чата не ждёт сеть,
    а свежая версия прилетает к следующему запуску. */
-const STATIC_CACHE = 'sega-static-v149';
+const STATIC_CACHE = 'sega-static-v150';
 const STATIC_RE = /(\.css|\.js|\.png|\.jpg|\.svg|\.webmanifest|\.ico)$|^\/$|index\.html$/;
 /* Новый воркер встаёт на вахту сразу (не ждёт закрытия вкладок) и вычищает
    старые кэши, чтобы друзья получили свежий app.js при первой же загрузке. */

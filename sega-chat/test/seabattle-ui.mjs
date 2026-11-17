@@ -239,7 +239,7 @@ doc = w.document;
 ok(/флот соперника честен/.test(doc.querySelector('.sb-panel').innerHTML), 'вскрытый флот сверен с печатью: значок честности');
 ok(/флот не совпал/.test(doc.querySelector('.sb-panel').innerHTML) === false, 'ложной тревоги о мухлеже нет');
 ok(ev('S.sbPlaying') === false, 'после победы частый опрос выключен (S.sbPlaying = false)');
-ok(ev('pollDelay()') !== ev('SB_GAME_MS'), 'на завершённой партии опрос снова обычный');
+ok(ev('pollDelay()') === ev('FAST_MS'), 'после победы видимая вкладка возвращается к обычному частому опросу');
 
 // ── pkg3-58: открытый режим — печати несут флоты, ответы не нужны ──
 ev(`(function(){
