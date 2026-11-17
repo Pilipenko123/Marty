@@ -27,7 +27,7 @@ const emoji = require('./emoji.js');         // pkg3-108: смайлы отда�
 const MB = 1024 * 1024;
 
 /** Отметка выпуска: её видно в подвале настроек и в /api/state. */
-const BUILD = 'pkg3-157';
+const BUILD = 'pkg3-158';
 /** Предел выдачи файла через функцию (у облачной функции потолок ответа 3,5 МБ). */
 const BACKUP_DL_MAX = 3.2 * MB;
 
@@ -2528,7 +2528,7 @@ function createApi(store, opts = {}) {
     if (pathname === '/api/logout' && method === 'POST') {
       // pkg3-143: вход убираем и из хранилища, а не только из памяти —
       // иначе «стёртая» запись возвращалась после перезапуска службы
-      // pkg3-157: при явном выходе выключаем присутствие сразу; аварийно
+      // pkg3-156: при явном выходе выключаем присутствие сразу; аварийно
       // закрытая вкладка по-прежнему истекает по обычному таймауту свежести.
       me.activeAt = 0;
       store.touchPresence(me, true);
@@ -3752,6 +3752,20 @@ function createApi(store, opts = {}) {
       gdm.openedBy = Array.from(new Set([...(gdm.openedBy || []), me.id, opp.id]));
       db.seq++; save();
       return J(200, { chat: publicChat(chat, me.id) });
+    }
+
+    // pkg3-158: скин шахматной/шашечной доски — общее свойство игры, меняется любым игроком.
+    if (pathname.startsWith('/api/games/') && pathname.endsWith('/board-skin') && method === 'POST') {
+      const chat = chatById(pathname.split('/')[3]);
+      if (!chat || chat.kind !== 'game' || !['chess', 'checkers'].includes((chat.game || {}).rules || 'chess')) {
+        return E(404, 'Шахматная или шашечная партия не найдена');
+      }
+      if ((chat.roles || {})[me.id] !== 'player') return E(403, 'Вы не игрок этой партии');
+      const skin = String((req.body || {}).skin || '');
+      if (!['wood', 'antique', 'splatter', 'cracked', 'neon'].includes(skin)) return E(400, 'Неизвестный стиль доски');
+      chat.game.boardSkin = skin;
+      db.seq++; save();
+      return J(200, { ok: true, boardSkin: skin, chat: publicChat(chat, me.id) });
     }
 
     if (pathname.startsWith('/api/games/') && pathname.endsWith('/accept') && method === 'POST') {

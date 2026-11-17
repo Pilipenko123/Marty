@@ -830,22 +830,27 @@ html,body{overflow-x:hidden}
 }
 .bp-moves{text-align:center;min-height:16px;word-break:break-word;}
 .board{position:relative;display:grid;grid-template-columns:repeat(8,1fr);border-radius:10px;overflow:hidden;
-  box-shadow:0 10px 30px rgba(10,30,50,.25);user-select:none;}
-/* pkg3-157: царапина/рисунок — прозрачная чёрная линия на поверхности доски,
-   но ниже фигур. Размер и точка привязки соответствуют правому верхнему углу. */
-.board-mark{position:absolute;right:1.5%;top:1.5%;width:34%;height:34%;object-fit:contain;z-index:2;
-  opacity:.78;pointer-events:none;mix-blend-mode:multiply;}
-.pcimg,.ckd{z-index:3;}
-.board-mark-picker{position:relative;display:inline-flex;align-items:center;}
-.board-mark-trigger{font-size:19px!important;line-height:12px;letter-spacing:1px;min-width:30px;padding:4px 8px!important;}
-.board-mark-menu{position:absolute;z-index:40;top:calc(100% + 6px);right:0;display:grid;gap:4px;min-width:158px;
+  box-shadow:0 10px 30px rgba(10,30,50,.25);user-select:none;background-color:#59402f;}
+/* pkg3-158: целая доска — один общий узор, клетки прозрачны. Неоновый вариант
+   собран из двух квадратных плиток, чтобы его сетка тоже точно совпадала 8×8. */
+.board[data-board-skin="wood"]{background:#8a5d3e url("img/board-skin-wood.png") center/100% 100% no-repeat;}
+.board[data-board-skin="antique"]{background:#795d43 url("img/board-skin-antique.png") center/100% 100% no-repeat;}
+.board[data-board-skin="splatter"]{background:#aaa url("img/board-skin-splatter.png") center/100% 100% no-repeat;}
+.board[data-board-skin="cracked"]{background:#89613e url("img/board-skin-cracked.png") center/100% 100% no-repeat;}
+.board[data-board-skin="wood"] .sq,.board[data-board-skin="antique"] .sq,
+.board[data-board-skin="splatter"] .sq,.board[data-board-skin="cracked"] .sq{background:transparent;}
+.board[data-board-skin="neon"]{background:#081522;}
+.board[data-board-skin="neon"] .sq.dark{background:#271b28 url("img/board-skin-neon-red.png") center/100% 100% no-repeat;}
+.board[data-board-skin="neon"] .sq.light{background:#123145 url("img/board-skin-neon-blue.png") center/100% 100% no-repeat;}
+.board-skin-picker{position:relative;display:inline-flex;align-items:center;}
+.board-skin-trigger{font-size:19px!important;line-height:12px;letter-spacing:1px;min-width:30px;padding:4px 8px!important;}
+.board-skin-menu{position:absolute;z-index:40;top:calc(100% + 6px);right:0;display:grid;gap:4px;min-width:220px;
   padding:6px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;
   box-shadow:0 8px 26px rgba(0,0,0,.28);}
-.board-mark-option{display:flex;align-items:center;gap:9px;width:100%;min-height:38px;padding:4px 8px;border:1px solid transparent;
+.board-skin-option{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:4px 8px;border:1px solid transparent;
   border-radius:7px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer;}
-.board-mark-option:hover,.board-mark-option.active{background:rgba(128,148,168,.16);border-color:var(--line);}
-.board-mark-option img{width:32px;height:32px;object-fit:contain;}
-.board-mark-none{display:grid;place-items:center;width:32px;height:32px;font-size:24px;line-height:1;}
+.board-skin-option:hover,.board-skin-option.active{background:rgba(128,148,168,.16);border-color:var(--line);}
+.board-skin-option img{width:52px;height:38px;object-fit:cover;border-radius:4px;border:1px solid var(--line);flex:0 0 auto;}
 /* клетки квадратные без aspect-ratio: паддинг-трюк работает на любых iOS */
 .sq{position:relative;height:0;padding-bottom:100%;cursor:pointer;}
 .sq.light{background:#f0d9b5;}
