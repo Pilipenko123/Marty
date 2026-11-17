@@ -66,24 +66,34 @@ ev(`(function(){
   S.histReady = true; S.warm = true; S.boardSig = '';
 })()`);
 
-// ── pkg3-157: реальные шахматные/шашечные доски и выбор рисунка ──
+// ── pkg3-158: реальные шахматные/шашечные доски и общий выбор скина ──
 let doc = w.document;
-ev("S.chats[0].game.rules = 'chess'; S.boardSig = ''; renderBoard();");
+const realFetch = w.fetch, realSync = w.sync, skinCalls = [];
+w.fetch = async (url, opts = {}) => {
+  if (String(url).includes('/board-skin')) {
+    const body = JSON.parse(opts.body || '{}'); skinCalls.push(body.skin);
+    return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ ok: true, boardSkin: body.skin }) };
+  }
+  return realFetch(url, opts);
+};
+w.sync = async () => {};
+ev("S.token = 'test-token'; S.chats[0].roles.me = 'player'; S.chats[0].game.rules = 'chess'; S.boardSig = ''; renderBoard();");
 doc = w.document;
-ok(!!doc.querySelector('#gm-leave') && !!doc.querySelector('#gm-board-mark'), 'в шахматах кнопка ⋯ стоит рядом с кнопкой выхода');
-ok(doc.querySelectorAll('#board .sq').length === 64 && !doc.querySelector('.board-mark'), 'новая шахматная доска открывается без рисунка по умолчанию');
-doc.querySelector('#gm-board-mark').click();
-ok(!!doc.querySelector('.board-mark-menu'), 'кнопка ⋯ открывает меню рисунков');
-doc.querySelector('[data-board-mark="crack"]').click();
-ok(doc.querySelector('#board .board-mark')?.getAttribute('src') === 'img/board-mark-crack.svg', 'выбор «Трещина» рисуется на доске');
-ok(w.localStorage.getItem('sega.gameBoardMark157') === 'crack', 'выбранная трещина запомнена локально');
+ok(!!doc.querySelector('#gm-leave') && !!doc.querySelector('#gm-board-skin'), 'в шахматах ⋯ стоит сразу справа от кнопки выхода');
+ok(doc.querySelectorAll('#board .sq').length === 64 && doc.querySelector('#board').dataset.boardSkin === 'wood', 'шахматная доска по умолчанию получила скин дерева');
+doc.querySelector('#gm-board-skin').click();
+ok(doc.querySelectorAll('.board-skin-menu [data-board-skin]').length === 5, '⋯ открывает меню со всеми пятью досками');
+doc.querySelector('[data-board-skin="antique"]').click();
+await new Promise(r => setTimeout(r, 20)); doc = w.document;
+ok(doc.querySelector('#board').dataset.boardSkin === 'antique' && skinCalls[0] === 'antique', 'выбранный скин сразу показан и отправлен серверу');
 ev("S.chats[0].game.rules = 'checkers'; S.boardSig = ''; renderBoard();");
 doc = w.document;
-ok(!!doc.querySelector('#gm-board-mark') && doc.querySelector('#board .board-mark')?.getAttribute('src') === 'img/board-mark-crack.svg', 'тот же рисунок доступен на шашечной доске');
-doc.querySelector('#gm-board-mark').click();
-doc.querySelector('[data-board-mark="off"]').click();
-ok(!doc.querySelector('#board .board-mark') && !w.localStorage.getItem('sega.gameBoardMark157'), 'пункт «Без рисунка» отключает и очищает выбор');
-ev("S.chats[0].game.rules = 'seabattle'; S.boardSig = ''; renderBoard();");
+ok(!!doc.querySelector('#gm-board-skin') && doc.querySelector('#board').dataset.boardSkin === 'antique', 'общий скин отображается и на шашечной доске');
+doc.querySelector('#gm-board-skin').click(); doc.querySelector('[data-board-skin="neon"]').click();
+await new Promise(r => setTimeout(r, 20)); doc = w.document;
+ok(doc.querySelector('#board').dataset.boardSkin === 'neon' && skinCalls[1] === 'neon', 'игрок может сменить общий стиль в любой момент');
+w.fetch = realFetch; w.sync = realSync;
+ev("S.token = null; S.chats[0].game.rules = 'seabattle'; S.boardSig = ''; renderBoard();");
 
 // ── расстановка ──
 ev('renderBoard()');

@@ -8,7 +8,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // метка выпуска: видна в настройках и в журнале, чтобы всегда знать, что стоит в облаке
-const BUILD = 'pkg3-157';
+const BUILD = 'pkg3-158';
 /* pkg3-80: звук игр — модуль public/game-sound.js (синтез кодом, Web Audio).
    pkg3-81: одиннадцать правок владельца — карта не выделяется пальцем, «Далее»
    ждёт нажатия, находки пишутся прямо на карте, звук просыпается после сна
@@ -1343,7 +1343,7 @@ function renderCacheState() {
   el.textContent = 'Локальная память: включена, кэш запишется после первой полной загрузки.';
 }
 // ── цикл опроса: «тихий час» ──────────────────────────────────────────
-// pkg3-157: видимая вкладка синхронизируется раз в 2,5 с — иначе звук Web Push
+// pkg3-156: видимая вкладка синхронизируется раз в 2,5 с — иначе звук Web Push
 // опережает сообщение/ход в ленте, а статус «в сети» отстаёт примерно на пол-шага
 // 15-секундного опроса. В скрытой вкладке сохраняем тихий режим: пуш будит окно,
 // иначе остаётся редкая проверка раз в 5 минут. Так быстрая синхронизация не
@@ -2408,7 +2408,7 @@ function renderAll() {
   const sig = JSON.stringify([
     S.seq, S.messages.length, S.view, S.threadId, S.quote, S.highlight, S.usage.bytes, S.railFilter,
     (S.sections || []).map(x => [x.id, x.name, (x.chats || []).length]),
-    S.chats.map(c => [c.id, c.members.length, chatTitle(c), c.lastTs, c.archivedByName, c.archivedAt]),
+    S.chats.map(c => [c.id, c.members.length, chatTitle(c), c.lastTs, c.archivedByName, c.archivedAt, (c.game || {}).boardSkin || 'wood']),
     S.users.map(u => [u.id, u.name, u.isAdmin, !!u.avatar, isOnline(u), u.reads])
   ]);
   if (sig === S.sig) return;
@@ -2463,22 +2463,38 @@ const userNameById = id => (userById(id) || {}).name || '…';
 const gameRulesOf = c => ((c && c.game && c.game.rules) === 'checkers') ? 'checkers'
   : ((c && c.game && c.game.rules) === 'seabattle') ? 'seabattle'
   : ((c && c.game && c.game.rules) === 'coins') ? 'coins' : 'chess';   // pkg3-78: золотая лихорадка
-// pkg3-157: локальная декорация доски — только на этом устройстве, без записи в чат.
-const GAME_BOARD_MARK_KEY = 'sega.gameBoardMark157';
-function loadGameBoardMark() {
-  try { const x = localStorage.getItem(GAME_BOARD_MARK_KEY); return ['crack', 'doodle'].includes(x) ? x : 'off'; }
-  catch (e) { return 'off'; }
+// pkg3-158: скин хранится у партии на сервере — оба игрока видят один общий выбор.
+const GAME_BOARD_SKINS = [
+  { id: 'wood', label: 'Светлое дерево', img: 'img/board-skin-wood.png' },
+  { id: 'antique', label: 'Состаренное дерево', img: 'img/board-skin-antique.png' },
+  { id: 'splatter', label: 'Чёрно-белые брызги', img: 'img/board-skin-splatter.png' },
+  { id: 'cracked', label: 'Расколотая доска', img: 'img/board-skin-cracked.png' },
+  { id: 'neon', label: 'Неон', img: 'img/board-skin-neon-preview.png' }
+];
+let gameBoardSkinMenuOpen = false;
+const gameBoardSkinOf = c => GAME_BOARD_SKINS.some(x => x.id === ((c && c.game && c.game.boardSkin) || 'wood'))
+  ? ((c && c.game && c.game.boardSkin) || 'wood') : 'wood';
+function boardSkinMenuHtml(c) {
+  const active = gameBoardSkinOf(c);
+  return `<div class="board-skin-menu" role="menu" aria-label="Стиль шахматной доски">${GAME_BOARD_SKINS.map(x =>
+    `<button type="button" role="menuitemradio" aria-checked="${active === x.id}" class="board-skin-option${active === x.id ? ' active' : ''}" data-board-skin="${x.id}"><img src="${x.img}" alt=""><span>${x.label}</span></button>`).join('')}</div>`;
 }
-let gameBoardMark = loadGameBoardMark();
-let gameBoardMarkMenuOpen = false;
-function boardMarkMenuHtml() {
-  const opts = [
-    ['off', 'Без рисунка', ''],
-    ['crack', 'Трещина', 'img/board-mark-crack.svg'],
-    ['doodle', 'Рисунок', 'img/board-mark-doodle.svg']
-  ];
-  return `<div class="board-mark-menu" role="menu" aria-label="Рисунок на доске">${opts.map(([id, label, src]) =>
-    `<button type="button" role="menuitemradio" aria-checked="${gameBoardMark === id}" class="board-mark-option${gameBoardMark === id ? ' active' : ''}" data-board-mark="${id}">${src ? `<img src="${src}" alt="">` : '<span class="board-mark-none">×</span>'}<span>${label}</span></button>`).join('')}</div>`;
+async function chooseGameBoardSkin(skin) {
+  const c = curChat();
+  if (!c || c.kind !== 'game' || !['chess', 'checkers'].includes(gameRulesOf(c))
+    || (c.roles || {})[S.me.id] !== 'player' || !GAME_BOARD_SKINS.some(x => x.id === skin)) return;
+  const previous = gameBoardSkinOf(c);
+  c.game.boardSkin = skin;              // отклик сразу у выбравшего, затем подтверждение сервера
+  gameBoardSkinMenuOpen = false; S.boardSig = ''; renderBoard();
+  try {
+    await api('/api/games/' + encodeURIComponent(c.id) + '/board-skin', { method: 'POST', body: { skin } });
+    await sync(false);                  // источник правды — сервер; синхронизирует и чужой выбор, если он пришёл позже
+    toast('Стиль доски изменён для обоих игроков');
+  } catch (e) {
+    c.game.boardSkin = previous;
+    S.boardSig = ''; renderBoard();
+    toast('Не удалось изменить стиль доски: ' + (e.message || 'ошибка связи'), true);
+  }
 }
 const gameIcon = c => gameRulesOf(c) === 'checkers' ? '●' : gameRulesOf(c) === 'seabattle' ? '⚓'
   : gameRulesOf(c) === 'coins' ? '🪙' : '♟';
@@ -2986,8 +3002,8 @@ function renderBoard() {
           : 'Закрыть и удалить игру';
     ctrlL.push(`<button class="mini danger" id="gm-leave" title="${escapeHtml(full)}">${label}</button>`);
   }
-  if (rules === 'chess' || rules === 'checkers') {
-    ctrlL.push(`<span class="board-mark-picker"><button type="button" class="mini board-mark-trigger" id="gm-board-mark" title="Рисунок на доске" aria-label="Рисунок на доске" aria-haspopup="menu" aria-expanded="${gameBoardMarkMenuOpen}">⋯</button>${gameBoardMarkMenuOpen ? boardMarkMenuHtml() : ''}</span>`);
+  if (role === 'player' && (rules === 'chess' || rules === 'checkers')) {
+    ctrlL.push(`<span class="board-skin-picker"><button type="button" class="mini board-skin-trigger" id="gm-board-skin" title="Стиль доски" aria-label="Выбрать стиль доски" aria-haspopup="menu" aria-expanded="${gameBoardSkinMenuOpen}">⋯</button>${gameBoardSkinMenuOpen ? boardSkinMenuHtml(c) : ''}</span>`);
   }
   if (role === 'player' && (c.knocks || []).length) {
     ctrlR.push(`<button class="mini" id="gm-knocks" title="Заявки зрителей: ${c.knocks.length}">Заявки: ${c.knocks.length}</button>`);
@@ -2996,11 +3012,10 @@ function renderBoard() {
   // pkg3-38: мобильная кнопка «чат: свернуть/развернуть» убрана по просьбе владельца —
   // на телефоне чат и так всегда внизу, а ручка-шторка над ним раскрывает и меняет размер
   const showTurn = g.status === 'playing' && (st === 'playing' || st === 'check');
-  const boardMarkSrc = rules === 'chess' || rules === 'checkers'
-    ? (gameBoardMark === 'crack' ? 'img/board-mark-crack.svg' : gameBoardMark === 'doodle' ? 'img/board-mark-doodle.svg' : '') : '';
+  const boardSkin = gameBoardSkinOf(c);
   const sig = [c.id, sans.length, st, S.selSq || '', (S.selTargets || []).join(','),
     ctrl.join(','), (c.knocks || []).length, flip ? 1 : 0, gameStatusText(c, eng, st),
-    rules === 'checkers' ? 'ck' : kingFaceSig(g), gameBoardMark, gameBoardMarkMenuOpen ? 1 : 0, S.eco ? 1 : 0].join('|');
+    rules === 'checkers' ? 'ck' : kingFaceSig(g), boardSkin, gameBoardSkinMenuOpen ? 1 : 0, S.eco ? 1 : 0].join('|');
   if (S.boardSig === sig && wrap.dataset.chat === c.id && wrap.firstChild) return;
   // куда был прокручен список ходов — вернём позицию, если партия не изменилась
   const prevGm = $('#game-moves');
@@ -3034,7 +3049,7 @@ function renderBoard() {
     </div>
     <div class="board-frame">
       <div class="bf-ranks" aria-hidden="true">${rankLbl.map(x => `<i>${x}</i>`).join('')}</div>
-      <div class="board" id="board">${cells}${boardMarkSrc ? `<img class="board-mark" src="${boardMarkSrc}" alt="" aria-hidden="true" draggable="false">` : ''}</div>
+      <div class="board" id="board" data-board-skin="${boardSkin}">${cells}</div>
       <div class="bf-files" aria-hidden="true">${fileLbl.map(x => `<i>${x}</i>`).join('')}</div>
     </div>
     <div class="bp-moves-list" id="game-moves">${movesListHtml(sans)}</div>
@@ -12298,22 +12313,14 @@ a{color:#2353a2}.muted{color:#8b98a4}mark{background:#ffe9a8;border-radius:3px;p
 
 $('#btn-logout').addEventListener('click', () => { if (confirm('Выйти из мессенджера на этом устройстве?')) doLogout(); });
 document.addEventListener('click', async e => {
-  if (e.target.closest('#gm-board-mark')) {
-    gameBoardMarkMenuOpen = !gameBoardMarkMenuOpen;
+  if (e.target.closest('#gm-board-skin')) {
+    gameBoardSkinMenuOpen = !gameBoardSkinMenuOpen;
     S.boardSig = ''; renderBoard(); return;
   }
-  const boardMarkOption = e.target.closest('[data-board-mark]');
-  if (boardMarkOption) {
-    const next = boardMarkOption.dataset.boardMark;
-    if (['off', 'crack', 'doodle'].includes(next)) {
-      gameBoardMark = next;
-      try { if (next === 'off') localStorage.removeItem(GAME_BOARD_MARK_KEY); else localStorage.setItem(GAME_BOARD_MARK_KEY, next); } catch (ex) {}
-      gameBoardMarkMenuOpen = false; S.boardSig = ''; renderBoard();
-    }
-    return;
-  }
-  if (gameBoardMarkMenuOpen && !e.target.closest('.board-mark-picker')) {
-    gameBoardMarkMenuOpen = false; S.boardSig = ''; renderBoard();
+  const boardSkinOption = e.target.closest('[data-board-skin]');
+  if (boardSkinOption) { chooseGameBoardSkin(boardSkinOption.dataset.boardSkin); return; }
+  if (gameBoardSkinMenuOpen && !e.target.closest('.board-skin-picker')) {
+    gameBoardSkinMenuOpen = false; S.boardSig = ''; renderBoard();
   }
   const sq = e.target.closest('[data-sq]');
   if (sq) { await onBoardClick(sq.dataset.sq); return; }

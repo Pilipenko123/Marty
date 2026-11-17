@@ -155,6 +155,23 @@ r = await call(base, '/api/games', { method: 'POST', body: { opponent: g2Id, col
 const chess1 = r.d.chat.id;
 r = await call(base, `/api/games/${chess1}/accept`, { method: 'POST', body: {} }, g2);
 ok(r.status === 200, 'шахматная партия принята');
+r = await call(base, `/api/games/${chess1}/board-skin`, { method: 'POST', body: { skin: 'cracked' } }, g1);
+ok(r.status === 200 && r.d.boardSkin === 'cracked', 'первый игрок может выбрать общий скин доски');
+let g1State = await st(g1), g2State = await st(g2);
+ok(g1State.chats.find(c => c.id === chess1).game.boardSkin === 'cracked'
+  && g2State.chats.find(c => c.id === chess1).game.boardSkin === 'cracked', 'оба игрока получают одинаковый скин через синхронизацию');
+r = await call(base, `/api/games/${chess1}/board-skin`, { method: 'POST', body: { skin: 'neon' } }, g2);
+ok(r.status === 200 && (await st(g1)).chats.find(c => c.id === chess1).game.boardSkin === 'neon', 'соперник тоже может сменить стиль в ходе партии, изменение общее');
+r = await call(base, `/api/games/${chess1}/board-skin`, { method: 'POST', body: { skin: 'unknown' } }, g1);
+ok(r.status === 400, 'неизвестный стиль сервер не принимает');
+r = await call(base, `/api/games/${chess1}/board-skin`, { method: 'POST', body: { skin: 'wood' } }, s1);
+ok(r.status === 403, 'зритель/посторонний не может менять общий скин');
+r = await call(base, '/api/games', { method: 'POST', body: { opponent: g2Id, color: 'white', rules: 'checkers', keys: keysOf([g1Id, g2Id]) } }, g1);
+const checkers1 = r.d.chat.id;
+r = await call(base, `/api/games/${checkers1}/accept`, { method: 'POST', body: {} }, g2);
+ok(r.status === 200, 'шашечная партия принята');
+r = await call(base, `/api/games/${checkers1}/board-skin`, { method: 'POST', body: { skin: 'splatter' } }, g2);
+ok(r.status === 200 && (await st(g1)).chats.find(c => c.id === checkers1).game.boardSkin === 'splatter', 'шашечная партия поддерживает тот же общий скин');
 r = await mark(g1, chess1);
 ok(r.status === 200 && !dbGame(chess1).reported, 'правка 5: на шахматах метка забега игнорируется (reported не появляется)');
 ss = await st(s1);
