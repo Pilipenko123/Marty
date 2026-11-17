@@ -22,6 +22,6 @@ ok(app.includes("requestAnimationFrame(() => setTimeout(ring, 0))"), 'для в�
 ok(/pathname === '\/api\/logout'[\s\S]{0,500}me\.activeAt = 0;[\s\S]{0,100}store\.touchPresence\(me, true\)/.test(api), 'явный выход сразу снимает статус «в сети»');
 ok(sw.includes('silent: wins.length > 0'), 'системный push без звука, если приложение уже открыто в фоне');
 ok(sw.includes("if (wins.some(c => c.visibilityState === 'visible')) return;"), 'видимая вкладка получает сообщение без дублирующего push-уведомления');
-ok(sw.includes("const STATIC_CACHE = 'sega-static-v150'"), 'кэш сервис-воркера повышен до v150');
+ok(sw.includes("const STATIC_CACHE = 'sega-static-v151'"), 'кэш сервис-воркера повышен до v151');
 ok(pkg.scripts.test.includes('node test/realtime156.mjs'), 'сторож включён в npm test');
 console.log('\n  ИТОГ: 10 ✓, провалов нет\n');
