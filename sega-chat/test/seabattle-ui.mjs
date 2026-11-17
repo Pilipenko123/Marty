@@ -66,9 +66,27 @@ ev(`(function(){
   S.histReady = true; S.warm = true; S.boardSig = '';
 })()`);
 
+// ── pkg3-157: реальные шахматные/шашечные доски и выбор рисунка ──
+let doc = w.document;
+ev("S.chats[0].game.rules = 'chess'; S.boardSig = ''; renderBoard();");
+doc = w.document;
+ok(!!doc.querySelector('#gm-leave') && !!doc.querySelector('#gm-board-mark'), 'в шахматах кнопка ⋯ стоит рядом с кнопкой выхода');
+ok(doc.querySelectorAll('#board .sq').length === 64 && !doc.querySelector('.board-mark'), 'новая шахматная доска открывается без рисунка по умолчанию');
+doc.querySelector('#gm-board-mark').click();
+ok(!!doc.querySelector('.board-mark-menu'), 'кнопка ⋯ открывает меню рисунков');
+doc.querySelector('[data-board-mark="crack"]').click();
+ok(doc.querySelector('#board .board-mark')?.getAttribute('src') === 'img/board-mark-crack.svg', 'выбор «Трещина» рисуется на доске');
+ok(w.localStorage.getItem('sega.gameBoardMark157') === 'crack', 'выбранная трещина запомнена локально');
+ev("S.chats[0].game.rules = 'checkers'; S.boardSig = ''; renderBoard();");
+doc = w.document;
+ok(!!doc.querySelector('#gm-board-mark') && doc.querySelector('#board .board-mark')?.getAttribute('src') === 'img/board-mark-crack.svg', 'тот же рисунок доступен на шашечной доске');
+doc.querySelector('#gm-board-mark').click();
+doc.querySelector('[data-board-mark="off"]').click();
+ok(!doc.querySelector('#board .board-mark') && !w.localStorage.getItem('sega.gameBoardMark157'), 'пункт «Без рисунка» отключает и очищает выбор');
+ev("S.chats[0].game.rules = 'seabattle'; S.boardSig = ''; renderBoard();");
+
 // ── расстановка ──
 ev('renderBoard()');
-let doc = w.document;
 ok(!!doc.querySelector('.sb-board.placing'), 'панель расстановки: поле 10×10 на месте');
 ok(doc.querySelectorAll('.sb-board.placing .sbc').length === 100, 'в поле расстановки сто клеток');
 ok(/В бой!/.test(doc.querySelector('.sb-panel').innerHTML), 'кнопка «В бой!» есть');
