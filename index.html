@@ -2360,16 +2360,15 @@ function setPlanLines(iso, lines) {
   }
 }
 
-/* Перенос закреплённых пунктов плана на новый день */
+/* Копирование закреплённых пунктов плана на новый день (оригинал в старом дне остаётся) */
 function rolloverPinnedPlan() {
   const today = todayISO();
   let prev = DB.settings.lastDate;
   if (!prev || prev === today) prev = (UI.selectedDate !== today ? UI.selectedDate : null);
   if (!prev || prev === today) return false;
   const lines = planLines(prev);
-  const pinned = lines.filter(l => l.pinned);
+  const pinned = lines.filter(l => l.pinned && String(l.text || '').trim() !== '');
   if (!pinned.length) return false;
-  setPlanLines(prev, lines.filter(l => !l.pinned));
   setPlanLines(today, planLines(today).concat(pinned));
   return true;
 }
@@ -2381,7 +2380,7 @@ function applyDayRollover() {
   const wasView = UI.selectedDate;
   if (wasView !== today) selectDate(today);
   else renderPlan();
-  toast('Закреплённые пункты плана перенесены на ' + fmtDateMedium(today), 'info', { timeout: 4500 });
+  toast('Закреплённые пункты скопированы на ' + fmtDateMedium(today), 'info', { timeout: 4500 });
 }
 
 
@@ -2785,7 +2784,7 @@ function renderPlan() {
       ${lines.length ? `<span class="plan-num">${i + 1}</span>` : ''}
       ${isPast
         ? `<button class="pin-btn" type="button" data-copy title="Скопировать план дня в буфер"><svg><use href="#i-copy"/></svg></button>`
-        : `<button class="pin-btn ${l.pinned ? 'pinned' : ''}" type="button" data-pin="${i}" title="${l.pinned ? 'Открепить пункт' : 'Закрепить пункт'}"><svg><use href="#i-pin"/></svg></button>`}
+        : `<button class="pin-btn ${l.pinned ? 'pinned' : ''}" type="button" data-pin="${i}" title="${l.pinned ? 'Открепить пункт — запись больше не будет скопироваться на завтра' : 'Закрепить пункт — запись будет скопирована на завтра'}"><svg><use href="#i-pin"/></svg></button>`}
       <input class="plan-line-inp ${lines.length ? '' : 'plan-empty-inp'}" type="text" data-i="${i}" value="${attr(l.text)}" placeholder="Тезисы и цели на выбранный день…" spellcheck="false" autocomplete="off">
     </div>`).join('');
 }
@@ -4684,7 +4683,8 @@ function wire() {
     const lines = planLines(UI.selectedDate);
     $$('#planList .plan-line-inp').forEach(inp => {
       const i = Number(inp.dataset.i);
-      if (lines[i]) lines[i].text = inp.value;
+      if (!lines[i]) lines[i] = { text: '', pinned: false };   // поле-заглушка при пустом плане
+      lines[i].text = inp.value;
     });
     setPlanLines(UI.selectedDate, lines);
     save(true);
@@ -4726,6 +4726,10 @@ function wire() {
   $('#planList').addEventListener('focusout', e => {
     const inp = e.target.closest('input.plan-line-inp');
     if (!inp || !inp.isConnected || inp.value.trim() !== '') return;
+    // Клик по кнопке действия своей строки («Закрепить»/«Скопировать») не убирает строку
+    const rel = e.relatedTarget;
+    if (rel && rel.closest && rel.closest('.plan-line') === inp.closest('.plan-line') &&
+        rel.closest('[data-pin],[data-copy]')) return;
     flushPlanSave();
     const lines = planLines(UI.selectedDate);
     const i = Number(inp.dataset.i);
@@ -4752,7 +4756,8 @@ function wire() {
     lines[i].pinned = !lines[i].pinned;
     setPlanLines(UI.selectedDate, lines);
     btn.classList.toggle('pinned', lines[i].pinned);
-    btn.title = lines[i].pinned ? 'Открепить пункт' : 'Закрепить пункт';
+    btn.title = lines[i].pinned ? 'Открепить пункт — запись больше не будет скопироваться на завтра'
+      : 'Закрепить пункт — запись будет скопирована на завтра';
     save(true);
   });
   $('#planClear').onclick = async () => {
