@@ -251,6 +251,11 @@ html[data-left="off"] .sidebar { display: none; }
   padding: 0 2px 0 0; transition: background var(--t) var(--ease);
 }
 .plan-line:hover { background: var(--surface-2); }
+.plan-num {
+  flex: none; width: 19px; text-align: right; padding-top: 5px;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: .72rem; font-weight: 700; color: var(--text-3); user-select: none;
+}
 .plan-line input.plan-line-inp {
   flex: 1; min-width: 0; width: 100%; border: 1px solid transparent; background: transparent;
   border-radius: 7px; padding: 3px 7px; margin-top: 1px;
@@ -2773,10 +2778,14 @@ function renderPlan() {
   const box = $('#planList');
   if (!box) return;
   const lines = planLines(UI.selectedDate);
+  const isPast = UI.selectedDate < todayISO();   // прошлые дни: только кнопка «скопировать», без «Закрепить»
   const rows = lines.length ? lines : [{ text: '', pinned: false }];
   box.innerHTML = rows.map((l, i) => `
     <div class="plan-line" data-i="${i}">
-      <button class="pin-btn ${l.pinned ? 'pinned' : ''}" type="button" data-pin="${i}" title="${l.pinned ? 'Открепить пункт' : 'Закрепить пункт'}"><svg><use href="#i-pin"/></svg></button>
+      ${lines.length ? `<span class="plan-num">${i + 1}</span>` : ''}
+      ${isPast
+        ? `<button class="pin-btn" type="button" data-copy title="Скопировать план дня в буфер"><svg><use href="#i-copy"/></svg></button>`
+        : `<button class="pin-btn ${l.pinned ? 'pinned' : ''}" type="button" data-pin="${i}" title="${l.pinned ? 'Открепить пункт' : 'Закрепить пункт'}"><svg><use href="#i-pin"/></svg></button>`}
       <input class="plan-line-inp ${lines.length ? '' : 'plan-empty-inp'}" type="text" data-i="${i}" value="${attr(l.text)}" placeholder="Тезисы и цели на выбранный день…" spellcheck="false" autocomplete="off">
     </div>`).join('');
 }
@@ -4669,32 +4678,41 @@ function wire() {
 
   /* --- План на день: строки с кнопкой «Закрепить» --- */
   let planTO = null;
+  /* Немедленно записать в модель текущие значения полей плана (отмена отложенного сохранения) */
+  function flushPlanSave() {
+    if (planTO) { clearTimeout(planTO); planTO = null; }
+    const lines = planLines(UI.selectedDate);
+    $$('#planList .plan-line-inp').forEach(inp => {
+      const i = Number(inp.dataset.i);
+      if (lines[i]) lines[i].text = inp.value;
+    });
+    setPlanLines(UI.selectedDate, lines);
+    save(true);
+  }
   $('#planList').addEventListener('input', e => {
     const inp = e.target.closest('input.plan-line-inp');
     if (!inp) return;
     flashSaved(false);
-    const lines = planLines(UI.selectedDate);
-    const i = Number(inp.dataset.i);
-    if (!lines[i]) return;
-    lines[i].text = inp.value;
     clearTimeout(planTO);
-    planTO = setTimeout(() => { setPlanLines(UI.selectedDate, lines); save(true); }, 400);
+    planTO = setTimeout(flushPlanSave, 400);
   });
   $('#planList').addEventListener('keydown', e => {
     const inp = e.target.closest('input.plan-line-inp');
     if (!inp) return;
     if (e.key === 'Enter') {
       e.preventDefault();
+      flushPlanSave();                       // заполненный пункт сохраняется до создания следующего
       const lines = planLines(UI.selectedDate);
       const i = Number(inp.dataset.i);
       lines.splice(i + 1, 0, { text: '', pinned: false });
       setPlanLines(UI.selectedDate, lines);
       renderPlan();
-      focusPlanLine(i + 1);
+      focusPlanLine(i + 1);                 // возможность заполнить следующий пункт
       return;
     }
     if (e.key === 'Backspace' && !inp.value) {
       e.preventDefault();
+      flushPlanSave();
       const lines = planLines(UI.selectedDate);
       const i = Number(inp.dataset.i);
       if (lines.length <= 1) return;
@@ -4704,9 +4722,30 @@ function wire() {
       focusPlanLine(Math.max(0, i - 1));
     }
   });
+  /* Пустая строка пункта исчезает при уходе фокуса/курсора с неё */
+  $('#planList').addEventListener('focusout', e => {
+    const inp = e.target.closest('input.plan-line-inp');
+    if (!inp || !inp.isConnected || inp.value.trim() !== '') return;
+    flushPlanSave();
+    const lines = planLines(UI.selectedDate);
+    const i = Number(inp.dataset.i);
+    if (!lines[i]) return;
+    lines.splice(i, 1);
+    setPlanLines(UI.selectedDate, lines);
+    renderPlan();
+    if (lines.length) focusPlanLine(Math.max(0, i - 1));
+  });
   $('#planList').addEventListener('click', e => {
+    const copyBtn = e.target.closest('[data-copy]');
+    if (copyBtn) {
+      const text = planLines(UI.selectedDate).map(l => l.text).filter(t => t.trim()).join('\n');
+      if (copyTextSync(text)) toast('План дня скопирован в буфер', 'ok');
+      else toast('Не удалось скопировать план дня', 'err');
+      return;
+    }
     const btn = e.target.closest('[data-pin]');
     if (!btn) return;
+    flushPlanSave();
     const lines = planLines(UI.selectedDate);
     const i = Number(btn.dataset.pin);
     if (!lines[i]) return;
@@ -4717,6 +4756,7 @@ function wire() {
     save(true);
   });
   $('#planClear').onclick = async () => {
+    if (planTO) { clearTimeout(planTO); planTO = null; }
     const lines = planLines(UI.selectedDate);
     if (!lines.some(l => l.text.trim())) return;
     const ok = await confirmDialog('Очистить заметку дня?', 'Текст плана за выбранный день будет удалён.', 'Очистить');
